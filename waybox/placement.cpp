@@ -5,6 +5,7 @@
 #include "waybox/placement.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <vector>
 
 namespace wb {
@@ -124,6 +125,67 @@ Rect place_under_mouse(const Rect &area, int width, int height,
 	x = std::clamp(x, area.x, max_x);
 	y = std::clamp(y, area.y, max_y);
 	return Rect{x, y, width, height};
+}
+
+Rect snap_move(Rect window, const Rect &area, std::span<const Rect> windows,
+		int distance) {
+	if (distance <= 0)
+		return window;
+
+	/* X axis: snap the left/right edge to the area edges, and to any window we
+	 * vertically overlap. */
+	{
+		int best = window.x;
+		int best_d = distance + 1;
+		auto consider = [&](int candidate) {
+			const int d = std::abs(candidate - window.x);
+			if (d <= distance && d < best_d) {
+				best_d = d;
+				best = candidate;
+			}
+		};
+		consider(area.x);                                /* left -> area left */
+		consider(area.x + area.width - window.width);    /* right -> area right */
+		for (const Rect &w : windows) {
+			const bool v_overlap = window.y < w.y + w.height &&
+					w.y < window.y + window.height;
+			if (!v_overlap)
+				continue;
+			consider(w.x + w.width);                     /* left -> w right */
+			consider(w.x - window.width);                /* right -> w left */
+			consider(w.x);                               /* align left edges */
+			consider(w.x + w.width - window.width);      /* align right edges */
+		}
+		window.x = best;
+	}
+
+	/* Y axis: mirror of the above. */
+	{
+		int best = window.y;
+		int best_d = distance + 1;
+		auto consider = [&](int candidate) {
+			const int d = std::abs(candidate - window.y);
+			if (d <= distance && d < best_d) {
+				best_d = d;
+				best = candidate;
+			}
+		};
+		consider(area.y);                                /* top -> area top */
+		consider(area.y + area.height - window.height);  /* bottom -> area bottom */
+		for (const Rect &w : windows) {
+			const bool h_overlap = window.x < w.x + w.width &&
+					w.x < window.x + window.width;
+			if (!h_overlap)
+				continue;
+			consider(w.y + w.height);                    /* top -> w bottom */
+			consider(w.y - window.height);               /* bottom -> w top */
+			consider(w.y);                               /* align top edges */
+			consider(w.y + w.height - window.height);    /* align bottom edges */
+		}
+		window.y = best;
+	}
+
+	return window;
 }
 
 }  // namespace wb
