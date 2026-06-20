@@ -160,8 +160,18 @@ a Theme into render-ready, per-widget styles (`MenuStyle`, `FrameStyle`,
 `*_from_theme()` adapters. **Renderers consume the resolved `*Style` structs,
 never `wb::Theme` directly** — so richer themes/settings can populate fields
 themerc never had, and the menu/switcher/frame all share one substrate.
-Rasterise static chrome once and cache; reserve per-frame GPU work for genuine
-animations/effects.
+
+Fills are a `wb::Paint` `std::variant<SolidPaint, GradientPaint, ImagePaint,
+ShaderPaint>` and surfaces carry an `Effects` struct (shadow/backdrop blur) —
+the seams for future GPU/shader chrome (animated borders, shader backgrounds via
+SceneFX or a GPU painter). Everything visual is **opt-in and capability-gated**:
+`effective_paint()`/`effective_effects()` resolve a `Paint`/`Effects` against
+`RenderCaps` and **degrade to a safe solid fallback** when shaders/images are
+disabled or unaccelerated — effects must never crash or stall a session.
+Animation has no timeline in wlroots/SceneFX, so `waybox/animation.cpp` provides
+the pure easing/progress maths and an `Animation` interface a backend ticks per
+output frame. Rasterise static chrome once and cache; reserve per-frame GPU work
+for genuine animations/effects.
 
 ## Conventions
 
