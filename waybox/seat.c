@@ -445,8 +445,9 @@ static void handle_request_set_selection(struct wl_listener *listener, void
 }
 
 struct wb_seat *wb_seat_create(struct wb_server *server) {
-	struct wb_seat *seat = malloc(sizeof(struct wb_seat));
-
+	struct wb_seat *seat = calloc(1, sizeof(struct wb_seat));
+	if (seat == NULL)
+		return NULL;
 	wl_list_init(&seat->keyboards);
 	server->new_input.notify = new_input_notify;
 	wl_signal_add(&server->backend->events.new_input, &server->new_input);

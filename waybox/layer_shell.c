@@ -187,10 +187,9 @@ static void wb_layer_surface_destroy(struct wb_layer_surface *surface) {
 		return;
 	}
 
-	if (surface->scene->layer_surface->surface != NULL)
-		wlr_fractional_scale_v1_notify_scale(surface->scene->layer_surface->surface,
-				surface->output->wlr_output->scale);
-
+	/* Do not touch surface->scene->layer_surface here: this runs from the
+	 * layer surface's destroy handler, by which point wlroots has already
+	 * torn down the wlr_layer_surface_v1 and its scene helper. */
 	wl_list_remove(&surface->map.link);
 	wl_list_remove(&surface->unmap.link);
 	wl_list_remove(&surface->surface_commit.link);
