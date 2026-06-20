@@ -34,6 +34,15 @@ if cpp.has_argument('-Wno-invalid-offsetof')
   add_project_arguments('-Wno-invalid-offsetof', language: 'cpp')
 endif
 
+# GCC's -Wmaybe-uninitialized is unreliable at -O2+ and raises false positives
+# from the inlined std::string machinery of std::variant<...> alternatives
+# (our wb::Paint), breaking -Werror release builds. Keep it as a warning but
+# not an error on GCC; clang has no such false positive and its uninitialized
+# analysis still guards us under -Werror, so real bugs are not masked.
+if cpp.get_id() == 'gcc' and cpp.has_argument('-Wno-error=maybe-uninitialized')
+  add_project_arguments('-Wno-error=maybe-uninitialized', language: ['c', 'cpp'])
+endif
+
 cc = meson.get_compiler('c')
 
 # Optionally build with AddressSanitizer + UndefinedBehaviorSanitizer. With the
