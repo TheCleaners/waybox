@@ -83,3 +83,4 @@ endif
 subdir('data')
 subdir('protocol')
 subdir('waybox')
+subdir('test')

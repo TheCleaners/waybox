@@ -21,9 +21,24 @@ ninja -C build           # binary at build/waybox/waybox
   `auto` turns them on for debug buildtypes. Always develop against a sanitized
   build.
 
-There is **no unit-test suite**. Validation is done by running the compositor
-**headless** (works over SSH, no seat needed) and exercising it with real
-clients under the sanitizers:
+There is a small **unit-test suite** under `test/` (wired into `meson test` and
+CI) that covers only the **pure, wlroots-free logic** — currently the action
+framework (`waybox/action.cpp`). Run it with:
+
+```sh
+meson test -C build --print-errorlogs
+```
+
+Each test executable links just the source under test plus the header-only
+harness (`test/wb_test.hpp` + `test/wb_test_main.cpp`); it pulls in **no**
+wlroots/Wayland deps, so it builds and runs anywhere (incl. CI without a
+compositor or sanitizer runtime). When you add a new framework with pure logic
+(geometry/struts, window-state math, parsing), factor that logic into a
+wlroots-free TU and add a `test/<name>_test.cpp` in the same PR.
+
+The event-driven compositor glue is **not** unit-tested; validate it by running
+the compositor **headless** (works over SSH, no seat needed) and exercising it
+with real clients under the sanitizers:
 
 ```sh
 WB_RC_XML=$PWD/data/rc.xml WLR_BACKENDS=headless WLR_RENDERER=pixman \
@@ -106,3 +121,13 @@ the same `server->toplevels` list.
 Add the protocol XML to the `protocols` list in `protocol/meson.build` (it
 generates the `*-protocol.h`/`.c`); then create its manager in the relevant
 `init_*` and wire events with `wb::Listener`.
+
+## Adding a key/menu action
+
+Actions use a registry (`waybox/action.cpp`) + a parsed `std::vector<wb::Action>`
+per binding. To add one: add a row to `kRegistry` in `waybox/action.cpp` (name,
+`ActionType`, whether it takes a `<command>`/`<execute>`), add the enum value in
+`include/waybox/action.hpp`, add a `case` to `wb::run_action()` in `waybox/seat.cpp`
+(the live half), and extend `test/action_test.cpp`. rc.xml parsing
+(`collect_actions` in `config.cpp`) and dispatch are name-driven, so no other
+wiring is needed.

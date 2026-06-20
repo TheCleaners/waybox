@@ -1,15 +1,20 @@
-wb_src = files(
-  'config.cpp',
-  'cursor.cpp',
-  'decoration.cpp',
-  'idle.cpp',
-  'layer_shell.cpp',
-  'main.cpp',
-  'output.cpp',
-  'seat.cpp',
-  'server.cpp',
-  'xdg_shell.cpp',
-  )
+action_src = files('action.cpp')
+
+wb_src = [
+  action_src,
+  files(
+    'config.cpp',
+    'cursor.cpp',
+    'decoration.cpp',
+    'idle.cpp',
+    'layer_shell.cpp',
+    'main.cpp',
+    'output.cpp',
+    'seat.cpp',
+    'server.cpp',
+    'xdg_shell.cpp',
+  ),
+  ]
 
 wb_dep = [
   libevdev,

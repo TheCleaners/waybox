@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <new>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -88,37 +89,34 @@ static xmlChar *get_attribute(xmlNode *node, const char *attr_name) {
 	return (attr && attr->children) ? attr->children->content : empty;
 }
 
-static void get_action(xmlNode *new_node, struct wb_key_binding *key_bind) {
-	xmlNode *cur_node;
-	for (cur_node = new_node; cur_node; cur_node = cur_node->next) {
-		if (strcmp((char *) cur_node->name, "action") == 0) {
-			char *action = (char *) get_attribute(cur_node, "name");
-			if (strcmp(action, "Execute") == 0)
-				key_bind->action |= ACTION_EXECUTE;
-			else if (strcmp(action, "NextWindow") == 0)
-				key_bind->action |= ACTION_NEXT_WINDOW;
-			else if (strcmp(action, "PreviousWindow") == 0)
-				key_bind->action |= ACTION_PREVIOUS_WINDOW;
-			else if (strcmp(action, "Close") == 0)
-				key_bind->action |= ACTION_CLOSE;
-			else if (strcmp(action, "ToggleMaximize") == 0)
-				key_bind->action |= ACTION_TOGGLE_MAXIMIZE;
-			else if (strcmp(action, "Iconify") == 0)
-				key_bind->action |= ACTION_ICONIFY;
-			else if (strcmp(action, "Shade") == 0)
-				key_bind->action |= ACTION_SHADE;
-			else if (strcmp(action, "Unshade") == 0)
-				key_bind->action |= ACTION_UNSHADE;
-			else if (strcmp(action, "Exit") == 0)
-				key_bind->action |= ACTION_EXIT;
-			else if (strcmp(action, "Reconfigure") == 0)
-				key_bind->action |= ACTION_RECONFIGURE;
+/* Return the text of an action's <command>/<execute> child, or empty. */
+static std::string action_command(xmlNode *action_node) {
+	for (xmlNode *child = action_node->children; child; child = child->next) {
+		if (child->type != XML_ELEMENT_NODE)
+			continue;
+		if (strcmp((char *) child->name, "command") == 0 ||
+				strcmp((char *) child->name, "execute") == 0) {
+			if (child->children && child->children->content)
+				return (const char *) child->children->content;
 		}
-		if (cur_node && cur_node->children)
-			get_action(cur_node->children, key_bind);
+	}
+	return {};
+}
 
-		if (strcmp((char *) cur_node->name, "execute") == 0 && cur_node->children) {
-			key_bind->cmd = (char *) xmlStrdup(cur_node->children->content);
+/* Walk a keybind's child nodes and append every recognised <action> to `out`,
+ * preserving document order. */
+static void collect_actions(xmlNode *first, std::vector<wb::Action> &out) {
+	for (xmlNode *node = first; node; node = node->next) {
+		if (node->type == XML_ELEMENT_NODE &&
+				strcmp((char *) node->name, "action") == 0) {
+			const char *name = (const char *) get_attribute(node, "name");
+			const wb::ActionSpec *spec = wb::action_spec_from_name(name);
+			std::string command =
+				(spec && spec->takes_command) ? action_command(node) : std::string{};
+			if (auto action = wb::make_action(name, command))
+				out.push_back(std::move(*action));
+		} else if (node->children) {
+			collect_actions(node->children, out);
 		}
 	}
 }
@@ -148,7 +146,7 @@ static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt
 				sym = (char *) get_attribute(keycomb, "key");
 				char *s;
 
-				struct wb_key_binding *key_bind = static_cast<struct wb_key_binding *>(calloc(1, sizeof(struct wb_key_binding)));
+				struct wb_key_binding *key_bind = new (std::nothrow) wb_key_binding{};
 				if (key_bind == NULL) {
 					continue;
 				}
@@ -178,7 +176,7 @@ static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt
 
 				/* Now get the actions */
 				xmlNode *new_node = object->nodesetval->nodeTab[i]->children;
-				get_action(new_node, key_bind);
+				collect_actions(new_node, key_bind->actions);
 
 				wl_list_insert(&config->key_bindings, &key_bind->link);
 			}
@@ -309,8 +307,7 @@ void deinit_config(struct wb_config *config) {
 	struct wb_key_binding *key_binding, *tmp;
 	wl_list_for_each_safe(key_binding, tmp, &config->key_bindings, link) {
 		wl_list_remove(&key_binding->link);
-		free(key_binding->cmd);
-		free(key_binding);
+		delete key_binding;
 	}
 	free(config);
 }

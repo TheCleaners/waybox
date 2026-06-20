@@ -23,7 +23,9 @@ jobs:
               run: |
                 CC=gcc CXX=g++ meson setup build-gcc -Dsanitize=disabled
                 ninja -C build-gcc
+                meson test -C build-gcc --print-errorlogs
             - name: build-clang
               run: |
                 CC=clang CXX=clang++ meson setup build-clang -Dsanitize=disabled
                 ninja -C build-clang
+                meson test -C build-clang --print-errorlogs
