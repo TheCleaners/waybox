@@ -18,6 +18,75 @@ struct wb_toplevel *toplevel_from_node(struct wlr_scene_node *node) {
 	return static_cast<struct wb_toplevel *>(desc->data);
 }
 
+/* zwlr-foreign-toplevel-management (taskbar) integration. A handle exists
+ * while the toplevel is mapped; these helpers keep it in sync and translate
+ * taskbar requests into the canonical state setters. */
+static void update_foreign_activation(struct wb_server *server,
+		struct wb_toplevel *focused) {
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link) {
+		if (t->wlr_foreign_handle != NULL)
+			wlr_foreign_toplevel_handle_v1_set_activated(
+					t->wlr_foreign_handle, t == focused);
+	}
+}
+
+static void create_foreign_handle(struct wb_toplevel *toplevel) {
+	struct wb_server *server = toplevel->server;
+	auto *handle = wlr_foreign_toplevel_handle_v1_create(
+			server->foreign_toplevel_manager);
+	toplevel->wlr_foreign_handle = handle;
+
+	if (toplevel->xdg_toplevel->app_id != NULL)
+		wlr_foreign_toplevel_handle_v1_set_app_id(handle,
+				toplevel->xdg_toplevel->app_id);
+	if (toplevel->xdg_toplevel->title != NULL)
+		wlr_foreign_toplevel_handle_v1_set_title(handle,
+				toplevel->xdg_toplevel->title);
+	if (struct wlr_output *output = get_active_output(toplevel))
+		wlr_foreign_toplevel_handle_v1_output_enter(handle, output);
+
+	toplevel->foreign_request_activate.connect(&handle->events.request_activate,
+			[toplevel](void *) { focus_toplevel(toplevel); });
+	toplevel->foreign_request_close.connect(&handle->events.request_close,
+			[toplevel](void *) {
+		wlr_xdg_toplevel_send_close(toplevel->xdg_toplevel);
+	});
+	toplevel->foreign_request_maximize.connect(&handle->events.request_maximize,
+			[toplevel](void *data) {
+		auto *e = static_cast<
+				struct wlr_foreign_toplevel_handle_v1_maximized_event *>(data);
+		set_toplevel_maximized(toplevel, e->maximized, e->maximized);
+	});
+	toplevel->foreign_request_fullscreen.connect(
+			&handle->events.request_fullscreen, [toplevel](void *data) {
+		auto *e = static_cast<
+				struct wlr_foreign_toplevel_handle_v1_fullscreen_event *>(data);
+		set_toplevel_fullscreen(toplevel, e->fullscreen);
+	});
+	toplevel->foreign_request_minimize.connect(&handle->events.request_minimize,
+			[toplevel](void *data) {
+		auto *e = static_cast<
+				struct wlr_foreign_toplevel_handle_v1_minimized_event *>(data);
+		toplevel->xdg_toplevel->requested.minimized = e->minimized;
+		wl_signal_emit(&toplevel->xdg_toplevel->events.request_minimize, NULL);
+	});
+}
+
+static void destroy_foreign_handle(struct wb_toplevel *toplevel) {
+	if (toplevel->wlr_foreign_handle == NULL)
+		return;
+	/* Disconnect before destroying the handle, whose signals would otherwise
+	 * be freed while our listeners are still attached. */
+	toplevel->foreign_request_activate.disconnect();
+	toplevel->foreign_request_close.disconnect();
+	toplevel->foreign_request_maximize.disconnect();
+	toplevel->foreign_request_minimize.disconnect();
+	toplevel->foreign_request_fullscreen.disconnect();
+	wlr_foreign_toplevel_handle_v1_destroy(toplevel->wlr_foreign_handle);
+	toplevel->wlr_foreign_handle = NULL;
+}
+
 struct wb_toplevel *get_toplevel_at(
 		struct wb_server *server, double lx, double ly,
 		struct wlr_surface **surface, double *sx, double *sy) {
@@ -151,6 +220,7 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	raise_toplevel(toplevel);
 	/* Activate the new surface */
 	wlr_xdg_toplevel_set_activated(toplevel->xdg_toplevel, true);
+	update_foreign_activation(server, toplevel);
 	/*
 	 * Tell the seat to have the keyboard enter this surface. wlroots will keep
 	 * track of this and automatically send key events to the appropriate
@@ -364,6 +434,10 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
 			toplevel->geometry.width, toplevel->geometry.height);
 
+	/* Create the taskbar handle before focusing, so focus_toplevel() can mark
+	 * it activated. */
+	create_foreign_handle(toplevel);
+
 	bool do_focus = !(rule && rule->focus.has_value() && !*rule->focus);
 	if (do_focus)
 		focus_toplevel(toplevel);
@@ -391,6 +465,7 @@ static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
 		return;
 	toplevel->mapped = false;
 	reset_cursor_mode(toplevel->server);
+	destroy_foreign_handle(toplevel);
 
 	/* Focus the next most-recently-used toplevel, if any. */
 	focus_next_after(toplevel->server, toplevel);
@@ -431,6 +506,7 @@ static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 		wlr_surface_send_leave(base->surface, output);
 	update_fractional_scale(base->surface);
 	wlr_ext_foreign_toplevel_handle_v1_destroy(toplevel->foreign_toplevel_handle);
+	destroy_foreign_handle(toplevel);  /* no-op if already gone via unmap */
 
 	/* The wb::Listener members disconnect themselves when the toplevel is
 	 * deleted. */
@@ -444,6 +520,9 @@ static void xdg_toplevel_set_app_id(
 	toplevel->foreign_toplevel_state.app_id = toplevel->xdg_toplevel->app_id;
 	wlr_ext_foreign_toplevel_handle_v1_update_state(
 			toplevel->foreign_toplevel_handle, &toplevel->foreign_toplevel_state);
+	if (toplevel->wlr_foreign_handle != NULL && toplevel->xdg_toplevel->app_id != NULL)
+		wlr_foreign_toplevel_handle_v1_set_app_id(
+				toplevel->wlr_foreign_handle, toplevel->xdg_toplevel->app_id);
 }
 
 static void xdg_toplevel_set_title(
@@ -451,6 +530,9 @@ static void xdg_toplevel_set_title(
 	toplevel->foreign_toplevel_state.title = toplevel->xdg_toplevel->title;
 	wlr_ext_foreign_toplevel_handle_v1_update_state(
 			toplevel->foreign_toplevel_handle, &toplevel->foreign_toplevel_state);
+	if (toplevel->wlr_foreign_handle != NULL && toplevel->xdg_toplevel->title != NULL)
+		wlr_foreign_toplevel_handle_v1_set_title(
+				toplevel->wlr_foreign_handle, toplevel->xdg_toplevel->title);
 }
 
 /* Log a toplevel's geometry on a state transition. Helps debugging window
@@ -498,6 +580,9 @@ void set_toplevel_maximized(struct wb_toplevel *toplevel, bool horz, bool vert) 
 	/* The xdg protocol only has a single "maximized" state, so only claim it
 	 * when fully maximized; partial maximize is just a managed resize. */
 	wlr_xdg_toplevel_set_maximized(toplevel->xdg_toplevel, horz && vert);
+	if (toplevel->wlr_foreign_handle != NULL)
+		wlr_foreign_toplevel_handle_v1_set_maximized(
+				toplevel->wlr_foreign_handle, horz && vert);
 	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, g.width, g.height);
 	wlr_scene_node_set_position(&toplevel->scene_tree->node, g.x, g.y);
 	log_geometry(toplevel, now_any ? "maximize-on" : "maximize-off");
@@ -520,6 +605,9 @@ void set_toplevel_fullscreen(struct wb_toplevel *toplevel, bool fullscreen) {
 	}
 
 	wlr_xdg_toplevel_set_fullscreen(toplevel->xdg_toplevel, fullscreen);
+	if (toplevel->wlr_foreign_handle != NULL)
+		wlr_foreign_toplevel_handle_v1_set_fullscreen(
+				toplevel->wlr_foreign_handle, fullscreen);
 	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
 			toplevel->geometry.width, toplevel->geometry.height);
 	wlr_scene_node_set_position(&toplevel->scene_tree->node,
@@ -560,6 +648,9 @@ static void xdg_toplevel_request_minimize(struct wb_toplevel *toplevel, void *da
 
 	wlr_scene_node_set_position(&toplevel->scene_tree->node,
 			toplevel->geometry.x, toplevel->geometry.y);
+	if (toplevel->wlr_foreign_handle != NULL)
+		wlr_foreign_toplevel_handle_v1_set_minimized(
+				toplevel->wlr_foreign_handle, minimize_requested);
 }
 
 void begin_interactive(struct wb_toplevel *toplevel,

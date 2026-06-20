@@ -22,6 +22,15 @@ struct wb_toplevel {
 	struct wlr_ext_foreign_toplevel_handle_v1 *foreign_toplevel_handle = nullptr;
 	struct wlr_ext_foreign_toplevel_handle_v1_state foreign_toplevel_state = {};
 
+	/* zwlr-foreign-toplevel-management handle (taskbar control), created while
+	 * mapped. */
+	struct wlr_foreign_toplevel_handle_v1 *wlr_foreign_handle = nullptr;
+	wb::Listener foreign_request_maximize;
+	wb::Listener foreign_request_minimize;
+	wb::Listener foreign_request_fullscreen;
+	wb::Listener foreign_request_activate;
+	wb::Listener foreign_request_close;
+
 	wb::Listener map;
 	wb::Listener unmap;
 	wb::Listener commit;

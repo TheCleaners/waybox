@@ -102,7 +102,9 @@ Subsystem map (`waybox/<name>.cpp`, headers in `include/waybox/` or `waybox/`):
   interleaving them restores correctly. `set_toplevel_maximized()` /
   `set_toplevel_fullscreen()` are the canonical state setters. New windows are
   positioned by the pure policies in `waybox/placement.cpp` (Smart/Center/
-  UnderMouse, `<placement><policy>`).
+  UnderMouse, `<placement><policy>`). Each mapped toplevel also exposes a
+  zwlr-foreign-toplevel-management handle (taskbar list/activate/close/
+  maximize/minimize/fullscreen), kept in sync with focus/state changes.
 - `layer_shell` — panels/launchers (`wb_layer_surface`); `arrange_layers()`
   computes each output's `usable_area` from exclusive zones. Usable-area
   consumers (constrain-to-usable, maximize insets) run through the pure,

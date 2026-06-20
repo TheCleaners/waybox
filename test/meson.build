@@ -114,4 +114,14 @@ if python.found() and not get_option('tests_only')
     ],
     timeout: 60,
     )
+  test(
+    'integration_foreign_toplevel',
+    python,
+    args: [
+      files('integration' / 'foreign_toplevel_test.py'),
+      waybox_exe,
+      meson.project_source_root() / 'data' / 'rc.xml',
+    ],
+    timeout: 60,
+    )
 endif
