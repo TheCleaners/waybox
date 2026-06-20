@@ -77,6 +77,11 @@ struct wb_server {
 	wb::Listener output_configuration_applied;
 	wb::Listener output_configuration_tested;
 	struct wl_list outputs; /* wb_output::link */
+
+	struct wlr_virtual_keyboard_manager_v1 *virtual_keyboard_manager;
+	struct wlr_virtual_pointer_manager_v1 *virtual_pointer_manager;
+	wb::Listener new_virtual_keyboard;
+	wb::Listener new_virtual_pointer;
 };
 
 bool wb_create_backend(struct wb_server *server);

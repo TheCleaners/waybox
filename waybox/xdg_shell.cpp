@@ -82,6 +82,13 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	if (toplevel == NULL || toplevel->xdg_toplevel->base->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL) {
 		return;
 	}
+	/* Never activate a surface that has not completed its initial commit:
+	 * wlr_xdg_toplevel_set_activated() schedules a configure, which asserts on
+	 * an uninitialized surface. Toplevels live in the focus order from creation
+	 * (before they map), so cycling/refocus can reach one this early. */
+	if (!toplevel->xdg_toplevel->base->initialized) {
+		return;
+	}
 
 	struct wlr_surface *surface = toplevel->xdg_toplevel->base->surface;
 	struct wlr_xdg_surface *xdg_surface = wlr_xdg_surface_try_from_wlr_surface(surface);
@@ -148,7 +155,7 @@ static void focus_next_after(struct wb_server *server, struct wb_toplevel *excep
 	wl_list_for_each(toplevel, &server->focus_order, focus_link) {
 		if (toplevel == except)
 			continue;
-		if (toplevel->scene_tree && toplevel->scene_tree->node.enabled) {
+		if (toplevel->mapped) {
 			focus_toplevel(toplevel);
 			return;
 		}
@@ -277,6 +284,8 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 	if (toplevel->xdg_toplevel->base->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL)
 		return;
 
+	toplevel->mapped = true;
+
 	struct wb_config *config = toplevel->server->config;
 	struct wlr_box usable_area = get_usable_area(toplevel);
 	struct wlr_box geo_box = toplevel->xdg_toplevel->base->geometry;
@@ -307,6 +316,7 @@ static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
 	/* Called when the surface is unmapped, and should no longer be shown. */
 	if (toplevel->xdg_toplevel->base->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL)
 		return;
+	toplevel->mapped = false;
 	reset_cursor_mode(toplevel->server);
 
 	/* Focus the next most-recently-used toplevel, if any. */

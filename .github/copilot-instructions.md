@@ -22,19 +22,29 @@ ninja -C build           # binary at build/waybox/waybox
   build.
 
 There is a small **unit-test suite** under `test/` (wired into `meson test` and
-CI) that covers only the **pure, wlroots-free logic** — currently the action
-framework (`waybox/action.cpp`). Run it with:
+CI) that covers the **pure, wlroots-free logic** — currently the action
+framework (`waybox/action.cpp`) and the Alt+Tab cycle selector
+(`waybox/window_cycle.cpp`). Run it with:
 
 ```sh
 meson test -C build --print-errorlogs
 ```
 
-Each test executable links just the source under test plus the header-only
+Each unit-test executable links just the source under test plus the header-only
 harness (`test/wb_test.hpp` + `test/wb_test_main.cpp`); it pulls in **no**
 wlroots/Wayland deps, so it builds and runs anywhere (incl. CI without a
 compositor or sanitizer runtime). When you add a new framework with pure logic
 (geometry/struts, window-state math, parsing), factor that logic into a
 wlroots-free TU and add a `test/<name>_test.cpp` in the same PR.
+
+There is also a **headless integration test** (`test/integration/alt_tab_test.py`,
+also under `meson test`) that runs the real compositor and synthesizes input via
+the **virtual-keyboard protocol** (`wtype`) to drive a keybinding end to end
+(Alt+Tab → action → focus) under the sanitizers. It needs `foot` + `wtype` and a
+working headless backend; when those are missing it **skips** (exit 77), so CI
+stays green. Run it locally against a sanitized build to exercise interactive
+paths. Drive virtual input by hand with `wtype` (keyboard) and `wlrctl pointer`
+(pointer); both go through the same handlers as physical devices.
 
 The event-driven compositor glue is **not** unit-tested; validate it by running
 the compositor **headless** (works over SSH, no seat needed) and exercising it
@@ -76,7 +86,9 @@ Subsystem map (`waybox/<name>.cpp`, headers in `include/waybox/` or `waybox/`):
 - `xdg_shell` — application windows (`wb_toplevel`), focus, move/resize, maximize.
 - `layer_shell` — panels/launchers (`wb_layer_surface`); `arrange_layers()`
   computes each output's `usable_area` from exclusive zones.
-- `seat` — keyboards, keybindings (`handle_keybinding`), libinput config.
+- `seat` — keyboards, keybindings (`handle_keybinding`), libinput config, and
+  virtual keyboard/pointer (`zwp_virtual_keyboard_v1` / `wlr_virtual_pointer_v1`,
+  routed through the same handlers as physical devices).
 - `cursor` — pointer handling, interactive move/resize, Alt+drag.
 - `config` — parses Openbox-style `rc.xml` via libxml2 + XPath.
 - `decoration` / `idle` — xdg-decoration and idle-inhibit glue.

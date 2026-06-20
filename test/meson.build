@@ -16,3 +16,21 @@ window_cycle_test = executable(
   include_directories: [inc_dir],
   )
 test('window_cycle', window_cycle_test)
+
+# Headless integration test driving real synthesized input via the
+# virtual-keyboard protocol. Skips (exit 77) when foot/wtype or a headless
+# display are unavailable, so CI stays green; run a sanitized local build to
+# actually exercise it. Give it a generous timeout (it spawns clients + sleeps).
+python = find_program('python3', required: false)
+if python.found()
+  test(
+    'integration_alt_tab',
+    python,
+    args: [
+      files('integration' / 'alt_tab_test.py'),
+      waybox_exe,
+      meson.project_source_root() / 'data' / 'rc.xml',
+    ],
+    timeout: 60,
+    )
+endif
