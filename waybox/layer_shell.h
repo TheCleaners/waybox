@@ -2,36 +2,31 @@
 #define _WB_LAYERS_H
 #include "waybox/wlroots.hpp"
 
+#include "waybox/listener.hpp"
 #include "waybox/output.h"
 
 struct wb_layer_surface {
-	struct wb_output *output;
-	struct wb_server *server;
+	struct wb_output *output = nullptr;
+	struct wb_server *server = nullptr;
 
-	struct wlr_scene_layer_surface_v1 *scene;
+	struct wlr_scene_layer_surface_v1 *scene = nullptr;
 
-	bool mapped;
+	bool mapped = false;
 
-	struct wl_listener destroy;
-	struct wl_listener map;
-	struct wl_listener unmap;
-	struct wl_listener surface_commit;
-	struct wl_listener new_popup;
+	wb::Listener destroy;
+	wb::Listener map;
+	wb::Listener unmap;
+	wb::Listener surface_commit;
+	wb::Listener new_popup;
 };
 
 struct wb_layer_popup {
-	struct wlr_xdg_popup *wlr_popup;
-	struct wlr_scene_tree *scene;
+	struct wlr_xdg_popup *wlr_popup = nullptr;
+	struct wlr_scene_tree *scene = nullptr;
 
-	struct wl_listener commit;
-	struct wl_listener destroy;
-	struct wl_listener new_popup;
-};
-
-struct wb_layer_subsurface {
-	struct wlr_scene_tree *scene;
-
-	struct wl_listener destroy;
+	wb::Listener commit;
+	wb::Listener destroy;
+	wb::Listener new_popup;
 };
 
 enum wb_scene_descriptor_type {
@@ -43,7 +38,7 @@ enum wb_scene_descriptor_type {
 struct wb_scene_descriptor {
 	enum wb_scene_descriptor_type type;
 	void *data;
-	struct wl_listener destroy;
+	wb::Listener destroy;
 };
 
 void init_layer_shell(struct wb_server *server);
