@@ -55,7 +55,8 @@ struct wb_server {
 	double grab_x, grab_y;
 	uint32_t resize_edges;
 	struct wlr_ext_foreign_toplevel_list_v1 *foreign_toplevel_list;
-	struct wl_list toplevels;
+	struct wl_list toplevels;   /* wb_toplevel::link — stacking (z-)order, head = top */
+	struct wl_list focus_order; /* wb_toplevel::focus_link — MRU focus order, head = active */
 
 	struct wlr_layer_shell_v1 *layer_shell;
 	struct wlr_xdg_shell *xdg_shell;

@@ -147,9 +147,8 @@ static void handle_unmap(struct wb_layer_surface *surface, void *data) {
 		seat_set_focus_layer(seat, NULL);
 	}
 
-	if (!wl_list_empty(&surface->server->toplevels)) {
-		struct wb_toplevel *toplevel =
-			wl_container_of(surface->server->toplevels.next, toplevel, link);
+	if (!wl_list_empty(&surface->server->focus_order)) {
+		struct wb_toplevel *toplevel = first_toplevel(surface->server);
 		if (toplevel && toplevel->scene_tree && toplevel->scene_tree->node.enabled) {
 			focus_toplevel(toplevel);
 		}

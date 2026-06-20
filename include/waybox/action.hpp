@@ -31,6 +31,8 @@ enum class ActionType {
 	Iconify,
 	Shade,
 	Unshade,
+	Raise,
+	Lower,
 	Exit,
 	Reconfigure,
 };

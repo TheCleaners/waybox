@@ -14,6 +14,13 @@ WB_TEST(registry_lookup_by_name) {
 	WB_CHECK(close != nullptr);
 	WB_CHECK(close->type == ActionType::Close);
 	WB_CHECK(!close->takes_command);
+
+	for (const char *name : {"Raise", "Lower"}) {
+		const ActionSpec *spec = action_spec_from_name(name);
+		WB_CHECK(spec != nullptr);
+		if (spec != nullptr)
+			WB_CHECK(!spec->takes_command);
+	}
 }
 
 WB_TEST(registry_rejects_unknown_and_is_case_sensitive) {

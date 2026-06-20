@@ -115,6 +115,7 @@ bool wb_start_server(struct wb_server* server) {
 	/* Initialise the toplevel list before the backend starts, since bringing
 	 * up outputs can trigger arrange_toplevels() before xdg-shell is set up. */
 	wl_list_init(&server->toplevels);
+	wl_list_init(&server->focus_order);
 	init_output(server);
 
 	/* Create a scene graph. This is a wlroots abstraction that handles all

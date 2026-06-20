@@ -82,8 +82,13 @@ Subsystem map (`waybox/<name>.cpp`, headers in `include/waybox/` or `waybox/`):
 - `decoration` / `idle` — xdg-decoration and idle-inhibit glue.
 
 Rendering is the wlroots **scene graph**; per output there are layer scene-trees
-(`background`/`bottom`/`top`/`overlay`). Window stacking and focus are currently
-the same `server->toplevels` list.
+(`background`/`bottom`/`top`/`overlay`). Window **stacking order** is
+`server->toplevels` (`wb_toplevel::link`, head = top; use `raise_toplevel()` /
+`lower_toplevel()`) and is kept independent of **focus order**, which is the MRU
+list `server->focus_order` (`wb_toplevel::focus_link`, head = active; use
+`first_toplevel()` for the active window). Focusing conventionally raises, so the
+two heads usually coincide, but they are tracked separately. Alt+Tab selection
+goes through the pure, unit-tested `wb::cycle_next()` (`window_cycle.cpp`).
 
 ## Conventions
 
@@ -94,8 +99,7 @@ the same `server->toplevels` list.
 - **Prefer `wb::Listener` (`include/waybox/listener.hpp`) over raw
   `wl_listener`.** It connects to a `wl_signal` with a lambda (capture the
   context you need) and disconnects in its destructor, replacing the
-  `wl_container_of` + manual `wl_list_remove()` teardown. The migration to it is
-  in progress.
+  `wl_container_of` + manual `wl_list_remove()` teardown. All listeners use it.
 - **Destructor ordering with `wb::Listener`:** if a destructor frees a wlroots
   object whose signals its listeners are attached to, call `.disconnect()` on
   those listeners **at the top of the destructor body** — member destructors run

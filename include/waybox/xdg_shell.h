@@ -38,11 +38,14 @@ struct wb_toplevel {
 	struct wlr_box geometry = {};
 	struct wlr_box previous_geometry = {};
 
-	struct wl_list link;
+	struct wl_list link;       /* server::toplevels — stacking (z-)order */
+	struct wl_list focus_link; /* server::focus_order — MRU focus order */
 };
 
 void init_xdg_shell(struct wb_server *server);
 void focus_toplevel(struct wb_toplevel *toplevel);
+void raise_toplevel(struct wb_toplevel *toplevel);
+void lower_toplevel(struct wb_toplevel *toplevel);
 void arrange_toplevels(struct wb_server *server);
 void constrain_toplevel_to_usable_area(struct wb_toplevel *toplevel);
 void begin_interactive(struct wb_toplevel *toplevel,
