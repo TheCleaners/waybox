@@ -23,6 +23,7 @@ struct wb_layer_popup {
 	struct wlr_xdg_popup *wlr_popup;
 	struct wlr_scene_tree *scene;
 
+	struct wl_listener commit;
 	struct wl_listener destroy;
 	struct wl_listener new_popup;
 };

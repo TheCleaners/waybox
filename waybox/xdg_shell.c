@@ -22,13 +22,26 @@ struct wb_toplevel *get_toplevel_at(
 	}
 
 	*surface = scene_surface->surface;
-	/* Find the node corresponding to the wb_toplevel at the root of this
-	 * surface tree, it is the only one for which we set the data field. */
+	/* Walk up to the nearest node carrying a data pointer. Both toplevels and
+	 * layer-shell surfaces/popups set node.data, but to different types, so we
+	 * must confirm the result is actually one of our toplevels before
+	 * returning it -- otherwise clicking a panel (e.g. Waybar) would hand back
+	 * a wb_scene_descriptor reinterpreted as a wb_toplevel. */
 	struct wlr_scene_tree *tree = node->parent;
 	while (tree != NULL && tree->node.data == NULL) {
 		tree = tree->node.parent;
 	}
-	return tree != NULL ? tree->node.data : NULL;
+	if (tree == NULL) {
+		return NULL;
+	}
+	struct wb_toplevel *candidate = tree->node.data;
+	struct wb_toplevel *toplevel;
+	wl_list_for_each(toplevel, &server->toplevels, link) {
+		if (toplevel == candidate) {
+			return candidate;
+		}
+	}
+	return NULL;
 }
 
 /* Returns the front (most recently focused) toplevel, or NULL if there are no
