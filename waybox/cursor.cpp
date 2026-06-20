@@ -245,14 +245,18 @@ void wb_cursor::on_button(void *data) {
 		}
 
 		/* Configured mouse bindings. Resolve the context from what is under the
-		 * pointer (a window's Client area, or the Root desktop), then run any
-		 * matching binding's actions and consume the button. Titlebar/Frame
+		 * pointer: a window's Client area, or the Root desktop. A layer-shell
+		 * surface (panel/bar like Waybar) is a client too — it is not a
+		 * toplevel, but it is NOT the desktop either, so it must NOT count as
+		 * Root (that would steal right-clicks from a bar's own context menus).
+		 * Only an empty hit (no surface at all) is Root. Titlebar/Frame
 		 * contexts become reachable once server-side decorations exist. */
+		bool over_layer_surface = toplevel == nullptr && surface != nullptr;
 		wb::MouseContext context = toplevel != nullptr
 				? wb::MouseContext::Client
 				: wb::MouseContext::Root;
 		bool handled = false;
-		if (server->config != nullptr) {
+		if (server->config != nullptr && !over_layer_surface) {
 			for (const wb::MouseBinding &binding : server->config->mouse_bindings) {
 				if (!wb::mouse_binding_matches(binding, context, event->button,
 						modifiers, wb::MouseEvent::Press))

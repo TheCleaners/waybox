@@ -15,15 +15,15 @@ namespace wb {
 namespace {
 
 /* Draw a small right-pointing triangle (the submenu arrow) centred in the
- * column reserved at the right of an item row. */
-void paint_arrow(cairo_t *cr, double x, double y, double h, const Color &c) {
-	double size = 5.0;
-	double cx = x;
+ * column reserved at the right of an item row. `w` is both the horizontal reach
+ * and half the vertical extent, so the arrow stays visually balanced. */
+void paint_arrow(cairo_t *cr, double x, double y, double h, double w,
+		const Color &c) {
 	double cy = y + h / 2.0;
 	cairo_set_source_rgba(cr, c.r / 255.0, c.g / 255.0, c.b / 255.0, c.a / 255.0);
-	cairo_move_to(cr, cx, cy - size);
-	cairo_line_to(cr, cx + size, cy);
-	cairo_line_to(cr, cx, cy + size);
+	cairo_move_to(cr, x, cy - w);
+	cairo_line_to(cr, x + w, cy);
+	cairo_line_to(cr, x, cy + w);
 	cairo_close_path(cr);
 	cairo_fill(cr);
 }
@@ -34,6 +34,18 @@ MenuWidget::MenuWidget(struct wb_server *server, const MenuFile &menus,
 		const MenuStyle &style, const MenuBehavior &behavior)
 	: server_(server), menus_(menus), style_(style), behavior_(behavior),
 	  metrics_(menu_metrics(style)) {
+	/* Size rows from the font's real cell height (incl. ascenders/descenders),
+	 * not the point size, so text is centred and descenders are never clipped.
+	 * "Ag" exercises both extremes. Row height is computed dynamically from the
+	 * measured font plus the style's compactness (item_pad_y); an explicit
+	 * themed item_height, if larger, wins. */
+	text_height_ = measure_text("Ag", style_.item_text.font).height;
+	int comfortable = text_height_ + 2 * style_.item_pad_y;
+	if (metrics_.item_height < comfortable)
+		metrics_.item_height = comfortable;
+	if (metrics_.pad_y < 2)
+		metrics_.pad_y = 2;  /* always a little breathing room top/bottom */
+
 	tree_ = wlr_scene_tree_create(&server_->scene->tree);
 	wlr_scene_node_raise_to_top(&tree_->node);
 }
@@ -122,13 +134,17 @@ void MenuWidget::render_level(Level &level) {
 		if (active)
 			paint_fill(cr, ir.x, ir.y, ir.width, ir.height, st.fill);
 
-		int text_y = ir.y + (ir.height - style_.item_text.font.size_pt) / 2;
+		int text_y = ir.y + (ir.height - text_height_) / 2;
 		paint_text(cr, ir.x + metrics_.pad_x, text_y, item.label, st.fg,
 				style_.item_text.font);
 
-		if (item.kind == MenuItem::Kind::Submenu)
-			paint_arrow(cr, ir.x + ir.width - metrics_.pad_x - 6, ir.y,
-					ir.height, st.fg);
+		if (item.kind == MenuItem::Kind::Submenu) {
+			/* Right-aligned arrow, its right tip pad_x from the panel edge and
+			 * vertically centred on the row (matching the text). */
+			int arrow_w = 4;
+			double ax = ir.x + ir.width - metrics_.pad_x - arrow_w;
+			paint_arrow(cr, ax, ir.y, ir.height, arrow_w, st.fg);
+		}
 	}
 
 	level.canvas->commit();
