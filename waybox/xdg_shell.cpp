@@ -233,9 +233,8 @@ void constrain_toplevel_to_usable_area(struct wb_toplevel *toplevel) {
 		toplevel->geometry.x = ux + uw - w;        /* right reserved */
 }
 
-static void xdg_toplevel_map(struct wl_listener *listener, void *data) {
+static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 	/* Called when the surface is mapped, or ready to display on-screen. */
-	struct wb_toplevel *toplevel = wl_container_of(listener, toplevel, map);
 	if (toplevel->xdg_toplevel->base->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL)
 		return;
 
@@ -265,9 +264,8 @@ static void xdg_toplevel_map(struct wl_listener *listener, void *data) {
 			toplevel->geometry.x, toplevel->geometry.y);
 }
 
-static void xdg_toplevel_unmap(struct wl_listener *listener, void *data) {
+static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
 	/* Called when the surface is unmapped, and should no longer be shown. */
-	struct wb_toplevel *toplevel = wl_container_of(listener, toplevel, unmap);
 	if (toplevel->xdg_toplevel->base->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL)
 		return;
 	reset_cursor_mode(toplevel->server);
@@ -295,8 +293,7 @@ static void update_fractional_scale(struct wlr_surface *surface) {
 	wlr_surface_set_preferred_buffer_scale(surface, ceil(scale));
 }
 
-static void xdg_toplevel_commit(struct wl_listener *listener, void *data) {
-	struct wb_toplevel *toplevel = wl_container_of(listener, toplevel, commit);
+static void xdg_toplevel_commit(struct wb_toplevel *toplevel, void *data) {
 	struct wlr_xdg_surface *base = toplevel->xdg_toplevel->base;
 
 	struct wlr_output *output = get_active_output(toplevel);
@@ -310,9 +307,8 @@ static void xdg_toplevel_commit(struct wl_listener *listener, void *data) {
 	}
 }
 
-static void xdg_toplevel_destroy(struct wl_listener *listener, void *data) {
+static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 	/* Called when the xdg_toplevel is destroyed and should never be shown again. */
-	struct wb_toplevel *toplevel = wl_container_of(listener, toplevel, destroy);
 
 	struct wlr_output *output = get_active_output(toplevel);
 	struct wlr_xdg_surface *base = toplevel->xdg_toplevel->base;
@@ -321,47 +317,30 @@ static void xdg_toplevel_destroy(struct wl_listener *listener, void *data) {
 	update_fractional_scale(base->surface);
 	wlr_ext_foreign_toplevel_handle_v1_destroy(toplevel->foreign_toplevel_handle);
 
-	wl_list_remove(&toplevel->map.link);
-	wl_list_remove(&toplevel->unmap.link);
-	wl_list_remove(&toplevel->commit.link);
-	wl_list_remove(&toplevel->destroy.link);
-
-	wl_list_remove(&toplevel->request_fullscreen.link);
-	wl_list_remove(&toplevel->request_minimize.link);
-	wl_list_remove(&toplevel->request_maximize.link);
-	wl_list_remove(&toplevel->request_move.link);
-	wl_list_remove(&toplevel->request_resize.link);
-	wl_list_remove(&toplevel->set_app_id.link);
-	wl_list_remove(&toplevel->set_title.link);
-
+	/* The wb::Listener members disconnect themselves when the toplevel is
+	 * deleted. */
 	wl_list_remove(&toplevel->link);
-	free(toplevel);
+	delete toplevel;
 }
 
 static void xdg_toplevel_set_app_id(
-		struct wl_listener *listener, void *data) {
-	struct wb_toplevel *toplevel =
-		wl_container_of(listener, toplevel, set_app_id);
+		struct wb_toplevel *toplevel, void *data) {
 	toplevel->foreign_toplevel_state.app_id = toplevel->xdg_toplevel->app_id;
 	wlr_ext_foreign_toplevel_handle_v1_update_state(
 			toplevel->foreign_toplevel_handle, &toplevel->foreign_toplevel_state);
 }
 
 static void xdg_toplevel_set_title(
-		struct wl_listener *listener, void *data) {
-	struct wb_toplevel *toplevel =
-		wl_container_of(listener, toplevel, set_title);
+		struct wb_toplevel *toplevel, void *data) {
 	toplevel->foreign_toplevel_state.title = toplevel->xdg_toplevel->title;
 	wlr_ext_foreign_toplevel_handle_v1_update_state(
 			toplevel->foreign_toplevel_handle, &toplevel->foreign_toplevel_state);
 }
 
 static void xdg_toplevel_request_fullscreen(
-		struct wl_listener *listener, void *data) {
+		struct wb_toplevel *toplevel, void *data) {
 	/* This event is raised when a client would like to set itself to
 	 * fullscreen. */
-	struct wb_toplevel *toplevel =
-		wl_container_of(listener, toplevel, request_fullscreen);
 	/* A client may request fullscreen as part of its initial state, before
 	 * its first commit. Calling wlr_xdg_toplevel_set_* on an uninitialized
 	 * surface aborts in wlroots, so ignore the request until it is mapped;
@@ -389,12 +368,11 @@ static void xdg_toplevel_request_fullscreen(
 	wlr_scene_node_set_position(&toplevel->scene_tree->node, toplevel->geometry.x, toplevel->geometry.y);
 }
 
-static void xdg_toplevel_request_maximize(struct wl_listener *listener, void *data) {
+static void xdg_toplevel_request_maximize(struct wb_toplevel *toplevel, void *data) {
 	/* This event is raised when a client would like to maximize itself,
 	 * typically because the user clicked on the maximize button on
 	 * client-side decorations.
 	 */
-	struct wb_toplevel *toplevel = wl_container_of(listener, toplevel, request_maximize);
 	/* Clients (e.g. Chromium) may request maximize before their first commit.
 	 * wlr_xdg_toplevel_set_size()/set_maximized() assert the surface is
 	 * initialized, so ignore the request until the surface is mapped. */
@@ -426,8 +404,7 @@ static void xdg_toplevel_request_maximize(struct wl_listener *listener, void *da
 			toplevel->geometry.x, toplevel->geometry.y);
 }
 
-static void xdg_toplevel_request_minimize(struct wl_listener *listener, void *data) {
-	struct wb_toplevel *toplevel = wl_container_of(listener, toplevel, request_minimize);
+static void xdg_toplevel_request_minimize(struct wb_toplevel *toplevel, void *data) {
 	bool minimize_requested = toplevel->xdg_toplevel->requested.minimized;
 	if (minimize_requested) {
 		toplevel->previous_geometry = toplevel->geometry;
@@ -478,21 +455,19 @@ void begin_interactive(struct wb_toplevel *toplevel,
 }
 
 static void xdg_toplevel_request_move(
-		struct wl_listener *listener, void *data) {
+		struct wb_toplevel *toplevel, void *data) {
 	/* This event is raised when a client would like to begin an interactive
 	 * move, typically because the user clicked on their client-side
 	 * decorations. */
-	struct wb_toplevel *toplevel = wl_container_of(listener, toplevel, request_move);
 	begin_interactive(toplevel, WB_CURSOR_MOVE, 0);
 }
 
 static void xdg_toplevel_request_resize(
-		struct wl_listener *listener, void *data) {
+		struct wb_toplevel *toplevel, void *data) {
 	/* This event is raised when a client would like to begin an interactive
 	 * resize, typically because the user clicked on their client-side
 	 * decorations. */
 	struct wlr_xdg_toplevel_resize_event *event = static_cast<struct wlr_xdg_toplevel_resize_event *>(data);
-	struct wb_toplevel *toplevel = wl_container_of(listener, toplevel, request_resize);
 	begin_interactive(toplevel, WB_CURSOR_RESIZE, event->edges);
 }
 
@@ -519,8 +494,7 @@ static struct wb_toplevel *popup_root_toplevel(struct wlr_xdg_popup *xdg_popup) 
 	return NULL;
 }
 
-static void xdg_popup_commit(struct wl_listener *listener, void *data) {
-	struct wb_popup *popup = wl_container_of(listener, popup, commit);
+static void xdg_popup_commit(struct wb_popup *popup, void *data) {
 	if (!popup->xdg_popup) return;
 	struct wlr_xdg_surface *base = popup->xdg_popup->base;
 
@@ -560,14 +534,11 @@ static void xdg_popup_commit(struct wl_listener *listener, void *data) {
 	wlr_xdg_surface_schedule_configure(base);
 }
 
-static void xdg_popup_destroy(struct wl_listener *listener, void *data) {
-	struct wb_popup *popup = wl_container_of(listener, popup, destroy);
+static void xdg_popup_destroy(struct wb_popup *popup, void *data) {
 	if (popup->xdg_popup)
 		update_fractional_scale(popup->xdg_popup->base->surface);
-
-	wl_list_remove(&popup->commit.link);
-	wl_list_remove(&popup->destroy.link);
-	free(popup);
+	/* The wb::Listener members disconnect themselves on delete. */
+	delete popup;
 }
 
 static void handle_new_xdg_popup(struct wl_listener *listener, void *data) {
@@ -587,16 +558,12 @@ static void handle_new_xdg_popup(struct wl_listener *listener, void *data) {
 		}
 	}
 
-	struct wb_popup *popup = static_cast<struct wb_popup *>(calloc(1, sizeof(struct wb_popup)));
-	if (popup == NULL) {
-		return;
-	}
+	auto *popup = new wb_popup{};
 	popup->xdg_popup = xdg_popup;
-	popup->commit.notify = xdg_popup_commit;
-	wl_signal_add(&xdg_popup->base->surface->events.commit, &popup->commit);
-
-	popup->destroy.notify = xdg_popup_destroy;
-	wl_signal_add(&xdg_popup->events.destroy, &popup->destroy);
+	popup->commit.connect(&xdg_popup->base->surface->events.commit,
+			[popup](void *data) { xdg_popup_commit(popup, data); });
+	popup->destroy.connect(&xdg_popup->events.destroy,
+			[popup](void *data) { xdg_popup_destroy(popup, data); });
 }
 
 static void handle_new_xdg_toplevel(struct wl_listener *listener, void *data) {
@@ -605,46 +572,39 @@ static void handle_new_xdg_toplevel(struct wl_listener *listener, void *data) {
 	struct wlr_xdg_toplevel *xdg_toplevel = static_cast<struct wlr_xdg_toplevel *>(data);
 
 	/* Allocate a wb_toplevel for this toplevel */
-	struct wb_toplevel *toplevel =
-		static_cast<wb_toplevel *>(calloc(1, sizeof(struct wb_toplevel)));
-	if (toplevel == NULL) {
-		return;
-	}
+	auto *toplevel = new wb_toplevel{};
 	toplevel->server = server;
 	toplevel->xdg_toplevel = xdg_toplevel;
 
 	toplevel->foreign_toplevel_handle = wlr_ext_foreign_toplevel_handle_v1_create(
 			server->foreign_toplevel_list, &toplevel->foreign_toplevel_state);
 
-	/* Listen to the various events it can emit */
-	toplevel->map.notify = xdg_toplevel_map;
-	wl_signal_add(&xdg_toplevel->base->surface->events.map, &toplevel->map);
-	toplevel->unmap.notify = xdg_toplevel_unmap;
-	wl_signal_add(&xdg_toplevel->base->surface->events.unmap, &toplevel->unmap);
-	toplevel->commit.notify = xdg_toplevel_commit;
-	wl_signal_add(&xdg_toplevel->base->surface->events.commit, &toplevel->commit);
-	toplevel->destroy.notify = xdg_toplevel_destroy;
-	wl_signal_add(&xdg_toplevel->events.destroy, &toplevel->destroy);
+	/* Connect each event to its handler. The handlers take the wb_toplevel
+	 * directly; the lambda supplies it from the capture. */
+	auto bind = [toplevel](wb::Listener &listener, struct wl_signal *signal,
+			void (*handler)(struct wb_toplevel *, void *)) {
+		listener.connect(signal, [toplevel, handler](void *data) {
+			handler(toplevel, data);
+		});
+	};
+
+	bind(toplevel->map, &xdg_toplevel->base->surface->events.map, xdg_toplevel_map);
+	bind(toplevel->unmap, &xdg_toplevel->base->surface->events.unmap, xdg_toplevel_unmap);
+	bind(toplevel->commit, &xdg_toplevel->base->surface->events.commit, xdg_toplevel_commit);
+	bind(toplevel->destroy, &xdg_toplevel->events.destroy, xdg_toplevel_destroy);
 
 	toplevel->scene_tree = wlr_scene_xdg_surface_create(
 		&toplevel->server->scene->tree, xdg_toplevel->base);
 	toplevel->scene_tree->node.data = toplevel;
 	xdg_toplevel->base->data = toplevel->scene_tree;
 
-	toplevel->request_fullscreen.notify = xdg_toplevel_request_fullscreen;
-	wl_signal_add(&xdg_toplevel->events.request_fullscreen, &toplevel->request_fullscreen);
-	toplevel->request_maximize.notify = xdg_toplevel_request_maximize;
-	wl_signal_add(&xdg_toplevel->events.request_maximize, &toplevel->request_maximize);
-	toplevel->request_minimize.notify = xdg_toplevel_request_minimize;
-	wl_signal_add(&xdg_toplevel->events.request_minimize, &toplevel->request_minimize);
-	toplevel->request_move.notify = xdg_toplevel_request_move;
-	wl_signal_add(&xdg_toplevel->events.request_move, &toplevel->request_move);
-	toplevel->request_resize.notify = xdg_toplevel_request_resize;
-	wl_signal_add(&xdg_toplevel->events.request_resize, &toplevel->request_resize);
-	toplevel->set_app_id.notify = xdg_toplevel_set_app_id;
-	wl_signal_add(&xdg_toplevel->events.set_app_id, &toplevel->set_app_id);
-	toplevel->set_title.notify = xdg_toplevel_set_title;
-	wl_signal_add(&xdg_toplevel->events.set_title, &toplevel->set_title);
+	bind(toplevel->request_fullscreen, &xdg_toplevel->events.request_fullscreen, xdg_toplevel_request_fullscreen);
+	bind(toplevel->request_maximize, &xdg_toplevel->events.request_maximize, xdg_toplevel_request_maximize);
+	bind(toplevel->request_minimize, &xdg_toplevel->events.request_minimize, xdg_toplevel_request_minimize);
+	bind(toplevel->request_move, &xdg_toplevel->events.request_move, xdg_toplevel_request_move);
+	bind(toplevel->request_resize, &xdg_toplevel->events.request_resize, xdg_toplevel_request_resize);
+	bind(toplevel->set_app_id, &xdg_toplevel->events.set_app_id, xdg_toplevel_set_app_id);
+	bind(toplevel->set_title, &xdg_toplevel->events.set_title, xdg_toplevel_set_title);
 
 	wl_list_insert(&toplevel->server->toplevels, &toplevel->link);
 }
