@@ -45,6 +45,21 @@ struct MenuFile {
 	const Menu *find(std::string_view id) const;
 };
 
+/*
+ * How the root/context menu is served, per the built-in-or-delegate pillar:
+ * either the native MenuWidget, or an external launcher program (rofi/wofi/...)
+ * the user supplies. Pure value; the ShowMenu action consults it.
+ */
+struct MenuSource {
+	enum class Kind { Builtin, External };
+	Kind kind = Kind::Builtin;
+	std::string command;  /* for External: the launcher command line */
+};
+
+/* Parse a <waybox><menu source="..."> value. "builtin" (or empty) selects the
+ * native menu; anything else is treated as an external launcher command. */
+MenuSource menu_source_from_config(std::string_view source);
+
 /* Theme-derived metrics the layout needs (logical pixels). */
 struct MenuMetrics {
 	int item_height = 20;

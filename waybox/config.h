@@ -57,6 +57,7 @@ struct wb_config {
 	std::vector<wb::AppRule> app_rules;
 	wb::PlacementPolicy placement_policy = wb::PlacementPolicy::Smart;
 	wb::MenuFile menu;  /* parsed menu.xml (root-menu and submenus) */
+	wb::MenuSource menu_source;  /* native widget or external launcher */
 	wb::Theme theme;    /* resolved theme (themerc), styles all drawn chrome */
 	wb::MenuBehavior menu_behavior;  /* rc.xml <waybox><menu ...> extensions */
 };
