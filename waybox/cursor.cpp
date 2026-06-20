@@ -108,58 +108,43 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 	wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
 }
 
-static void handle_cursor_motion(struct wl_listener *listener, void *data) {
-	struct wb_cursor *cursor =
-		wl_container_of(listener, cursor, cursor_motion);
-	struct wlr_pointer_motion_event *event = static_cast<struct wlr_pointer_motion_event *>(data);
-	wlr_cursor_move(cursor->cursor, &event->pointer->base,
-			event->delta_x, event->delta_y);
-	process_cursor_motion(cursor->server, event->time_msec);
+
+void wb_cursor::on_motion(void *data) {
+	auto *event = static_cast<struct wlr_pointer_motion_event *>(data);
+	wlr_cursor_move(cursor, &event->pointer->base, event->delta_x, event->delta_y);
+	process_cursor_motion(server, event->time_msec);
 }
 
-static void handle_cursor_motion_absolute(struct wl_listener *listener, void *data) {
-	struct wb_cursor *cursor =
-		wl_container_of(listener, cursor, cursor_motion_absolute);
-	struct wlr_pointer_motion_absolute_event *event = static_cast<struct wlr_pointer_motion_absolute_event *>(data);
-	wlr_cursor_warp_absolute(cursor->cursor, &event->pointer->base,
-			event->x, event->y);
-	process_cursor_motion(cursor->server, event->time_msec);
+void wb_cursor::on_motion_absolute(void *data) {
+	auto *event = static_cast<struct wlr_pointer_motion_absolute_event *>(data);
+	wlr_cursor_warp_absolute(cursor, &event->pointer->base, event->x, event->y);
+	process_cursor_motion(server, event->time_msec);
 }
 
-static void handle_pointer_focus_change(struct wl_listener *listener, void *data) {
-	struct wb_cursor *cursor = wl_container_of(
-		listener, cursor, pointer_focus_change);
-	/* This event is raised when the pointer focus is changed, including when the
-	 * client is closed. We set the cursor image to its default if target surface
-	 * is NULL */
-	struct wlr_seat_pointer_focus_change_event *event = static_cast<struct wlr_seat_pointer_focus_change_event *>(data);
-	if (event->new_surface == NULL) {
-		wlr_cursor_set_xcursor(cursor->cursor, cursor->xcursor_manager, "default");
+void wb_cursor::on_pointer_focus_change(void *data) {
+	/* Raised when pointer focus changes, including when the client is closed;
+	 * fall back to the default cursor image if there is no target surface. */
+	auto *event = static_cast<struct wlr_seat_pointer_focus_change_event *>(data);
+	if (event->new_surface == nullptr) {
+		wlr_cursor_set_xcursor(cursor, xcursor_manager, "default");
 	}
 }
 
-static void handle_cursor_button(struct wl_listener *listener, void *data) {
-	/* This event is forwarded by the cursor when a pointer emits a button
-	 * event. */
-	struct wb_cursor *cursor =
-		wl_container_of(listener, cursor, cursor_button);
-	struct wb_server *server = cursor->server;
+void wb_cursor::on_button(void *data) {
+	auto *event = static_cast<struct wlr_pointer_button_event *>(data);
 	struct wlr_seat *seat = server->seat->seat;
-	struct wlr_pointer_button_event *event = static_cast<struct wlr_pointer_button_event *>(data);
 	double sx, sy;
-	struct wlr_surface *surface = NULL;
+	struct wlr_surface *surface = nullptr;
 	struct wb_toplevel *toplevel = get_toplevel_at(server,
-			server->cursor->cursor->x, server->cursor->cursor->y, &surface, &sx, &sy);
+			cursor->x, cursor->y, &surface, &sx, &sy);
 
 	if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
-		/* Alt + drag lets the user move (left button) or resize (right button)
-		 * the window under the pointer regardless of its decorations, matching
-		 * Openbox's default frame mouse bindings. The button is consumed and
-		 * not forwarded to the client. */
+		/* Alt + drag moves (left) or resizes (right) the window under the
+		 * pointer regardless of its decorations, matching Openbox's default
+		 * frame mouse bindings. The button is consumed, not forwarded. */
 		struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(seat);
-		uint32_t modifiers =
-			keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
-		if (toplevel != NULL && (modifiers & WLR_MODIFIER_ALT) &&
+		uint32_t modifiers = keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
+		if (toplevel != nullptr && (modifiers & WLR_MODIFIER_ALT) &&
 				(event->button == BTN_LEFT || event->button == BTN_RIGHT)) {
 			focus_toplevel(toplevel);
 			if (event->button == BTN_LEFT) {
@@ -167,10 +152,10 @@ static void handle_cursor_button(struct wl_listener *listener, void *data) {
 			} else {
 				/* Resize from the corner nearest the pointer. */
 				uint32_t edges = 0;
-				edges |= (server->cursor->cursor->x <
+				edges |= (cursor->x <
 						toplevel->geometry.x + toplevel->geometry.width / 2.0)
 						? WLR_EDGE_LEFT : WLR_EDGE_RIGHT;
-				edges |= (server->cursor->cursor->y <
+				edges |= (cursor->y <
 						toplevel->geometry.y + toplevel->geometry.height / 2.0)
 						? WLR_EDGE_TOP : WLR_EDGE_BOTTOM;
 				begin_interactive(toplevel, WB_CURSOR_RESIZE, edges);
@@ -180,123 +165,88 @@ static void handle_cursor_button(struct wl_listener *listener, void *data) {
 		}
 	}
 
-	/* Notify the client with pointer focus that a button press has occurred */
-	wlr_seat_pointer_notify_button(seat,
-			event->time_msec, event->button, event->state);
+	wlr_seat_pointer_notify_button(seat, event->time_msec, event->button, event->state);
 	if (event->state == WL_POINTER_BUTTON_STATE_RELEASED) {
-		/* If you released any buttons, we exit interactive move/resize mode. */
 		reset_cursor_mode(server);
 	} else {
-		/* Focus that client if the button was _pressed_ */
 		focus_toplevel(toplevel);
 	}
-
 	wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
 }
 
-static void handle_cursor_axis(struct wl_listener *listener, void *data) {
-	/* This event is forwarded by the cursor when a pointer emits an axis event,
-	 * for example when you move the scroll wheel. */
-	struct wb_cursor *cursor =
-		wl_container_of(listener, cursor, cursor_axis);
-	struct wlr_pointer_axis_event *event = static_cast<struct wlr_pointer_axis_event *>(data);
-	/* Notify the client with pointer focus of the axis event. */
-	wlr_seat_pointer_notify_axis(cursor->server->seat->seat,
-			event->time_msec, event->orientation, event->delta,
-			event->delta_discrete, event->source, event->relative_direction);
+void wb_cursor::on_axis(void *data) {
+	auto *event = static_cast<struct wlr_pointer_axis_event *>(data);
+	wlr_seat_pointer_notify_axis(server->seat->seat, event->time_msec,
+			event->orientation, event->delta, event->delta_discrete,
+			event->source, event->relative_direction);
 }
 
-static void handle_cursor_frame(struct wl_listener *listener, void *data) {
-	/* This event is forwarded by the cursor when a pointer emits an frame
-	 * event. Frame events are sent after regular pointer events to group
-	 * multiple events together. For instance, two axis events may happen at the
-	 * same time, in which case a frame event won't be sent in between. */
-	struct wb_cursor *cursor =
-		wl_container_of(listener, cursor, cursor_frame);
-	/* Notify the client with pointer focus of the frame event. */
-	wlr_seat_pointer_notify_frame(cursor->server->seat->seat);
+void wb_cursor::on_frame(void *) {
+	wlr_seat_pointer_notify_frame(server->seat->seat);
 }
 
-static void handle_cursor_request(struct wl_listener *listener, void *data) {
-	struct wb_cursor *cursor = wl_container_of(
-			listener, cursor, request_cursor);
-	/* This event is raised by the seat when a client provides a cursor image */
-	struct wlr_seat_pointer_request_set_cursor_event *event = static_cast<struct wlr_seat_pointer_request_set_cursor_event *>(data);
+void wb_cursor::on_request_set_cursor(void *data) {
+	/* Raised when a client provides a cursor image. */
+	auto *event = static_cast<struct wlr_seat_pointer_request_set_cursor_event *>(data);
 	struct wlr_seat_client *focused_client =
-		cursor->server->seat->seat->pointer_state.focused_client;
-	/* This can be sent by any client, so we check to make sure this one is
-	 * actually has pointer focus first. */
+		server->seat->seat->pointer_state.focused_client;
+	/* Any client can send this, so only honour the one with pointer focus. */
 	if (focused_client == event->seat_client) {
-		/* Once we've vetted the client, we can tell the cursor to use the
-		 * provided surface as the cursor image. It will set the hardware cursor
-		 * on the output that it's currently on and continue to do so as the
-		 * cursor moves between outputs. */
-		wlr_cursor_set_surface(cursor->cursor, event->surface,
+		wlr_cursor_set_surface(cursor, event->surface,
 				event->hotspot_x, event->hotspot_y);
 	}
 }
 
-struct wb_cursor *wb_cursor_create(struct wb_server *server) {
-	struct wb_cursor *cursor = static_cast<struct wb_cursor *>(calloc(1, sizeof(struct wb_cursor)));
-	if (cursor == NULL) {
-		return NULL;
+wb_cursor::~wb_cursor() {
+	/* Disconnect the listeners before destroying the wlr_cursor: it asserts
+	 * that nothing is still listening on its event signals. (The Listener
+	 * members would disconnect in their own destructors, but those run after
+	 * this body, i.e. too late.) */
+	cursor_motion.disconnect();
+	cursor_motion_absolute.disconnect();
+	cursor_button.disconnect();
+	cursor_axis.disconnect();
+	cursor_frame.disconnect();
+	pointer_focus_change.disconnect();
+	request_cursor.disconnect();
+
+	if (xcursor_manager != nullptr) {
+		wlr_xcursor_manager_destroy(xcursor_manager);
 	}
+	if (cursor != nullptr) {
+		wlr_cursor_destroy(cursor);
+	}
+}
+
+std::unique_ptr<wb_cursor> wb_cursor_create(struct wb_server *server) {
+	auto cursor = std::make_unique<wb_cursor>();
 	cursor->cursor = wlr_cursor_create();
-	if (cursor->cursor == NULL) {
-		free(cursor);
-		return NULL;
+	if (cursor->cursor == nullptr) {
+		return nullptr;
 	}
-	cursor->cursor_mode = WB_CURSOR_PASSTHROUGH;
 	cursor->server = server;
 
 	const char *xcursor_size = getenv("XCURSOR_SIZE");
 	cursor->xcursor_manager = wlr_xcursor_manager_create(getenv("XCURSOR_THEME"),
-				xcursor_size ? strtoul(xcursor_size, (char **) NULL, 10) : 24);
+			xcursor_size ? strtoul(xcursor_size, nullptr, 10) : 24);
 
-	cursor->cursor_motion.notify = handle_cursor_motion;
-	wl_signal_add(&cursor->cursor->events.motion, &cursor->cursor_motion);
+	wb_cursor *c = cursor.get();
+	c->cursor_motion.connect(&c->cursor->events.motion,
+			[c](void *data) { c->on_motion(data); });
+	c->cursor_motion_absolute.connect(&c->cursor->events.motion_absolute,
+			[c](void *data) { c->on_motion_absolute(data); });
+	c->cursor_button.connect(&c->cursor->events.button,
+			[c](void *data) { c->on_button(data); });
+	c->cursor_axis.connect(&c->cursor->events.axis,
+			[c](void *data) { c->on_axis(data); });
+	c->cursor_frame.connect(&c->cursor->events.frame,
+			[c](void *data) { c->on_frame(data); });
+	c->pointer_focus_change.connect(
+			&server->seat->seat->pointer_state.events.focus_change,
+			[c](void *data) { c->on_pointer_focus_change(data); });
+	c->request_cursor.connect(&server->seat->seat->events.request_set_cursor,
+			[c](void *data) { c->on_request_set_cursor(data); });
 
-	cursor->cursor_motion_absolute.notify = handle_cursor_motion_absolute;
-	wl_signal_add(&cursor->cursor->events.motion_absolute, &cursor->cursor_motion_absolute);
-
-	cursor->cursor_button.notify = handle_cursor_button;
-	wl_signal_add(&cursor->cursor->events.button, &cursor->cursor_button);
-
-	cursor->cursor_axis.notify = handle_cursor_axis;
-	wl_signal_add(&cursor->cursor->events.axis, &cursor->cursor_axis);
-
-	cursor->cursor_frame.notify = handle_cursor_frame;
-	wl_signal_add(&cursor->cursor->events.frame, &cursor->cursor_frame);
-
-	cursor->pointer_focus_change.notify = handle_pointer_focus_change;
-	wl_signal_add(&server->seat->seat->pointer_state.events.focus_change,
-			&cursor->pointer_focus_change);
-
-	cursor->request_cursor.notify = handle_cursor_request;
-	wl_signal_add(&server->seat->seat->events.request_set_cursor,
-			&cursor->request_cursor);
-
-	wlr_cursor_attach_output_layout(cursor->cursor, server->output_layout);
-
+	wlr_cursor_attach_output_layout(c->cursor, server->output_layout);
 	return cursor;
-}
-
-void wb_cursor_destroy(struct wb_cursor *cursor) {
-	if (!cursor) {
-		return;
-	}
-
-	wl_list_remove(&cursor->request_cursor.link);
-	wl_list_remove(&cursor->cursor_motion.link);
-	wl_list_remove(&cursor->cursor_motion_absolute.link);
-
-	wl_list_remove(&cursor->cursor_button.link);
-	wl_list_remove(&cursor->cursor_axis.link);
-	wl_list_remove(&cursor->cursor_frame.link);
-
-	wl_list_remove(&cursor->pointer_focus_change.link);
-
-	wlr_xcursor_manager_destroy(cursor->xcursor_manager);
-	wlr_cursor_destroy(cursor->cursor);
-	free(cursor);
 }

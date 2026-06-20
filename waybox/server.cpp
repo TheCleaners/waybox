@@ -99,7 +99,7 @@ bool wb_create_backend(struct wb_server* server) {
 		return false;
 	}
 	server->cursor = wb_cursor_create(server);
-	if (server->cursor == NULL) {
+	if (server->cursor == nullptr) {
 		wlr_log(WLR_ERROR, "%s", _("Failed to create cursor"));
 		return false;
 	}
@@ -183,7 +183,7 @@ bool wb_terminate(struct wb_server* server) {
 	 * those objects are still alive. */
 	wl_display_destroy_clients(server->wl_display);
 
-	wb_cursor_destroy(server->cursor);
+	server->cursor.reset();
 	wl_list_remove(&server->new_xdg_decoration.link); /* wb_decoration_destroy */
 	deinit_config(server->config);
 	wlr_output_layout_destroy(server->output_layout);
