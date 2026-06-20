@@ -16,6 +16,14 @@ const Menu *MenuFile::find(std::string_view id) const {
 	return nullptr;
 }
 
+MenuSource menu_source_from_config(std::string_view source) {
+	/* Empty or "builtin" => native menu. A bare program name or full command
+	 * line => delegate to that external launcher. */
+	if (source.empty() || source == "builtin")
+		return MenuSource{MenuSource::Kind::Builtin, {}};
+	return MenuSource{MenuSource::Kind::External, std::string(source)};
+}
+
 static int item_row_height(const MenuItem &item, const MenuMetrics &m) {
 	return item.kind == MenuItem::Kind::Separator ? m.separator_height
 			: m.item_height;

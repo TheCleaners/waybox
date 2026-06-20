@@ -154,3 +154,13 @@ WB_TEST(layout_applies_vertical_padding) {
 				: metrics.item_height;
 	WB_CHECK(l.height == 2 * metrics.border + 2 * metrics.pad_y + rows);
 }
+
+WB_TEST(menu_source_selects_builtin_or_external) {
+	using wb::MenuSource;
+	WB_CHECK(wb::menu_source_from_config("").kind == MenuSource::Kind::Builtin);
+	WB_CHECK(wb::menu_source_from_config("builtin").kind == MenuSource::Kind::Builtin);
+
+	MenuSource ext = wb::menu_source_from_config("rofi -show drun");
+	WB_CHECK(ext.kind == MenuSource::Kind::External);
+	WB_CHECK(ext.command == "rofi -show drun");
+}

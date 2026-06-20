@@ -178,6 +178,13 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	case wb::ActionType::ShowMenu: {
 		if (server->config == nullptr)
 			break;
+		/* Delegate to an external launcher when configured (built-in-or-delegate
+		 * pillar); otherwise open the native menu widget. */
+		if (server->config->menu_source.kind ==
+				wb::MenuSource::Kind::External) {
+			wb_spawn(server->config->menu_source.command.c_str());
+			break;
+		}
 		auto widget = std::make_unique<wb::MenuWidget>(server,
 				server->config->menu,
 				wb::menu_style_from_theme(server->config->theme),
