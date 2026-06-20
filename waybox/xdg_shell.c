@@ -26,7 +26,20 @@ struct wb_toplevel *get_toplevel_at(
 	while (tree != NULL && tree->node.data == NULL) {
 		tree = tree->node.parent;
 	}
-	return tree->node.data;
+	return tree != NULL ? tree->node.data : NULL;
+}
+
+/* Returns the front (most recently focused) toplevel, or NULL if there are no
+ * toplevels. Callers must not assume server->toplevels is non-empty: indexing
+ * server->toplevels.next when the list is empty yields the list sentinel cast
+ * to a bogus wb_toplevel. */
+struct wb_toplevel *first_toplevel(struct wb_server *server) {
+	if (wl_list_empty(&server->toplevels)) {
+		return NULL;
+	}
+	struct wb_toplevel *toplevel =
+		wl_container_of(server->toplevels.next, toplevel, link);
+	return toplevel;
 }
 
 void focus_toplevel(struct wb_toplevel *toplevel) {
@@ -91,7 +104,8 @@ struct wlr_output *get_active_output(struct wb_toplevel *toplevel) {
 static struct wlr_box get_usable_area(struct wb_toplevel *toplevel) {
 	struct wlr_output *output = get_active_output(toplevel);
 	struct wlr_box usable_area = {0};
-	wlr_output_effective_resolution(output, &usable_area.width, &usable_area.height);
+	if (output != NULL)
+		wlr_output_effective_resolution(output, &usable_area.width, &usable_area.height);
 	return usable_area;
 }
 
@@ -135,7 +149,7 @@ static void xdg_toplevel_unmap(struct wl_listener *listener, void *data) {
 	reset_cursor_mode(toplevel->server);
 
 	/* Focus the next toplevel, if any. */
-	if (wl_list_length(&toplevel->link) > 1) {
+	if (toplevel->link.next != &toplevel->server->toplevels) {
 		struct wb_toplevel *next_toplevel = wl_container_of(toplevel->link.next, next_toplevel, link);
 		if (next_toplevel && next_toplevel->xdg_toplevel && next_toplevel->scene_tree && next_toplevel->scene_tree->node.enabled) {
 			wlr_log(WLR_INFO, "%s: %s", _("Focusing next toplevel"),
@@ -162,9 +176,9 @@ static void xdg_toplevel_commit(struct wl_listener *listener, void *data) {
 	struct wlr_xdg_surface *base = toplevel->xdg_toplevel->base;
 
 	struct wlr_output *output = get_active_output(toplevel);
-	wlr_surface_send_enter(base->surface, output);
+	if (output != NULL)
+		wlr_surface_send_enter(base->surface, output);
 	update_fractional_scale(base->surface);
-
 	if (base->initial_commit) {
 		wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, 0, 0);
 		if (toplevel->decoration != NULL)
@@ -178,7 +192,8 @@ static void xdg_toplevel_destroy(struct wl_listener *listener, void *data) {
 
 	struct wlr_output *output = get_active_output(toplevel);
 	struct wlr_xdg_surface *base = toplevel->xdg_toplevel->base;
-	wlr_surface_send_leave(base->surface, output);
+	if (output != NULL)
+		wlr_surface_send_leave(base->surface, output);
 	update_fractional_scale(base->surface);
 	wlr_ext_foreign_toplevel_handle_v1_destroy(toplevel->foreign_toplevel_handle);
 
@@ -227,12 +242,14 @@ static void xdg_toplevel_request_fullscreen(
 	bool is_fullscreen = toplevel->xdg_toplevel->current.fullscreen;
 	if (!is_fullscreen) {
 		struct wlr_output *wlr_output = get_active_output(toplevel);
-		struct wb_output *output = wlr_output->data;
+		struct wb_output *output = wlr_output ? wlr_output->data : NULL;
 		toplevel->previous_geometry = toplevel->geometry;
 		toplevel->geometry.x = 0;
 		toplevel->geometry.y = 0;
-		toplevel->geometry.height = output->geometry.height;
-		toplevel->geometry.width = output->geometry.width;
+		if (output != NULL) {
+			toplevel->geometry.height = output->geometry.height;
+			toplevel->geometry.width = output->geometry.width;
+		}
 		wlr_scene_node_raise_to_top(&toplevel->scene_tree->node);
 	} else {
 		toplevel->geometry = toplevel->previous_geometry;
@@ -282,11 +299,12 @@ static void xdg_toplevel_request_minimize(struct wl_listener *listener, void *da
 		toplevel->previous_geometry = toplevel->geometry;
 		toplevel->geometry.y = -toplevel->geometry.height;
 
-		struct wb_toplevel *next_toplevel = wl_container_of(toplevel->link.next, next_toplevel, link);
-		if (wl_list_length(&toplevel->link) > 1)
+		if (toplevel->link.next != &toplevel->server->toplevels) {
+			struct wb_toplevel *next_toplevel = wl_container_of(toplevel->link.next, next_toplevel, link);
 			focus_toplevel(next_toplevel);
-		else
+		} else {
 			focus_toplevel(toplevel);
+		}
 	} else {
 		toplevel->geometry = toplevel->previous_geometry;
 	}

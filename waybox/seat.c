@@ -98,9 +98,8 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 			if (key_binding->action & ACTION_PREVIOUS_WINDOW)
 				cycle_toplevels_reverse(server);
 			if (key_binding->action & ACTION_CLOSE) {
-				struct wb_toplevel *current_toplevel = wl_container_of(
-						server->toplevels.next, current_toplevel, link);
-				if (current_toplevel->scene_tree->node.enabled)
+				struct wb_toplevel *current_toplevel = first_toplevel(server);
+				if (current_toplevel && current_toplevel->scene_tree->node.enabled)
 					wlr_xdg_toplevel_send_close(current_toplevel->xdg_toplevel);
 			}
 			if (key_binding->action & ACTION_EXECUTE) {
@@ -109,20 +108,20 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 				}
 			}
 			if (key_binding->action & ACTION_TOGGLE_MAXIMIZE) {
-				struct wb_toplevel *toplevel = wl_container_of(server->toplevels.next, toplevel, link);
-				if (toplevel->scene_tree->node.enabled)
+				struct wb_toplevel *toplevel = first_toplevel(server);
+				if (toplevel && toplevel->scene_tree->node.enabled)
 					wl_signal_emit(&toplevel->xdg_toplevel->events.request_maximize, NULL);
 			}
 			if (key_binding->action & ACTION_ICONIFY) {
-				struct wb_toplevel *toplevel = wl_container_of(server->toplevels.next, toplevel, link);
-				if (toplevel->scene_tree->node.enabled) {
+				struct wb_toplevel *toplevel = first_toplevel(server);
+				if (toplevel && toplevel->scene_tree->node.enabled) {
 					toplevel->xdg_toplevel->requested.minimized = true;
 					wl_signal_emit(&toplevel->xdg_toplevel->events.request_minimize, NULL);
 				}
 			}
 			if (key_binding->action & ACTION_SHADE) {
-				struct wb_toplevel *toplevel = wl_container_of(server->toplevels.next, toplevel, link);
-				if (toplevel->scene_tree->node.enabled) {
+				struct wb_toplevel *toplevel = first_toplevel(server);
+				if (toplevel && toplevel->scene_tree->node.enabled) {
 					struct wlr_box geo_box = toplevel->xdg_toplevel->base->geometry;
 					int decoration_height = MAX(geo_box.y - toplevel->geometry.y, TITLEBAR_HEIGHT);
 
@@ -132,8 +131,8 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 				}
 			}
 			if (key_binding->action & ACTION_UNSHADE) {
-				struct wb_toplevel *toplevel = wl_container_of(server->toplevels.next, toplevel, link);
-				if (toplevel->previous_geometry.height > 0 && toplevel->previous_geometry.width > 0 && toplevel->scene_tree->node.enabled) {
+				struct wb_toplevel *toplevel = first_toplevel(server);
+				if (toplevel && toplevel->previous_geometry.height > 0 && toplevel->previous_geometry.width > 0 && toplevel->scene_tree->node.enabled) {
 					wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
 							toplevel->previous_geometry.width, toplevel->previous_geometry.height);
 				}
@@ -223,24 +222,21 @@ static void handle_new_keyboard(struct wb_server *server,
 	keyboard->keyboard = wlr_keyboard_from_input_device(device);
 
 	/* We need to prepare an XKB keymap and assign it to the keyboard. */
-	struct xkb_rule_names *rules = malloc(sizeof(struct xkb_rule_names));
+	/* We need to prepare an XKB keymap and assign it to the keyboard. A NULL
+	 * rule_names pointer makes libxkbcommon fall back to the XKB_* env
+	 * variables. We use a zero-initialized stack struct so any field not set
+	 * from the config stays NULL (which xkbcommon treats as "default") rather
+	 * than an uninitialized garbage pointer. */
+	struct xkb_rule_names rule_names = {0};
+	struct xkb_rule_names *rules = NULL;
 	if (server->config && server->config->keyboard_layout.use_config) {
-		if (server->config->keyboard_layout.layout)
-			rules->layout = server->config->keyboard_layout.layout;
-		if (server->config->keyboard_layout.model)
-			rules->model = server->config->keyboard_layout.model;
-		if (server->config->keyboard_layout.options)
-			rules->options = server->config->keyboard_layout.options;
-		if (server->config->keyboard_layout.rules)
-			rules->rules = server->config->keyboard_layout.rules;
-		if (server->config->keyboard_layout.variant)
-			rules->variant = server->config->keyboard_layout.variant;
+		rule_names.layout = server->config->keyboard_layout.layout;
+		rule_names.model = server->config->keyboard_layout.model;
+		rule_names.options = server->config->keyboard_layout.options;
+		rule_names.rules = server->config->keyboard_layout.rules;
+		rule_names.variant = server->config->keyboard_layout.variant;
+		rules = &rule_names;
 	}
-	else
-		/* If a NULL xkb_rule_names pointer is passed to
-		   xkb_keymap_new_from_names, libxkbcommon will default to reading
-		   the XKB_* env variables. So there's no need to do it ourselves. */
-		rules = NULL;
 
 	struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
 	struct xkb_keymap *keymap = xkb_keymap_new_from_names(context, rules,
@@ -250,7 +246,6 @@ static void handle_new_keyboard(struct wb_server *server,
 		wlr_keyboard_set_keymap(keyboard->keyboard, keymap);
 		wlr_keyboard_set_repeat_info(keyboard->keyboard, 25, 600);
 	}
-	free(rules);
 	xkb_keymap_unref(keymap);
 	xkb_context_unref(context);
 
@@ -277,7 +272,7 @@ static bool libinput_config_get_enabled(char *config) {
 static void handle_new_pointer(struct wb_server *server, struct wlr_input_device *device) {
 #ifdef HAS_LIBINPUT
 	struct wb_config *config = server->config;
-	if (wlr_input_device_is_libinput(device) && config->libinput_config.use_config) {
+	if (config && wlr_input_device_is_libinput(device) && config->libinput_config.use_config) {
 		struct libinput_device *libinput_handle =
 			wlr_libinput_get_device_handle(device);
 
@@ -295,13 +290,23 @@ static void handle_new_pointer(struct wb_server *server, struct wlr_input_device
 			libinput_device_config_accel_set_speed(libinput_handle, accel_speed);
 		}
 		if (config->libinput_config.calibration_matrix) {
-			float matrix[6];
-			unsigned short i = 0;
-			while ((matrix[i] = strtod(strtok(config->libinput_config.calibration_matrix, " "), NULL) && i < 6)) {
-				config->libinput_config.calibration_matrix = NULL;
-				i++;
+			/* Parse up to six space-separated floats from a copy, so we don't
+			 * mutate the stored config string (strtok is destructive) and we
+			 * never index past matrix[6] or feed strtod a NULL token. */
+			char *copy = strdup(config->libinput_config.calibration_matrix);
+			if (copy) {
+				float matrix[6] = {0};
+				unsigned short i = 0;
+				char *saveptr = NULL;
+				char *token = strtok_r(copy, " ", &saveptr);
+				while (token != NULL && i < 6) {
+					matrix[i++] = strtof(token, NULL);
+					token = strtok_r(NULL, " ", &saveptr);
+				}
+				if (i == 6)
+					libinput_device_config_calibration_set_matrix(libinput_handle, matrix);
+				free(copy);
 			}
-			libinput_device_config_calibration_set_matrix(libinput_handle, matrix);
 		}
 		if (config->libinput_config.click_method) {
 			enum libinput_config_click_method click_method = LIBINPUT_CONFIG_CLICK_METHOD_BUTTON_AREAS;
