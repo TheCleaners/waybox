@@ -36,7 +36,16 @@ struct wb_toplevel {
 	wb::Listener set_title;
 
 	struct wlr_box geometry = {};
-	struct wlr_box previous_geometry = {};
+	/* Per-state restore rects, kept separate so interleaving states
+	 * (maximize/fullscreen/shade/minimize) each restore to the right place. */
+	struct wlr_box restore_maximize = {};
+	struct wlr_box restore_fullscreen = {};
+	struct wlr_box restore_shade = {};
+	struct wlr_box restore_minimize = {};
+	/* Independent horizontal/vertical maximize state (the xdg protocol only
+	 * signals full maximize, so we track the axes ourselves). */
+	bool max_horz = false;
+	bool max_vert = false;
 	bool mapped = false;
 
 	struct wl_list link;       /* server::toplevels — stacking (z-)order */
@@ -47,6 +56,8 @@ void init_xdg_shell(struct wb_server *server);
 void focus_toplevel(struct wb_toplevel *toplevel);
 void raise_toplevel(struct wb_toplevel *toplevel);
 void lower_toplevel(struct wb_toplevel *toplevel);
+void set_toplevel_maximized(struct wb_toplevel *toplevel, bool horz, bool vert);
+void set_toplevel_fullscreen(struct wb_toplevel *toplevel, bool fullscreen);
 void arrange_toplevels(struct wb_server *server);
 void constrain_toplevel_to_usable_area(struct wb_toplevel *toplevel);
 void begin_interactive(struct wb_toplevel *toplevel,

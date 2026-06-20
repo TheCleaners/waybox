@@ -38,12 +38,14 @@ compositor or sanitizer runtime). When you add a new framework with pure logic
 (geometry/struts, window-state math, parsing), factor that logic into a
 wlroots-free TU and add a `test/<name>_test.cpp` in the same PR.
 
-There is also a **headless integration test** (`test/integration/alt_tab_test.py`,
-also under `meson test`) that runs the real compositor and synthesizes input via
-the **virtual-keyboard protocol** (`wtype`) to drive a keybinding end to end
-(Alt+Tab → action → focus) under the sanitizers. It needs `foot` + `wtype` and a
-working headless backend; when those are missing it **skips** (exit 77), so CI
-stays green. Run it locally against a sanitized build to exercise interactive
+There is also a **headless integration suite** (`test/integration/`, also under
+`meson test`) that runs the real compositor and synthesizes input via the
+**virtual-keyboard protocol** (`wtype`) to drive keybindings end to end under
+the sanitizers: `alt_tab_test.py` (Alt+Tab → action → focus) and
+`window_state_test.py` (maximize/fullscreen restore-rect correctness, verified
+from the compositor's `wb-geom` geometry log). They need `foot` + `wtype` and a
+working headless backend; when those are missing they **skip** (exit 77), so CI
+stays green. Run them locally against a sanitized build to exercise interactive
 paths. Drive virtual input by hand with `wtype` (keyboard) and `wlrctl pointer`
 (pointer); both go through the same handlers as physical devices.
 
@@ -84,7 +86,11 @@ Subsystem map (`waybox/<name>.cpp`, headers in `include/waybox/` or `waybox/`):
 - `output` — output config, **HiDPI/fractional scaling**, and the
   output-management protocol (wlr-randr/kanshi). Recomputes usable area and
   reflows windows on mode/scale changes.
-- `xdg_shell` — application windows (`wb_toplevel`), focus, move/resize, maximize.
+- `xdg_shell` — application windows (`wb_toplevel`), focus, move/resize. Window
+  state lives on `wb_toplevel`: independent `max_horz`/`max_vert`, plus separate
+  `restore_*` rects per state (maximize/fullscreen/shade/minimize) so
+  interleaving them restores correctly. `set_toplevel_maximized()` /
+  `set_toplevel_fullscreen()` are the canonical state setters.
 - `layer_shell` — panels/launchers (`wb_layer_surface`); `arrange_layers()`
   computes each output's `usable_area` from exclusive zones. Usable-area
   consumers (constrain-to-usable, maximize insets) run through the pure,

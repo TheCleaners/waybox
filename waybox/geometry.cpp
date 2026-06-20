@@ -82,4 +82,17 @@ Rect clamp_resize(Rect box, bool resizing_left, bool resizing_top,
 	return box;
 }
 
+Rect maximize_within(const Rect &restore, const Rect &area, bool horz, bool vert) {
+	Rect r = restore;
+	if (horz) {
+		r.x = area.x;
+		r.width = area.width;
+	}
+	if (vert) {
+		r.y = area.y;
+		r.height = area.height;
+	}
+	return r;
+}
+
 }  // namespace wb

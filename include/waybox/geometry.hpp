@@ -76,6 +76,14 @@ Rect constrain_to_usable(Rect box, const Rect &outer, const Rect &usable);
 Rect clamp_resize(Rect box, bool resizing_left, bool resizing_top,
 		const SizeHints &hints);
 
+/*
+ * Geometry for a window maximized horizontally and/or vertically within
+ * `area` (the margin-inset usable region). Axes that are not maximized keep
+ * their position and size from `restore` (the floating geometry), so toggling
+ * one axis off returns that axis to where the window was.
+ */
+Rect maximize_within(const Rect &restore, const Rect &area, bool horz, bool vert);
+
 }  // namespace wb
 
 #endif /* WB_GEOMETRY_HPP */
