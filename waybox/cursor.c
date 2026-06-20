@@ -1,3 +1,5 @@
+#include <linux/input-event-codes.h>
+
 #include "waybox/cursor.h"
 #include "waybox/xdg_shell.h"
 
@@ -139,23 +141,55 @@ static void handle_cursor_button(struct wl_listener *listener, void *data) {
 	 * event. */
 	struct wb_cursor *cursor =
 		wl_container_of(listener, cursor, cursor_button);
+	struct wb_server *server = cursor->server;
+	struct wlr_seat *seat = server->seat->seat;
 	struct wlr_pointer_button_event *event = data;
-	/* Notify the client with pointer focus that a button press has occurred */
-	wlr_seat_pointer_notify_button(cursor->server->seat->seat,
-			event->time_msec, event->button, event->state);
 	double sx, sy;
 	struct wlr_surface *surface = NULL;
-	struct wb_toplevel *toplevel = get_toplevel_at(cursor->server,
-			cursor->server->cursor->cursor->x, cursor->server->cursor->cursor->y, &surface, &sx, &sy);
+	struct wb_toplevel *toplevel = get_toplevel_at(server,
+			server->cursor->cursor->x, server->cursor->cursor->y, &surface, &sx, &sy);
+
+	if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
+		/* Alt + drag lets the user move (left button) or resize (right button)
+		 * the window under the pointer regardless of its decorations, matching
+		 * Openbox's default frame mouse bindings. The button is consumed and
+		 * not forwarded to the client. */
+		struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(seat);
+		uint32_t modifiers =
+			keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
+		if (toplevel != NULL && (modifiers & WLR_MODIFIER_ALT) &&
+				(event->button == BTN_LEFT || event->button == BTN_RIGHT)) {
+			focus_toplevel(toplevel);
+			if (event->button == BTN_LEFT) {
+				begin_interactive(toplevel, WB_CURSOR_MOVE, 0);
+			} else {
+				/* Resize from the corner nearest the pointer. */
+				uint32_t edges = 0;
+				edges |= (server->cursor->cursor->x <
+						toplevel->geometry.x + toplevel->geometry.width / 2.0)
+						? WLR_EDGE_LEFT : WLR_EDGE_RIGHT;
+				edges |= (server->cursor->cursor->y <
+						toplevel->geometry.y + toplevel->geometry.height / 2.0)
+						? WLR_EDGE_TOP : WLR_EDGE_BOTTOM;
+				begin_interactive(toplevel, WB_CURSOR_RESIZE, edges);
+			}
+			wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+			return;
+		}
+	}
+
+	/* Notify the client with pointer focus that a button press has occurred */
+	wlr_seat_pointer_notify_button(seat,
+			event->time_msec, event->button, event->state);
 	if (event->state == WL_POINTER_BUTTON_STATE_RELEASED) {
 		/* If you released any buttons, we exit interactive move/resize mode. */
-		reset_cursor_mode(cursor->server);
+		reset_cursor_mode(server);
 	} else {
 		/* Focus that client if the button was _pressed_ */
 		focus_toplevel(toplevel);
 	}
 
-	wlr_idle_notifier_v1_notify_activity(cursor->server->idle_notifier, cursor->server->seat->seat);
+	wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
 }
 
 static void handle_cursor_axis(struct wl_listener *listener, void *data) {
