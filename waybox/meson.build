@@ -1,10 +1,3 @@
-action_src = files('action.cpp')
-window_cycle_src = files('window_cycle.cpp')
-geometry_src = files('geometry.cpp')
-mousebind_src = files('mousebind.cpp')
-placement_src = files('placement.cpp')
-applications_src = files('applications.cpp')
-
 wb_src = [
   action_src,
   window_cycle_src,
@@ -14,6 +7,7 @@ wb_src = [
   applications_src,
   keychain_src,
   theme_src,
+  render_src,
   files(
     'config.cpp',
     'cursor.cpp',
@@ -22,6 +16,7 @@ wb_src = [
     'layer_shell.cpp',
     'main.cpp',
     'output.cpp',
+    'scene_buffer.cpp',
     'seat.cpp',
     'server.cpp',
     'xdg_shell.cpp',
@@ -29,9 +24,12 @@ wb_src = [
   ]
 
 wb_dep = [
+  cairo,
   libevdev,
   libinput,
   libxml2,
+  pango,
+  pangocairo,
   wayland_server,
   wlroots,
   xkbcommon,

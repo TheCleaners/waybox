@@ -16,7 +16,7 @@ jobs:
         steps:
             - name: packages
               run: |
-                apk add clang g++ gcc libevdev-dev libinput-dev libxkbcommon-dev libxml2-dev meson musl-dev wayland-dev wayland-protocols wlroots wlroots-dev xwayland
+                apk add clang g++ gcc cairo-dev pango-dev libevdev-dev libinput-dev libxkbcommon-dev libxml2-dev meson musl-dev wayland-dev wayland-protocols wlroots wlroots-dev xwayland
             # actions/checkout@v7 clones the repository
             - uses: actions/checkout@v7
             - name: build-gcc

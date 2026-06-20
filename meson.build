@@ -87,6 +87,16 @@ if not tests_only
   wayland_server = dependency('wayland-server', version: '>=1.15')
   wlroots = dependency(wlroots_version, version: '>=0.17.0')
   xkbcommon = dependency('xkbcommon')
+  # Cairo + Pango: CPU rasterisation of compositor-drawn chrome (menus,
+  # titlebars, OSD) into cached buffers that the GPU then composites. Only
+  # linked into the compositor; the pure unit tests stay dependency-free.
+  cairo = dependency('cairo')
+  pango = dependency('pango')
+  pangocairo = dependency('pangocairo')
+
+  # render.cpp needs cairo/pango (not wlroots), so it is shared by the
+  # compositor and the pixel test; only defined in the full build.
+  render_src = files('waybox/render.cpp')
 
   if libinput.found()
     add_project_arguments('-DHAS_LIBINPUT', language: 'c')

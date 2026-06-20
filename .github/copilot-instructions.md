@@ -139,6 +139,16 @@ list `server->focus_order` (`wb_toplevel::focus_link`, head = active; use
 two heads usually coincide, but they are tracked separately. Alt+Tab selection
 goes through the pure, unit-tested `wb::cycle_next()` (`window_cycle.cpp`).
 
+Compositor-drawn chrome (menus, titlebars, OSD, SSD — not built yet) is
+rasterised on the CPU with **Cairo/Pango** and cached as a `wlr_scene_buffer`
+that the GPU then composites: `waybox/render.cpp` has the painting primitives
+(`paint_rect`/`paint_texture`/`paint_text`, pixel-tested in `render_test`, no
+wlroots), and `waybox/scene_buffer.cpp`'s `wb::SceneCanvas` wraps a Cairo
+surface as a `wlr_buffer` and attaches it to the scene (HiDPI via dest-size).
+Colours/fonts/metrics come from `wb::Theme` (`waybox/theme.cpp`, themerc-
+compatible). Rasterise static chrome once and cache; reserve per-frame GPU
+work for genuine animations/effects.
+
 ## Conventions
 
 - **Never include raw `<wlr/...>` headers.** Include `"waybox/wlroots.hpp"`,
