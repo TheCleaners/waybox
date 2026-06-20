@@ -58,4 +58,37 @@ int menu_item_at(const Menu &menu, const MenuLayout &layout, int x, int y) {
 	return -1;
 }
 
+static int clamp(int v, int lo, int hi) {
+	if (hi < lo)  /* menu taller/wider than bounds: pin to the top/left edge */
+		return lo;
+	if (v < lo)
+		return lo;
+	if (v > hi)
+		return hi;
+	return v;
+}
+
+Rect place_root_menu(int x, int y, int w, int h, const Rect &bounds) {
+	if (x + w > bounds.x + bounds.width)
+		x -= w;  /* flip to the left of the pointer */
+	if (y + h > bounds.y + bounds.height)
+		y = bounds.y + bounds.height - h;
+	x = clamp(x, bounds.x, bounds.x + bounds.width - w);
+	y = clamp(y, bounds.y, bounds.y + bounds.height - h);
+	return Rect{x, y, w, h};
+}
+
+Rect place_submenu(const Rect &parent, int item_y, int w, int h,
+		const Rect &bounds, int overlap) {
+	int x = parent.x + parent.width - overlap;  /* open to the right */
+	if (x + w > bounds.x + bounds.width)
+		x = parent.x - w + overlap;  /* flip to the left */
+	int y = item_y;
+	if (y + h > bounds.y + bounds.height)
+		y = bounds.y + bounds.height - h;
+	x = clamp(x, bounds.x, bounds.x + bounds.width - w);
+	y = clamp(y, bounds.y, bounds.y + bounds.height - h);
+	return Rect{x, y, w, h};
+}
+
 }  // namespace wb

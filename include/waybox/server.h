@@ -26,6 +26,8 @@
 #include "waybox/xdg_shell.h"
 #include "waybox/seat.h"
 
+namespace wb { class MenuWidget; }
+
 struct wb_server {
 	struct wl_display *wl_display;
 	struct wl_event_loop *wl_event_loop;
@@ -91,6 +93,9 @@ struct wb_server {
 	/* Current node in the key-binding tree while resolving a key chain
 	 * (nullptr = at the root, awaiting the first chord). */
 	const wb::KeyBinding *active_keychain = nullptr;
+
+	/* The open root/context menu (a compositor-drawn input grab), or null. */
+	std::unique_ptr<wb::MenuWidget> menu;
 };
 
 bool wb_create_backend(struct wb_server *server);

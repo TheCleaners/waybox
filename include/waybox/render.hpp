@@ -6,6 +6,7 @@
 #include <cairo.h>
 
 #include "waybox/theme.hpp"
+#include "waybox/widget.hpp"
 
 namespace wb {
 
@@ -34,6 +35,12 @@ void paint_rect(cairo_t *cr, double x, double y, double w, double h,
  * color -> color_to. */
 void paint_texture(cairo_t *cr, double x, double y, double w, double h,
 		const Texture &texture);
+
+/* Fill a rectangle with a wb::Paint. This is the CPU rasteriser, so it draws
+ * solid and gradient paints directly and falls back to the carried solid colour
+ * for image/shader paints (which need a GPU backend) — always safe to call. */
+void paint_fill(cairo_t *cr, double x, double y, double w, double h,
+		const Paint &paint);
 
 /* Draw one line of text with its top-left at (x, y). */
 void paint_text(cairo_t *cr, double x, double y, std::string_view text,

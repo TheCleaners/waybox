@@ -11,6 +11,7 @@
 
 #include "idle.h"
 #include "waybox/server.h"
+#include "waybox/menu_widget.hpp"
 #include "waybox/xdg_shell.h"
 
 void wb_spawn(const char *cmd) {
@@ -241,6 +242,7 @@ bool wb_terminate(struct wb_server* server) {
 	server->new_xdg_popup.disconnect();
 
 	wlr_backend_destroy(server->backend);
+	server->menu.reset();  /* tear down any open menu before its scene tree */
 	server->seat.reset();
 	wl_display_destroy(server->wl_display);
 	wlr_scene_node_destroy(&server->scene->tree.node);

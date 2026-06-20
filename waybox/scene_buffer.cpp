@@ -79,19 +79,14 @@ void SceneCanvas::commit() {
 			cairo_image_surface_get_width(surface_),
 			cairo_image_surface_get_height(surface_));
 	/* The buffer takes its own reference to the surface, so it can outlive this
-	 * SceneCanvas (the scene holds the buffer). */
+	 * SceneCanvas (the scene holds the buffer) and so the canvas can be redrawn
+	 * and committed again (e.g. to update a menu's hover highlight). */
 	buffer->surface = cairo_surface_reference(surface_);
 
 	wlr_scene_buffer_set_buffer(node_, &buffer->base);
 	wlr_scene_buffer_set_dest_size(node_, width_, height_);  /* logical size */
 	wlr_buffer_drop(&buffer->base);
-
-	/* We are done drawing; release our context/surface refs (the buffer keeps
-	 * its own). */
-	cairo_destroy(cr_);
-	cr_ = nullptr;
-	cairo_surface_destroy(surface_);
-	surface_ = nullptr;
+	/* Keep cr_/surface_ alive so the caller may repaint and commit() again. */
 }
 
 void SceneCanvas::set_position(int x, int y) {

@@ -17,6 +17,9 @@
 #include "waybox/seat.h"
 #include "waybox/window_cycle.hpp"
 #include "waybox/xdg_shell.h"
+#include "waybox/menu_widget.hpp"
+#include "waybox/style.hpp"
+#include "waybox/theme.hpp"
 #include "decoration.h"
 
 static void deiconify_toplevel(struct wb_toplevel *toplevel) {
@@ -172,6 +175,19 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		}
 		break;
 	}
+	case wb::ActionType::ShowMenu: {
+		if (server->config == nullptr)
+			break;
+		wb::Theme theme = wb::default_theme();
+		auto widget = std::make_unique<wb::MenuWidget>(server,
+				server->config->menu, wb::menu_style_from_theme(theme),
+				wb::MenuBehavior{});
+		int x = static_cast<int>(server->cursor->cursor->x);
+		int y = static_cast<int>(server->cursor->cursor->y);
+		if (widget->open(action.command, x, y))
+			server->menu = std::move(widget);
+		break;
+	}
 	case wb::ActionType::Exit:
 		wl_display_terminate(server->wl_display);
 		break;
@@ -299,9 +315,23 @@ void wb_keyboard::on_key(void *data) {
 	bool handled = false;
 	uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard);
 	if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+		/* An open menu grabs the keyboard: feed it Escape and swallow keys so
+		 * they neither trigger bindings nor reach clients. */
+		if (server->menu != nullptr) {
+			for (int i = 0; i < nsyms; i++) {
+				if (server->menu->on_key(syms[i]))
+					server->menu.reset();
+			}
+			wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+			return;
+		}
 		for (int i = 0; i < nsyms; i++) {
 			handled = handle_keybinding(server, syms[i], modifiers);
 		}
+	} else if (server->menu != nullptr) {
+		/* Swallow key releases too while the menu is up. */
+		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		return;
 	}
 
 	if (!handled) {

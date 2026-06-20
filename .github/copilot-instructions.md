@@ -56,9 +56,12 @@ There is also a **headless integration suite** (`test/integration/`, also under
 **virtual-keyboard protocol** (`wtype`) to drive keybindings end to end under
 the sanitizers: `alt_tab_test.py` (Alt+Tab → action → focus),
 `window_state_test.py` (maximize/fullscreen restore-rect correctness, verified
-from the compositor's `wb-geom` geometry log), and `mouse_binding_test.py`
-(virtual-pointer right-click on Root → mouse binding → Execute, via `wlrctl`).
-They need `foot`/`wtype`/`wlrctl` and a
+from the compositor's `wb-geom` geometry log), `mouse_binding_test.py`
+(virtual-pointer right-click on Root → mouse binding → Execute, via `wlrctl`),
+and `menu_test.py` (right-click → `ShowMenu` → render → pointer-grab hover →
+select entry → Execute, exercising the whole menu widget under ASan; uses
+`test/lsan.supp` to suppress Pango/fontconfig global caches). They need
+`foot`/`wtype`/`wlrctl` and a
 working headless backend; when those are missing they **skip** (exit 77), so CI
 stays green. Run them locally against a sanitized build to exercise interactive
 paths. Drive virtual input by hand with `wtype` (keyboard) and `wlrctl pointer`
@@ -144,12 +147,26 @@ list `server->focus_order` (`wb_toplevel::focus_link`, head = active; use
 two heads usually coincide, but they are tracked separately. Alt+Tab selection
 goes through the pure, unit-tested `wb::cycle_next()` (`window_cycle.cpp`).
 
-Compositor-drawn chrome (menus, titlebars, OSD, SSD — not built yet) is
-rasterised on the CPU with **Cairo/Pango** and cached as a `wlr_scene_buffer`
-that the GPU then composites: `waybox/render.cpp` has the painting primitives
-(`paint_rect`/`paint_texture`/`paint_text`, pixel-tested in `render_test`, no
-wlroots), and `waybox/scene_buffer.cpp`'s `wb::SceneCanvas` wraps a Cairo
-surface as a `wlr_buffer` and attaches it to the scene (HiDPI via dest-size).
+Compositor-drawn chrome is rasterised on the CPU with **Cairo/Pango** and cached
+as a `wlr_scene_buffer` that the GPU then composites: `waybox/render.cpp` has the
+painting primitives (`paint_rect`/`paint_texture`/`paint_text`/`paint_fill`,
+pixel-tested in `render_test`, no wlroots), and `waybox/scene_buffer.cpp`'s
+`wb::SceneCanvas` wraps a Cairo surface as a `wlr_buffer` and attaches it to the
+scene (HiDPI via dest-size). `SceneCanvas` is **re-committable** — repaint and
+`commit()` again to update a surface (e.g. a menu hover); it does not tear down
+its context on commit.
+
+The first consumer is the **interactive root menu** (`waybox/menu_widget.cpp`,
+`wb::MenuWidget`): the `ShowMenu` action opens a named menu (from `menu.xml`,
+loaded in `config.cpp` into `wb_config::menu`) at the pointer, rendering one
+`SceneCanvas` panel per open level themed from a `MenuStyle`. While open it is an
+input grab — `cursor.cpp`/`seat.cpp` route pointer motion/buttons and Escape to
+it before clients. Selecting an entry yields its actions via `take_actions()`,
+which the caller runs **after** destroying the widget (no reentrancy). The pure
+geometry (`layout_menu`/`menu_item_at`/`place_root_menu`/`place_submenu`) lives
+in `menu.cpp` and is unit-tested; the widget is covered by `integration_menu`.
+
+Compositor-drawn chrome (titlebars, OSD, SSD) is otherwise not built yet.
 
 Presentation is layered so widgets never re-derive look-and-feel: `wb::Theme`
 (`waybox/theme.cpp`) is the **raw themerc file model** (Openbox keys verbatim,

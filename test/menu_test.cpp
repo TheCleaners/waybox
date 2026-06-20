@@ -97,3 +97,43 @@ WB_TEST(hit_test_selects_items_and_skips_separators) {
 	WB_CHECK(wb::menu_item_at(m, l, 5, l.height + 10) == -1);
 	WB_CHECK(wb::menu_item_at(m, l, -1, 1) == -1);
 }
+
+WB_TEST(place_root_menu_keeps_on_screen) {
+	wb::Rect bounds{0, 0, 1000, 800};
+
+	/* fits at the pointer: top-left at the anchor */
+	wb::Rect r = wb::place_root_menu(100, 100, 150, 200, bounds);
+	WB_CHECK(r.x == 100 && r.y == 100 && r.width == 150 && r.height == 200);
+
+	/* near the right edge: flips to the left of the pointer */
+	wb::Rect right = wb::place_root_menu(950, 100, 150, 200, bounds);
+	WB_CHECK(right.x == 800);  /* 950 - 150 */
+
+	/* near the bottom edge: shifted up to stay on screen */
+	wb::Rect bottom = wb::place_root_menu(100, 750, 150, 200, bounds);
+	WB_CHECK(bottom.y == 600);  /* 800 - 200 */
+
+	/* respects a non-zero bounds origin (multi-output layout) */
+	wb::Rect off{200, 100, 500, 400};
+	wb::Rect clamped = wb::place_root_menu(180, 90, 150, 200, off);
+	WB_CHECK(clamped.x == 200 && clamped.y == 100);
+}
+
+WB_TEST(place_submenu_opens_right_then_flips_left) {
+	wb::Rect bounds{0, 0, 1000, 800};
+	wb::Rect parent{100, 100, 200, 300};  /* parent menu rect */
+
+	/* opens to the right, overlapping the parent border by 3 */
+	wb::Rect right = wb::place_submenu(parent, 140, 150, 200, bounds, 3);
+	WB_CHECK(right.x == 297);   /* 100 + 200 - 3 */
+	WB_CHECK(right.y == 140);
+
+	/* a wide parent near the right edge: submenu flips to the left */
+	wb::Rect near_right{780, 100, 200, 300};
+	wb::Rect left = wb::place_submenu(near_right, 140, 150, 200, bounds, 3);
+	WB_CHECK(left.x == 633);  /* 780 - 150 + 3 */
+
+	/* item low on screen: submenu shifted up */
+	wb::Rect low = wb::place_submenu(parent, 700, 150, 200, bounds, 0);
+	WB_CHECK(low.y == 600);  /* 800 - 200 */
+}

@@ -1,0 +1,232 @@
+/*
+ * Interactive root/context menu widget: the wlroots/Cairo glue around the pure
+ * menu model. Renders one Cairo panel per open level into the scene graph and
+ * routes grabbed input to selection/submenu navigation.
+ */
+#include "waybox/menu_widget.hpp"
+
+#include <cairo.h>
+
+#include "waybox/render.hpp"
+#include "waybox/server.h"
+
+namespace wb {
+
+namespace {
+
+/* Draw a small right-pointing triangle (the submenu arrow) centred in the
+ * column reserved at the right of an item row. */
+void paint_arrow(cairo_t *cr, double x, double y, double h, const Color &c) {
+	double size = 5.0;
+	double cx = x;
+	double cy = y + h / 2.0;
+	cairo_set_source_rgba(cr, c.r / 255.0, c.g / 255.0, c.b / 255.0, c.a / 255.0);
+	cairo_move_to(cr, cx, cy - size);
+	cairo_line_to(cr, cx + size, cy);
+	cairo_line_to(cr, cx, cy + size);
+	cairo_close_path(cr);
+	cairo_fill(cr);
+}
+
+}  // namespace
+
+MenuWidget::MenuWidget(struct wb_server *server, const MenuFile &menus,
+		const MenuStyle &style, const MenuBehavior &behavior)
+	: server_(server), menus_(menus), style_(style), behavior_(behavior),
+	  metrics_(menu_metrics(style)) {
+	tree_ = wlr_scene_tree_create(&server_->scene->tree);
+	wlr_scene_node_raise_to_top(&tree_->node);
+}
+
+MenuWidget::~MenuWidget() {
+	levels_.clear();  /* destroy canvases (scene buffers) before their tree */
+	if (tree_ != nullptr)
+		wlr_scene_node_destroy(&tree_->node);
+}
+
+int MenuWidget::text_width(std::string_view label) const {
+	return measure_text(label, style_.item_text.font).width;
+}
+
+Rect MenuWidget::output_bounds(int lx, int ly) const {
+	struct wlr_output *output = wlr_output_layout_output_at(
+			server_->output_layout, lx, ly);
+	if (output == nullptr)
+		output = wlr_output_layout_output_at(server_->output_layout, 0, 0);
+	struct wlr_box box = {};
+	if (output != nullptr)
+		wlr_output_layout_get_box(server_->output_layout, output, &box);
+	if (box.width == 0 || box.height == 0)
+		return Rect{0, 0, 1920, 1080};  /* sane fallback for headless */
+	return Rect{box.x, box.y, box.width, box.height};
+}
+
+float MenuWidget::output_scale(int lx, int ly) const {
+	struct wlr_output *output = wlr_output_layout_output_at(
+			server_->output_layout, lx, ly);
+	return (output != nullptr && output->scale > 0) ? output->scale : 1.0f;
+}
+
+void MenuWidget::push_menu(const Menu *menu, const Rect &rect, int parent_item) {
+	Level level;
+	level.menu = menu;
+	level.layout = layout_menu(*menu, metrics_,
+			[this](std::string_view s) { return text_width(s); });
+	level.rect = rect;
+	level.parent_item = parent_item;
+	level.canvas = std::make_unique<SceneCanvas>(tree_, rect.width, rect.height,
+			output_scale(rect.x, rect.y));
+	level.canvas->set_position(rect.x, rect.y);
+	levels_.push_back(std::move(level));
+	render_level(levels_.back());
+}
+
+bool MenuWidget::open(std::string_view root_id, int lx, int ly) {
+	const Menu *menu = menus_.find(root_id);
+	if (menu == nullptr)
+		return false;
+	MenuLayout layout = layout_menu(*menu, metrics_,
+			[this](std::string_view s) { return text_width(s); });
+	Rect bounds = output_bounds(lx, ly);
+	Rect rect = place_root_menu(lx, ly, layout.width, layout.height, bounds);
+	push_menu(menu, rect, -1);
+	return true;
+}
+
+void MenuWidget::render_level(Level &level) {
+	cairo_t *cr = level.canvas->cr();
+	const Rect &r = level.rect;
+
+	/* Border first (full panel), then the interior fill inset by the border. */
+	const Border &b = style_.panel.border;
+	if (b.width > 0)
+		paint_rect(cr, 0, 0, r.width, r.height, b.color);
+	paint_fill(cr, b.width, b.width, r.width - 2 * b.width,
+			r.height - 2 * b.width, style_.panel.fill);
+
+	for (size_t i = 0; i < level.menu->items.size() &&
+			i < level.layout.item_rects.size(); ++i) {
+		const MenuItem &item = level.menu->items[i];
+		const Rect &ir = level.layout.item_rects[i];
+
+		if (item.kind == MenuItem::Kind::Separator) {
+			int sy = ir.y + ir.height / 2;
+			paint_rect(cr, ir.x + metrics_.pad_x, sy,
+					ir.width - 2 * metrics_.pad_x, 1, style_.separator);
+			continue;
+		}
+
+		bool active = static_cast<int>(i) == level.hovered;
+		const StateStyle &st = style_.item.for_state(
+				active ? WidgetState::Hover : WidgetState::Normal);
+		if (active)
+			paint_fill(cr, ir.x, ir.y, ir.width, ir.height, st.fill);
+
+		int text_y = ir.y + (ir.height - style_.item_text.font.size_pt) / 2;
+		paint_text(cr, ir.x + metrics_.pad_x, text_y, item.label, st.fg,
+				style_.item_text.font);
+
+		if (item.kind == MenuItem::Kind::Submenu)
+			paint_arrow(cr, ir.x + ir.width - metrics_.pad_x - 6, ir.y,
+					ir.height, st.fg);
+	}
+
+	level.canvas->commit();
+}
+
+void MenuWidget::close_below(size_t keep) {
+	while (levels_.size() > keep + 1)
+		levels_.pop_back();
+}
+
+void MenuWidget::open_submenu(size_t level_index, int item_index) {
+	Level &parent = levels_[level_index];
+	const MenuItem &item = parent.menu->items[item_index];
+	const Menu *submenu = menus_.find(item.submenu_id);
+	if (submenu == nullptr)
+		return;
+
+	/* Already open for this same item? Nothing to do. */
+	if (levels_.size() > level_index + 1 &&
+			levels_[level_index + 1].parent_item == item_index)
+		return;
+	close_below(level_index);
+
+	MenuLayout layout = layout_menu(*submenu, metrics_,
+			[this](std::string_view s) { return text_width(s); });
+	const Rect &ir = parent.layout.item_rects[item_index];
+	Rect bounds = output_bounds(parent.rect.x, parent.rect.y);
+	Rect rect = place_submenu(parent.rect, parent.rect.y + ir.y,
+			layout.width, layout.height, bounds, style_.panel.border.width);
+	push_menu(submenu, rect, item_index);
+}
+
+void MenuWidget::on_motion(double lx, double ly) {
+	/* Topmost (deepest) level under the pointer wins. */
+	for (size_t depth = levels_.size(); depth-- > 0;) {
+		Level &level = levels_[depth];
+		const Rect &r = level.rect;
+		if (lx < r.x || lx >= r.x + r.width || ly < r.y || ly >= r.y + r.height)
+			continue;
+
+		int item = menu_item_at(*level.menu, level.layout,
+				static_cast<int>(lx) - r.x, static_cast<int>(ly) - r.y);
+
+		/* Pointer is back in a shallower menu: drop deeper submenus. */
+		close_below(depth);
+
+		if (level.hovered != item) {
+			level.hovered = item;
+			render_level(level);
+		}
+		if (item >= 0 &&
+				level.menu->items[item].kind == MenuItem::Kind::Submenu &&
+				behavior_.submenu_open == SubmenuOpen::Hover)
+			open_submenu(depth, item);
+		return;
+	}
+	/* Pointer is over no panel: leave the menus open (a click outside
+	 * dismisses), but clear the root's hover so nothing looks selected. */
+}
+
+bool MenuWidget::on_button(uint32_t button, bool pressed) {
+	if (!pressed)
+		return false;
+	double lx = server_->cursor->cursor->x;
+	double ly = server_->cursor->cursor->y;
+
+	for (size_t depth = levels_.size(); depth-- > 0;) {
+		Level &level = levels_[depth];
+		const Rect &r = level.rect;
+		if (lx < r.x || lx >= r.x + r.width || ly < r.y || ly >= r.y + r.height)
+			continue;
+		int item = menu_item_at(*level.menu, level.layout,
+				static_cast<int>(lx) - r.x, static_cast<int>(ly) - r.y);
+		if (item < 0)
+			return false;  /* on padding/border: swallow, keep open */
+		const MenuItem &mi = level.menu->items[item];
+		if (mi.kind == MenuItem::Kind::Submenu) {
+			open_submenu(depth, item);
+			return false;
+		}
+		if (mi.kind == MenuItem::Kind::Entry) {
+			pending_ = mi.actions;  /* caller runs these after destroying us */
+			return true;  /* dismiss */
+		}
+		return false;
+	}
+	(void)button;
+	return true;  /* clicked outside every panel: dismiss */
+}
+
+bool MenuWidget::on_key(xkb_keysym_t sym) {
+	if (sym != XKB_KEY_Escape)
+		return false;
+	if (levels_.size() > 1) {
+		levels_.pop_back();  /* close the deepest submenu */
+		return false;
+	}
+	return true;  /* close the root: dismiss */
+}
+
+}  // namespace wb

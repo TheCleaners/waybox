@@ -6,6 +6,7 @@
 #include "waybox/action.hpp"
 #include "waybox/applications.hpp"
 #include "waybox/keychain.hpp"
+#include "waybox/menu.hpp"
 #include "waybox/mousebind.hpp"
 #include "waybox/placement.hpp"
 #include "waybox/server.h"
@@ -53,6 +54,7 @@ struct wb_config {
 	std::vector<wb::MouseBinding> mouse_bindings;
 	std::vector<wb::AppRule> app_rules;
 	wb::PlacementPolicy placement_policy = wb::PlacementPolicy::Smart;
+	wb::MenuFile menu;  /* parsed menu.xml (root-menu and submenus) */
 };
 
 bool init_config(struct wb_server *server);

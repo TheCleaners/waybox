@@ -1,6 +1,8 @@
 #include <filesystem>
+#include <fstream>
 #include <new>
 #include <cstdlib>
+#include <sstream>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -65,6 +67,50 @@ static fs::path default_rc_file() {
 	}
 
 	return candidates.empty() ? fs::path{} : candidates.front();
+}
+
+/* Candidate menu.xml paths, mirroring rc.xml: $WB_MENU_XML wins, then the
+ * user's config dir, then the installed system default. */
+static std::vector<fs::path> menu_file_candidates() {
+	std::vector<fs::path> candidates;
+
+	if (const char *env = getenv("WB_MENU_XML"); env && env[0] != '\0')
+		candidates.push_back(fs::path(env));
+
+	if (const char *xdg = getenv("XDG_CONFIG_HOME"); xdg && xdg[0] != '\0') {
+		candidates.push_back(fs::path(xdg) / "waybox" / "menu.xml");
+	} else {
+		const char *home = getenv("HOME");
+		if (!home || home[0] == '\0') {
+			struct passwd *pw = getpwuid(getuid());
+			home = pw ? pw->pw_dir : nullptr;
+		}
+		if (home && home[0] != '\0')
+			candidates.push_back(fs::path(home) / ".config" / "waybox" / "menu.xml");
+	}
+
+#ifdef WB_SYSCONFDIR
+	candidates.push_back(fs::path(WB_SYSCONFDIR) / "xdg" / "waybox" / "menu.xml");
+#endif
+
+	return candidates;
+}
+
+/* Load and parse the first menu.xml that exists, or an empty MenuFile. */
+static wb::MenuFile load_menu_file() {
+	std::error_code ec;
+	for (const fs::path &path : menu_file_candidates()) {
+		if (!fs::exists(path, ec))
+			continue;
+		std::ifstream in(path, std::ios::binary);
+		if (!in)
+			continue;
+		std::ostringstream buf;
+		buf << in.rdbuf();
+		wlr_log(WLR_INFO, "Using menu file %s", path.c_str());
+		return wb::parse_menu_xml(buf.str());
+	}
+	return {};
 }
 
 static unsigned long strtoulong(char *s) {
@@ -419,6 +465,8 @@ bool init_config(struct wb_server *server) {
 	config->margins.left = strtoulong(parse_xpath_expr("//ob:margins/ob:left", ctxt));
 	config->margins.right = strtoulong(parse_xpath_expr("//ob:margins/ob:right", ctxt));
 	config->margins.top = strtoulong(parse_xpath_expr("//ob:margins/ob:top", ctxt));
+
+	config->menu = load_menu_file();
 
 	server->config = config;
 
