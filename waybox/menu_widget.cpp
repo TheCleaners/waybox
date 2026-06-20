@@ -46,6 +46,13 @@ MenuWidget::MenuWidget(struct wb_server *server, const MenuFile &menus,
 	if (metrics_.pad_y < 2)
 		metrics_.pad_y = 2;  /* always a little breathing room top/bottom */
 
+	/* Horizontal text inset should scale with the font, not sit at a tiny fixed
+	 * themerc value: a label looks cramped if the side padding is much smaller
+	 * than the glyph height. Keep at least ~0.6x the line height. */
+	int comfortable_x = (text_height_ * 3) / 5;
+	if (metrics_.pad_x < comfortable_x)
+		metrics_.pad_x = comfortable_x;
+
 	tree_ = wlr_scene_tree_create(&server_->scene->tree);
 	wlr_scene_node_raise_to_top(&tree_->node);
 }

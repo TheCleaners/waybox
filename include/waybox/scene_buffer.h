@@ -13,7 +13,7 @@ namespace wb {
  * cr() with the wb::paint_* helpers (logical coordinates; the canvas is
  * pre-scaled for HiDPI), then commit() to wrap the pixels as a wlr_buffer and
  * attach them to the scene node. The node is displayed at its logical size and
- * is owned by the caller (destroy it via the scene graph when done).
+ * is owned by the canvas: destroying the SceneCanvas removes it from the scene.
  */
 class SceneCanvas {
 public:
