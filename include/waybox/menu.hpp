@@ -87,6 +87,16 @@ MenuLayout layout_menu(const Menu &menu, const MenuMetrics &metrics,
 int menu_item_at(const Menu &menu, const MenuLayout &layout, int x, int y);
 
 /*
+ * Keyboard selection stepping (pure). From `current` (an item index, or -1 for
+ * "no selection"), move by `dir` (+1 = down/next, -1 = up/previous) to the next
+ * selectable item, skipping separators. With `wrap`, stepping past an end
+ * continues from the other end; otherwise it stops at the end. A -1 start lands
+ * on the first item for +1 or the last for -1. Returns -1 only when the menu has
+ * no selectable items.
+ */
+int menu_step_selection(const Menu &menu, int current, int dir, bool wrap);
+
+/*
  * Placement (pure): decide where a menu of size w x h goes so it stays within
  * `bounds` (the output's usable area, in layout coordinates).
  *

@@ -164,3 +164,39 @@ WB_TEST(menu_source_selects_builtin_or_external) {
 	WB_CHECK(ext.kind == MenuSource::Kind::External);
 	WB_CHECK(ext.command == "rofi -show drun");
 }
+
+WB_TEST(step_selection_skips_separators_and_wraps) {
+	Menu m = sample();  /* 0: entry, 1: separator, 2: submenu */
+
+	/* from no selection, Down lands on the first selectable (0), Up on last (2) */
+	WB_CHECK(wb::menu_step_selection(m, -1, +1, true) == 0);
+	WB_CHECK(wb::menu_step_selection(m, -1, -1, true) == 2);
+
+	/* Down from 0 skips the separator straight to 2 */
+	WB_CHECK(wb::menu_step_selection(m, 0, +1, true) == 2);
+	/* Up from 2 skips the separator back to 0 */
+	WB_CHECK(wb::menu_step_selection(m, 2, -1, true) == 0);
+
+	/* wrap: Down from the last selectable returns to the first */
+	WB_CHECK(wb::menu_step_selection(m, 2, +1, true) == 0);
+	WB_CHECK(wb::menu_step_selection(m, 0, -1, true) == 2);
+
+	/* no wrap: stepping past an end stays put */
+	WB_CHECK(wb::menu_step_selection(m, 2, +1, false) == 2);
+	WB_CHECK(wb::menu_step_selection(m, 0, -1, false) == 0);
+}
+
+WB_TEST(step_selection_handles_degenerate_menus) {
+	Menu empty;
+	WB_CHECK(wb::menu_step_selection(empty, -1, +1, true) == -1);
+
+	Menu only_sep;
+	only_sep.items.push_back(MenuItem{MenuItem::Kind::Separator, "", {}, ""});
+	WB_CHECK(wb::menu_step_selection(only_sep, -1, +1, true) == -1);
+
+	Menu one;
+	one.items.push_back(MenuItem{MenuItem::Kind::Entry, "Only", {}, ""});
+	WB_CHECK(wb::menu_step_selection(one, -1, +1, true) == 0);
+	WB_CHECK(wb::menu_step_selection(one, 0, +1, true) == 0);   /* wraps to self */
+	WB_CHECK(wb::menu_step_selection(one, 0, +1, false) == 0);  /* stays */
+}

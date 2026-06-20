@@ -156,6 +156,26 @@ def main():
             if os.path.exists(marker):
                 break
             time.sleep(0.1)
+
+        # Keyboard path (optional): if wtype is available, reopen the menu and
+        # select the first entry with Down + Return, exercising on_key nav.
+        if shutil.which("wtype") and os.path.exists(marker):
+            os.remove(marker)
+            move_to(200, 200)
+            subprocess.run(["wlrctl", "pointer", "click", "right"], env=cenv,
+                           capture_output=True)
+            time.sleep(0.3)
+            subprocess.run(["wtype", "-k", "Down"], env=cenv, capture_output=True)
+            time.sleep(0.15)
+            subprocess.run(["wtype", "-k", "Return"], env=cenv, capture_output=True)
+            for _ in range(20):
+                if os.path.exists(marker):
+                    break
+                time.sleep(0.1)
+            if not os.path.exists(marker):
+                print("FAIL: keyboard Down+Return did not select the first entry",
+                      file=sys.stderr)
+                rc = 1
     finally:
         proc.send_signal(signal.SIGTERM)
         try:
