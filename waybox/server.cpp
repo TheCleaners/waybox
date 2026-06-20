@@ -165,8 +165,8 @@ bool wb_start_server(struct wb_server* server) {
 				!xdg_surface->surface->mapped)
 			return;
 		auto *tree = static_cast<struct wlr_scene_tree *>(xdg_surface->data);
-		auto *toplevel =
-			tree ? static_cast<struct wb_toplevel *>(tree->node.data) : nullptr;
+		struct wb_toplevel *toplevel =
+			toplevel_from_node(tree ? &tree->node : NULL);
 		if (toplevel != NULL)
 			focus_toplevel(toplevel);
 	});

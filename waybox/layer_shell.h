@@ -31,6 +31,7 @@ struct wb_layer_popup {
 
 enum wb_scene_descriptor_type {
 	WB_SCENE_DESC_NODE,
+	WB_SCENE_DESC_TOPLEVEL,
 	WB_SCENE_DESC_LAYER_SHELL,
 	WB_SCENE_DESC_LAYER_SHELL_POPUP,
 };
