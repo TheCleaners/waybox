@@ -239,6 +239,12 @@ static void xdg_toplevel_request_fullscreen(
 	 * fullscreen. */
 	struct wb_toplevel *toplevel =
 		wl_container_of(listener, toplevel, request_fullscreen);
+	/* A client may request fullscreen as part of its initial state, before
+	 * its first commit. Calling wlr_xdg_toplevel_set_* on an uninitialized
+	 * surface aborts in wlroots, so ignore the request until it is mapped;
+	 * the client can re-request once initialized. */
+	if (!toplevel->xdg_toplevel->base->initialized)
+		return;
 	bool is_fullscreen = toplevel->xdg_toplevel->current.fullscreen;
 	if (!is_fullscreen) {
 		struct wlr_output *wlr_output = get_active_output(toplevel);
@@ -266,6 +272,11 @@ static void xdg_toplevel_request_maximize(struct wl_listener *listener, void *da
 	 * client-side decorations.
 	 */
 	struct wb_toplevel *toplevel = wl_container_of(listener, toplevel, request_maximize);
+	/* Clients (e.g. Chromium) may request maximize before their first commit.
+	 * wlr_xdg_toplevel_set_size()/set_maximized() assert the surface is
+	 * initialized, so ignore the request until the surface is mapped. */
+	if (!toplevel->xdg_toplevel->base->initialized)
+		return;
 	struct wlr_box usable_area = get_usable_area(toplevel);
 
 	bool is_maximized = toplevel->xdg_toplevel->current.maximized;
@@ -426,6 +437,7 @@ static void handle_new_xdg_popup(struct wl_listener *listener, void *data) {
 	}
 
 	struct wb_popup *popup = calloc(1, sizeof(struct wb_popup));
+	popup->xdg_popup = xdg_popup;
 	popup->commit.notify = xdg_popup_commit;
 	wl_signal_add(&xdg_popup->base->surface->events.commit, &popup->commit);
 
