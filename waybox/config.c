@@ -1,13 +1,45 @@
+#include <pwd.h>
+#include <unistd.h>
 #include <libxml/parser.h>
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 
 #include "config.h"
 
+/* Join two path components into a freshly-allocated string. */
+static char *path_join(const char *base, const char *suffix) {
+	char *path = malloc(strlen(base) + strlen(suffix) + 1);
+	if (!path)
+		return NULL;
+	strcpy(path, base);
+	strcat(path, suffix);
+	return path;
+}
+
+/* Resolve the user's config home, honoring $XDG_CONFIG_HOME and falling back
+ * to $HOME/.config (or the password database if $HOME is unset). */
+static char *default_rc_file(void) {
+	const char *xdg_config = getenv("XDG_CONFIG_HOME");
+	if (xdg_config && xdg_config[0] != '\0')
+		return path_join(xdg_config, "/waybox/rc.xml");
+
+	const char *home = getenv("HOME");
+	if (!home || home[0] == '\0') {
+		struct passwd *pw = getpwuid(getuid());
+		home = pw ? pw->pw_dir : NULL;
+	}
+	if (!home || home[0] == '\0')
+		return NULL;
+
+	return path_join(home, "/.config/waybox/rc.xml");
+}
+
 static unsigned long strtoulong(char *s) {
-	if (s)
-		return strtoul(s, (char **) NULL, 10);
-	else return 0;
+	if (!s)
+		return 0;
+	unsigned long value = strtoul(s, (char **) NULL, 10);
+	free(s);
+	return value;
 }
 
 static char *parse_xpath_expr(char *expr, xmlXPathContextPtr ctxt) {
@@ -32,7 +64,7 @@ static xmlChar *get_attribute(xmlNode *node, char *attr_name) {
 	xmlAttr *attr = node->properties;
 	while (attr && strcmp((char *) attr->name, attr_name) != 0)
 		attr = attr->next;
-	return attr ? attr->children->content : (xmlChar *) "";
+	return (attr && attr->children) ? attr->children->content : (xmlChar *) "";
 }
 
 static void get_action(xmlNode *new_node, struct wb_key_binding *key_bind) {
@@ -64,7 +96,7 @@ static void get_action(xmlNode *new_node, struct wb_key_binding *key_bind) {
 		if (cur_node && cur_node->children)
 			get_action(cur_node->children, key_bind);
 
-		if (strcmp((char *) cur_node->name, "execute") == 0) {
+		if (strcmp((char *) cur_node->name, "execute") == 0 && cur_node->children) {
 			key_bind->cmd = (char *) xmlStrdup(cur_node->children->content);
 		}
 	}
@@ -134,6 +166,8 @@ static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt
 
 bool init_config(struct wb_server *server) {
 	struct wb_config *config = calloc(1, sizeof(struct wb_config));
+	if (config == NULL)
+		return false;
 	xmlDocPtr doc;
 	char *rc_file;
 	if (getenv("WB_RC_XML")) {
@@ -141,13 +175,13 @@ bool init_config(struct wb_server *server) {
 	} else if (server->config_file != NULL) {
 		rc_file = strdup(server->config_file);
 	} else {
-		char *xdg_config = getenv("XDG_CONFIG_HOME");
-		if (!xdg_config)
-			xdg_config = "~/.config";
+		rc_file = default_rc_file();
+	}
 
-		rc_file = malloc(strlen(xdg_config) + 14);
-		strcpy(rc_file, xdg_config);
-		rc_file = strcat(rc_file, "/waybox/rc.xml");
+	if (rc_file == NULL) {
+		wlr_log(WLR_ERROR, "%s", _("Unable to determine the configuration file path."));
+		free(config);
+		return false;
 	}
 
 	doc = xmlReadFile(rc_file, NULL, XML_PARSE_RECOVER);
@@ -156,12 +190,14 @@ bool init_config(struct wb_server *server) {
 	free(rc_file);
 	if (doc == NULL) {
 		wlr_log(WLR_ERROR, "%s", _("Unable to parse the configuration file. Consult stderr for more information."));
+		free(config);
 		return false;
 	}
 	xmlXPathContextPtr ctxt = xmlXPathNewContext(doc);
 	if (ctxt == NULL) {
 		wlr_log(WLR_INFO, "%s", _("Couldn't create new context!"));
 		xmlFreeDoc(doc);
+		free(config);
 		return(false);
 	}
 	if (xmlXPathRegisterNs(ctxt, (const xmlChar *) "ob", (const xmlChar *) "http://openbox.org/3.4/rc") != 0) {
@@ -198,7 +234,9 @@ bool init_config(struct wb_server *server) {
 	}
 
 	if (!parse_key_bindings(config, ctxt)) {
+		xmlXPathFreeContext(ctxt);
 		xmlFreeDoc(doc);
+		free(config);
 		return false;
 	}
 
@@ -221,11 +259,34 @@ void deinit_config(struct wb_config *config) {
 		return;
 
 	/* Free everything allocated in init_config */
-	struct wb_key_binding *key_binding;
-	wl_list_for_each(key_binding, &config->key_bindings, link) {
+	free(config->keyboard_layout.layout);
+	free(config->keyboard_layout.model);
+	free(config->keyboard_layout.options);
+	free(config->keyboard_layout.rules);
+	free(config->keyboard_layout.variant);
+
+	free(config->libinput_config.accel_profile);
+	free(config->libinput_config.accel_speed);
+	free(config->libinput_config.calibration_matrix);
+	free(config->libinput_config.click_method);
+	free(config->libinput_config.dwt);
+	free(config->libinput_config.dwtp);
+	free(config->libinput_config.left_handed);
+	free(config->libinput_config.middle_emulation);
+	free(config->libinput_config.natural_scroll);
+	free(config->libinput_config.scroll_button);
+	free(config->libinput_config.scroll_button_lock);
+	free(config->libinput_config.scroll_method);
+	free(config->libinput_config.tap);
+	free(config->libinput_config.tap_button_map);
+	free(config->libinput_config.tap_drag);
+	free(config->libinput_config.tap_drag_lock);
+
+	struct wb_key_binding *key_binding, *tmp;
+	wl_list_for_each_safe(key_binding, tmp, &config->key_bindings, link) {
+		wl_list_remove(&key_binding->link);
 		free(key_binding->cmd);
 		free(key_binding);
 	}
-	wl_list_remove(&config->key_bindings);
 	free(config);
 }

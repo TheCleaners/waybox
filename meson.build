@@ -23,6 +23,23 @@ add_project_arguments(
 
 cc = meson.get_compiler('c')
 
+# Optionally build with AddressSanitizer + UndefinedBehaviorSanitizer. With the
+# default 'auto' value this is enabled for debug buildtypes (the Meson default)
+# so that leaks and UB are caught early during development, and disabled for
+# release builds. Force with -Dsanitize=enabled / -Dsanitize=disabled.
+sanitize_opt = get_option('sanitize')
+build_is_debug = get_option('buildtype').startswith('debug')
+if sanitize_opt.enabled() or (sanitize_opt.auto() and build_is_debug)
+  sanitize_args = [
+    '-fsanitize=address,undefined',
+    '-fno-omit-frame-pointer',
+    '-fno-sanitize-recover=all',
+  ]
+  add_project_arguments(sanitize_args, language: 'c')
+  add_project_link_arguments(sanitize_args, language: 'c')
+  message('Building with AddressSanitizer + UndefinedBehaviorSanitizer')
+endif
+
 # Adding include directory
 inc_dir = include_directories('include')
 

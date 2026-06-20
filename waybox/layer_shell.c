@@ -106,10 +106,9 @@ static struct wb_layer_surface *wb_layer_surface_create(
 static void handle_surface_commit(struct wl_listener *listener, void *data) {
 	struct wb_layer_surface *surface =
 		wl_container_of(listener, surface, surface_commit);
-	struct wb_toplevel *current_toplevel =
-		wl_container_of(surface->server->toplevels.next, current_toplevel, link);
+	struct wb_toplevel *current_toplevel = first_toplevel(surface->server);
 
-	if (!surface->output || current_toplevel->xdg_toplevel->current.fullscreen) {
+	if (!surface->output || (current_toplevel && current_toplevel->xdg_toplevel->current.fullscreen)) {
 		return;
 	}
 	wlr_fractional_scale_v1_notify_scale(surface->scene->layer_surface->surface, surface->output->wlr_output->scale);
@@ -188,10 +187,9 @@ static void wb_layer_surface_destroy(struct wb_layer_surface *surface) {
 		return;
 	}
 
-	if (surface->scene->layer_surface->surface != NULL)
-		wlr_fractional_scale_v1_notify_scale(surface->scene->layer_surface->surface,
-				surface->output->wlr_output->scale);
-
+	/* Do not touch surface->scene->layer_surface here: this runs from the
+	 * layer surface's destroy handler, by which point wlroots has already
+	 * torn down the wlr_layer_surface_v1 and its scene helper. */
 	wl_list_remove(&surface->map.link);
 	wl_list_remove(&surface->unmap.link);
 	wl_list_remove(&surface->surface_commit.link);
@@ -232,6 +230,9 @@ static struct wb_layer_surface *popup_get_layer(
 			}
 		}
 
+		if (current->parent == NULL) {
+			break;
+		}
 		current = &current->parent->node;
 	}
 
@@ -313,22 +314,38 @@ static void handle_new_popup(struct wl_listener *listener, void *data) {
 
 void handle_layer_shell_surface(struct wl_listener *listener, void *data) {
 	struct wlr_layer_surface_v1 *layer_surface = data;
+	struct wb_server *server =
+		wl_container_of(listener, server, new_layer_surface);
 
 	if (layer_surface->output == NULL) {
-		struct wb_server *server =
-			wl_container_of(listener, server, new_layer_surface);
-		if (wl_list_length(&server->toplevels) == 0) return;
-		struct wb_toplevel *toplevel =
-			wl_container_of(server->toplevels.next, toplevel, link);
-		layer_surface->output = get_active_output(toplevel);
+		/* The client didn't request a specific output, so pick one for it.
+		 * Most layer clients (panels, launchers like rofi) rely on this.
+		 * Prefer the output under the cursor, then the active toplevel's
+		 * output, then simply the first connected output. */
+		struct wlr_output *output = wlr_output_layout_output_at(
+				server->output_layout,
+				server->cursor->cursor->x, server->cursor->cursor->y);
+		if (output == NULL) {
+			struct wb_toplevel *toplevel = first_toplevel(server);
+			if (toplevel != NULL) {
+				output = get_active_output(toplevel);
+			}
+		}
+		if (output == NULL && !wl_list_empty(&server->outputs)) {
+			struct wb_output *first_output =
+				wl_container_of(server->outputs.next, first_output, link);
+			output = first_output->wlr_output;
+		}
+		layer_surface->output = output;
+	}
+
+	if (layer_surface->output == NULL || layer_surface->output->data == NULL) {
+		/* We have no connected output at all; reject the surface rather than
+		 * dereferencing a NULL output. */
+		wlr_layer_surface_v1_destroy(layer_surface);
+		return;
 	}
 	struct wb_output *output = layer_surface->output->data;
-
-	if (!layer_surface->output) {
-		/* Assign last active output */
-		layer_surface->output = output->wlr_output;
-	}
-
 
 	enum zwlr_layer_shell_v1_layer layer_type = layer_surface->pending.layer;
 	struct wlr_scene_tree *output_layer = wb_layer_get_scene(

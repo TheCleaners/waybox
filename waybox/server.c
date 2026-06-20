@@ -133,10 +133,14 @@ bool wb_start_server(struct wb_server* server) {
 }
 
 bool wb_terminate(struct wb_server* server) {
+	/* Destroy all clients first, so that surface unmap/destroy handlers (which
+	 * reference server->cursor, server->seat and server->config) run while
+	 * those objects are still alive. */
+	wl_display_destroy_clients(server->wl_display);
+
 	wb_cursor_destroy(server->cursor);
 	wl_list_remove(&server->new_xdg_decoration.link); /* wb_decoration_destroy */
 	deinit_config(server->config);
-	wl_display_destroy_clients(server->wl_display);
 	wlr_output_layout_destroy(server->output_layout);
 	wlr_allocator_destroy(server->allocator);
 	wlr_renderer_destroy(server->renderer);
