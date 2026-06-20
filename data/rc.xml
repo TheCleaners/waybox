@@ -8,6 +8,19 @@
     <left>0</left>
     <right>0</right>
   </margins>
+  <!-- Theme for compositor-drawn chrome (the root menu, and titlebars once
+       server-side decorations land). <name> resolves an Openbox theme under
+       <datadir>/themes/<name>/openbox-3/themerc (e.g. Clearlooks). Omit (as
+       below) to use the built-in default; uncomment and set a name to theme it. -->
+  <!-- <theme>
+    <name>Clearlooks</name>
+  </theme> -->
+  <!-- waybox-only extensions (Openbox ignores this block). Menu behaviour:
+       submenuOpen="hover|click", hoverDelay (ms before a submenu opens on
+       hover), wrap (keyboard navigation wraps at the ends). -->
+  <waybox>
+    <menu submenuOpen="hover" hoverDelay="100" wrap="yes"/>
+  </waybox>
   <!-- Where newly-mapped windows are placed: Smart (avoid overlap, then
        cascade), Center, or UnderMouse. -->
   <placement>
