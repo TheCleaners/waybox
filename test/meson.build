@@ -59,6 +59,20 @@ theme_test = executable(
   )
 test('theme', theme_test)
 
+widget_test = executable(
+  'widget_test',
+  ['widget_test.cpp', 'wb_test_main.cpp', widget_src],
+  include_directories: [inc_dir],
+  )
+test('widget', widget_test)
+
+style_test = executable(
+  'style_test',
+  ['style_test.cpp', 'wb_test_main.cpp', style_src, theme_src, widget_src],
+  include_directories: [inc_dir],
+  )
+test('style', style_test)
+
 menu_test = executable(
   'menu_test',
   ['menu_test.cpp', 'wb_test_main.cpp', menu_src, action_src],

@@ -7,6 +7,8 @@ wb_src = [
   applications_src,
   keychain_src,
   theme_src,
+  widget_src,
+  style_src,
   menu_src,
   render_src,
   files(

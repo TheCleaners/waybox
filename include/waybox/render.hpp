@@ -14,13 +14,9 @@ namespace wb {
  * a caller-supplied cairo_t (already scaled to the output) in logical pixels;
  * they have no wlroots dependency, so they can be pixel-tested in isolation
  * (test/render_test.cpp). The scene/buffer plumbing lives in scene_buffer.cpp.
+ *
+ * FontSpec lives in theme.hpp (the pure styling vocabulary).
  */
-
-struct FontSpec {
-	const char *family = "sans";
-	int size_pt = 10;
-	bool bold = false;
-};
 
 struct TextExtents {
 	int width = 0;
