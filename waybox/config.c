@@ -64,7 +64,7 @@ static xmlChar *get_attribute(xmlNode *node, char *attr_name) {
 	xmlAttr *attr = node->properties;
 	while (attr && strcmp((char *) attr->name, attr_name) != 0)
 		attr = attr->next;
-	return attr ? attr->children->content : (xmlChar *) "";
+	return (attr && attr->children) ? attr->children->content : (xmlChar *) "";
 }
 
 static void get_action(xmlNode *new_node, struct wb_key_binding *key_bind) {
@@ -96,7 +96,7 @@ static void get_action(xmlNode *new_node, struct wb_key_binding *key_bind) {
 		if (cur_node && cur_node->children)
 			get_action(cur_node->children, key_bind);
 
-		if (strcmp((char *) cur_node->name, "execute") == 0) {
+		if (strcmp((char *) cur_node->name, "execute") == 0 && cur_node->children) {
 			key_bind->cmd = (char *) xmlStrdup(cur_node->children->content);
 		}
 	}
