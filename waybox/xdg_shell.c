@@ -323,7 +323,7 @@ static void xdg_toplevel_request_minimize(struct wl_listener *listener, void *da
 			toplevel->geometry.x, toplevel->geometry.y);
 }
 
-static void begin_interactive(struct wb_toplevel *toplevel,
+void begin_interactive(struct wb_toplevel *toplevel,
 		enum wb_cursor_mode mode, uint32_t edges) {
 	/* This function sets up an interactive move or resize operation, where the
 	 * compositor stops propagating pointer events to clients and instead
