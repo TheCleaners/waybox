@@ -1,14 +1,14 @@
 wb_src = files(
-  'config.c',
-  'cursor.c',
-  'decoration.c',
-  'idle.c',
-  'layer_shell.c',
-  'main.c',
-  'output.c',
-  'seat.c',
-  'server.c',
-  'xdg_shell.c',
+  'config.cpp',
+  'cursor.cpp',
+  'decoration.cpp',
+  'idle.cpp',
+  'layer_shell.cpp',
+  'main.cpp',
+  'output.cpp',
+  'seat.cpp',
+  'server.cpp',
+  'xdg_shell.cpp',
   )
 
 wb_dep = [

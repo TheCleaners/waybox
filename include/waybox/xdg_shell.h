@@ -1,7 +1,7 @@
 #ifndef _WB_XDG_SHELL_H
 #define _WB_XDG_SHELL_H
 
-#include <wlr/types/wlr_fractional_scale_v1.h>
+#include "waybox/wlroots.hpp"
 
 #include "waybox/server.h"
 

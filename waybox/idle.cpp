@@ -1,4 +1,4 @@
-#include <wlr/types/wlr_idle_inhibit_v1.h>
+#include "waybox/wlroots.hpp"
 
 #include "idle.h"
 
@@ -19,7 +19,7 @@ static void idle_inhibitor_destroy(struct wl_listener *listener, void *data) {
 
 static void idle_inhibitor_new(struct wl_listener *listener, void *data) {
 	struct wb_server *server = wl_container_of(listener, server, new_inhibitor);
-	struct wlr_idle_inhibitor_v1 *inhibitor = data;
+	struct wlr_idle_inhibitor_v1 *inhibitor = static_cast<struct wlr_idle_inhibitor_v1 *>(data);
 
 	server->destroy_inhibitor.notify = idle_inhibitor_destroy;
 	wl_signal_add(&inhibitor->events.destroy, &server->destroy_inhibitor);

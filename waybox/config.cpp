@@ -8,7 +8,7 @@
 
 /* Join two path components into a freshly-allocated string. */
 static char *path_join(const char *base, const char *suffix) {
-	char *path = malloc(strlen(base) + strlen(suffix) + 1);
+	char *path = static_cast<char *>(malloc(strlen(base) + strlen(suffix) + 1));
 	if (!path)
 		return NULL;
 	strcpy(path, base);
@@ -42,8 +42,8 @@ static unsigned long strtoulong(char *s) {
 	return value;
 }
 
-static char *parse_xpath_expr(char *expr, xmlXPathContextPtr ctxt) {
-	xmlXPathObjectPtr object = xmlXPathEvalExpression((xmlChar *) expr, ctxt);
+static char *parse_xpath_expr(const char *expr, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression((const xmlChar *) expr, ctxt);
 	if (object == NULL) {
 		wlr_log(WLR_INFO, "%s: %s", _("Unable to evaluate expression"), expr);
 		xmlXPathFreeContext(ctxt);
@@ -60,11 +60,12 @@ static char *parse_xpath_expr(char *expr, xmlXPathContextPtr ctxt) {
 	return (char *) ret;
 }
 
-static xmlChar *get_attribute(xmlNode *node, char *attr_name) {
+static xmlChar *get_attribute(xmlNode *node, const char *attr_name) {
+	static xmlChar empty[1] = {};
 	xmlAttr *attr = node->properties;
 	while (attr && strcmp((char *) attr->name, attr_name) != 0)
 		attr = attr->next;
-	return (attr && attr->children) ? attr->children->content : (xmlChar *) "";
+	return (attr && attr->children) ? attr->children->content : empty;
 }
 
 static void get_action(xmlNode *new_node, struct wb_key_binding *key_bind) {
@@ -127,7 +128,7 @@ static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt
 				sym = (char *) get_attribute(keycomb, "key");
 				char *s;
 
-				struct wb_key_binding *key_bind = calloc(1, sizeof(struct wb_key_binding));
+				struct wb_key_binding *key_bind = static_cast<struct wb_key_binding *>(calloc(1, sizeof(struct wb_key_binding)));
 				if (key_bind == NULL) {
 					continue;
 				}
@@ -151,7 +152,7 @@ static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt
 					else if (strcmp(s, "W") == 0 || strcmp(s, "Logo") == 0)
 						modifiers |= WLR_MODIFIER_LOGO;
 					key_bind->modifiers = modifiers;
-					key_bind->sym = xkb_keysym_from_name(s, 0);
+					key_bind->sym = xkb_keysym_from_name(s, XKB_KEYSYM_NO_FLAGS);
 					sym = NULL;
 				}
 
@@ -168,7 +169,7 @@ static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt
 }
 
 bool init_config(struct wb_server *server) {
-	struct wb_config *config = calloc(1, sizeof(struct wb_config));
+	struct wb_config *config = static_cast<struct wb_config *>(calloc(1, sizeof(struct wb_config)));
 	if (config == NULL)
 		return false;
 	xmlDocPtr doc;

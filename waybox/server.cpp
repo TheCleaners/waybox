@@ -4,10 +4,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <wlr/types/wlr_ext_data_control_v1.h>
-#include <wlr/types/wlr_fractional_scale_v1.h>
-#include <wlr/types/wlr_viewporter.h>
-#include <wlr/types/wlr_xdg_toplevel_icon_v1.h>
+#include "waybox/wlroots.hpp"
+#include "waybox/wlroots.hpp"
+#include "waybox/wlroots.hpp"
+#include "waybox/wlroots.hpp"
 
 #include "idle.h"
 #include "waybox/server.h"

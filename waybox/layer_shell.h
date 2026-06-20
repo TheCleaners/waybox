@@ -1,6 +1,6 @@
 #ifndef _WB_LAYERS_H
 #define _WB_LAYERS_H
-#include <wlr/types/wlr_layer_shell_v1.h>
+#include "waybox/wlroots.hpp"
 
 #include "waybox/output.h"
 

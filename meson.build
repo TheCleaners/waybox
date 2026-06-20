@@ -1,17 +1,18 @@
 project(
   'Waybox',
-  'c',
+  ['c', 'cpp'],
   version: '0.2.3',
   license: 'MIT',
   meson_version: '>=0.60.0',
   default_options: [
     'c_std=c11',
+    'cpp_std=c++20',
     'warning_level=2',
     'werror=true',
   ],
 )
 
-add_project_arguments(
+project_args = [
   '-Wno-unused-parameter',
   '-D_DEFAULT_SOURCE',
   '-D_POSIX_C_SOURCE=200112L',
@@ -19,7 +20,8 @@ add_project_arguments(
   '-DWLR_USE_UNSTABLE',
   '-DPACKAGE_NAME="' + meson.project_name() + '"',
   '-DPACKAGE_VERSION="' + meson.project_version() + '"',
-  language: 'c')
+]
+add_project_arguments(project_args, language: ['c', 'cpp'])
 
 cc = meson.get_compiler('c')
 
@@ -35,8 +37,8 @@ if sanitize_opt.enabled() or (sanitize_opt.auto() and build_is_debug)
     '-fno-omit-frame-pointer',
     '-fno-sanitize-recover=all',
   ]
-  add_project_arguments(sanitize_args, language: 'c')
-  add_project_link_arguments(sanitize_args, language: 'c')
+  add_project_arguments(sanitize_args, language: ['c', 'cpp'])
+  add_project_link_arguments(sanitize_args, language: ['c', 'cpp'])
   message('Building with AddressSanitizer + UndefinedBehaviorSanitizer')
 endif
 

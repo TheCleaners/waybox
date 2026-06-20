@@ -61,7 +61,7 @@ struct wb_config {
 struct wb_key_binding {
 	xkb_keysym_t sym;
 	uint32_t modifiers;
-	enum action_type action;
+	uint32_t action;
 	char *cmd;
 	struct wl_list link;
 };

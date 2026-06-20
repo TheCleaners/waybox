@@ -1,7 +1,7 @@
 #ifndef _WB_DECORATION_H
 #define _WB_DECORATION_H
 
-#include <wlr/types/wlr_xdg_decoration_v1.h>
+#include "waybox/wlroots.hpp"
 
 #include "waybox/server.h"
 

@@ -5,8 +5,8 @@
  * Copyright 2019 Drew DeVault
  * Copyright 2022 Sway Developers
  */
-#include <wlr/types/wlr_layer_shell_v1.h>
-#include <wlr/types/wlr_scene.h>
+#include "waybox/wlroots.hpp"
+#include "waybox/wlroots.hpp"
 
 #include "waybox/xdg_shell.h"
 
@@ -30,7 +30,7 @@ static void handle_descriptor_destroy(struct wl_listener *listener, void *data) 
 void assign_scene_descriptor(struct wlr_scene_node *node,
 		enum wb_scene_descriptor_type type, void *data) {
 	struct wb_scene_descriptor *desc =
-		calloc(1, sizeof(struct wb_scene_descriptor));
+		static_cast<wb_scene_descriptor *>(calloc(1, sizeof(struct wb_scene_descriptor)));
 
 	if (!desc) {
 		return;
@@ -49,13 +49,13 @@ static void arrange_surface(struct wb_output *output, struct wlr_box *full_area,
 		struct wlr_box *usable_area, struct wlr_scene_tree *scene_tree) {
 	struct wlr_scene_node *node;
 	wl_list_for_each(node, &scene_tree->children, link) {
-		struct wb_scene_descriptor *desc = node->data;
+		struct wb_scene_descriptor *desc = static_cast<struct wb_scene_descriptor *>(node->data);
 		if (desc == NULL) {
 			continue;
 		}
 
 		if (desc->type == WB_SCENE_DESC_LAYER_SHELL) {
-			struct wb_layer_surface *surface = desc->data;
+			struct wb_layer_surface *surface = static_cast<struct wb_layer_surface *>(desc->data);
 			surface->scene->layer_surface->initialized = true;
 			wlr_scene_layer_surface_v1_configure(surface->scene,
 					full_area, usable_area);
@@ -64,7 +64,7 @@ static void arrange_surface(struct wb_output *output, struct wlr_box *full_area,
 }
 
 void arrange_layers(struct wb_output *output) {
-	struct wlr_box usable_area = { 0 };
+	struct wlr_box usable_area = {};
 	struct wlr_box full_area;
 	wlr_output_effective_resolution(output->wlr_output,
 			&usable_area.width, &usable_area.height);
@@ -101,7 +101,7 @@ static struct wlr_scene_tree *wb_layer_get_scene(struct wb_output *output,
 
 static struct wb_layer_surface *wb_layer_surface_create(
 		struct wlr_scene_layer_surface_v1 *scene) {
-	struct wb_layer_surface *surface = calloc(1, sizeof(struct wb_layer_surface));
+	struct wb_layer_surface *surface = static_cast<struct wb_layer_surface *>(calloc(1, sizeof(struct wb_layer_surface)));
 	if (!surface) {
 		return NULL;
 	}
@@ -233,9 +233,9 @@ static struct wb_layer_surface *popup_get_layer(
 	struct wlr_scene_node *current = &popup->scene->node;
 	while (current) {
 		if (current->data) {
-			struct wb_scene_descriptor *desc = current->data;
+			struct wb_scene_descriptor *desc = static_cast<struct wb_scene_descriptor *>(current->data);
 			if (desc->type == WB_SCENE_DESC_LAYER_SHELL) {
-				return desc->data;
+				return static_cast<wb_layer_surface *>(desc->data);
 			}
 		}
 
@@ -286,7 +286,7 @@ static void popup_handle_commit(struct wl_listener *listener, void *data) {
 static struct wb_layer_popup *create_popup(struct wlr_xdg_popup *wlr_popup,
 			struct wlr_scene_tree *parent) {
 	struct wb_layer_popup *popup =
-		calloc(1, sizeof(struct wb_layer_popup));
+		static_cast<wb_layer_popup *>(calloc(1, sizeof(struct wb_layer_popup)));
 	if (popup == NULL) {
 		return NULL;
 	}
@@ -319,20 +319,20 @@ static struct wb_layer_popup *create_popup(struct wlr_xdg_popup *wlr_popup,
 static void popup_handle_new_popup(struct wl_listener *listener, void *data) {
 	struct wb_layer_popup *layer_popup =
 		wl_container_of(listener, layer_popup, new_popup);
-	struct wlr_xdg_popup *wlr_popup = data;
+	struct wlr_xdg_popup *wlr_popup = static_cast<struct wlr_xdg_popup *>(data);
 	create_popup(wlr_popup, layer_popup->scene);
 }
 
 static void handle_new_popup(struct wl_listener *listener, void *data) {
 	struct wb_layer_surface *wb_layer_surface =
 		wl_container_of(listener, wb_layer_surface, new_popup);
-	struct wlr_xdg_popup *wlr_popup = data;
+	struct wlr_xdg_popup *wlr_popup = static_cast<struct wlr_xdg_popup *>(data);
 
 	create_popup(wlr_popup, wb_layer_surface->scene->tree);
 }
 
 void handle_layer_shell_surface(struct wl_listener *listener, void *data) {
-	struct wlr_layer_surface_v1 *layer_surface = data;
+	struct wlr_layer_surface_v1 *layer_surface = static_cast<struct wlr_layer_surface_v1 *>(data);
 	struct wb_server *server =
 		wl_container_of(listener, server, new_layer_surface);
 
@@ -364,7 +364,7 @@ void handle_layer_shell_surface(struct wl_listener *listener, void *data) {
 		wlr_layer_surface_v1_destroy(layer_surface);
 		return;
 	}
-	struct wb_output *output = layer_surface->output->data;
+	struct wb_output *output = static_cast<struct wb_output *>(layer_surface->output->data);
 
 	enum zwlr_layer_shell_v1_layer layer_type = layer_surface->pending.layer;
 	struct wlr_scene_tree *output_layer = wb_layer_get_scene(

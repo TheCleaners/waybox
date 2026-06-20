@@ -1,15 +1,15 @@
 #include <libevdev/libevdev.h>
 #include <unistd.h>
 
-#include <wlr/config.h>
+#include "waybox/wlroots.hpp"
 #if WLR_HAS_LIBINPUT_BACKEND && defined(HAS_LIBINPUT)
-#include <wlr/backend/libinput.h>
+#include "waybox/wlroots.hpp"
 #else
 #undef HAS_LIBINPUT
 #endif
-#include <wlr/backend/session.h>
-#include <wlr/types/wlr_primary_selection.h>
-#include <wlr/types/wlr_primary_selection_v1.h>
+#include "waybox/wlroots.hpp"
+#include "waybox/wlroots.hpp"
+#include "waybox/wlroots.hpp"
 
 #include "waybox/seat.h"
 #include "waybox/xdg_shell.h"
@@ -184,7 +184,7 @@ static void keyboard_handle_key(
 	struct wb_keyboard *keyboard =
 		wl_container_of(listener, keyboard, key);
 	struct wb_server *server = keyboard->server;
-	struct wlr_keyboard_key_event *event = data;
+	struct wlr_keyboard_key_event *event = static_cast<struct wlr_keyboard_key_event *>(data);
 	struct wlr_seat *seat = server->seat->seat;
 
 	/* Translate libinput keycode -> xkbcommon */
@@ -215,7 +215,7 @@ static void keyboard_handle_key(
 static void handle_new_keyboard(struct wb_server *server,
 		struct wlr_input_device *device) {
 	struct wb_keyboard *keyboard =
-		calloc(1, sizeof(struct wb_keyboard));
+		static_cast<wb_keyboard *>(calloc(1, sizeof(struct wb_keyboard)));
 	if (keyboard == NULL) {
 		return;
 	}
@@ -228,7 +228,7 @@ static void handle_new_keyboard(struct wb_server *server,
 	 * variables. We use a zero-initialized stack struct so any field not set
 	 * from the config stays NULL (which xkbcommon treats as "default") rather
 	 * than an uninitialized garbage pointer. */
-	struct xkb_rule_names rule_names = {0};
+	struct xkb_rule_names rule_names = {};
 	struct xkb_rule_names *rules = NULL;
 	if (server->config && server->config->keyboard_layout.use_config) {
 		rule_names.layout = server->config->keyboard_layout.layout;
@@ -296,7 +296,7 @@ static void handle_new_pointer(struct wb_server *server, struct wlr_input_device
 			 * never index past matrix[6] or feed strtod a NULL token. */
 			char *copy = strdup(config->libinput_config.calibration_matrix);
 			if (copy) {
-				float matrix[6] = {0};
+				float matrix[6] = {};
 				unsigned short i = 0;
 				char *saveptr = NULL;
 				char *token = strtok_r(copy, " ", &saveptr);
@@ -382,7 +382,7 @@ static void handle_new_pointer(struct wb_server *server, struct wlr_input_device
 }
 
 static void new_input_notify(struct wl_listener *listener, void *data) {
-	struct wlr_input_device *device = data;
+	struct wlr_input_device *device = static_cast<struct wlr_input_device *>(data);
 	struct wb_server *server = wl_container_of(listener, server, new_input);
 	switch (device->type) {
 		case WLR_INPUT_DEVICE_KEYBOARD:
@@ -433,7 +433,7 @@ static void handle_request_set_primary_selection(struct wl_listener *listener,
 		void *data) {
 	struct wb_seat *seat =
 		wl_container_of(listener, seat, request_set_primary_selection);
-	struct wlr_seat_request_set_primary_selection_event *event = data;
+	struct wlr_seat_request_set_primary_selection_event *event = static_cast<struct wlr_seat_request_set_primary_selection_event *>(data);
 	wlr_seat_set_primary_selection(seat->seat, event->source, event->serial);
 }
 
@@ -441,12 +441,12 @@ static void handle_request_set_selection(struct wl_listener *listener, void
 		*data) {
 	struct wb_seat *seat =
 		wl_container_of(listener, seat, request_set_selection);
-	struct wlr_seat_request_set_selection_event *event = data;
+	struct wlr_seat_request_set_selection_event *event = static_cast<struct wlr_seat_request_set_selection_event *>(data);
 	wlr_seat_set_selection(seat->seat, event->source, event->serial);
 }
 
 struct wb_seat *wb_seat_create(struct wb_server *server) {
-	struct wb_seat *seat = calloc(1, sizeof(struct wb_seat));
+	struct wb_seat *seat = static_cast<struct wb_seat *>(calloc(1, sizeof(struct wb_seat)));
 	if (seat == NULL)
 		return NULL;
 	wl_list_init(&seat->keyboards);

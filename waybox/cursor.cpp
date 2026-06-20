@@ -111,7 +111,7 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 static void handle_cursor_motion(struct wl_listener *listener, void *data) {
 	struct wb_cursor *cursor =
 		wl_container_of(listener, cursor, cursor_motion);
-	struct wlr_pointer_motion_event *event = data;
+	struct wlr_pointer_motion_event *event = static_cast<struct wlr_pointer_motion_event *>(data);
 	wlr_cursor_move(cursor->cursor, &event->pointer->base,
 			event->delta_x, event->delta_y);
 	process_cursor_motion(cursor->server, event->time_msec);
@@ -120,7 +120,7 @@ static void handle_cursor_motion(struct wl_listener *listener, void *data) {
 static void handle_cursor_motion_absolute(struct wl_listener *listener, void *data) {
 	struct wb_cursor *cursor =
 		wl_container_of(listener, cursor, cursor_motion_absolute);
-	struct wlr_pointer_motion_absolute_event *event = data;
+	struct wlr_pointer_motion_absolute_event *event = static_cast<struct wlr_pointer_motion_absolute_event *>(data);
 	wlr_cursor_warp_absolute(cursor->cursor, &event->pointer->base,
 			event->x, event->y);
 	process_cursor_motion(cursor->server, event->time_msec);
@@ -132,7 +132,7 @@ static void handle_pointer_focus_change(struct wl_listener *listener, void *data
 	/* This event is raised when the pointer focus is changed, including when the
 	 * client is closed. We set the cursor image to its default if target surface
 	 * is NULL */
-	struct wlr_seat_pointer_focus_change_event *event = data;
+	struct wlr_seat_pointer_focus_change_event *event = static_cast<struct wlr_seat_pointer_focus_change_event *>(data);
 	if (event->new_surface == NULL) {
 		wlr_cursor_set_xcursor(cursor->cursor, cursor->xcursor_manager, "default");
 	}
@@ -145,7 +145,7 @@ static void handle_cursor_button(struct wl_listener *listener, void *data) {
 		wl_container_of(listener, cursor, cursor_button);
 	struct wb_server *server = cursor->server;
 	struct wlr_seat *seat = server->seat->seat;
-	struct wlr_pointer_button_event *event = data;
+	struct wlr_pointer_button_event *event = static_cast<struct wlr_pointer_button_event *>(data);
 	double sx, sy;
 	struct wlr_surface *surface = NULL;
 	struct wb_toplevel *toplevel = get_toplevel_at(server,
@@ -199,7 +199,7 @@ static void handle_cursor_axis(struct wl_listener *listener, void *data) {
 	 * for example when you move the scroll wheel. */
 	struct wb_cursor *cursor =
 		wl_container_of(listener, cursor, cursor_axis);
-	struct wlr_pointer_axis_event *event = data;
+	struct wlr_pointer_axis_event *event = static_cast<struct wlr_pointer_axis_event *>(data);
 	/* Notify the client with pointer focus of the axis event. */
 	wlr_seat_pointer_notify_axis(cursor->server->seat->seat,
 			event->time_msec, event->orientation, event->delta,
@@ -221,7 +221,7 @@ static void handle_cursor_request(struct wl_listener *listener, void *data) {
 	struct wb_cursor *cursor = wl_container_of(
 			listener, cursor, request_cursor);
 	/* This event is raised by the seat when a client provides a cursor image */
-	struct wlr_seat_pointer_request_set_cursor_event *event = data;
+	struct wlr_seat_pointer_request_set_cursor_event *event = static_cast<struct wlr_seat_pointer_request_set_cursor_event *>(data);
 	struct wlr_seat_client *focused_client =
 		cursor->server->seat->seat->pointer_state.focused_client;
 	/* This can be sent by any client, so we check to make sure this one is
@@ -237,7 +237,7 @@ static void handle_cursor_request(struct wl_listener *listener, void *data) {
 }
 
 struct wb_cursor *wb_cursor_create(struct wb_server *server) {
-	struct wb_cursor *cursor = calloc(1, sizeof(struct wb_cursor));
+	struct wb_cursor *cursor = static_cast<struct wb_cursor *>(calloc(1, sizeof(struct wb_cursor)));
 	if (cursor == NULL) {
 		return NULL;
 	}
