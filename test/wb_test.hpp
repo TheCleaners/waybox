@@ -49,12 +49,12 @@ struct Registrar {
 			wb_test_##name};                                                 \
 	static void wb_test_##name()
 
-#define WB_CHECK(cond)                                                       \
+#define WB_CHECK(...)                                                        \
 	do {                                                                     \
-		if (!(cond)) {                                                       \
+		if (!(__VA_ARGS__)) {                                                \
 			++::wb::test::failure_count();                                   \
 			std::fprintf(stderr, "  FAIL %s:%d: WB_CHECK(%s)\n", __FILE__,   \
-					__LINE__, #cond);                                        \
+					__LINE__, #__VA_ARGS__);                                 \
 		}                                                                    \
 	} while (0)
 
