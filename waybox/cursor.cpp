@@ -1,5 +1,3 @@
-#include <linux/input-event-codes.h>
-
 #include <vector>
 
 #include "waybox/cursor.h"
@@ -196,9 +194,10 @@ void wb_cursor::on_button(void *data) {
 		struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(seat);
 		uint32_t modifiers = keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
 		if (toplevel != nullptr && (modifiers & WLR_MODIFIER_ALT) &&
-				(event->button == BTN_LEFT || event->button == BTN_RIGHT)) {
+				(event->button == wb::MOUSE_BUTTON_LEFT ||
+						event->button == wb::MOUSE_BUTTON_RIGHT)) {
 			focus_toplevel(toplevel);
-			if (event->button == BTN_LEFT) {
+			if (event->button == wb::MOUSE_BUTTON_LEFT) {
 				begin_interactive(toplevel, WB_CURSOR_MOVE, 0);
 			} else {
 				/* Resize from the corner nearest the pointer. */

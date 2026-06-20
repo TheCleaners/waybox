@@ -116,6 +116,13 @@ Subsystem map (`waybox/<name>.cpp`, headers in `include/waybox/` or `waybox/`):
 - `config` — parses Openbox-style `rc.xml` via libxml2 + XPath.
 - `decoration` / `idle` — xdg-decoration and idle-inhibit glue.
 
+**Portability:** the compositor avoids OS-specific headers in its own logic —
+pointer button codes use `wb::MOUSE_BUTTON_*` (the evdev values wlroots reports
+on every platform) instead of `<linux/input-event-codes.h>`. The remaining
+non-portable-looking dependency is libevdev (`seat.cpp`, only to resolve a
+scroll-button name), which is itself available on the BSDs. Keep new code free
+of `<linux/...>` includes so a BSD port stays within reach.
+
 Rendering is the wlroots **scene graph**; per output there are layer scene-trees
 (`background`/`bottom`/`top`/`overlay`). Window **stacking order** is
 `server->toplevels` (`wb_toplevel::link`, head = top; use `raise_toplevel()` /
