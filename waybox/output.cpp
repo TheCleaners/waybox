@@ -1,6 +1,6 @@
 #include <math.h>
 
-#include <wlr/util/box.h>
+#include "waybox/wlroots.hpp"
 
 #include "waybox/output.h"
 
@@ -109,7 +109,7 @@ static bool apply_output_config(struct wb_server *server,
 		if (head->state.enabled) {
 			wlr_output_layout_add(server->output_layout, wlr_output,
 					head->state.x, head->state.y);
-			reconfigure_output(wlr_output->data);
+			reconfigure_output(static_cast<wb_output *>(wlr_output->data));
 		} else {
 			wlr_output_layout_remove(server->output_layout, wlr_output);
 		}
@@ -164,7 +164,7 @@ void output_frame_notify(struct wl_listener *listener, void *data) {
 void output_configuration_applied(struct wl_listener *listener, void *data) {
 	struct wb_server *server =
 		wl_container_of(listener, server, output_configuration_applied);
-	struct wlr_output_configuration_v1 *configuration = data;
+	struct wlr_output_configuration_v1 *configuration = static_cast<struct wlr_output_configuration_v1 *>(data);
 	if (apply_output_config(server, configuration, false)) {
 		wlr_output_configuration_v1_send_succeeded(configuration);
 	} else {
@@ -177,7 +177,7 @@ void output_configuration_applied(struct wl_listener *listener, void *data) {
 void output_configuration_tested(struct wl_listener *listener, void *data) {
 	struct wb_server *server =
 		wl_container_of(listener, server, output_configuration_tested);
-	struct wlr_output_configuration_v1 *configuration = data;
+	struct wlr_output_configuration_v1 *configuration = static_cast<struct wlr_output_configuration_v1 *>(data);
 	if (apply_output_config(server, configuration, true)) {
 		wlr_output_configuration_v1_send_succeeded(configuration);
 	} else {
@@ -188,7 +188,7 @@ void output_configuration_tested(struct wl_listener *listener, void *data) {
 
 void output_request_state_notify(struct wl_listener *listener, void *data) {
 	struct wb_output *output = wl_container_of(listener, output, request_state);
-	const struct wlr_output_event_request_state *event = data;
+	const struct wlr_output_event_request_state *event = static_cast<const struct wlr_output_event_request_state *>(data);
 
 	if (wlr_output_commit_state(output->wlr_output, event->state)) {
 		reconfigure_output(output);
@@ -197,8 +197,8 @@ void output_request_state_notify(struct wl_listener *listener, void *data) {
 }
 
 void handle_gamma_control_set_gamma(struct wl_listener *listener, void *data) {
-	const struct wlr_gamma_control_manager_v1_set_gamma_event *event = data;
-	struct wb_output *output = event->output->data;
+	const struct wlr_gamma_control_manager_v1_set_gamma_event *event = static_cast<const struct wlr_gamma_control_manager_v1_set_gamma_event *>(data);
+	struct wb_output *output = static_cast<struct wb_output *>(event->output->data);
 	output->gamma_lut_changed = true;
 	wlr_output_schedule_frame(output->wlr_output);
 }
@@ -226,7 +226,7 @@ void new_output_notify(struct wl_listener *listener, void *data) {
 	struct wb_server *server = wl_container_of(
 			listener, server, new_output
 			);
-	struct wlr_output *wlr_output = data;
+	struct wlr_output *wlr_output = static_cast<struct wlr_output *>(data);
 	wlr_log(WLR_INFO, "%s: %s", _("New output device detected"), wlr_output->name);
 
 	/* Configures the output created by the backend to use our allocator
@@ -248,7 +248,7 @@ void new_output_notify(struct wl_listener *listener, void *data) {
 	wlr_output_commit_state(wlr_output, &state);
 	wlr_output_state_finish(&state);
 
-	struct wb_output *output = calloc(1, sizeof(struct wb_output));
+	struct wb_output *output = static_cast<struct wb_output *>(calloc(1, sizeof(struct wb_output)));
 	if (output == NULL) {
 		wlr_log(WLR_ERROR, "%s", _("Failed to allocate output"));
 		return;

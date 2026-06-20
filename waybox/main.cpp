@@ -20,7 +20,7 @@ bool show_help(char *name) {
 	return true;
 }
 
-struct wb_server server = {0};
+struct wb_server server = {};
 void signal_handler(int sig) {
 	switch (sig) {
 		case SIGINT:

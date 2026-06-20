@@ -16,8 +16,8 @@ static void handle_xdg_decoration_mode(struct wl_listener *listener, void *data)
 
 	/* Resolve the wb_toplevel that actually owns this decoration, rather than
 	 * assuming it is the front toplevel. */
-	struct wlr_scene_tree *scene_tree = xdg_toplevel->base->data;
-	struct wb_toplevel *toplevel = scene_tree ? scene_tree->node.data : NULL;
+	struct wlr_scene_tree *scene_tree = static_cast<struct wlr_scene_tree *>(xdg_toplevel->base->data);
+	struct wb_toplevel *toplevel = static_cast<struct wb_toplevel *>(scene_tree ? scene_tree->node.data : NULL);
 
 	if (xdg_toplevel->base->initialized)
 		wlr_xdg_toplevel_decoration_v1_set_mode(toplevel_decoration, WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE);
@@ -26,8 +26,8 @@ static void handle_xdg_decoration_mode(struct wl_listener *listener, void *data)
 }
 
 static void handle_new_xdg_toplevel_decoration(struct wl_listener *listener, void *data) {
-	struct wlr_xdg_toplevel_decoration_v1 *toplevel_decoration = data;
-	struct wb_decoration *decoration = calloc(1, sizeof(struct wb_decoration));
+	struct wlr_xdg_toplevel_decoration_v1 *toplevel_decoration = static_cast<struct wlr_xdg_toplevel_decoration_v1 *>(data);
+	struct wb_decoration *decoration = static_cast<struct wb_decoration *>(calloc(1, sizeof(struct wb_decoration)));
 	if (decoration == NULL)
 		return;
 	struct wb_server *server = wl_container_of(listener, server, new_xdg_decoration);

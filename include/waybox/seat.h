@@ -1,7 +1,7 @@
 #ifndef _WB_SEAT_H
 #define _WB_SEAT_H
 
-#include <wlr/types/wlr_seat.h>
+#include "waybox/wlroots.hpp"
 
 struct wb_seat {
 	struct wlr_seat *seat;

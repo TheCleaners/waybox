@@ -4,7 +4,7 @@
 #include <time.h>
 
 #include "waybox/server.h"
-#include <wlr/types/wlr_output_management_v1.h>
+#include "waybox/wlroots.hpp"
 
 struct wb_output {
 	struct wlr_output *wlr_output;

@@ -1,7 +1,7 @@
 #ifndef _WB_CURSOR_H
 #define _WB_CURSOR_H
-#include <wlr/types/wlr_cursor.h>
-#include <wlr/types/wlr_xcursor_manager.h>
+#include "waybox/wlroots.hpp"
+#include "waybox/wlroots.hpp"
 
 struct wb_server;
 

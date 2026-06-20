@@ -1,4 +1,4 @@
-#include <wlr/util/box.h>
+#include "waybox/wlroots.hpp"
 
 #include "idle.h"
 #include "waybox/xdg_shell.h"
@@ -34,7 +34,7 @@ struct wb_toplevel *get_toplevel_at(
 	if (tree == NULL) {
 		return NULL;
 	}
-	struct wb_toplevel *candidate = tree->node.data;
+	struct wb_toplevel *candidate = static_cast<struct wb_toplevel *>(tree->node.data);
 	struct wb_toplevel *toplevel;
 	wl_list_for_each(toplevel, &server->toplevels, link) {
 		if (toplevel == candidate) {
@@ -118,9 +118,9 @@ struct wlr_output *get_active_output(struct wb_toplevel *toplevel) {
 
 static struct wlr_box get_usable_area(struct wb_toplevel *toplevel) {
 	struct wlr_output *output = get_active_output(toplevel);
-	struct wlr_box usable_area = {0};
+	struct wlr_box usable_area = {};
 	if (output != NULL) {
-		struct wb_output *wb_output = output->data;
+		struct wb_output *wb_output = static_cast<struct wb_output *>(output->data);
 		if (wb_output != NULL && wb_output->usable_area.width > 0 &&
 				wb_output->usable_area.height > 0) {
 			/* Area left after subtracting layer-shell exclusive zones. */
@@ -202,7 +202,7 @@ void constrain_toplevel_to_usable_area(struct wb_toplevel *toplevel) {
 	struct wlr_output *output = get_active_output(toplevel);
 	if (output == NULL || output->data == NULL)
 		return;
-	struct wb_output *wb_output = output->data;
+	struct wb_output *wb_output = static_cast<struct wb_output *>(output->data);
 	struct wlr_box usable = wb_output->usable_area;
 	if (usable.width <= 0 || usable.height <= 0)
 		return;
@@ -371,7 +371,7 @@ static void xdg_toplevel_request_fullscreen(
 	bool is_fullscreen = toplevel->xdg_toplevel->current.fullscreen;
 	if (!is_fullscreen) {
 		struct wlr_output *wlr_output = get_active_output(toplevel);
-		struct wb_output *output = wlr_output ? wlr_output->data : NULL;
+		struct wb_output *output = static_cast<struct wb_output *>(wlr_output ? wlr_output->data : NULL);
 		toplevel->previous_geometry = toplevel->geometry;
 		toplevel->geometry.x = 0;
 		toplevel->geometry.y = 0;
@@ -491,7 +491,7 @@ static void xdg_toplevel_request_resize(
 	/* This event is raised when a client would like to begin an interactive
 	 * resize, typically because the user clicked on their client-side
 	 * decorations. */
-	struct wlr_xdg_toplevel_resize_event *event = data;
+	struct wlr_xdg_toplevel_resize_event *event = static_cast<struct wlr_xdg_toplevel_resize_event *>(data);
 	struct wb_toplevel *toplevel = wl_container_of(listener, toplevel, request_resize);
 	begin_interactive(toplevel, WB_CURSOR_RESIZE, event->edges);
 }
@@ -506,8 +506,8 @@ static struct wb_toplevel *popup_root_toplevel(struct wlr_xdg_popup *xdg_popup) 
 		if (xdg_surface == NULL)
 			return NULL;
 		if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL) {
-			struct wlr_scene_tree *tree = xdg_surface->data;
-			return tree ? tree->node.data : NULL;
+			struct wlr_scene_tree *tree = static_cast<struct wlr_scene_tree *>(xdg_surface->data);
+			return static_cast<wb_toplevel *>(tree ? tree->node.data : NULL);
 		}
 		if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP &&
 				xdg_surface->popup != NULL) {
@@ -541,7 +541,7 @@ static void xdg_popup_commit(struct wl_listener *listener, void *data) {
 				toplevel->geometry.x + popup->xdg_popup->current.geometry.x,
 				toplevel->geometry.y + popup->xdg_popup->current.geometry.y);
 		if (wlr_output != NULL && wlr_output->data != NULL) {
-			struct wb_output *output = wlr_output->data;
+			struct wb_output *output = static_cast<struct wb_output *>(wlr_output->data);
 			int top_margin = toplevel->server->config ?
 				toplevel->server->config->margins.top : 0;
 			struct wlr_box output_toplevel_box = {
@@ -576,18 +576,18 @@ static void handle_new_xdg_popup(struct wl_listener *listener, void *data) {
 	 * provide the proper parent scene node of the xdg popup. To enable this,
 	 * we always set the user data field of xdg_surfaces to the corresponding
 	 * scene node. */
-	struct wlr_xdg_popup *xdg_popup = data;
+	struct wlr_xdg_popup *xdg_popup = static_cast<struct wlr_xdg_popup *>(data);
 	if (xdg_popup->parent) {
 		struct wlr_xdg_surface *parent = wlr_xdg_surface_try_from_wlr_surface(
 			xdg_popup->parent);
 		if (parent != NULL) {
-			struct wlr_scene_tree *parent_tree = parent->data;
+			struct wlr_scene_tree *parent_tree = static_cast<struct wlr_scene_tree *>(parent->data);
 			xdg_popup->base->data = wlr_scene_xdg_surface_create(
 				parent_tree, xdg_popup->base);
 		}
 	}
 
-	struct wb_popup *popup = calloc(1, sizeof(struct wb_popup));
+	struct wb_popup *popup = static_cast<struct wb_popup *>(calloc(1, sizeof(struct wb_popup)));
 	if (popup == NULL) {
 		return;
 	}
@@ -602,11 +602,11 @@ static void handle_new_xdg_popup(struct wl_listener *listener, void *data) {
 static void handle_new_xdg_toplevel(struct wl_listener *listener, void *data) {
 	struct wb_server *server =
 		wl_container_of(listener, server, new_xdg_toplevel);
-	struct wlr_xdg_toplevel *xdg_toplevel = data;
+	struct wlr_xdg_toplevel *xdg_toplevel = static_cast<struct wlr_xdg_toplevel *>(data);
 
 	/* Allocate a wb_toplevel for this toplevel */
 	struct wb_toplevel *toplevel =
-		calloc(1, sizeof(struct wb_toplevel));
+		static_cast<wb_toplevel *>(calloc(1, sizeof(struct wb_toplevel)));
 	if (toplevel == NULL) {
 		return;
 	}

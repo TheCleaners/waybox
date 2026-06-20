@@ -16,14 +16,14 @@ jobs:
         steps:
             - name: packages
               run: |
-                apk add clang gcc libevdev-dev libinput-dev libxkbcommon-dev libxml2-dev meson musl-dev wayland-dev wayland-protocols wlroots wlroots-dev xwayland
+                apk add clang g++ gcc libevdev-dev libinput-dev libxkbcommon-dev libxml2-dev meson musl-dev wayland-dev wayland-protocols wlroots wlroots-dev xwayland
             # actions/checkout@v4 clones the repository
             - uses: actions/checkout@v4
             - name: build-gcc
               run: |
-                CC=gcc meson setup build-gcc
+                CC=gcc CXX=g++ meson setup build-gcc
                 ninja -C build-gcc
             - name: build-clang
               run: |
-                CC=clang meson setup build-clang
+                CC=clang CXX=clang++ meson setup build-clang
                 ninja -C build-clang
