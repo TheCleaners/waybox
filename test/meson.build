@@ -45,6 +45,13 @@ applications_test = executable(
   )
 test('applications', applications_test)
 
+keychain_test = executable(
+  'keychain_test',
+  ['keychain_test.cpp', 'wb_test_main.cpp', keychain_src],
+  include_directories: [inc_dir],
+  )
+test('keychain', keychain_test)
+
 # Headless integration test driving real synthesized input via the
 # virtual-keyboard protocol. Skips (exit 77) when foot/wtype or a headless
 # display are unavailable, so CI stays green; run a sanitized local build to
@@ -94,6 +101,15 @@ if python.found() and not get_option('tests_only')
     python,
     args: [
       files('integration' / 'app_rule_test.py'),
+      waybox_exe,
+    ],
+    timeout: 60,
+    )
+  test(
+    'integration_key_chain',
+    python,
+    args: [
+      files('integration' / 'key_chain_test.py'),
       waybox_exe,
     ],
     timeout: 60,
