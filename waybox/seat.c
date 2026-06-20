@@ -103,9 +103,7 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 					wlr_xdg_toplevel_send_close(current_toplevel->xdg_toplevel);
 			}
 			if (key_binding->action & ACTION_EXECUTE) {
-				if (fork() == 0) {
-					execl("/bin/sh", "/bin/sh", "-c", key_binding->cmd, (char *) NULL);
-				}
+				wb_spawn(key_binding->cmd);
 			}
 			if (key_binding->action & ACTION_TOGGLE_MAXIMIZE) {
 				struct wb_toplevel *toplevel = first_toplevel(server);
@@ -218,6 +216,9 @@ static void handle_new_keyboard(struct wb_server *server,
 		struct wlr_input_device *device) {
 	struct wb_keyboard *keyboard =
 		calloc(1, sizeof(struct wb_keyboard));
+	if (keyboard == NULL) {
+		return;
+	}
 	keyboard->server = server;
 	keyboard->keyboard = wlr_keyboard_from_input_device(device);
 
@@ -466,7 +467,16 @@ struct wb_seat *wb_seat_create(struct wb_server *server) {
 }
 
 void wb_seat_destroy(struct wb_seat *seat) {
-	wl_list_remove(&seat->keyboards);
+	/* Free any keyboards still attached (their own destroy handlers normally
+	 * remove them, but be defensive at shutdown). */
+	struct wb_keyboard *keyboard, *tmp;
+	wl_list_for_each_safe(keyboard, tmp, &seat->keyboards, link) {
+		wl_list_remove(&keyboard->destroy.link);
+		wl_list_remove(&keyboard->key.link);
+		wl_list_remove(&keyboard->modifiers.link);
+		wl_list_remove(&keyboard->link);
+		free(keyboard);
+	}
 	wl_list_remove(&seat->request_set_primary_selection.link);
 	wl_list_remove(&seat->request_set_selection.link);
 	free(seat);

@@ -237,8 +237,15 @@ static void handle_cursor_request(struct wl_listener *listener, void *data) {
 }
 
 struct wb_cursor *wb_cursor_create(struct wb_server *server) {
-	struct wb_cursor *cursor = malloc(sizeof(struct wb_cursor));
+	struct wb_cursor *cursor = calloc(1, sizeof(struct wb_cursor));
+	if (cursor == NULL) {
+		return NULL;
+	}
 	cursor->cursor = wlr_cursor_create();
+	if (cursor->cursor == NULL) {
+		free(cursor);
+		return NULL;
+	}
 	cursor->cursor_mode = WB_CURSOR_PASSTHROUGH;
 	cursor->server = server;
 

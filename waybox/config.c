@@ -128,6 +128,9 @@ static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt
 				char *s;
 
 				struct wb_key_binding *key_bind = calloc(1, sizeof(struct wb_key_binding));
+				if (key_bind == NULL) {
+					continue;
+				}
 				key_bind->sym = 0;
 				key_bind->modifiers = 0;
 				while ((s = strtok(sym, "-")) != NULL) {
