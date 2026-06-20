@@ -1,6 +1,7 @@
 #include "waybox/wlroots.hpp"
 
 #include "idle.h"
+#include "waybox/geometry.hpp"
 #include "waybox/xdg_shell.h"
 
 struct wb_toplevel *get_toplevel_at(
@@ -259,24 +260,18 @@ void constrain_toplevel_to_usable_area(struct wb_toplevel *toplevel) {
 	if (wlr_box_empty(&output_box))
 		return;
 
-	/* Usable area in layout coordinates. */
-	int ux = output_box.x + usable.x;
-	int uy = output_box.y + usable.y;
-	int uw = usable.width;
-	int uh = usable.height;
-	int w = toplevel->geometry.width;
-	int h = toplevel->geometry.height;
+	/* usable_area is output-local; shift it into layout coordinates so it shares
+	 * a space with the toplevel geometry and the output box. */
+	wb::Rect box{toplevel->geometry.x, toplevel->geometry.y,
+			toplevel->geometry.width, toplevel->geometry.height};
+	wb::Rect outer{output_box.x, output_box.y, output_box.width,
+			output_box.height};
+	wb::Rect usable_layout{output_box.x + usable.x, output_box.y + usable.y,
+			usable.width, usable.height};
 
-	if (uy > output_box.y && toplevel->geometry.y < uy)
-		toplevel->geometry.y = uy;                 /* top reserved */
-	if (ux > output_box.x && toplevel->geometry.x < ux)
-		toplevel->geometry.x = ux;                 /* left reserved */
-	if (uy + uh < output_box.y + output_box.height &&
-			toplevel->geometry.y + h > uy + uh)
-		toplevel->geometry.y = uy + uh - h;        /* bottom reserved */
-	if (ux + uw < output_box.x + output_box.width &&
-			toplevel->geometry.x + w > ux + uw)
-		toplevel->geometry.x = ux + uw - w;        /* right reserved */
+	wb::Rect constrained = wb::constrain_to_usable(box, outer, usable_layout);
+	toplevel->geometry.x = constrained.x;
+	toplevel->geometry.y = constrained.y;
 }
 
 static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
@@ -428,10 +423,16 @@ static void xdg_toplevel_request_maximize(struct wb_toplevel *toplevel, void *da
 		struct wb_config *config = toplevel->server->config;
 		toplevel->previous_geometry = toplevel->geometry;
 		if (config) {
-			toplevel->geometry.x = usable_area.x + config->margins.left;
-			toplevel->geometry.y = usable_area.y + config->margins.top;
-			usable_area.height -= config->margins.top + config->margins.bottom;
-			usable_area.width -= config->margins.left + config->margins.right;
+			/* Inset the usable area by the configured margins. */
+			wb::Rect inset = wb::apply_strut(
+					wb::Rect{usable_area.x, usable_area.y,
+							usable_area.width, usable_area.height},
+					wb::Strut{config->margins.left, config->margins.top,
+							config->margins.right, config->margins.bottom});
+			toplevel->geometry.x = inset.x;
+			toplevel->geometry.y = inset.y;
+			usable_area.width = inset.width;
+			usable_area.height = inset.height;
 		} else {
 			toplevel->geometry.x = usable_area.x;
 			toplevel->geometry.y = usable_area.y;
