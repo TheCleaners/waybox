@@ -67,6 +67,7 @@ placement_src = files('waybox/placement.cpp')
 applications_src = files('waybox/applications.cpp')
 keychain_src = files('waybox/keychain.cpp')
 theme_src = files('waybox/theme.cpp')
+menu_src = files('waybox/menu.cpp')
 
 # tests_only builds just the dependency-free unit tests (no wlroots, no
 # compositor), so they can run sanitized in CI on a stock distro that lacks a

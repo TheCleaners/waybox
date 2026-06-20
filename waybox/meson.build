@@ -7,6 +7,7 @@ wb_src = [
   applications_src,
   keychain_src,
   theme_src,
+  menu_src,
   render_src,
   files(
     'config.cpp',
@@ -15,6 +16,7 @@ wb_src = [
     'idle.cpp',
     'layer_shell.cpp',
     'main.cpp',
+    'menu_parse.cpp',
     'output.cpp',
     'scene_buffer.cpp',
     'seat.cpp',
