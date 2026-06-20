@@ -12,6 +12,17 @@
 
 #include "config.h"
 
+/* mousebind.cpp encodes the modifier bits itself so it can stay wlroots-free;
+ * verify those values still agree with wlroots here, where both are visible. */
+static_assert(WLR_MODIFIER_SHIFT == (1u << 0), "modifier bit drift");
+static_assert(WLR_MODIFIER_CAPS == (1u << 1), "modifier bit drift");
+static_assert(WLR_MODIFIER_CTRL == (1u << 2), "modifier bit drift");
+static_assert(WLR_MODIFIER_ALT == (1u << 3), "modifier bit drift");
+static_assert(WLR_MODIFIER_MOD2 == (1u << 4), "modifier bit drift");
+static_assert(WLR_MODIFIER_MOD3 == (1u << 5), "modifier bit drift");
+static_assert(WLR_MODIFIER_LOGO == (1u << 6), "modifier bit drift");
+static_assert(WLR_MODIFIER_MOD5 == (1u << 7), "modifier bit drift");
+
 namespace fs = std::filesystem;
 
 /* Build the ordered list of candidate config files, most-preferred first:
@@ -186,8 +197,51 @@ static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt
 	return true;
 }
 
+/* Parse the <mouse> section: <context name="..."> blocks each containing
+ * <mousebind button="..." action="Press|Release|Click|...">action(s). */
+static void parse_mouse_bindings(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:mouse/ob:context", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval) {
+		for (int i = 0; i < object->nodesetval->nodeNr; i++) {
+			xmlNode *ctx_node = object->nodesetval->nodeTab[i];
+			if (ctx_node == NULL)
+				continue;
+			std::optional<wb::MouseContext> context = wb::mouse_context_from_name(
+					(const char *) get_attribute(ctx_node, "name"));
+			if (!context)
+				continue;
+
+			for (xmlNode *mb = ctx_node->children; mb; mb = mb->next) {
+				if (mb->type != XML_ELEMENT_NODE ||
+						strcmp((char *) mb->name, "mousebind") != 0)
+					continue;
+
+				std::optional<wb::MouseButtonSpec> button = wb::parse_mouse_button(
+						(const char *) get_attribute(mb, "button"));
+				std::optional<wb::MouseEvent> event = wb::mouse_event_from_name(
+						(const char *) get_attribute(mb, "action"));
+				if (!button || !event)
+					continue;
+
+				wb::MouseBinding binding;
+				binding.context = *context;
+				binding.event = *event;
+				binding.button = button->button;
+				binding.modifiers = button->modifiers;
+				collect_actions(mb->children, binding.actions);
+				if (!binding.actions.empty())
+					config->mouse_bindings.push_back(std::move(binding));
+			}
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
 bool init_config(struct wb_server *server) {
-	struct wb_config *config = static_cast<struct wb_config *>(calloc(1, sizeof(struct wb_config)));
+	struct wb_config *config = new (std::nothrow) wb_config{};
 	if (config == NULL)
 		return false;
 	xmlDocPtr doc;
@@ -202,7 +256,7 @@ bool init_config(struct wb_server *server) {
 
 	if (rc_file.empty()) {
 		wlr_log(WLR_ERROR, "%s", _("Unable to determine the configuration file path."));
-		free(config);
+		delete config;
 		return false;
 	}
 
@@ -212,14 +266,14 @@ bool init_config(struct wb_server *server) {
 	setenv("WAYBOX_CONFIG_FILE", rc_file_str.c_str(), true);
 	if (doc == NULL) {
 		wlr_log(WLR_ERROR, "%s", _("Unable to parse the configuration file. Consult stderr for more information."));
-		free(config);
+		delete config;
 		return false;
 	}
 	xmlXPathContextPtr ctxt = xmlXPathNewContext(doc);
 	if (ctxt == NULL) {
 		wlr_log(WLR_INFO, "%s", _("Couldn't create new context!"));
 		xmlFreeDoc(doc);
-		free(config);
+		delete config;
 		return(false);
 	}
 	if (xmlXPathRegisterNs(ctxt, (const xmlChar *) "ob", (const xmlChar *) "http://openbox.org/3.4/rc") != 0) {
@@ -258,9 +312,10 @@ bool init_config(struct wb_server *server) {
 	if (!parse_key_bindings(config, ctxt)) {
 		xmlXPathFreeContext(ctxt);
 		xmlFreeDoc(doc);
-		free(config);
+		delete config;
 		return false;
 	}
+	parse_mouse_bindings(config, ctxt);
 
 	config->margins.bottom = strtoulong(parse_xpath_expr("//ob:margins/ob:bottom", ctxt));
 	config->margins.left = strtoulong(parse_xpath_expr("//ob:margins/ob:left", ctxt));
@@ -309,5 +364,5 @@ void deinit_config(struct wb_config *config) {
 		wl_list_remove(&key_binding->link);
 		delete key_binding;
 	}
-	free(config);
+	delete config;
 }

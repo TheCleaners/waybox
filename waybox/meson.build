@@ -1,11 +1,13 @@
 action_src = files('action.cpp')
 window_cycle_src = files('window_cycle.cpp')
 geometry_src = files('geometry.cpp')
+mousebind_src = files('mousebind.cpp')
 
 wb_src = [
   action_src,
   window_cycle_src,
   geometry_src,
+  mousebind_src,
   files(
     'config.cpp',
     'cursor.cpp',
