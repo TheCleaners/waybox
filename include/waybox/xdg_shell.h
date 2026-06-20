@@ -3,39 +3,40 @@
 
 #include "waybox/wlroots.hpp"
 
+#include "waybox/listener.hpp"
 #include "waybox/server.h"
 
 struct wb_popup {
-	struct wlr_xdg_popup *xdg_popup;
-	struct wl_listener commit;
-	struct wl_listener destroy;
+	struct wlr_xdg_popup *xdg_popup = nullptr;
+	wb::Listener commit;
+	wb::Listener destroy;
 };
 
 struct wb_toplevel {
-	struct wb_server *server;
-	struct wlr_xdg_toplevel *xdg_toplevel;
-	struct wlr_scene_tree *scene_tree;
+	struct wb_server *server = nullptr;
+	struct wlr_xdg_toplevel *xdg_toplevel = nullptr;
+	struct wlr_scene_tree *scene_tree = nullptr;
 
-	struct wlr_xdg_toplevel_decoration_v1 *decoration;
+	struct wlr_xdg_toplevel_decoration_v1 *decoration = nullptr;
 
-	struct wlr_ext_foreign_toplevel_handle_v1 *foreign_toplevel_handle;
-	struct wlr_ext_foreign_toplevel_handle_v1_state foreign_toplevel_state;
+	struct wlr_ext_foreign_toplevel_handle_v1 *foreign_toplevel_handle = nullptr;
+	struct wlr_ext_foreign_toplevel_handle_v1_state foreign_toplevel_state = {};
 
-	struct wl_listener map;
-	struct wl_listener unmap;
-	struct wl_listener commit;
-	struct wl_listener destroy;
-	struct wl_listener new_popup;
-	struct wl_listener request_fullscreen;
-	struct wl_listener request_maximize;
-	struct wl_listener request_minimize;
-	struct wl_listener request_move;
-	struct wl_listener request_resize;
-	struct wl_listener set_app_id;
-	struct wl_listener set_title;
+	wb::Listener map;
+	wb::Listener unmap;
+	wb::Listener commit;
+	wb::Listener destroy;
+	wb::Listener new_popup;
+	wb::Listener request_fullscreen;
+	wb::Listener request_maximize;
+	wb::Listener request_minimize;
+	wb::Listener request_move;
+	wb::Listener request_resize;
+	wb::Listener set_app_id;
+	wb::Listener set_title;
 
-	struct wlr_box geometry;
-	struct wlr_box previous_geometry;
+	struct wlr_box geometry = {};
+	struct wlr_box previous_geometry = {};
 
 	struct wl_list link;
 };
