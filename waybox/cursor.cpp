@@ -7,6 +7,7 @@
 #include "waybox/output.h"
 #include "waybox/placement.hpp"
 #include "waybox/xdg_shell.h"
+#include "waybox/menu_widget.hpp"
 
 /* How close (in layout pixels) a dragged window's edge must come to a usable-
  * area or window edge before it snaps. */
@@ -115,6 +116,18 @@ static void process_cursor_resize(struct wb_server *server) {
 }
 
 static void process_cursor_motion(struct wb_server *server, uint32_t time) {
+	/* An open menu grabs the pointer: update its hover/submenu state and keep
+	 * the default cursor; do not forward motion to clients. */
+	if (server->menu != nullptr) {
+		server->menu->on_motion(server->cursor->cursor->x,
+				server->cursor->cursor->y);
+		wlr_cursor_set_xcursor(server->cursor->cursor,
+				server->cursor->xcursor_manager, "default");
+		wlr_idle_notifier_v1_notify_activity(server->idle_notifier,
+				server->seat->seat);
+		return;
+	}
+
 	/* If the mode is non-passthrough, delegate to those functions. */
 	if (server->cursor->cursor_mode == WB_CURSOR_MOVE) {
 		process_cursor_move(server);
@@ -182,6 +195,23 @@ void wb_cursor::on_pointer_focus_change(void *data) {
 void wb_cursor::on_button(void *data) {
 	auto *event = static_cast<struct wlr_pointer_button_event *>(data);
 	struct wlr_seat *seat = server->seat->seat;
+
+	/* An open menu grabs the pointer: route the button to it and consume the
+	 * event. Selecting an entry dismisses the menu and yields its actions, run
+	 * only AFTER the widget is destroyed (no reentrancy). */
+	if (server->menu != nullptr) {
+		bool dismiss = server->menu->on_button(event->button,
+				event->state == WL_POINTER_BUTTON_STATE_PRESSED);
+		if (dismiss) {
+			std::vector<wb::Action> actions = server->menu->take_actions();
+			server->menu.reset();
+			for (const wb::Action &action : actions)
+				wb::run_action(action, server);
+		}
+		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		return;
+	}
+
 	double sx, sy;
 	struct wlr_surface *surface = nullptr;
 	struct wb_toplevel *toplevel = get_toplevel_at(server,

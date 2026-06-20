@@ -76,6 +76,22 @@ void paint_texture(cairo_t *cr, double x, double y, double w, double h,
 	paint_rect(cr, x, y, w, h, texture.color);
 }
 
+void paint_fill(cairo_t *cr, double x, double y, double w, double h,
+		const Paint &paint) {
+	if (const auto *s = std::get_if<SolidPaint>(&paint)) {
+		paint_rect(cr, x, y, w, h, s->color);
+	} else if (const auto *g = std::get_if<GradientPaint>(&paint)) {
+		paint_texture(cr, x, y, w, h,
+				Texture{TextureType::Gradient, g->from, g->to});
+	} else if (const auto *img = std::get_if<ImagePaint>(&paint)) {
+		/* CPU renderer can't load images yet: use the safe fallback colour. */
+		paint_rect(cr, x, y, w, h, img->fallback);
+	} else if (const auto *sh = std::get_if<ShaderPaint>(&paint)) {
+		/* Shaders need a GPU backend; draw the safe fallback colour. */
+		paint_rect(cr, x, y, w, h, sh->fallback);
+	}
+}
+
 void paint_text(cairo_t *cr, double x, double y, std::string_view text,
 		const Color &color, const FontSpec &font) {
 	PangoLayout *layout = make_layout(cr, text, font);

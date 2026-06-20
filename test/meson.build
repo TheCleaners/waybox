@@ -194,4 +194,13 @@ if python.found() and not get_option('tests_only')
     ],
     timeout: 60,
     )
+  test(
+    'integration_menu',
+    python,
+    args: [
+      files('integration' / 'menu_test.py'),
+      waybox_exe,
+    ],
+    timeout: 60,
+    )
 endif

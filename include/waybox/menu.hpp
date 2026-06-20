@@ -70,6 +70,23 @@ MenuLayout layout_menu(const Menu &menu, const MenuMetrics &metrics,
  * selectable, so they return -1 even when hit. */
 int menu_item_at(const Menu &menu, const MenuLayout &layout, int x, int y);
 
+/*
+ * Placement (pure): decide where a menu of size w x h goes so it stays within
+ * `bounds` (the output's usable area, in layout coordinates).
+ *
+ * place_root_menu opens with its top-left at (x, y) — the pointer — but flips to
+ * the left of the pointer if it would overflow the right edge, and is clamped to
+ * stay fully on screen.
+ *
+ * place_submenu opens to the right of `parent` (the already-placed parent menu
+ * rect), overlapping its border by `overlap`; it flips to the parent's left if
+ * it would overflow the right edge. Vertically it starts at `item_y` (the parent
+ * item's top, in layout coords) and is shifted up to stay on screen.
+ */
+Rect place_root_menu(int x, int y, int w, int h, const Rect &bounds);
+Rect place_submenu(const Rect &parent, int item_y, int w, int h,
+		const Rect &bounds, int overlap);
+
 /* Parse Openbox menu.xml contents into a MenuFile (defined in menu_parse.cpp,
  * which links libxml; declared here so the pure model stays libxml-free). */
 MenuFile parse_menu_xml(std::string_view contents);

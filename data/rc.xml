@@ -151,12 +151,11 @@
       <tapDrag>enabled</tapDrag>
       <tapDragLock>enabled</tapDragLock>
     </libinput> -->
-    <!-- Right-click the desktop to open a launcher; middle-click for a window
-         list. These run external tools for now; a native menu will replace
-         them with a ShowMenu action. -->
+    <!-- Right-click the desktop to open the native root menu (defined in
+         menu.xml). -->
     <context name="Root">
       <mousebind button="Right" action="Press">
-        <action name="Execute"><command>rofi -show drun</command></action>
+        <action name="ShowMenu"><command>root-menu</command></action>
       </mousebind>
     </context>
   </mouse>

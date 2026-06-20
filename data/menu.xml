@@ -5,10 +5,11 @@
 <!--
   Default Waybox root menu.
 
-  This file is parsed by the `waybox-menu` script (a rofi script mode), not by
-  the compositor itself. Note that menu items use <execute> (like rc.xml), NOT
-  Openbox's <command>. Commands are run without a shell, so prefer literal
-  program names; constructs like pipes, $VARS or && will not be expanded here.
+  Parsed natively by the compositor for the built-in root menu (the ShowMenu
+  action, bound to a Root right-click in rc.xml), and also by the `waybox-menu`
+  script (a rofi script mode). Menu items use <execute> (like rc.xml); <command>
+  works too. Commands are run without a shell, so prefer literal program names;
+  constructs like pipes, $VARS or && will not be expanded here.
 
   Copy this to $XDG_CONFIG_HOME/waybox/menu.xml (usually
   ~/.config/waybox/menu.xml) and edit it to taste.

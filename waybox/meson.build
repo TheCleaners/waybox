@@ -21,6 +21,7 @@ wb_src = [
     'layer_shell.cpp',
     'main.cpp',
     'menu_parse.cpp',
+    'menu_widget.cpp',
     'output.cpp',
     'scene_buffer.cpp',
     'seat.cpp',
