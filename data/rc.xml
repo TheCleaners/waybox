@@ -137,5 +137,13 @@
       <tapDrag>enabled</tapDrag>
       <tapDragLock>enabled</tapDragLock>
     </libinput> -->
+    <!-- Right-click the desktop to open a launcher; middle-click for a window
+         list. These run external tools for now; a native menu will replace
+         them with a ShowMenu action. -->
+    <context name="Root">
+      <mousebind button="Right" action="Press">
+        <action name="Execute"><command>rofi -show drun</command></action>
+      </mousebind>
+    </context>
   </mouse>
 </openbox_config>

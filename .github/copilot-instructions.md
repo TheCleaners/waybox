@@ -24,8 +24,9 @@ ninja -C build           # binary at build/waybox/waybox
 There is a small **unit-test suite** under `test/` (wired into `meson test` and
 CI) that covers the **pure, wlroots-free logic** — currently the action
 framework (`waybox/action.cpp`), the Alt+Tab cycle selector
-(`waybox/window_cycle.cpp`), and the usable-area/strut + size-hint geometry
-(`waybox/geometry.cpp`). Run it with:
+(`waybox/window_cycle.cpp`), the usable-area/strut + size-hint geometry
+(`waybox/geometry.cpp`), and the mouse-binding parsing/matching
+(`waybox/mousebind.cpp`). Run it with:
 
 ```sh
 meson test -C build --print-errorlogs
@@ -41,9 +42,11 @@ wlroots-free TU and add a `test/<name>_test.cpp` in the same PR.
 There is also a **headless integration suite** (`test/integration/`, also under
 `meson test`) that runs the real compositor and synthesizes input via the
 **virtual-keyboard protocol** (`wtype`) to drive keybindings end to end under
-the sanitizers: `alt_tab_test.py` (Alt+Tab → action → focus) and
+the sanitizers: `alt_tab_test.py` (Alt+Tab → action → focus),
 `window_state_test.py` (maximize/fullscreen restore-rect correctness, verified
-from the compositor's `wb-geom` geometry log). They need `foot` + `wtype` and a
+from the compositor's `wb-geom` geometry log), and `mouse_binding_test.py`
+(virtual-pointer right-click on Root → mouse binding → Execute, via `wlrctl`).
+They need `foot`/`wtype`/`wlrctl` and a
 working headless backend; when those are missing they **skip** (exit 77), so CI
 stays green. Run them locally against a sanitized build to exercise interactive
 paths. Drive virtual input by hand with `wtype` (keyboard) and `wlrctl pointer`
@@ -98,7 +101,10 @@ Subsystem map (`waybox/<name>.cpp`, headers in `include/waybox/` or `waybox/`):
 - `seat` — keyboards, keybindings (`handle_keybinding`), libinput config, and
   virtual keyboard/pointer (`zwp_virtual_keyboard_v1` / `wlr_virtual_pointer_v1`,
   routed through the same handlers as physical devices).
-- `cursor` — pointer handling, interactive move/resize, Alt+drag.
+- `cursor` — pointer handling, interactive move/resize, Alt+drag, and mouse
+  bindings (`waybox/mousebind.cpp` parses `<mouse><context>`; `on_button`
+  resolves the context — Root/Client today, Titlebar/Frame once SSD lands — and
+  dispatches matching bindings through `run_action`).
 - `config` — parses Openbox-style `rc.xml` via libxml2 + XPath.
 - `decoration` / `idle` — xdg-decoration and idle-inhibit glue.
 

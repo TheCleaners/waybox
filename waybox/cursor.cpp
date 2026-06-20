@@ -1,7 +1,9 @@
 #include <linux/input-event-codes.h>
 
 #include "waybox/cursor.h"
+#include "config.h"
 #include "waybox/geometry.hpp"
+#include "waybox/mousebind.hpp"
 #include "waybox/xdg_shell.h"
 
 void reset_cursor_mode(struct wb_server *server) {
@@ -174,6 +176,33 @@ void wb_cursor::on_button(void *data) {
 						? WLR_EDGE_TOP : WLR_EDGE_BOTTOM;
 				begin_interactive(toplevel, WB_CURSOR_RESIZE, edges);
 			}
+			wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+			return;
+		}
+
+		/* Configured mouse bindings. Resolve the context from what is under the
+		 * pointer (a window's Client area, or the Root desktop), then run any
+		 * matching binding's actions and consume the button. Titlebar/Frame
+		 * contexts become reachable once server-side decorations exist. */
+		wb::MouseContext context = toplevel != nullptr
+				? wb::MouseContext::Client
+				: wb::MouseContext::Root;
+		bool handled = false;
+		if (server->config != nullptr) {
+			for (const wb::MouseBinding &binding : server->config->mouse_bindings) {
+				if (!wb::mouse_binding_matches(binding, context, event->button,
+						modifiers, wb::MouseEvent::Press))
+					continue;
+				/* A click in a client focuses it first, so window-targeted
+				 * actions act on the clicked window. */
+				if (context == wb::MouseContext::Client)
+					focus_toplevel(toplevel);
+				for (const wb::Action &action : binding.actions)
+					wb::run_action(action, server);
+				handled = true;
+			}
+		}
+		if (handled) {
 			wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
 			return;
 		}
