@@ -149,6 +149,8 @@ bool wb_start_server(struct wb_server* server) {
 
 	server->foreign_toplevel_list =
 		wlr_ext_foreign_toplevel_list_v1_create(server->wl_display, 1);
+	server->foreign_toplevel_manager =
+		wlr_foreign_toplevel_manager_v1_create(server->wl_display);
 
 	/* xdg-activation-v1: a client (or launcher) can ask to activate/raise a
 	 * surface, e.g. to bring a just-launched window to the front. */
