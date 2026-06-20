@@ -151,4 +151,16 @@
       </mousebind>
     </context>
   </mouse>
+  <!-- Per-application rules. `class`/`name` match a window's app_id and
+       `title` matches its title (glob patterns: * and ?). Overrides:
+       position/size, maximized, fullscreen, iconic, focus. -->
+  <!-- <applications>
+    <application class="mpv">
+      <fullscreen>yes</fullscreen>
+    </application>
+    <application class="foot" title="*scratch*">
+      <position><x>200</x><y>120</y></position>
+      <size><width>900</width><height>600</height></size>
+    </application>
+  </applications> -->
 </openbox_config>

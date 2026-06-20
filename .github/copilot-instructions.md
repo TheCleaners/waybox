@@ -26,8 +26,9 @@ CI) that covers the **pure, wlroots-free logic** — currently the action
 framework (`waybox/action.cpp`), the Alt+Tab cycle selector
 (`waybox/window_cycle.cpp`), the usable-area/strut + size-hint geometry
 (`waybox/geometry.cpp`), the mouse-binding parsing/matching
-(`waybox/mousebind.cpp`), and the window-placement policies
-(`waybox/placement.cpp`). Run it with:
+(`waybox/mousebind.cpp`), the window-placement policies
+(`waybox/placement.cpp`), and the per-application rule matching
+(`waybox/applications.cpp`). Run it with:
 
 ```sh
 meson test -C build --print-errorlogs

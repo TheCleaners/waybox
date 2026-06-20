@@ -38,6 +38,13 @@ placement_test = executable(
   )
 test('placement', placement_test)
 
+applications_test = executable(
+  'applications_test',
+  ['applications_test.cpp', 'wb_test_main.cpp', applications_src],
+  include_directories: [inc_dir],
+  )
+test('applications', applications_test)
+
 # Headless integration test driving real synthesized input via the
 # virtual-keyboard protocol. Skips (exit 77) when foot/wtype or a headless
 # display are unavailable, so CI stays green; run a sanitized local build to
@@ -79,6 +86,15 @@ if python.found()
       files('integration' / 'placement_test.py'),
       waybox_exe,
       meson.project_source_root() / 'data' / 'rc.xml',
+    ],
+    timeout: 60,
+    )
+  test(
+    'integration_app_rule',
+    python,
+    args: [
+      files('integration' / 'app_rule_test.py'),
+      waybox_exe,
     ],
     timeout: 60,
     )

@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <new>
+#include <cstdlib>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -240,6 +241,75 @@ static void parse_mouse_bindings(struct wb_config *config, xmlXPathContextPtr ct
 	xmlXPathFreeObject(object);
 }
 
+/* The text of a named child element, or nullptr. */
+static const char *child_text(xmlNode *parent, const char *name) {
+	for (xmlNode *c = parent->children; c; c = c->next) {
+		if (c->type == XML_ELEMENT_NODE && strcmp((char *) c->name, name) == 0 &&
+				c->children && c->children->content)
+			return (const char *) c->children->content;
+	}
+	return nullptr;
+}
+
+/* The first named child element node, or nullptr. */
+static xmlNode *child_node(xmlNode *parent, const char *name) {
+	for (xmlNode *c = parent->children; c; c = c->next) {
+		if (c->type == XML_ELEMENT_NODE && strcmp((char *) c->name, name) == 0)
+			return c;
+	}
+	return nullptr;
+}
+
+static std::optional<bool> parse_bool(const char *s) {
+	if (s == nullptr)
+		return std::nullopt;
+	if (strcmp(s, "yes") == 0 || strcmp(s, "true") == 0 || strcmp(s, "1") == 0)
+		return true;
+	if (strcmp(s, "no") == 0 || strcmp(s, "false") == 0 || strcmp(s, "0") == 0)
+		return false;
+	return std::nullopt;
+}
+
+/* Parse <applications><application class= name= title=> with per-app override
+ * children (maximized/fullscreen/iconic/focus/position/size). */
+static void parse_app_rules(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:applications/ob:application", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval) {
+		for (int i = 0; i < object->nodesetval->nodeNr; i++) {
+			xmlNode *app = object->nodesetval->nodeTab[i];
+			if (app == NULL)
+				continue;
+
+			wb::AppRule rule;
+			rule.class_pattern = (const char *) get_attribute(app, "class");
+			rule.name_pattern = (const char *) get_attribute(app, "name");
+			rule.title_pattern = (const char *) get_attribute(app, "title");
+			rule.maximized = parse_bool(child_text(app, "maximized"));
+			rule.fullscreen = parse_bool(child_text(app, "fullscreen"));
+			rule.iconic = parse_bool(child_text(app, "iconic"));
+			rule.focus = parse_bool(child_text(app, "focus"));
+
+			if (xmlNode *pos = child_node(app, "position")) {
+				if (const char *x = child_text(pos, "x"))
+					rule.x = atoi(x);
+				if (const char *y = child_text(pos, "y"))
+					rule.y = atoi(y);
+			}
+			if (xmlNode *size = child_node(app, "size")) {
+				if (const char *w = child_text(size, "width"))
+					rule.width = atoi(w);
+				if (const char *h = child_text(size, "height"))
+					rule.height = atoi(h);
+			}
+			config->app_rules.push_back(std::move(rule));
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
 bool init_config(struct wb_server *server) {
 	struct wb_config *config = new (std::nothrow) wb_config{};
 	if (config == NULL)
@@ -316,6 +386,7 @@ bool init_config(struct wb_server *server) {
 		return false;
 	}
 	parse_mouse_bindings(config, ctxt);
+	parse_app_rules(config, ctxt);
 
 	if (char *policy = parse_xpath_expr("//ob:placement/ob:policy", ctxt)) {
 		if (auto parsed = wb::placement_policy_from_name(policy))

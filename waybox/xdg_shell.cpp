@@ -320,15 +320,51 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 		break;
 	}
 
+	/* Per-application rules can override position/size and request initial
+	 * window states. Position overrides are relative to the placement area. */
+	const wb::AppRule *rule = nullptr;
+	if (config) {
+		const char *app_id = toplevel->xdg_toplevel->app_id
+				? toplevel->xdg_toplevel->app_id : "";
+		const char *title = toplevel->xdg_toplevel->title
+				? toplevel->xdg_toplevel->title : "";
+		rule = wb::match_app_rule(config->app_rules, app_id, title);
+	}
+	if (rule != nullptr) {
+		if (rule->width)
+			placed.width = *rule->width;
+		if (rule->height)
+			placed.height = *rule->height;
+		if (rule->x)
+			placed.x = area.x + *rule->x;
+		if (rule->y)
+			placed.y = area.y + *rule->y;
+	}
+
 	toplevel->geometry = {placed.x, placed.y, placed.width, placed.height};
 
 	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
 			toplevel->geometry.width, toplevel->geometry.height);
-	focus_toplevel(toplevel);
+
+	bool do_focus = !(rule && rule->focus.has_value() && !*rule->focus);
+	if (do_focus)
+		focus_toplevel(toplevel);
 
 	wlr_scene_node_set_position(&toplevel->scene_tree->node,
 			toplevel->geometry.x, toplevel->geometry.y);
 	log_geometry(toplevel, "mapped");
+
+	/* Apply requested initial states after the base mapping. */
+	if (rule != nullptr) {
+		if (rule->maximized.value_or(false))
+			set_toplevel_maximized(toplevel, true, true);
+		if (rule->fullscreen.value_or(false))
+			set_toplevel_fullscreen(toplevel, true);
+		if (rule->iconic.value_or(false)) {
+			toplevel->xdg_toplevel->requested.minimized = true;
+			wl_signal_emit(&toplevel->xdg_toplevel->events.request_minimize, NULL);
+		}
+	}
 }
 
 static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
