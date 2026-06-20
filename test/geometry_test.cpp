@@ -124,3 +124,29 @@ WB_TEST(clamp_resize_ignores_max_below_min) {
 	WB_CHECK(r.width == 200);
 	WB_CHECK(r.height == 100);
 }
+
+WB_TEST(maximize_within_full_uses_whole_area) {
+	Rect restore{10, 20, 30, 40};
+	Rect area{0, 0, 800, 600};
+	WB_CHECK(wb::maximize_within(restore, area, true, true) == (Rect{0, 0, 800, 600}));
+}
+
+WB_TEST(maximize_within_none_keeps_restore) {
+	Rect restore{10, 20, 30, 40};
+	Rect area{0, 0, 800, 600};
+	WB_CHECK(wb::maximize_within(restore, area, false, false) == restore);
+}
+
+WB_TEST(maximize_within_horizontal_only) {
+	Rect restore{10, 20, 30, 40};
+	Rect area{5, 5, 790, 590};
+	/* x/width from area; y/height kept from restore */
+	WB_CHECK(wb::maximize_within(restore, area, true, false) == (Rect{5, 20, 790, 40}));
+}
+
+WB_TEST(maximize_within_vertical_only) {
+	Rect restore{10, 20, 30, 40};
+	Rect area{5, 5, 790, 590};
+	/* y/height from area; x/width kept from restore */
+	WB_CHECK(wb::maximize_within(restore, area, false, true) == (Rect{10, 5, 30, 590}));
+}

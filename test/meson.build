@@ -40,4 +40,13 @@ if python.found()
     ],
     timeout: 60,
     )
+  test(
+    'integration_window_state',
+    python,
+    args: [
+      files('integration' / 'window_state_test.py'),
+      waybox_exe,
+    ],
+    timeout: 60,
+    )
 endif

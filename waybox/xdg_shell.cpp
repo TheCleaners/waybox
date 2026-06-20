@@ -4,6 +4,8 @@
 #include "waybox/geometry.hpp"
 #include "waybox/xdg_shell.h"
 
+static void log_geometry(struct wb_toplevel *toplevel, const char *tag);
+
 struct wb_toplevel *get_toplevel_at(
 		struct wb_server *server, double lx, double ly,
 		struct wlr_surface **surface, double *sx, double *sy) {
@@ -208,35 +210,29 @@ void arrange_toplevels(struct wb_server *server) {
 			continue;
 		}
 
+		if (toplevel->max_horz || toplevel->max_vert) {
+			/* Re-apply the (possibly partial) maximized geometry against the
+			 * new usable area; this does not re-snapshot the restore rect. */
+			set_toplevel_maximized(toplevel, toplevel->max_horz,
+					toplevel->max_vert);
+			continue;
+		}
+
 		struct wlr_box usable = get_usable_area(toplevel);
 		if (usable.width <= 0 || usable.height <= 0)
 			continue;
-		struct wb_config *config = server->config;
-		int ml = config ? config->margins.left : 0;
-		int mr = config ? config->margins.right : 0;
-		int mt = config ? config->margins.top : 0;
-		int mb = config ? config->margins.bottom : 0;
 
-		if (toplevel->xdg_toplevel->current.maximized) {
-			toplevel->geometry.x = usable.x + ml;
-			toplevel->geometry.y = usable.y + mt;
-			toplevel->geometry.width = usable.width - ml - mr;
-			toplevel->geometry.height = usable.height - mt - mb;
-			wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
-					toplevel->geometry.width, toplevel->geometry.height);
-		} else {
-			/* Keep floating windows reachable after a resolution/scale change. */
-			int max_x = usable.x + usable.width - 1;
-			int max_y = usable.y + usable.height - 1;
-			if (toplevel->geometry.x > max_x)
-				toplevel->geometry.x = max_x;
-			if (toplevel->geometry.y > max_y)
-				toplevel->geometry.y = max_y;
-			if (toplevel->geometry.x < usable.x)
-				toplevel->geometry.x = usable.x;
-			if (toplevel->geometry.y < usable.y)
-				toplevel->geometry.y = usable.y;
-		}
+		/* Keep floating windows reachable after a resolution/scale change. */
+		int max_x = usable.x + usable.width - 1;
+		int max_y = usable.y + usable.height - 1;
+		if (toplevel->geometry.x > max_x)
+			toplevel->geometry.x = max_x;
+		if (toplevel->geometry.y > max_y)
+			toplevel->geometry.y = max_y;
+		if (toplevel->geometry.x < usable.x)
+			toplevel->geometry.x = usable.x;
+		if (toplevel->geometry.y < usable.y)
+			toplevel->geometry.y = usable.y;
 		wlr_scene_node_set_position(&toplevel->scene_tree->node,
 				toplevel->geometry.x, toplevel->geometry.y);
 	}
@@ -305,6 +301,7 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 
 	wlr_scene_node_set_position(&toplevel->scene_tree->node,
 			toplevel->geometry.x, toplevel->geometry.y);
+	log_geometry(toplevel, "mapped");
 }
 
 static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
@@ -375,88 +372,109 @@ static void xdg_toplevel_set_title(
 			toplevel->foreign_toplevel_handle, &toplevel->foreign_toplevel_state);
 }
 
-static void xdg_toplevel_request_fullscreen(
-		struct wb_toplevel *toplevel, void *data) {
-	/* This event is raised when a client would like to set itself to
-	 * fullscreen. */
-	/* A client may request fullscreen as part of its initial state, before
-	 * its first commit. Calling wlr_xdg_toplevel_set_* on an uninitialized
-	 * surface aborts in wlroots, so ignore the request until it is mapped;
-	 * the client can re-request once initialized. */
+/* Log a toplevel's geometry on a state transition. Helps debugging window
+ * placement, and lets the headless integration test verify restore geometry. */
+static void log_geometry(struct wb_toplevel *toplevel, const char *tag) {
+	wlr_log(WLR_INFO, "wb-geom %s %dx%d+%d+%d", tag,
+			toplevel->geometry.width, toplevel->geometry.height,
+			toplevel->geometry.x, toplevel->geometry.y);
+}
+
+/* Margin-inset usable area for `toplevel`, as a wb::Rect in layout coords. */
+static wb::Rect maximize_area(struct wb_toplevel *toplevel) {
+	struct wlr_box usable = get_usable_area(toplevel);
+	wb::Rect area{usable.x, usable.y, usable.width, usable.height};
+	struct wb_config *config = toplevel->server->config;
+	if (config) {
+		area = wb::apply_strut(area,
+				wb::Strut{config->margins.left, config->margins.top,
+						config->margins.right, config->margins.bottom});
+	}
+	return area;
+}
+
+void set_toplevel_maximized(struct wb_toplevel *toplevel, bool horz, bool vert) {
 	if (!toplevel->xdg_toplevel->base->initialized)
 		return;
-	bool is_fullscreen = toplevel->xdg_toplevel->current.fullscreen;
-	if (!is_fullscreen) {
+
+	const bool was_any = toplevel->max_horz || toplevel->max_vert;
+	const bool now_any = horz || vert;
+	/* Snapshot the floating geometry the first time we maximize any axis. */
+	if (!was_any && now_any)
+		toplevel->restore_maximize = toplevel->geometry;
+
+	toplevel->max_horz = horz;
+	toplevel->max_vert = vert;
+
+	wb::Rect restore{toplevel->restore_maximize.x, toplevel->restore_maximize.y,
+			toplevel->restore_maximize.width, toplevel->restore_maximize.height};
+	wb::Rect g = wb::maximize_within(restore, maximize_area(toplevel), horz, vert);
+	toplevel->geometry = {g.x, g.y, g.width, g.height};
+
+	if (now_any)
+		raise_toplevel(toplevel);
+
+	/* The xdg protocol only has a single "maximized" state, so only claim it
+	 * when fully maximized; partial maximize is just a managed resize. */
+	wlr_xdg_toplevel_set_maximized(toplevel->xdg_toplevel, horz && vert);
+	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, g.width, g.height);
+	wlr_scene_node_set_position(&toplevel->scene_tree->node, g.x, g.y);
+	log_geometry(toplevel, now_any ? "maximize-on" : "maximize-off");
+}
+
+void set_toplevel_fullscreen(struct wb_toplevel *toplevel, bool fullscreen) {
+	if (!toplevel->xdg_toplevel->base->initialized)
+		return;
+
+	if (fullscreen) {
+		toplevel->restore_fullscreen = toplevel->geometry;
 		struct wlr_output *wlr_output = get_active_output(toplevel);
-		struct wb_output *output = static_cast<struct wb_output *>(wlr_output ? wlr_output->data : NULL);
-		toplevel->previous_geometry = toplevel->geometry;
-		toplevel->geometry.x = 0;
-		toplevel->geometry.y = 0;
-		if (output != NULL) {
-			toplevel->geometry.height = output->geometry.height;
-			toplevel->geometry.width = output->geometry.width;
-		}
+		struct wb_output *output = static_cast<struct wb_output *>(
+				wlr_output ? wlr_output->data : NULL);
+		if (output != NULL)
+			toplevel->geometry = output->geometry;  /* layout box: pos + size */
 		raise_toplevel(toplevel);
 	} else {
-		toplevel->geometry = toplevel->previous_geometry;
+		toplevel->geometry = toplevel->restore_fullscreen;
 	}
 
-	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, toplevel->geometry.width, toplevel->geometry.height);
-	wlr_xdg_toplevel_set_fullscreen(toplevel->xdg_toplevel, !is_fullscreen);
-	wlr_scene_node_set_position(&toplevel->scene_tree->node, toplevel->geometry.x, toplevel->geometry.y);
+	wlr_xdg_toplevel_set_fullscreen(toplevel->xdg_toplevel, fullscreen);
+	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
+			toplevel->geometry.width, toplevel->geometry.height);
+	wlr_scene_node_set_position(&toplevel->scene_tree->node,
+			toplevel->geometry.x, toplevel->geometry.y);
+	log_geometry(toplevel, fullscreen ? "fullscreen-on" : "fullscreen-off");
+}
+
+static void xdg_toplevel_request_fullscreen(
+		struct wb_toplevel *toplevel, void *data) {
+	/* Toggle fullscreen on the client's request (e.g. a video player). A
+	 * request before the first commit would assert in wlroots, so it is
+	 * ignored until the surface is initialized; the client can re-request. */
+	if (!toplevel->xdg_toplevel->base->initialized)
+		return;
+	set_toplevel_fullscreen(toplevel,
+			!toplevel->xdg_toplevel->current.fullscreen);
 }
 
 static void xdg_toplevel_request_maximize(struct wb_toplevel *toplevel, void *data) {
-	/* This event is raised when a client would like to maximize itself,
-	 * typically because the user clicked on the maximize button on
-	 * client-side decorations.
-	 */
-	/* Clients (e.g. Chromium) may request maximize before their first commit.
-	 * wlr_xdg_toplevel_set_size()/set_maximized() assert the surface is
-	 * initialized, so ignore the request until the surface is mapped. */
+	/* The client asked to (un)maximize, e.g. via its CSD maximize button.
+	 * Toggle full maximize. Ignored until initialized (see above). */
 	if (!toplevel->xdg_toplevel->base->initialized)
 		return;
-	struct wlr_box usable_area = get_usable_area(toplevel);
-
-	bool is_maximized = toplevel->xdg_toplevel->current.maximized;
-	if (!is_maximized) {
-		struct wb_config *config = toplevel->server->config;
-		toplevel->previous_geometry = toplevel->geometry;
-		if (config) {
-			/* Inset the usable area by the configured margins. */
-			wb::Rect inset = wb::apply_strut(
-					wb::Rect{usable_area.x, usable_area.y,
-							usable_area.width, usable_area.height},
-					wb::Strut{config->margins.left, config->margins.top,
-							config->margins.right, config->margins.bottom});
-			toplevel->geometry.x = inset.x;
-			toplevel->geometry.y = inset.y;
-			usable_area.width = inset.width;
-			usable_area.height = inset.height;
-		} else {
-			toplevel->geometry.x = usable_area.x;
-			toplevel->geometry.y = usable_area.y;
-		}
-	} else {
-		usable_area = toplevel->previous_geometry;
-		toplevel->geometry.x = toplevel->previous_geometry.x;
-		toplevel->geometry.y = toplevel->previous_geometry.y;
-	}
-	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, usable_area.width, usable_area.height);
-	wlr_xdg_toplevel_set_maximized(toplevel->xdg_toplevel, !is_maximized);
-	wlr_scene_node_set_position(&toplevel->scene_tree->node,
-			toplevel->geometry.x, toplevel->geometry.y);
+	const bool full = toplevel->max_horz && toplevel->max_vert;
+	set_toplevel_maximized(toplevel, !full, !full);
 }
 
 static void xdg_toplevel_request_minimize(struct wb_toplevel *toplevel, void *data) {
 	bool minimize_requested = toplevel->xdg_toplevel->requested.minimized;
 	if (minimize_requested) {
-		toplevel->previous_geometry = toplevel->geometry;
+		toplevel->restore_minimize = toplevel->geometry;
 		toplevel->geometry.y = -toplevel->geometry.height;
 
 		focus_next_after(toplevel->server, toplevel);
 	} else {
-		toplevel->geometry = toplevel->previous_geometry;
+		toplevel->geometry = toplevel->restore_minimize;
 	}
 
 	wlr_scene_node_set_position(&toplevel->scene_tree->node,

@@ -89,8 +89,31 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	}
 	case wb::ActionType::ToggleMaximize: {
 		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel && toplevel->scene_tree->node.enabled) {
+			bool full = toplevel->max_horz && toplevel->max_vert;
+			set_toplevel_maximized(toplevel, !full, !full);
+		}
+		break;
+	}
+	case wb::ActionType::ToggleMaximizeHorizontal: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)
-			wl_signal_emit(&toplevel->xdg_toplevel->events.request_maximize, NULL);
+			set_toplevel_maximized(toplevel, !toplevel->max_horz,
+					toplevel->max_vert);
+		break;
+	}
+	case wb::ActionType::ToggleMaximizeVertical: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel && toplevel->scene_tree->node.enabled)
+			set_toplevel_maximized(toplevel, toplevel->max_horz,
+					!toplevel->max_vert);
+		break;
+	}
+	case wb::ActionType::Fullscreen: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel && toplevel->scene_tree->node.enabled)
+			set_toplevel_fullscreen(toplevel,
+					!toplevel->xdg_toplevel->current.fullscreen);
 		break;
 	}
 	case wb::ActionType::Iconify: {
@@ -107,7 +130,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 			struct wlr_box geo_box = toplevel->xdg_toplevel->base->geometry;
 			int decoration_height = MAX(geo_box.y - toplevel->geometry.y, TITLEBAR_HEIGHT);
 
-			toplevel->previous_geometry = toplevel->geometry;
+			toplevel->restore_shade = toplevel->geometry;
 			wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
 					toplevel->geometry.width, decoration_height);
 		}
@@ -115,12 +138,12 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	}
 	case wb::ActionType::Unshade: {
 		struct wb_toplevel *toplevel = first_toplevel(server);
-		if (toplevel && toplevel->previous_geometry.height > 0 &&
-				toplevel->previous_geometry.width > 0 &&
+		if (toplevel && toplevel->restore_shade.height > 0 &&
+				toplevel->restore_shade.width > 0 &&
 				toplevel->scene_tree->node.enabled) {
 			wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
-					toplevel->previous_geometry.width,
-					toplevel->previous_geometry.height);
+					toplevel->restore_shade.width,
+					toplevel->restore_shade.height);
 		}
 		break;
 	}
