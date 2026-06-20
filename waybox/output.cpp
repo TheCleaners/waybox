@@ -161,9 +161,7 @@ void wb_output::on_frame(void *data) {
 	wlr_scene_output_send_frame_done(scene_output, &now);
 }
 
-void output_configuration_applied(struct wl_listener *listener, void *data) {
-	struct wb_server *server =
-		wl_container_of(listener, server, output_configuration_applied);
+void output_configuration_applied(struct wb_server *server, void *data) {
 	struct wlr_output_configuration_v1 *configuration = static_cast<struct wlr_output_configuration_v1 *>(data);
 	if (apply_output_config(server, configuration, false)) {
 		wlr_output_configuration_v1_send_succeeded(configuration);
@@ -174,9 +172,7 @@ void output_configuration_applied(struct wl_listener *listener, void *data) {
 	output_manager_update_config(server);
 }
 
-void output_configuration_tested(struct wl_listener *listener, void *data) {
-	struct wb_server *server =
-		wl_container_of(listener, server, output_configuration_tested);
+void output_configuration_tested(struct wb_server *server, void *data) {
 	struct wlr_output_configuration_v1 *configuration = static_cast<struct wlr_output_configuration_v1 *>(data);
 	if (apply_output_config(server, configuration, true)) {
 		wlr_output_configuration_v1_send_succeeded(configuration);
@@ -195,17 +191,14 @@ void wb_output::on_request_state(void *data) {
 	}
 }
 
-void handle_gamma_control_set_gamma(struct wl_listener *listener, void *data) {
+void handle_gamma_control_set_gamma(struct wb_server *server, void *data) {
 	const struct wlr_gamma_control_manager_v1_set_gamma_event *event = static_cast<const struct wlr_gamma_control_manager_v1_set_gamma_event *>(data);
 	struct wb_output *output = static_cast<struct wb_output *>(event->output->data);
 	output->gamma_lut_changed = true;
 	wlr_output_schedule_frame(output->wlr_output);
 }
 
-void new_output_notify(struct wl_listener *listener, void *data) {
-	struct wb_server *server = wl_container_of(
-			listener, server, new_output
-			);
+void new_output_notify(struct wb_server *server, void *data) {
 	struct wlr_output *wlr_output = static_cast<struct wlr_output *>(data);
 	wlr_log(WLR_INFO, "%s: %s", _("New output device detected"), wlr_output->name);
 
@@ -292,12 +285,12 @@ void new_output_notify(struct wl_listener *listener, void *data) {
 void init_output(struct wb_server *server) {
 	wl_list_init(&server->outputs);
 
-	server->new_output.notify = new_output_notify;
-	wl_signal_add(&server->backend->events.new_output, &server->new_output);
+	server->new_output.connect(&server->backend->events.new_output,
+			[server](void *data) { new_output_notify(server, data); });
 
 	server->wlr_output_manager = wlr_output_manager_v1_create(server->wl_display);
-	server->output_configuration_applied.notify = output_configuration_applied;
-	wl_signal_add(&server->wlr_output_manager->events.apply, &server->output_configuration_applied);
-	server->output_configuration_tested.notify = output_configuration_tested;
-	wl_signal_add(&server->wlr_output_manager->events.test, &server->output_configuration_tested);
+	server->output_configuration_applied.connect(&server->wlr_output_manager->events.apply,
+			[server](void *data) { output_configuration_applied(server, data); });
+	server->output_configuration_tested.connect(&server->wlr_output_manager->events.test,
+			[server](void *data) { output_configuration_tested(server, data); });
 }

@@ -267,10 +267,8 @@ static void handle_new_popup(struct wb_layer_surface *surface, void *data) {
 	create_popup(wlr_popup, surface->scene->tree);
 }
 
-void handle_layer_shell_surface(struct wl_listener *listener, void *data) {
+void handle_layer_shell_surface(struct wb_server *server, void *data) {
 	struct wlr_layer_surface_v1 *layer_surface = static_cast<struct wlr_layer_surface_v1 *>(data);
-	struct wb_server *server =
-		wl_container_of(listener, server, new_layer_surface);
 
 	if (layer_surface->output == NULL) {
 		/* The client didn't request a specific output, so pick one for it.
@@ -345,7 +343,6 @@ void handle_layer_shell_surface(struct wl_listener *listener, void *data) {
 
 void init_layer_shell(struct wb_server *server) {
 	server->layer_shell = wlr_layer_shell_v1_create(server->wl_display, 4);
-	server->new_layer_surface.notify = handle_layer_shell_surface;
-	wl_signal_add(&server->layer_shell->events.new_surface,
-			&server->new_layer_surface);
+	server->new_layer_surface.connect(&server->layer_shell->events.new_surface,
+			[server](void *data) { handle_layer_shell_surface(server, data); });
 }

@@ -151,8 +151,8 @@ bool wb_start_server(struct wb_server* server) {
 
 	server->gamma_control_manager =
 		wlr_gamma_control_manager_v1_create(server->wl_display);
-	server->gamma_control_set_gamma.notify = handle_gamma_control_set_gamma;
-	wl_signal_add(&server->gamma_control_manager->events.set_gamma, &server->gamma_control_set_gamma);
+	server->gamma_control_set_gamma.connect(&server->gamma_control_manager->events.set_gamma,
+			[server](void *data) { handle_gamma_control_set_gamma(server, data); });
 
 	wlr_ext_image_copy_capture_manager_v1_create(server->wl_display, 1);
 	wlr_ext_output_image_capture_source_manager_v1_create(server->wl_display, 1);
@@ -184,24 +184,24 @@ bool wb_terminate(struct wb_server* server) {
 	wl_display_destroy_clients(server->wl_display);
 
 	server->cursor.reset();
-	wl_list_remove(&server->new_xdg_decoration.link); /* wb_decoration_destroy */
+	server->new_xdg_decoration.disconnect(); /* wb_decoration_destroy */
 	deinit_config(server->config);
 	wlr_output_layout_destroy(server->output_layout);
 	wlr_allocator_destroy(server->allocator);
 	wlr_renderer_destroy(server->renderer);
 
-	wl_list_remove(&server->new_input.link);
-	wl_list_remove(&server->new_output.link);
-	wl_list_remove(&server->output_configuration_applied.link);
-	wl_list_remove(&server->output_configuration_tested.link);
-	wl_list_remove(&server->new_inhibitor.link);
+	server->new_input.disconnect();
+	server->new_output.disconnect();
+	server->output_configuration_applied.disconnect();
+	server->output_configuration_tested.disconnect();
+	server->new_inhibitor.disconnect();
 	wl_list_remove(&server->inhibitors);
-	wl_list_remove(&server->destroy_inhibit_manager.link);
-	wl_list_remove(&server->gamma_control_set_gamma.link);
-	wl_list_remove(&server->new_layer_surface.link);
+	server->destroy_inhibit_manager.disconnect();
+	server->gamma_control_set_gamma.disconnect();
+	server->new_layer_surface.disconnect();
 
-	wl_list_remove(&server->new_xdg_toplevel.link);
-	wl_list_remove(&server->new_xdg_popup.link);
+	server->new_xdg_toplevel.disconnect();
+	server->new_xdg_popup.disconnect();
 
 	wlr_backend_destroy(server->backend);
 	server->seat.reset();

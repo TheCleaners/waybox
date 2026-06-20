@@ -541,7 +541,7 @@ static void xdg_popup_destroy(struct wb_popup *popup, void *data) {
 	delete popup;
 }
 
-static void handle_new_xdg_popup(struct wl_listener *listener, void *data) {
+static void handle_new_xdg_popup(struct wb_server *server, void *data) {
 	/* We must add xdg popups to the scene graph so they get rendered. The
 	 * wlroots scene graph provides a helper for this, but to use it we must
 	 * provide the proper parent scene node of the xdg popup. To enable this,
@@ -566,9 +566,7 @@ static void handle_new_xdg_popup(struct wl_listener *listener, void *data) {
 			[popup](void *data) { xdg_popup_destroy(popup, data); });
 }
 
-static void handle_new_xdg_toplevel(struct wl_listener *listener, void *data) {
-	struct wb_server *server =
-		wl_container_of(listener, server, new_xdg_toplevel);
+static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 	struct wlr_xdg_toplevel *xdg_toplevel = static_cast<struct wlr_xdg_toplevel *>(data);
 
 	/* Allocate a wb_toplevel for this toplevel */
@@ -612,8 +610,8 @@ static void handle_new_xdg_toplevel(struct wl_listener *listener, void *data) {
 void init_xdg_shell(struct wb_server *server) {
 	/* xdg-shell version 3 */
 	server->xdg_shell = wlr_xdg_shell_create(server->wl_display, 3);
-	server->new_xdg_popup.notify = handle_new_xdg_popup;
-	wl_signal_add(&server->xdg_shell->events.new_popup, &server->new_xdg_popup);
-	server->new_xdg_toplevel.notify = handle_new_xdg_toplevel;
-	wl_signal_add(&server->xdg_shell->events.new_toplevel, &server->new_xdg_toplevel);
+	server->new_xdg_popup.connect(&server->xdg_shell->events.new_popup,
+			[server](void *data) { handle_new_xdg_popup(server, data); });
+	server->new_xdg_toplevel.connect(&server->xdg_shell->events.new_toplevel,
+			[server](void *data) { handle_new_xdg_toplevel(server, data); });
 }

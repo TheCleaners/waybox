@@ -351,9 +351,8 @@ static void handle_new_pointer(struct wb_server *server, struct wlr_input_device
 	wlr_cursor_attach_input_device(server->cursor->cursor, device);
 }
 
-static void new_input_notify(struct wl_listener *listener, void *data) {
+static void new_input_notify(struct wb_server *server, void *data) {
 	struct wlr_input_device *device = static_cast<struct wlr_input_device *>(data);
-	struct wb_server *server = wl_container_of(listener, server, new_input);
 	switch (device->type) {
 		case WLR_INPUT_DEVICE_KEYBOARD:
 			wlr_log(WLR_INFO, "%s: %s", _("New keyboard detected"), device->name);
@@ -402,8 +401,8 @@ void seat_set_focus_layer(struct wb_seat *seat, struct wlr_layer_surface_v1 *lay
 struct wb_seat *wb_seat_create(struct wb_server *server) {
 	auto *seat = new wb_seat{};
 	wl_list_init(&seat->keyboards);
-	server->new_input.notify = new_input_notify;
-	wl_signal_add(&server->backend->events.new_input, &server->new_input);
+	server->new_input.connect(&server->backend->events.new_input,
+			[server](void *data) { new_input_notify(server, data); });
 	seat->seat = wlr_seat_create(server->wl_display, "seat0");
 
 	wlr_primary_selection_v1_device_manager_create(server->wl_display);

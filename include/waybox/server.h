@@ -60,21 +60,21 @@ struct wb_server {
 	struct wlr_layer_shell_v1 *layer_shell;
 	struct wlr_xdg_shell *xdg_shell;
 
-	struct wl_listener gamma_control_set_gamma;
-	struct wl_listener new_layer_surface;
-	struct wl_listener new_xdg_decoration;
-	struct wl_listener new_xdg_popup;
-	struct wl_listener new_xdg_toplevel;
+	wb::Listener gamma_control_set_gamma;
+	wb::Listener new_layer_surface;
+	wb::Listener new_xdg_decoration;
+	wb::Listener new_xdg_popup;
+	wb::Listener new_xdg_toplevel;
 
-	struct wl_listener destroy_inhibit_manager;
-	struct wl_listener destroy_inhibitor;
-	struct wl_listener new_inhibitor;
+	wb::Listener destroy_inhibit_manager;
+	wb::Listener destroy_inhibitor;
+	wb::Listener new_inhibitor;
 	struct wl_list inhibitors;
 
-	struct wl_listener new_input;
-	struct wl_listener new_output;
-	struct wl_listener output_configuration_applied;
-	struct wl_listener output_configuration_tested;
+	wb::Listener new_input;
+	wb::Listener new_output;
+	wb::Listener output_configuration_applied;
+	wb::Listener output_configuration_tested;
 	struct wl_list outputs; /* wb_output::link */
 };
 
