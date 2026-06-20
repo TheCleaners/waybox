@@ -66,6 +66,13 @@ widget_test = executable(
   )
 test('widget', widget_test)
 
+animation_test = executable(
+  'animation_test',
+  ['animation_test.cpp', 'wb_test_main.cpp', animation_src],
+  include_directories: [inc_dir],
+  )
+test('animation', animation_test)
+
 style_test = executable(
   'style_test',
   ['style_test.cpp', 'wb_test_main.cpp', style_src, theme_src, widget_src],

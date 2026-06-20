@@ -14,10 +14,10 @@ WB_TEST(menu_style_maps_themerc_colours) {
 	wb::MenuStyle s = wb::menu_style_from_theme(t);
 
 	/* panel fill comes from menu items bg; border from the theme border */
-	WB_CHECK(s.panel.fill.color == t.menu.items_bg.color);
+	WB_CHECK(wb::solid_color(s.panel.fill) == t.menu.items_bg.color);
 	WB_CHECK(s.panel.border.width == t.border_width);
 	/* hover (active) item styling comes from the active menu colours */
-	WB_CHECK(s.item.hover.fill.color == t.menu.items_active_bg.color);
+	WB_CHECK(wb::solid_color(s.item.hover.fill) == t.menu.items_active_bg.color);
 	WB_CHECK(s.item.hover.fg == t.menu.items_active_text);
 	WB_CHECK(s.item.normal.fg == t.menu.items_text);
 	WB_CHECK(s.separator == t.menu.separator);
@@ -84,8 +84,8 @@ WB_TEST(frame_button_states_map) {
 WB_TEST(switcher_style_from_theme_is_usable) {
 	Theme t = wb::default_theme();
 	wb::SwitcherStyle s = wb::switcher_style_from_theme(t);
-	WB_CHECK(s.panel.fill.color == t.menu.items_bg.color);
-	WB_CHECK(s.item.hover.fill.color == t.menu.items_active_bg.color);
+	WB_CHECK(wb::solid_color(s.panel.fill) == t.menu.items_bg.color);
+	WB_CHECK(wb::solid_color(s.item.hover.fill) == t.menu.items_active_bg.color);
 	WB_CHECK(s.orientation == wb::SwitcherOrientation::Vertical);
 }
 

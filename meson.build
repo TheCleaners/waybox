@@ -68,6 +68,7 @@ applications_src = files('waybox/applications.cpp')
 keychain_src = files('waybox/keychain.cpp')
 theme_src = files('waybox/theme.cpp')
 widget_src = files('waybox/widget.cpp')
+animation_src = files('waybox/animation.cpp')
 style_src = files('waybox/style.cpp')
 menu_src = files('waybox/menu.cpp')
 

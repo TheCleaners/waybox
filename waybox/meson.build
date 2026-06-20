@@ -8,6 +8,7 @@ wb_src = [
   keychain_src,
   theme_src,
   widget_src,
+  animation_src,
   style_src,
   menu_src,
   render_src,

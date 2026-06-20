@@ -25,7 +25,7 @@ MenuStyle menu_style_from_theme(const Theme &theme) {
 	const MenuColors &m = theme.menu;
 	MenuStyle s;
 
-	s.panel.fill = m.items_bg;
+	s.panel.fill = paint_from_texture(m.items_bg);
 	s.panel.border.width = theme.border_width;
 	s.panel.border.color = theme.border_color;
 	s.panel.border.radius = theme.menu_corner_radius;
@@ -33,13 +33,13 @@ MenuStyle menu_style_from_theme(const Theme &theme) {
 			theme.padding_y, theme.padding_x};
 	s.panel.opacity = theme.menu_opacity;
 
-	s.title_bar.fill = m.title_bg;
+	s.title_bar.fill = paint_from_texture(m.title_bg);
 	s.title_text.color = m.title_text;
 
-	s.item.normal = StateStyle{m.items_bg, m.items_text};
-	s.item.hover = StateStyle{m.items_active_bg, m.items_active_text};
+	s.item.normal = StateStyle{paint_from_texture(m.items_bg), m.items_text};
+	s.item.hover = StateStyle{paint_from_texture(m.items_active_bg), m.items_active_text};
 	s.item.pressed = s.item.hover;
-	s.item.disabled = StateStyle{m.items_bg, m.separator};
+	s.item.disabled = StateStyle{paint_from_texture(m.items_bg), m.separator};
 	s.item_text.color = m.items_text;
 
 	s.separator = m.separator;
@@ -57,20 +57,20 @@ FrameStyle frame_style_from_theme(const Theme &theme, bool active) {
 	f.corner_radius = theme.window_corner_radius;
 	f.client_line = w.client_color;
 
-	f.title_bar.fill = w.title_bg;
+	f.title_bar.fill = paint_from_texture(w.title_bg);
 	f.title_bar.padding = Insets{theme.padding_y, theme.padding_x,
 			theme.padding_y, theme.padding_x};
 	f.label.color = w.label_text;
 	f.label.justify = theme.label_justify;
 
-	f.handle.fill = w.handle_bg;
-	f.grip.fill = w.grip_bg;
+	f.handle.fill = paint_from_texture(w.handle_bg);
+	f.grip.fill = paint_from_texture(w.grip_bg);
 	f.handle_width = theme.handle_width;
 
-	f.button.normal = StateStyle{w.button_bg, w.button_icon};
-	f.button.hover = StateStyle{w.button_bg, w.button_icon_hover};
-	f.button.pressed = StateStyle{w.button_bg, w.button_icon_pressed};
-	f.button.disabled = StateStyle{w.button_bg, w.button_icon_disabled};
+	f.button.normal = StateStyle{paint_from_texture(w.button_bg), w.button_icon};
+	f.button.hover = StateStyle{paint_from_texture(w.button_bg), w.button_icon_hover};
+	f.button.pressed = StateStyle{paint_from_texture(w.button_bg), w.button_icon_pressed};
+	f.button.disabled = StateStyle{paint_from_texture(w.button_bg), w.button_icon_disabled};
 	return f;
 }
 
@@ -78,7 +78,7 @@ SwitcherStyle switcher_style_from_theme(const Theme &theme) {
 	const MenuColors &m = theme.menu;
 	SwitcherStyle s;
 
-	s.panel.fill = m.items_bg;
+	s.panel.fill = paint_from_texture(m.items_bg);
 	s.panel.border.width = theme.border_width;
 	s.panel.border.color = theme.border_color;
 	s.panel.border.radius = theme.menu_corner_radius;
@@ -86,10 +86,10 @@ SwitcherStyle switcher_style_from_theme(const Theme &theme) {
 			theme.padding_y, theme.padding_x};
 	s.panel.opacity = theme.menu_opacity;
 
-	s.item.normal = StateStyle{m.items_bg, m.items_text};
-	s.item.hover = StateStyle{m.items_active_bg, m.items_active_text};
+	s.item.normal = StateStyle{paint_from_texture(m.items_bg), m.items_text};
+	s.item.hover = StateStyle{paint_from_texture(m.items_active_bg), m.items_active_text};
 	s.item.pressed = s.item.hover;
-	s.item.disabled = StateStyle{m.items_bg, m.separator};
+	s.item.disabled = StateStyle{paint_from_texture(m.items_bg), m.separator};
 	s.item_text.color = m.items_text;
 	return s;
 }
