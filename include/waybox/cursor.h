@@ -1,7 +1,10 @@
 #ifndef _WB_CURSOR_H
 #define _WB_CURSOR_H
 #include "waybox/wlroots.hpp"
-#include "waybox/wlroots.hpp"
+
+#include <memory>
+
+#include "waybox/listener.hpp"
 
 struct wb_server;
 
@@ -12,25 +15,34 @@ enum wb_cursor_mode {
 };
 
 struct wb_cursor {
-	struct wlr_cursor *cursor;
-	struct wlr_xcursor_manager *xcursor_manager;
+	struct wlr_cursor *cursor = nullptr;
+	struct wlr_xcursor_manager *xcursor_manager = nullptr;
 
-	struct wb_server *server;
+	struct wb_server *server = nullptr;
 
-	enum wb_cursor_mode cursor_mode;
-	struct wl_listener cursor_motion;
-	struct wl_listener cursor_motion_absolute;
+	enum wb_cursor_mode cursor_mode = WB_CURSOR_PASSTHROUGH;
 
-	struct wl_listener cursor_button;
-	struct wl_listener cursor_axis;
-	struct wl_listener cursor_frame;
+	wb::Listener cursor_motion;
+	wb::Listener cursor_motion_absolute;
+	wb::Listener cursor_button;
+	wb::Listener cursor_axis;
+	wb::Listener cursor_frame;
+	wb::Listener pointer_focus_change;
+	wb::Listener request_cursor;
 
-	struct wl_listener pointer_focus_change;
-	struct wl_listener request_cursor;
+	/* wl_signal handlers (wired to the listeners above as lambdas). */
+	void on_motion(void *data);
+	void on_motion_absolute(void *data);
+	void on_button(void *data);
+	void on_axis(void *data);
+	void on_frame(void *data);
+	void on_pointer_focus_change(void *data);
+	void on_request_set_cursor(void *data);
+
+	~wb_cursor();
 };
 
-struct wb_cursor *wb_cursor_create(struct wb_server *server);
-void wb_cursor_destroy(struct wb_cursor *cursor);
+std::unique_ptr<wb_cursor> wb_cursor_create(struct wb_server *server);
 void reset_cursor_mode(struct wb_server *server);
 
 #endif /* cursor.h */
