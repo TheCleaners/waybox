@@ -71,13 +71,14 @@
     </keybind>
     <keybind key="A-r">
       <action name="Execute">
-        <!-- If you'd prefer to use something like wmenu: `waybox-menu | wmenu | xargs env` -->
-        <execute>rofi -show waybox-menu</execute>
+        <!-- waybox-menu is a rofi script mode; it must be passed via -modi.
+             If you'd prefer something like wmenu: `waybox-menu | wmenu | xargs env` -->
+        <execute>rofi -modi waybox-menu:waybox-menu -show waybox-menu</execute>
       </action>
     </keybind>
     <keybind key="A-F2">
       <action name="Execute">
-        <execute>obrun l</execute>
+        <execute>rofi -show drun</execute>
       </action>
     </keybind>
     <keybind key="W-e">

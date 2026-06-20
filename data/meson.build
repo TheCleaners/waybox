@@ -35,6 +35,12 @@ install_data(
   )
 
 install_data(
+  'menu.xml',
+  install_dir: wb_xdg_dir,
+  install_mode: 'rw-r--r--',
+  )
+
+install_data(
   'waybox.svg',
   install_dir: get_option('prefix') / get_option('datadir') / 'icons',
   install_mode: 'rw-r--r--',

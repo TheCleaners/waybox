@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<openbox_menu xmlns="http://openbox.org/3.4/menu">
+
+<!--
+  Default Waybox root menu.
+
+  This file is parsed by the `waybox-menu` script (a rofi script mode), not by
+  the compositor itself. Note that menu items use <execute> (like rc.xml), NOT
+  Openbox's <command>. Commands are run without a shell, so prefer literal
+  program names; constructs like pipes, $VARS or && will not be expanded here.
+
+  Copy this to $XDG_CONFIG_HOME/waybox/menu.xml (usually
+  ~/.config/waybox/menu.xml) and edit it to taste.
+-->
+
+<menu id="root-menu" label="Waybox">
+  <item label="Terminal">
+    <action name="Execute">
+      <execute>foot</execute>
+    </action>
+  </item>
+  <item label="Run">
+    <action name="Execute">
+      <execute>rofi -show drun</execute>
+    </action>
+  </item>
+  <item label="Web Browser">
+    <action name="Execute">
+      <execute>xdg-open https://</execute>
+    </action>
+  </item>
+  <item label="Files">
+    <action name="Execute">
+      <execute>xdg-open .</execute>
+    </action>
+  </item>
+
+  <menu id="waybox-menu" label="Waybox">
+    <item label="Reconfigure">
+      <action name="Reconfigure"/>
+    </item>
+    <item label="Exit">
+      <action name="Exit"/>
+    </item>
+  </menu>
+</menu>
+
+</openbox_menu>
