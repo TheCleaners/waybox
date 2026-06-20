@@ -19,11 +19,11 @@ sources:
 tasks:
   - setup: |
       cd waybox
-      CC=gcc CXX=g++ meson setup build-gcc
+      CC=gcc CXX=g++ meson setup build-gcc -Dsanitize=disabled
   - build: |
       cd waybox
       ninja -C build-gcc
   - clang: |
       cd waybox
-      CC=clang CXX=clang++ meson setup build-clang
+      CC=clang CXX=clang++ meson setup build-clang -Dsanitize=disabled
       ninja -C build-clang
