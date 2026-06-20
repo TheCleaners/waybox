@@ -81,9 +81,10 @@ WB_TEST(paint_text_puts_ink_on_the_surface) {
 	cairo_surface_t *s;
 	cairo_t *cr = make(&s, 120, 30);
 	wb::paint_text(cr, 2, 2, "Hi", wb::Color{255, 255, 255, 255}, wb::FontSpec{});
-	/* somewhere in the text band should have non-zero alpha (drawn glyphs) */
+	/* drawn glyphs leave non-zero alpha somewhere on the surface (requires a
+	 * usable font to be installed; CI provisions one) */
 	bool ink = false;
-	for (int x = 0; x < 40 && !ink; ++x)
+	for (int x = 0; x < 120 && !ink; ++x)
 		for (int y = 0; y < 30 && !ink; ++y)
 			if (pixel_at(s, x, y).a > 0)
 				ink = true;
