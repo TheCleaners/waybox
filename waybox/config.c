@@ -1,8 +1,38 @@
+#include <pwd.h>
+#include <unistd.h>
 #include <libxml/parser.h>
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 
 #include "config.h"
+
+/* Join two path components into a freshly-allocated string. */
+static char *path_join(const char *base, const char *suffix) {
+	char *path = malloc(strlen(base) + strlen(suffix) + 1);
+	if (!path)
+		return NULL;
+	strcpy(path, base);
+	strcat(path, suffix);
+	return path;
+}
+
+/* Resolve the user's config home, honoring $XDG_CONFIG_HOME and falling back
+ * to $HOME/.config (or the password database if $HOME is unset). */
+static char *default_rc_file(void) {
+	const char *xdg_config = getenv("XDG_CONFIG_HOME");
+	if (xdg_config && xdg_config[0] != '\0')
+		return path_join(xdg_config, "/waybox/rc.xml");
+
+	const char *home = getenv("HOME");
+	if (!home || home[0] == '\0') {
+		struct passwd *pw = getpwuid(getuid());
+		home = pw ? pw->pw_dir : NULL;
+	}
+	if (!home || home[0] == '\0')
+		return NULL;
+
+	return path_join(home, "/.config/waybox/rc.xml");
+}
 
 static unsigned long strtoulong(char *s) {
 	if (s)
@@ -134,6 +164,8 @@ static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt
 
 bool init_config(struct wb_server *server) {
 	struct wb_config *config = calloc(1, sizeof(struct wb_config));
+	if (config == NULL)
+		return false;
 	xmlDocPtr doc;
 	char *rc_file;
 	if (getenv("WB_RC_XML")) {
@@ -141,13 +173,13 @@ bool init_config(struct wb_server *server) {
 	} else if (server->config_file != NULL) {
 		rc_file = strdup(server->config_file);
 	} else {
-		char *xdg_config = getenv("XDG_CONFIG_HOME");
-		if (!xdg_config)
-			xdg_config = "~/.config";
+		rc_file = default_rc_file();
+	}
 
-		rc_file = malloc(strlen(xdg_config) + 14);
-		strcpy(rc_file, xdg_config);
-		rc_file = strcat(rc_file, "/waybox/rc.xml");
+	if (rc_file == NULL) {
+		wlr_log(WLR_ERROR, "%s", _("Unable to determine the configuration file path."));
+		free(config);
+		return false;
 	}
 
 	doc = xmlReadFile(rc_file, NULL, XML_PARSE_RECOVER);
@@ -156,12 +188,14 @@ bool init_config(struct wb_server *server) {
 	free(rc_file);
 	if (doc == NULL) {
 		wlr_log(WLR_ERROR, "%s", _("Unable to parse the configuration file. Consult stderr for more information."));
+		free(config);
 		return false;
 	}
 	xmlXPathContextPtr ctxt = xmlXPathNewContext(doc);
 	if (ctxt == NULL) {
 		wlr_log(WLR_INFO, "%s", _("Couldn't create new context!"));
 		xmlFreeDoc(doc);
+		free(config);
 		return(false);
 	}
 	if (xmlXPathRegisterNs(ctxt, (const xmlChar *) "ob", (const xmlChar *) "http://openbox.org/3.4/rc") != 0) {
@@ -198,7 +232,9 @@ bool init_config(struct wb_server *server) {
 	}
 
 	if (!parse_key_bindings(config, ctxt)) {
+		xmlXPathFreeContext(ctxt);
 		xmlFreeDoc(doc);
+		free(config);
 		return false;
 	}
 
