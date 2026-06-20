@@ -3,6 +3,7 @@ window_cycle_src = files('window_cycle.cpp')
 geometry_src = files('geometry.cpp')
 mousebind_src = files('mousebind.cpp')
 placement_src = files('placement.cpp')
+applications_src = files('applications.cpp')
 
 wb_src = [
   action_src,
@@ -10,6 +11,7 @@ wb_src = [
   geometry_src,
   mousebind_src,
   placement_src,
+  applications_src,
   files(
     'config.cpp',
     'cursor.cpp',
