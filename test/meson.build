@@ -17,6 +17,13 @@ window_cycle_test = executable(
   )
 test('window_cycle', window_cycle_test)
 
+geometry_test = executable(
+  'geometry_test',
+  ['geometry_test.cpp', 'wb_test_main.cpp', geometry_src],
+  include_directories: [inc_dir],
+  )
+test('geometry', geometry_test)
+
 # Headless integration test driving real synthesized input via the
 # virtual-keyboard protocol. Skips (exit 77) when foot/wtype or a headless
 # display are unavailable, so CI stays green; run a sanitized local build to

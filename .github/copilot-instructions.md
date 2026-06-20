@@ -23,8 +23,9 @@ ninja -C build           # binary at build/waybox/waybox
 
 There is a small **unit-test suite** under `test/` (wired into `meson test` and
 CI) that covers the **pure, wlroots-free logic** — currently the action
-framework (`waybox/action.cpp`) and the Alt+Tab cycle selector
-(`waybox/window_cycle.cpp`). Run it with:
+framework (`waybox/action.cpp`), the Alt+Tab cycle selector
+(`waybox/window_cycle.cpp`), and the usable-area/strut geometry
+(`waybox/geometry.cpp`). Run it with:
 
 ```sh
 meson test -C build --print-errorlogs
@@ -85,7 +86,9 @@ Subsystem map (`waybox/<name>.cpp`, headers in `include/waybox/` or `waybox/`):
   reflows windows on mode/scale changes.
 - `xdg_shell` — application windows (`wb_toplevel`), focus, move/resize, maximize.
 - `layer_shell` — panels/launchers (`wb_layer_surface`); `arrange_layers()`
-  computes each output's `usable_area` from exclusive zones.
+  computes each output's `usable_area` from exclusive zones. Usable-area
+  consumers (constrain-to-usable, maximize insets) run through the pure,
+  unit-tested `wb::Rect`/`wb::Strut` helpers in `waybox/geometry.cpp`.
 - `seat` — keyboards, keybindings (`handle_keybinding`), libinput config, and
   virtual keyboard/pointer (`zwp_virtual_keyboard_v1` / `wlr_virtual_pointer_v1`,
   routed through the same handlers as physical devices).
