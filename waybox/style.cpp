@@ -101,6 +101,7 @@ MenuMetrics menu_metrics(const MenuStyle &style) {
 			: derived_item_height(style.item_text.font, style.item_spacing);
 	m.separator_height = style.separator_height;
 	m.pad_x = style.panel.padding.left;
+	m.pad_y = style.panel.padding.top;
 	m.border = style.panel.border.width;
 	m.min_width = style.min_width;
 	m.submenu_arrow_width = style.submenu_arrow_width;

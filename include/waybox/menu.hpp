@@ -50,6 +50,7 @@ struct MenuMetrics {
 	int item_height = 20;
 	int separator_height = 7;
 	int pad_x = 8;                 /* horizontal text padding */
+	int pad_y = 0;                 /* vertical padding above first / below last */
 	int border = 1;
 	int min_width = 80;
 	int submenu_arrow_width = 16;  /* reserved space for the "submenu" arrow */

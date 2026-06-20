@@ -29,8 +29,11 @@ struct MenuStyle {
 	TextStyle item_text;    /* font + justify for entries (colour from `item`) */
 	Color separator{0x80, 0x80, 0x80, 255};
 
-	/* Geometry (logical px). item_height == 0 => derive from the label font. */
+	/* Geometry (logical px). Layout is computed dynamically from the measured
+	 * font size plus these knobs (the "compactness" of the menu). item_height
+	 * == 0 => derive it as (measured text height + 2*item_pad_y). */
 	int item_height = 0;
+	int item_pad_y = 4;    /* vertical padding above/below each label (density) */
 	int item_spacing = 0;
 	int separator_height = 7;
 	int submenu_arrow_width = 16;

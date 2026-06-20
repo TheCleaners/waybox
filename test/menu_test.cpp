@@ -137,3 +137,20 @@ WB_TEST(place_submenu_opens_right_then_flips_left) {
 	wb::Rect low = wb::place_submenu(parent, 700, 150, 200, bounds, 0);
 	WB_CHECK(low.y == 600);  /* 800 - 200 */
 }
+
+WB_TEST(layout_applies_vertical_padding) {
+	Menu m = sample();
+	MenuMetrics metrics;
+	metrics.border = 1;
+	metrics.pad_y = 5;
+	MenuLayout l = wb::layout_menu(m, metrics, fake_width());
+
+	/* the first item starts below the border + top padding */
+	WB_CHECK(l.item_rects.front().y == metrics.border + metrics.pad_y);
+	/* total height includes top and bottom padding plus both borders */
+	int rows = 0;
+	for (const auto &it : m.items)
+		rows += (it.kind == MenuItem::Kind::Separator) ? metrics.separator_height
+				: metrics.item_height;
+	WB_CHECK(l.height == 2 * metrics.border + 2 * metrics.pad_y + rows);
+}

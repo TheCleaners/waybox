@@ -78,6 +78,7 @@ private:
 	MenuBehavior behavior_;
 	MenuMetrics metrics_;
 	struct wlr_scene_tree *tree_ = nullptr;
+	int text_height_ = 0;  /* measured label cell height (logical px) */
 	std::vector<Level> levels_;
 	std::vector<Action> pending_;  /* actions of a chosen entry, for the caller */
 };

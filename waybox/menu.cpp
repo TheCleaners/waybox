@@ -34,7 +34,7 @@ MenuLayout layout_menu(const Menu &menu, const MenuMetrics &m,
 		content_width = std::max(content_width, w);
 	}
 
-	int y = m.border;
+	int y = m.border + m.pad_y;
 	for (const MenuItem &item : menu.items) {
 		int h = item_row_height(item, m);
 		layout.item_rects.push_back(Rect{m.border, y, content_width, h});
@@ -42,7 +42,7 @@ MenuLayout layout_menu(const Menu &menu, const MenuMetrics &m,
 	}
 
 	layout.width = content_width + 2 * m.border;
-	layout.height = y + m.border;
+	layout.height = y + m.pad_y + m.border;
 	return layout;
 }
 
