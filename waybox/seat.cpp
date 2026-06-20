@@ -1,6 +1,9 @@
 #include <libevdev/libevdev.h>
 #include <unistd.h>
 
+#include <optional>
+#include <vector>
+
 #include "waybox/wlroots.hpp"
 #if WLR_HAS_LIBINPUT_BACKEND && defined(HAS_LIBINPUT)
 #include "waybox/wlroots.hpp"
@@ -12,6 +15,7 @@
 #include "waybox/wlroots.hpp"
 
 #include "waybox/seat.h"
+#include "waybox/window_cycle.hpp"
 #include "waybox/xdg_shell.h"
 
 static void deiconify_toplevel(struct wb_toplevel *toplevel) {
@@ -21,38 +25,45 @@ static void deiconify_toplevel(struct wb_toplevel *toplevel) {
 	}
 }
 
-static void cycle_toplevels(struct wb_server *server) {
-	/* Cycle to the next toplevel */
-	if (wl_list_length(&server->toplevels) < 1) {
+/* Shared Alt+Tab cycle: walk the MRU focus order to the next/previous eligible
+ * toplevel using the pure wb::cycle_next() selector, then focus it. */
+static void cycle_toplevels_dir(struct wb_server *server, bool reverse) {
+	if (wl_list_empty(&server->focus_order))
 		return;
+
+	std::vector<struct wb_toplevel *> order;
+	struct wb_toplevel *toplevel;
+	wl_list_for_each(toplevel, &server->focus_order, focus_link)
+		order.push_back(toplevel);
+
+	struct wlr_surface *focused =
+		server->seat->seat->keyboard_state.focused_surface;
+	std::optional<std::size_t> current;
+	for (std::size_t i = 0; i < order.size(); ++i) {
+		if (order[i]->xdg_toplevel->base->surface == focused) {
+			current = i;
+			break;
+		}
 	}
 
-	struct wb_toplevel *current_toplevel = wl_container_of(
-		server->toplevels.prev, current_toplevel, link);
-	deiconify_toplevel(current_toplevel);
-	focus_toplevel(current_toplevel);
+	auto eligible = [&order](std::size_t i) {
+		return order[i]->scene_tree && order[i]->scene_tree->node.enabled;
+	};
+	std::optional<std::size_t> next =
+		wb::cycle_next(order.size(), eligible, current, reverse);
+	if (!next)
+		return;
 
-	/* Move the current toplevel to the beginning of the list */
-	wl_list_remove(&current_toplevel->link);
-	wl_list_insert(&server->toplevels, &current_toplevel->link);
+	deiconify_toplevel(order[*next]);
+	focus_toplevel(order[*next]);
+}
+
+static void cycle_toplevels(struct wb_server *server) {
+	cycle_toplevels_dir(server, false);
 }
 
 static void cycle_toplevels_reverse(struct wb_server *server) {
-	/* Cycle to the previous toplevel */
-	if (wl_list_length(&server->toplevels) < 1) {
-		return;
-	}
-
-	struct wb_toplevel *current_toplevel = wl_container_of(
-		server->toplevels.next, current_toplevel, link);
-	struct wb_toplevel *next_toplevel = wl_container_of(
-		current_toplevel->link.next, next_toplevel, link);
-	deiconify_toplevel(next_toplevel);
-	focus_toplevel(next_toplevel);
-
-	/* Move the current toplevel to after the previous toplevel in the list */
-	wl_list_remove(&current_toplevel->link);
-	wl_list_insert(server->toplevels.prev, &current_toplevel->link);
+	cycle_toplevels_dir(server, true);
 }
 
 /* Run a single parsed action against the live compositor state. This is the
@@ -111,6 +122,18 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 					toplevel->previous_geometry.width,
 					toplevel->previous_geometry.height);
 		}
+		break;
+	}
+	case wb::ActionType::Raise: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel && toplevel->scene_tree->node.enabled)
+			raise_toplevel(toplevel);
+		break;
+	}
+	case wb::ActionType::Lower: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel && toplevel->scene_tree->node.enabled)
+			lower_toplevel(toplevel);
 		break;
 	}
 	case wb::ActionType::Reconfigure:

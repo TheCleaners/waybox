@@ -44,21 +44,41 @@ struct wb_toplevel *get_toplevel_at(
 	return NULL;
 }
 
-/* Returns the front (most recently focused) toplevel, or NULL if there are no
- * toplevels. Callers must not assume server->toplevels is non-empty: indexing
- * server->toplevels.next when the list is empty yields the list sentinel cast
- * to a bogus wb_toplevel. */
+/* Returns the active (most recently focused) toplevel, or NULL if there are
+ * none. This is the head of the focus order, which is independent of the
+ * stacking order (server->toplevels). */
 struct wb_toplevel *first_toplevel(struct wb_server *server) {
-	if (wl_list_empty(&server->toplevels)) {
+	if (wl_list_empty(&server->focus_order)) {
 		return NULL;
 	}
 	struct wb_toplevel *toplevel =
-		wl_container_of(server->toplevels.next, toplevel, link);
+		wl_container_of(server->focus_order.next, toplevel, focus_link);
 	return toplevel;
 }
 
+/* Raise a toplevel to the top of the stacking order (z-order), without
+ * touching focus. */
+void raise_toplevel(struct wb_toplevel *toplevel) {
+	if (toplevel == NULL)
+		return;
+	wlr_scene_node_raise_to_top(&toplevel->scene_tree->node);
+	wl_list_remove(&toplevel->link);
+	wl_list_insert(&toplevel->server->toplevels, &toplevel->link);
+}
+
+/* Lower a toplevel to the bottom of the stacking order, without touching
+ * focus. */
+void lower_toplevel(struct wb_toplevel *toplevel) {
+	if (toplevel == NULL)
+		return;
+	wlr_scene_node_lower_to_bottom(&toplevel->scene_tree->node);
+	wl_list_remove(&toplevel->link);
+	wl_list_insert(toplevel->server->toplevels.prev, &toplevel->link);
+}
+
 void focus_toplevel(struct wb_toplevel *toplevel) {
-	/* Note: this function only deals with keyboard focus. */
+	/* Note: this function only deals with keyboard focus (plus the stacking
+	 * raise that conventionally accompanies it). */
 	if (toplevel == NULL || toplevel->xdg_toplevel->base->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL) {
 		return;
 	}
@@ -77,7 +97,11 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	struct wlr_seat *seat = server->seat->seat;
 	struct wlr_surface *prev_surface = seat->keyboard_state.focused_surface;
 	if (prev_surface == surface) {
-		/* Don't focus a surface that's already focused. */
+		/* Already focused: still promote it in the focus order and raise it,
+		 * so repeated focus requests keep the MRU/stacking invariants. */
+		wl_list_remove(&toplevel->focus_link);
+		wl_list_insert(&server->focus_order, &toplevel->focus_link);
+		raise_toplevel(toplevel);
 		return;
 	}
 	if (prev_surface != NULL) {
@@ -92,10 +116,11 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 			wlr_xdg_toplevel_set_activated(prev_toplevel, false);
 		}
 	}
-	/* Move the toplevel to the front */
-	wlr_scene_node_raise_to_top(&toplevel->scene_tree->node);
-	wl_list_remove(&toplevel->link);
-	wl_list_insert(&server->toplevels, &toplevel->link);
+	/* Promote to the head of the focus order and raise to the top of the
+	 * stacking order (focusing conventionally raises). */
+	wl_list_remove(&toplevel->focus_link);
+	wl_list_insert(&server->focus_order, &toplevel->focus_link);
+	raise_toplevel(toplevel);
 	/* Activate the new surface */
 	wlr_xdg_toplevel_set_activated(toplevel->xdg_toplevel, true);
 	/*
@@ -114,6 +139,20 @@ struct wlr_output *get_active_output(struct wb_toplevel *toplevel) {
 			toplevel->geometry.y + toplevel->geometry.height / 2,
 			&closest_x, &closest_y);
 	return wlr_output_layout_output_at(toplevel->server->output_layout, closest_x, closest_y);
+}
+
+/* Focus the most-recently-focused mapped toplevel other than `except`, e.g.
+ * after the active window is unmapped or minimised. Walks the MRU focus order. */
+static void focus_next_after(struct wb_server *server, struct wb_toplevel *except) {
+	struct wb_toplevel *toplevel;
+	wl_list_for_each(toplevel, &server->focus_order, focus_link) {
+		if (toplevel == except)
+			continue;
+		if (toplevel->scene_tree && toplevel->scene_tree->node.enabled) {
+			focus_toplevel(toplevel);
+			return;
+		}
+	}
 }
 
 static struct wlr_box get_usable_area(struct wb_toplevel *toplevel) {
@@ -270,15 +309,8 @@ static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
 		return;
 	reset_cursor_mode(toplevel->server);
 
-	/* Focus the next toplevel, if any. */
-	if (toplevel->link.next != &toplevel->server->toplevels) {
-		struct wb_toplevel *next_toplevel = wl_container_of(toplevel->link.next, next_toplevel, link);
-		if (next_toplevel && next_toplevel->xdg_toplevel && next_toplevel->scene_tree && next_toplevel->scene_tree->node.enabled) {
-			wlr_log(WLR_INFO, "%s: %s", _("Focusing next toplevel"),
-					next_toplevel->xdg_toplevel->app_id);
-			focus_toplevel(next_toplevel);
-		}
-	}
+	/* Focus the next most-recently-used toplevel, if any. */
+	focus_next_after(toplevel->server, toplevel);
 }
 
 static void update_fractional_scale(struct wlr_surface *surface) {
@@ -320,6 +352,7 @@ static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 	/* The wb::Listener members disconnect themselves when the toplevel is
 	 * deleted. */
 	wl_list_remove(&toplevel->link);
+	wl_list_remove(&toplevel->focus_link);
 	delete toplevel;
 }
 
@@ -358,7 +391,7 @@ static void xdg_toplevel_request_fullscreen(
 			toplevel->geometry.height = output->geometry.height;
 			toplevel->geometry.width = output->geometry.width;
 		}
-		wlr_scene_node_raise_to_top(&toplevel->scene_tree->node);
+		raise_toplevel(toplevel);
 	} else {
 		toplevel->geometry = toplevel->previous_geometry;
 	}
@@ -410,12 +443,7 @@ static void xdg_toplevel_request_minimize(struct wb_toplevel *toplevel, void *da
 		toplevel->previous_geometry = toplevel->geometry;
 		toplevel->geometry.y = -toplevel->geometry.height;
 
-		if (toplevel->link.next != &toplevel->server->toplevels) {
-			struct wb_toplevel *next_toplevel = wl_container_of(toplevel->link.next, next_toplevel, link);
-			focus_toplevel(next_toplevel);
-		} else {
-			focus_toplevel(toplevel);
-		}
+		focus_next_after(toplevel->server, toplevel);
 	} else {
 		toplevel->geometry = toplevel->previous_geometry;
 	}
@@ -605,6 +633,7 @@ static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 	bind(toplevel->set_title, &xdg_toplevel->events.set_title, xdg_toplevel_set_title);
 
 	wl_list_insert(&toplevel->server->toplevels, &toplevel->link);
+	wl_list_insert(&toplevel->server->focus_order, &toplevel->focus_link);
 }
 
 void init_xdg_shell(struct wb_server *server) {
