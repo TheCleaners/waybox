@@ -55,6 +55,74 @@ static void cycle_toplevels_reverse(struct wb_server *server) {
 	wl_list_insert(server->toplevels.prev, &current_toplevel->link);
 }
 
+/* Run a single parsed action against the live compositor state. This is the
+ * "live" half of the action framework (the registry/parsing half lives in
+ * action.cpp). Adding a new action means adding a case here plus a row in the
+ * action.cpp registry. */
+void wb::run_action(const wb::Action &action, struct wb_server *server) {
+	switch (action.type) {
+	case wb::ActionType::Execute:
+		wb_spawn(action.command.c_str());
+		break;
+	case wb::ActionType::NextWindow:
+		cycle_toplevels(server);
+		break;
+	case wb::ActionType::PreviousWindow:
+		cycle_toplevels_reverse(server);
+		break;
+	case wb::ActionType::Close: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel && toplevel->scene_tree->node.enabled)
+			wlr_xdg_toplevel_send_close(toplevel->xdg_toplevel);
+		break;
+	}
+	case wb::ActionType::ToggleMaximize: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel && toplevel->scene_tree->node.enabled)
+			wl_signal_emit(&toplevel->xdg_toplevel->events.request_maximize, NULL);
+		break;
+	}
+	case wb::ActionType::Iconify: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel && toplevel->scene_tree->node.enabled) {
+			toplevel->xdg_toplevel->requested.minimized = true;
+			wl_signal_emit(&toplevel->xdg_toplevel->events.request_minimize, NULL);
+		}
+		break;
+	}
+	case wb::ActionType::Shade: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel && toplevel->scene_tree->node.enabled) {
+			struct wlr_box geo_box = toplevel->xdg_toplevel->base->geometry;
+			int decoration_height = MAX(geo_box.y - toplevel->geometry.y, TITLEBAR_HEIGHT);
+
+			toplevel->previous_geometry = toplevel->geometry;
+			wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
+					toplevel->geometry.width, decoration_height);
+		}
+		break;
+	}
+	case wb::ActionType::Unshade: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel && toplevel->previous_geometry.height > 0 &&
+				toplevel->previous_geometry.width > 0 &&
+				toplevel->scene_tree->node.enabled) {
+			wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
+					toplevel->previous_geometry.width,
+					toplevel->previous_geometry.height);
+		}
+		break;
+	}
+	case wb::ActionType::Reconfigure:
+		deinit_config(server->config);
+		init_config(server);
+		break;
+	case wb::ActionType::Exit:
+		wl_display_terminate(server->wl_display);
+		break;
+	}
+}
+
 static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32_t modifiers) {
 	/*
 	 * Here we handle compositor keybindings. This is when the compositor is
@@ -93,54 +161,8 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 	struct wb_key_binding *key_binding;
 	wl_list_for_each(key_binding, &server->config->key_bindings, link) {
 		if (sym == key_binding->sym && modifiers == key_binding->modifiers) {
-			if (key_binding->action & ACTION_NEXT_WINDOW)
-				cycle_toplevels(server);
-			if (key_binding->action & ACTION_PREVIOUS_WINDOW)
-				cycle_toplevels_reverse(server);
-			if (key_binding->action & ACTION_CLOSE) {
-				struct wb_toplevel *current_toplevel = first_toplevel(server);
-				if (current_toplevel && current_toplevel->scene_tree->node.enabled)
-					wlr_xdg_toplevel_send_close(current_toplevel->xdg_toplevel);
-			}
-			if (key_binding->action & ACTION_EXECUTE) {
-				wb_spawn(key_binding->cmd);
-			}
-			if (key_binding->action & ACTION_TOGGLE_MAXIMIZE) {
-				struct wb_toplevel *toplevel = first_toplevel(server);
-				if (toplevel && toplevel->scene_tree->node.enabled)
-					wl_signal_emit(&toplevel->xdg_toplevel->events.request_maximize, NULL);
-			}
-			if (key_binding->action & ACTION_ICONIFY) {
-				struct wb_toplevel *toplevel = first_toplevel(server);
-				if (toplevel && toplevel->scene_tree->node.enabled) {
-					toplevel->xdg_toplevel->requested.minimized = true;
-					wl_signal_emit(&toplevel->xdg_toplevel->events.request_minimize, NULL);
-				}
-			}
-			if (key_binding->action & ACTION_SHADE) {
-				struct wb_toplevel *toplevel = first_toplevel(server);
-				if (toplevel && toplevel->scene_tree->node.enabled) {
-					struct wlr_box geo_box = toplevel->xdg_toplevel->base->geometry;
-					int decoration_height = MAX(geo_box.y - toplevel->geometry.y, TITLEBAR_HEIGHT);
-
-					toplevel->previous_geometry = toplevel->geometry;
-					wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
-							toplevel->geometry.width, decoration_height);
-				}
-			}
-			if (key_binding->action & ACTION_UNSHADE) {
-				struct wb_toplevel *toplevel = first_toplevel(server);
-				if (toplevel && toplevel->previous_geometry.height > 0 && toplevel->previous_geometry.width > 0 && toplevel->scene_tree->node.enabled) {
-					wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
-							toplevel->previous_geometry.width, toplevel->previous_geometry.height);
-				}
-			}
-			if (key_binding->action & ACTION_RECONFIGURE) {
-				deinit_config(server->config);
-				init_config(server);
-			}
-			if (key_binding->action & ACTION_EXIT)
-				wl_display_terminate(server->wl_display);
+			for (const wb::Action &action : key_binding->actions)
+				wb::run_action(action, server);
 			return true;
 		}
 	}

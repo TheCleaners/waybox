@@ -1,20 +1,10 @@
 #ifndef _WB_CONFIG_H
 #define _WB_CONFIG_H
 
-#include "waybox/server.h"
+#include <vector>
 
-enum action_type {
-	ACTION_EXIT = 1 << 0,
-	ACTION_NEXT_WINDOW = 1 << 1,
-	ACTION_EXECUTE = 1 << 2,
-	ACTION_PREVIOUS_WINDOW = 1 << 3,
-	ACTION_CLOSE = 1 << 4,
-	ACTION_RECONFIGURE = 1 << 5,
-	ACTION_TOGGLE_MAXIMIZE = 1 << 6,
-	ACTION_ICONIFY = 1 << 7,
-	ACTION_SHADE = 1 << 8,
-	ACTION_UNSHADE = 1 << 9,
-};
+#include "waybox/action.hpp"
+#include "waybox/server.h"
 
 struct wb_config {
 	struct wb_server *server;
@@ -61,8 +51,7 @@ struct wb_config {
 struct wb_key_binding {
 	xkb_keysym_t sym;
 	uint32_t modifiers;
-	uint32_t action;
-	char *cmd;
+	std::vector<wb::Action> actions;
 	struct wl_list link;
 };
 
