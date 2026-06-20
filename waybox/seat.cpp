@@ -147,55 +147,29 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 	return false;
 }
 
-static void keyboard_handle_destroy(struct wl_listener *listener, void *data) {
-	/* This event is raised by the keyboard base wlr_input_device to signal
-	 * the destruction of the wlr_keyboard. It will no longer receive events
-	 * and should be destroyed.
-	 */
-	struct wb_keyboard *keyboard = wl_container_of(listener, keyboard, destroy);
-	wl_list_remove(&keyboard->destroy.link);
-	wl_list_remove(&keyboard->key.link);
-	wl_list_remove(&keyboard->modifiers.link);
-	wl_list_remove(&keyboard->link);
-	free(keyboard);
+void wb_keyboard::on_modifiers(void *data) {
+	/* Raised when a modifier key (shift, alt, ...) is pressed; forward it.
+	 *
+	 * A seat can only have one keyboard, but that is a Wayland-protocol
+	 * limitation, not a wlroots one: we assign every connected keyboard to the
+	 * same seat and wlr_seat swaps the underlying wlr_keyboard transparently. */
+	wlr_seat_set_keyboard(server->seat->seat, keyboard);
+	wlr_seat_keyboard_notify_modifiers(server->seat->seat,
+		&keyboard->modifiers);
 }
 
-static void keyboard_handle_modifiers(
-		struct wl_listener *listener, void *data) {
-	/* This event is raised when a modifier key, such as shift or alt, is
-	 * pressed. We simply communicate this to the client. */
-	struct wb_keyboard *keyboard =
-		wl_container_of(listener, keyboard, modifiers);
-	/*
-	 * A seat can only have one keyboard, but this is a limitation of the
-	 * Wayland protocol - not wlroots. We assign all connected keyboards to the
-	 * same seat. You can swap out the underlying wlr_keyboard like this and
-	 * wlr_seat handles this transparently.
-	 */
-	wlr_seat_set_keyboard(keyboard->server->seat->seat, keyboard->keyboard);
-	/* Send modifiers to the client. */
-	wlr_seat_keyboard_notify_modifiers(keyboard->server->seat->seat,
-		&keyboard->keyboard->modifiers);
-}
-
-static void keyboard_handle_key(
-		struct wl_listener *listener, void *data) {
-	/* This event is raised when a key is pressed or released. */
-	struct wb_keyboard *keyboard =
-		wl_container_of(listener, keyboard, key);
-	struct wb_server *server = keyboard->server;
-	struct wlr_keyboard_key_event *event = static_cast<struct wlr_keyboard_key_event *>(data);
+void wb_keyboard::on_key(void *data) {
+	/* Raised when a key is pressed or released. */
+	auto *event = static_cast<struct wlr_keyboard_key_event *>(data);
 	struct wlr_seat *seat = server->seat->seat;
 
 	/* Translate libinput keycode -> xkbcommon */
 	uint32_t keycode = event->keycode + 8;
-	/* Get a list of keysyms based on the keymap for this keyboard */
 	const xkb_keysym_t *syms;
-	int nsyms = xkb_state_key_get_syms(
-			keyboard->keyboard->xkb_state, keycode, &syms);
+	int nsyms = xkb_state_key_get_syms(keyboard->xkb_state, keycode, &syms);
 
 	bool handled = false;
-	uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard->keyboard);
+	uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard);
 	if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
 		for (int i = 0; i < nsyms; i++) {
 			handled = handle_keybinding(server, syms[i], modifiers);
@@ -203,8 +177,8 @@ static void keyboard_handle_key(
 	}
 
 	if (!handled) {
-		/* Otherwise, we pass it along to the client. */
-		wlr_seat_set_keyboard(seat, keyboard->keyboard);
+		/* Pass it along to the focused client. */
+		wlr_seat_set_keyboard(seat, keyboard);
 		wlr_seat_keyboard_notify_key(seat, event->time_msec,
 			event->keycode, event->state);
 	}
@@ -214,22 +188,16 @@ static void keyboard_handle_key(
 
 static void handle_new_keyboard(struct wb_server *server,
 		struct wlr_input_device *device) {
-	struct wb_keyboard *keyboard =
-		static_cast<wb_keyboard *>(calloc(1, sizeof(struct wb_keyboard)));
-	if (keyboard == NULL) {
-		return;
-	}
+	auto *keyboard = new wb_keyboard{};
 	keyboard->server = server;
 	keyboard->keyboard = wlr_keyboard_from_input_device(device);
 
-	/* We need to prepare an XKB keymap and assign it to the keyboard. */
-	/* We need to prepare an XKB keymap and assign it to the keyboard. A NULL
-	 * rule_names pointer makes libxkbcommon fall back to the XKB_* env
-	 * variables. We use a zero-initialized stack struct so any field not set
-	 * from the config stays NULL (which xkbcommon treats as "default") rather
-	 * than an uninitialized garbage pointer. */
+	/* Prepare an XKB keymap and assign it to the keyboard. A NULL rule_names
+	 * pointer makes libxkbcommon fall back to the XKB_* env variables; we use a
+	 * zero-initialized stack struct so any field not set from the config stays
+	 * NULL (xkbcommon's "default") rather than an uninitialized garbage pointer. */
 	struct xkb_rule_names rule_names = {};
-	struct xkb_rule_names *rules = NULL;
+	struct xkb_rule_names *rules = nullptr;
 	if (server->config && server->config->keyboard_layout.use_config) {
 		rule_names.layout = server->config->keyboard_layout.layout;
 		rule_names.model = server->config->keyboard_layout.model;
@@ -243,24 +211,26 @@ static void handle_new_keyboard(struct wb_server *server,
 	struct xkb_keymap *keymap = xkb_keymap_new_from_names(context, rules,
 		XKB_KEYMAP_COMPILE_NO_FLAGS);
 
-	if (keymap != NULL) {
+	if (keymap != nullptr) {
 		wlr_keyboard_set_keymap(keyboard->keyboard, keymap);
 		wlr_keyboard_set_repeat_info(keyboard->keyboard, 25, 600);
 	}
 	xkb_keymap_unref(keymap);
 	xkb_context_unref(context);
 
-	/* Here we set up listeners for keyboard events. */
-	keyboard->destroy.notify = keyboard_handle_destroy;
-	wl_signal_add(&device->events.destroy, &keyboard->destroy);
-	keyboard->modifiers.notify = keyboard_handle_modifiers;
-	wl_signal_add(&keyboard->keyboard->events.modifiers, &keyboard->modifiers);
-	keyboard->key.notify = keyboard_handle_key;
-	wl_signal_add(&keyboard->keyboard->events.key, &keyboard->key);
+	keyboard->modifiers.connect(&keyboard->keyboard->events.modifiers,
+			[keyboard](void *data) { keyboard->on_modifiers(data); });
+	keyboard->key.connect(&keyboard->keyboard->events.key,
+			[keyboard](void *data) { keyboard->on_key(data); });
+	keyboard->destroy.connect(&device->events.destroy,
+			[keyboard](void *data) {
+		/* The wb::Listener members disconnect themselves on delete. */
+		wl_list_remove(&keyboard->link);
+		delete keyboard;
+	});
 
 	wlr_seat_set_keyboard(server->seat->seat, keyboard->keyboard);
 
-	/* And add the keyboard to our list of keyboards */
 	wl_list_insert(&server->seat->keyboards, &keyboard->link);
 }
 
@@ -429,55 +399,38 @@ void seat_set_focus_layer(struct wb_seat *seat, struct wlr_layer_surface_v1 *lay
 	}
 }
 
-static void handle_request_set_primary_selection(struct wl_listener *listener,
-		void *data) {
-	struct wb_seat *seat =
-		wl_container_of(listener, seat, request_set_primary_selection);
-	struct wlr_seat_request_set_primary_selection_event *event = static_cast<struct wlr_seat_request_set_primary_selection_event *>(data);
-	wlr_seat_set_primary_selection(seat->seat, event->source, event->serial);
-}
-
-static void handle_request_set_selection(struct wl_listener *listener, void
-		*data) {
-	struct wb_seat *seat =
-		wl_container_of(listener, seat, request_set_selection);
-	struct wlr_seat_request_set_selection_event *event = static_cast<struct wlr_seat_request_set_selection_event *>(data);
-	wlr_seat_set_selection(seat->seat, event->source, event->serial);
-}
-
 struct wb_seat *wb_seat_create(struct wb_server *server) {
-	struct wb_seat *seat = static_cast<struct wb_seat *>(calloc(1, sizeof(struct wb_seat)));
-	if (seat == NULL)
-		return NULL;
+	auto *seat = new wb_seat{};
 	wl_list_init(&seat->keyboards);
 	server->new_input.notify = new_input_notify;
 	wl_signal_add(&server->backend->events.new_input, &server->new_input);
 	seat->seat = wlr_seat_create(server->wl_display, "seat0");
 
 	wlr_primary_selection_v1_device_manager_create(server->wl_display);
-	seat->request_set_primary_selection.notify =
-		handle_request_set_primary_selection;
-	wl_signal_add(&seat->seat->events.request_set_primary_selection,
-			&seat->request_set_primary_selection);
-	seat->request_set_selection.notify = handle_request_set_selection;
-	wl_signal_add(&seat->seat->events.request_set_selection,
-			&seat->request_set_selection);
+	seat->request_set_primary_selection.connect(
+			&seat->seat->events.request_set_primary_selection,
+			[seat](void *data) {
+		auto *event =
+			static_cast<struct wlr_seat_request_set_primary_selection_event *>(data);
+		wlr_seat_set_primary_selection(seat->seat, event->source, event->serial);
+	});
+	seat->request_set_selection.connect(
+			&seat->seat->events.request_set_selection, [seat](void *data) {
+		auto *event =
+			static_cast<struct wlr_seat_request_set_selection_event *>(data);
+		wlr_seat_set_selection(seat->seat, event->source, event->serial);
+	});
 
 	return seat;
 }
 
-void wb_seat_destroy(struct wb_seat *seat) {
+wb_seat::~wb_seat() {
 	/* Free any keyboards still attached (their own destroy handlers normally
-	 * remove them, but be defensive at shutdown). */
+	 * remove them, but be defensive at shutdown). The wb::Listener members of
+	 * both the keyboards and the seat disconnect themselves on destruction. */
 	struct wb_keyboard *keyboard, *tmp;
-	wl_list_for_each_safe(keyboard, tmp, &seat->keyboards, link) {
-		wl_list_remove(&keyboard->destroy.link);
-		wl_list_remove(&keyboard->key.link);
-		wl_list_remove(&keyboard->modifiers.link);
+	wl_list_for_each_safe(keyboard, tmp, &keyboards, link) {
 		wl_list_remove(&keyboard->link);
-		free(keyboard);
+		delete keyboard;
 	}
-	wl_list_remove(&seat->request_set_primary_selection.link);
-	wl_list_remove(&seat->request_set_selection.link);
-	free(seat);
 }

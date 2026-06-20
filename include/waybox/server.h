@@ -48,7 +48,7 @@ struct wb_server {
 	char *config_file;
 
 	std::unique_ptr<wb_cursor> cursor;
-	struct wb_seat *seat;
+	std::unique_ptr<wb_seat> seat;
 
 	struct wb_toplevel *grabbed_toplevel;
 	struct wlr_box grab_geo_box;

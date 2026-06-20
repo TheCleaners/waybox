@@ -103,7 +103,7 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	 * track of this and automatically send key events to the appropriate
 	 * clients without additional work on your part.
 	 */
-	seat_focus_surface(server->seat, surface);
+	seat_focus_surface(server->seat.get(), surface);
 }
 
 struct wlr_output *get_active_output(struct wb_toplevel *toplevel) {

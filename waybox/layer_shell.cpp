@@ -146,7 +146,7 @@ static void handle_surface_commit(struct wl_listener *listener, void *data) {
 	}
 
 	if (layer_surface == surface->server->seat->focused_layer) {
-		seat_focus_surface(surface->server->seat, layer_surface->surface);
+		seat_focus_surface(surface->server->seat.get(), layer_surface->surface);
 	}
 }
 
@@ -162,7 +162,7 @@ static void handle_map(struct wl_listener *listener, void *data) {
 			(layer_surface->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY ||
 			layer_surface->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_TOP)) {
 
-		struct wb_seat *seat = surface->server->seat;
+		struct wb_seat *seat = surface->server->seat.get();
 		/* but only if the currently focused layer has a lower precedence */
 		if (!seat->focused_layer ||
 				seat->focused_layer->current.layer >= layer_surface->current.layer) {
@@ -176,7 +176,7 @@ static void handle_unmap(struct wl_listener *listener, void *data) {
 	struct wb_layer_surface *surface = wl_container_of(
 			listener, surface, unmap);
 
-	struct wb_seat *seat = surface->server->seat;
+	struct wb_seat *seat = surface->server->seat.get();
 	if (seat->focused_layer == surface->scene->layer_surface) {
 		seat_set_focus_layer(seat, NULL);
 	}
