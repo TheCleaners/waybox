@@ -35,9 +35,11 @@ static char *default_rc_file(void) {
 }
 
 static unsigned long strtoulong(char *s) {
-	if (s)
-		return strtoul(s, (char **) NULL, 10);
-	else return 0;
+	if (!s)
+		return 0;
+	unsigned long value = strtoul(s, (char **) NULL, 10);
+	free(s);
+	return value;
 }
 
 static char *parse_xpath_expr(char *expr, xmlXPathContextPtr ctxt) {
@@ -257,11 +259,34 @@ void deinit_config(struct wb_config *config) {
 		return;
 
 	/* Free everything allocated in init_config */
-	struct wb_key_binding *key_binding;
-	wl_list_for_each(key_binding, &config->key_bindings, link) {
+	free(config->keyboard_layout.layout);
+	free(config->keyboard_layout.model);
+	free(config->keyboard_layout.options);
+	free(config->keyboard_layout.rules);
+	free(config->keyboard_layout.variant);
+
+	free(config->libinput_config.accel_profile);
+	free(config->libinput_config.accel_speed);
+	free(config->libinput_config.calibration_matrix);
+	free(config->libinput_config.click_method);
+	free(config->libinput_config.dwt);
+	free(config->libinput_config.dwtp);
+	free(config->libinput_config.left_handed);
+	free(config->libinput_config.middle_emulation);
+	free(config->libinput_config.natural_scroll);
+	free(config->libinput_config.scroll_button);
+	free(config->libinput_config.scroll_button_lock);
+	free(config->libinput_config.scroll_method);
+	free(config->libinput_config.tap);
+	free(config->libinput_config.tap_button_map);
+	free(config->libinput_config.tap_drag);
+	free(config->libinput_config.tap_drag_lock);
+
+	struct wb_key_binding *key_binding, *tmp;
+	wl_list_for_each_safe(key_binding, tmp, &config->key_bindings, link) {
+		wl_list_remove(&key_binding->link);
 		free(key_binding->cmd);
 		free(key_binding);
 	}
-	wl_list_remove(&config->key_bindings);
 	free(config);
 }
