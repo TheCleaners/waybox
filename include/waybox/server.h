@@ -82,6 +82,9 @@ struct wb_server {
 	struct wlr_virtual_pointer_manager_v1 *virtual_pointer_manager;
 	wb::Listener new_virtual_keyboard;
 	wb::Listener new_virtual_pointer;
+
+	struct wlr_xdg_activation_v1 *xdg_activation;
+	wb::Listener request_activate;
 };
 
 bool wb_create_backend(struct wb_server *server);

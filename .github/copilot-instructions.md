@@ -90,7 +90,8 @@ them plus the global wlroots managers. Startup/teardown flow lives in
 `wb_terminate()`.
 
 Subsystem map (`waybox/<name>.cpp`, headers in `include/waybox/` or `waybox/`):
-- `server` — lifecycle, global protocols, `wb_spawn()`.
+- `server` — lifecycle, global protocols (incl. xdg-activation focus requests),
+  `wb_spawn()`.
 - `output` — output config, **HiDPI/fractional scaling**, and the
   output-management protocol (wlr-randr/kanshi). Recomputes usable area and
   reflows windows on mode/scale changes.

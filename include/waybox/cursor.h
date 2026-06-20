@@ -29,6 +29,7 @@ struct wb_cursor {
 	wb::Listener cursor_frame;
 	wb::Listener pointer_focus_change;
 	wb::Listener request_cursor;
+	wb::Listener request_set_shape;
 
 	/* wl_signal handlers (wired to the listeners above as lambdas). */
 	void on_motion(void *data);
@@ -38,6 +39,7 @@ struct wb_cursor {
 	void on_frame(void *data);
 	void on_pointer_focus_change(void *data);
 	void on_request_set_cursor(void *data);
+	void on_request_set_shape(void *data);
 
 	~wb_cursor();
 };

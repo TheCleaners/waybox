@@ -150,6 +150,27 @@ bool wb_start_server(struct wb_server* server) {
 	server->foreign_toplevel_list =
 		wlr_ext_foreign_toplevel_list_v1_create(server->wl_display, 1);
 
+	/* xdg-activation-v1: a client (or launcher) can ask to activate/raise a
+	 * surface, e.g. to bring a just-launched window to the front. */
+	server->xdg_activation = wlr_xdg_activation_v1_create(server->wl_display);
+	server->request_activate.connect(
+			&server->xdg_activation->events.request_activate,
+			[](void *data) {
+		auto *event =
+			static_cast<struct wlr_xdg_activation_v1_request_activate_event *>(data);
+		struct wlr_xdg_surface *xdg_surface =
+			wlr_xdg_surface_try_from_wlr_surface(event->surface);
+		if (xdg_surface == NULL ||
+				xdg_surface->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL ||
+				!xdg_surface->surface->mapped)
+			return;
+		auto *tree = static_cast<struct wlr_scene_tree *>(xdg_surface->data);
+		auto *toplevel =
+			tree ? static_cast<struct wb_toplevel *>(tree->node.data) : nullptr;
+		if (toplevel != NULL)
+			focus_toplevel(toplevel);
+	});
+
 	server->gamma_control_manager =
 		wlr_gamma_control_manager_v1_create(server->wl_display);
 	server->gamma_control_set_gamma.connect(&server->gamma_control_manager->events.set_gamma,
@@ -194,6 +215,7 @@ bool wb_terminate(struct wb_server* server) {
 	server->new_input.disconnect();
 	server->new_virtual_keyboard.disconnect();
 	server->new_virtual_pointer.disconnect();
+	server->request_activate.disconnect();
 	server->new_output.disconnect();
 	server->output_configuration_applied.disconnect();
 	server->output_configuration_tested.disconnect();

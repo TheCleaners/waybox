@@ -274,6 +274,19 @@ void wb_cursor::on_request_set_cursor(void *data) {
 	}
 }
 
+void wb_cursor::on_request_set_shape(void *data) {
+	/* A client requested a named cursor shape (cursor-shape-v1) instead of
+	 * supplying a surface. Honour it only for the pointer-focused client. */
+	auto *event =
+		static_cast<struct wlr_cursor_shape_manager_v1_request_set_shape_event *>(data);
+	struct wlr_seat_client *focused_client =
+		server->seat->seat->pointer_state.focused_client;
+	if (focused_client == event->seat_client) {
+		wlr_cursor_set_xcursor(cursor, xcursor_manager,
+				wlr_cursor_shape_v1_name(event->shape));
+	}
+}
+
 wb_cursor::~wb_cursor() {
 	/* Disconnect the listeners before destroying the wlr_cursor: it asserts
 	 * that nothing is still listening on its event signals. (The Listener
@@ -286,6 +299,7 @@ wb_cursor::~wb_cursor() {
 	cursor_frame.disconnect();
 	pointer_focus_change.disconnect();
 	request_cursor.disconnect();
+	request_set_shape.disconnect();
 
 	if (xcursor_manager != nullptr) {
 		wlr_xcursor_manager_destroy(xcursor_manager);
@@ -323,6 +337,12 @@ std::unique_ptr<wb_cursor> wb_cursor_create(struct wb_server *server) {
 			[c](void *data) { c->on_pointer_focus_change(data); });
 	c->request_cursor.connect(&server->seat->seat->events.request_set_cursor,
 			[c](void *data) { c->on_request_set_cursor(data); });
+
+	/* cursor-shape-v1: let clients request named cursor shapes. */
+	struct wlr_cursor_shape_manager_v1 *cursor_shape =
+		wlr_cursor_shape_manager_v1_create(server->wl_display, 1);
+	c->request_set_shape.connect(&cursor_shape->events.request_set_shape,
+			[c](void *data) { c->on_request_set_shape(data); });
 
 	wlr_cursor_attach_output_layout(c->cursor, server->output_layout);
 	return cursor;
