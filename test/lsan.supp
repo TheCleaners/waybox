@@ -1,0 +1,25 @@
+# LeakSanitizer suppressions for the render test.
+#
+# Pango, GLib/GObject, fontconfig and FreeType keep process-global caches (font
+# maps, the fontconfig font database, etc.) that are never freed before exit and
+# which LeakSanitizer reports as leaks. They are not leaks in waybox code, so we
+# suppress them by the originating library/function while still catching real
+# leaks in our own painting code.
+leak:libpango
+leak:libpangocairo
+leak:libgobject
+leak:libglib
+leak:libgio
+leak:libgmodule
+leak:libharfbuzz
+leak:libfontconfig
+leak:libfreetype
+leak:libcairo
+leak:FcConfig
+leak:FcInit
+leak:FcPattern
+leak:FcFontList
+leak:g_malloc
+leak:g_realloc
+leak:g_type
+leak:g_object

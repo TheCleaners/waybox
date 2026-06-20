@@ -59,6 +59,22 @@ theme_test = executable(
   )
 test('theme', theme_test)
 
+# Pixel test for the Cairo/Pango painting primitives. Needs cairo/pango, so it
+# is only built in the full build (not tests_only); it links no wlroots.
+if not get_option('tests_only')
+  render_test = executable(
+    'render_test',
+    ['render_test.cpp', 'wb_test_main.cpp', render_src],
+    include_directories: [inc_dir],
+    dependencies: [cairo, pango, pangocairo],
+    )
+  test('render', render_test,
+    env: {
+      'LSAN_OPTIONS': 'suppressions=' + meson.current_source_dir() / 'lsan.supp',
+    },
+    )
+endif
+
 # Headless integration test driving real synthesized input via the
 # virtual-keyboard protocol. Skips (exit 77) when foot/wtype or a headless
 # display are unavailable, so CI stays green; run a sanitized local build to
