@@ -24,7 +24,7 @@ ninja -C build           # binary at build/waybox/waybox
 There is a small **unit-test suite** under `test/` (wired into `meson test` and
 CI) that covers the **pure, wlroots-free logic** — currently the action
 framework (`waybox/action.cpp`), the Alt+Tab cycle selector
-(`waybox/window_cycle.cpp`), and the usable-area/strut geometry
+(`waybox/window_cycle.cpp`), and the usable-area/strut + size-hint geometry
 (`waybox/geometry.cpp`). Run it with:
 
 ```sh
