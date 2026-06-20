@@ -19,8 +19,8 @@ static void handle_new_xdg_toplevel_decoration(struct wb_server *server, void *d
 		 * than assuming it is the front toplevel. */
 		auto *scene_tree =
 			static_cast<struct wlr_scene_tree *>(xdg_toplevel->base->data);
-		auto *toplevel = static_cast<struct wb_toplevel *>(
-				scene_tree ? scene_tree->node.data : nullptr);
+		struct wb_toplevel *toplevel =
+			toplevel_from_node(scene_tree ? &scene_tree->node : nullptr);
 
 		if (xdg_toplevel->base->initialized)
 			wlr_xdg_toplevel_decoration_v1_set_mode(toplevel_decoration,

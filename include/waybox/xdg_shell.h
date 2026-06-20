@@ -63,6 +63,9 @@ void constrain_toplevel_to_usable_area(struct wb_toplevel *toplevel);
 void begin_interactive(struct wb_toplevel *toplevel,
 		enum wb_cursor_mode mode, uint32_t edges);
 struct wb_toplevel *first_toplevel(struct wb_server *server);
+/* The wb_toplevel a scene node carries via its wb_scene_descriptor, or NULL if
+ * the node is not (the root of) one of our toplevels. */
+struct wb_toplevel *toplevel_from_node(struct wlr_scene_node *node);
 struct wlr_output *get_active_output(struct wb_toplevel *toplevel);
 struct wb_toplevel *get_toplevel_at(
 		struct wb_server *server, double lx, double ly,

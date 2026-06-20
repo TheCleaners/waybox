@@ -1,10 +1,22 @@
 #include "waybox/wlroots.hpp"
 
 #include "idle.h"
+#include "layer_shell.h"
 #include "waybox/geometry.hpp"
 #include "waybox/xdg_shell.h"
 
 static void log_geometry(struct wb_toplevel *toplevel, const char *tag);
+
+/* A scene node's wb_toplevel, via its tagged wb_scene_descriptor, or NULL if
+ * the node does not belong to a toplevel (e.g. a layer-shell node). */
+struct wb_toplevel *toplevel_from_node(struct wlr_scene_node *node) {
+	if (node == NULL || node->data == NULL)
+		return NULL;
+	auto *desc = static_cast<struct wb_scene_descriptor *>(node->data);
+	if (desc->type != WB_SCENE_DESC_TOPLEVEL)
+		return NULL;
+	return static_cast<struct wb_toplevel *>(desc->data);
+}
 
 struct wb_toplevel *get_toplevel_at(
 		struct wb_server *server, double lx, double ly,
@@ -37,7 +49,13 @@ struct wb_toplevel *get_toplevel_at(
 	if (tree == NULL) {
 		return NULL;
 	}
-	struct wb_toplevel *candidate = static_cast<struct wb_toplevel *>(tree->node.data);
+	/* The descriptor tags the node type, so a layer-shell node yields NULL
+	 * here. We still confirm the candidate is a live toplevel (guarding against
+	 * a descriptor that briefly outlives its deleted toplevel). */
+	struct wb_toplevel *candidate = toplevel_from_node(&tree->node);
+	if (candidate == NULL) {
+		return NULL;
+	}
 	struct wb_toplevel *toplevel;
 	wl_list_for_each(toplevel, &server->toplevels, link) {
 		if (toplevel == candidate) {
@@ -602,7 +620,7 @@ static struct wb_toplevel *popup_root_toplevel(struct wlr_xdg_popup *xdg_popup) 
 			return NULL;
 		if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL) {
 			struct wlr_scene_tree *tree = static_cast<struct wlr_scene_tree *>(xdg_surface->data);
-			return static_cast<wb_toplevel *>(tree ? tree->node.data : NULL);
+			return toplevel_from_node(tree ? &tree->node : NULL);
 		}
 		if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP &&
 				xdg_surface->popup != NULL) {
@@ -713,7 +731,8 @@ static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 
 	toplevel->scene_tree = wlr_scene_xdg_surface_create(
 		&toplevel->server->scene->tree, xdg_toplevel->base);
-	toplevel->scene_tree->node.data = toplevel;
+	assign_scene_descriptor(&toplevel->scene_tree->node,
+			WB_SCENE_DESC_TOPLEVEL, toplevel);
 	xdg_toplevel->base->data = toplevel->scene_tree;
 
 	bind(toplevel->request_fullscreen, &xdg_toplevel->events.request_fullscreen, xdg_toplevel_request_fullscreen);
