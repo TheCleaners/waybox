@@ -21,9 +21,9 @@ jobs:
             - uses: actions/checkout@v4
             - name: build-gcc
               run: |
-                CC=gcc CXX=g++ meson setup build-gcc
+                CC=gcc CXX=g++ meson setup build-gcc -Dsanitize=disabled
                 ninja -C build-gcc
             - name: build-clang
               run: |
-                CC=clang CXX=clang++ meson setup build-clang
+                CC=clang CXX=clang++ meson setup build-clang -Dsanitize=disabled
                 ninja -C build-clang
