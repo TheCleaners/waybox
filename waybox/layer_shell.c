@@ -72,6 +72,11 @@ void arrange_layers(struct wb_output *output) {
 	arrange_surface(output, &full_area, &usable_area, output->layers.shell_bottom);
 	arrange_surface(output, &full_area, &usable_area, output->layers.shell_top);
 	arrange_surface(output, &full_area, &usable_area, output->layers.shell_overlay);
+
+	/* Remember the area left over after subtracting layer-shell exclusive
+	 * zones (e.g. a panel like Waybar) so that toplevels can be placed and
+	 * maximized within it instead of underneath the panel. */
+	output->usable_area = usable_area;
 }
 
 static struct wlr_scene_tree *wb_layer_get_scene(struct wb_output *output,

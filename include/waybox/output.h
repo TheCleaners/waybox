@@ -20,6 +20,7 @@ struct wb_output {
 
 	bool gamma_lut_changed;
 	struct wlr_box geometry;
+	struct wlr_box usable_area;
 
 	struct wl_listener destroy;
 	struct wl_listener frame;

@@ -104,8 +104,17 @@ struct wlr_output *get_active_output(struct wb_toplevel *toplevel) {
 static struct wlr_box get_usable_area(struct wb_toplevel *toplevel) {
 	struct wlr_output *output = get_active_output(toplevel);
 	struct wlr_box usable_area = {0};
-	if (output != NULL)
-		wlr_output_effective_resolution(output, &usable_area.width, &usable_area.height);
+	if (output != NULL) {
+		struct wb_output *wb_output = output->data;
+		if (wb_output != NULL && wb_output->usable_area.width > 0 &&
+				wb_output->usable_area.height > 0) {
+			/* Area left after subtracting layer-shell exclusive zones. */
+			usable_area = wb_output->usable_area;
+		} else {
+			wlr_output_effective_resolution(output,
+					&usable_area.width, &usable_area.height);
+		}
+	}
 	return usable_area;
 }
 
@@ -124,13 +133,13 @@ static void xdg_toplevel_map(struct wl_listener *listener, void *data) {
 				usable_area.height - config->margins.top - config->margins.bottom);
 		toplevel->geometry.width = MIN(geo_box.width,
 				usable_area.width - config->margins.left - config->margins.right);
-		toplevel->geometry.x = config->margins.left;
-		toplevel->geometry.y = config->margins.top;
+		toplevel->geometry.x = usable_area.x + config->margins.left;
+		toplevel->geometry.y = usable_area.y + config->margins.top;
 	} else {
 		toplevel->geometry.height = MIN(geo_box.height, usable_area.height);
 		toplevel->geometry.width = MIN(geo_box.width, usable_area.width);
-		toplevel->geometry.x = 0;
-		toplevel->geometry.y = 0;
+		toplevel->geometry.x = usable_area.x;
+		toplevel->geometry.y = usable_area.y;
 	}
 
 	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
@@ -283,13 +292,13 @@ static void xdg_toplevel_request_maximize(struct wl_listener *listener, void *da
 		struct wb_config *config = toplevel->server->config;
 		toplevel->previous_geometry = toplevel->geometry;
 		if (config) {
-			toplevel->geometry.x = config->margins.left;
-			toplevel->geometry.y = config->margins.top;
+			toplevel->geometry.x = usable_area.x + config->margins.left;
+			toplevel->geometry.y = usable_area.y + config->margins.top;
 			usable_area.height -= config->margins.top + config->margins.bottom;
 			usable_area.width -= config->margins.left + config->margins.right;
 		} else {
-			toplevel->geometry.x = 0;
-			toplevel->geometry.y = 0;
+			toplevel->geometry.x = usable_area.x;
+			toplevel->geometry.y = usable_area.y;
 		}
 	} else {
 		usable_area = toplevel->previous_geometry;
