@@ -15,4 +15,9 @@ struct wb_decoration {
 };
 
 void init_xdg_decoration(struct wb_server *server);
+
+/* Negotiate and apply the decoration mode for a toplevel from its current
+ * wb::DecorMode preference and the client's requested mode. Safe to call any
+ * time the preference changes (map, ToggleDecorations) or on request_mode. */
+void apply_toplevel_decoration(struct wb_toplevel *toplevel);
 #endif

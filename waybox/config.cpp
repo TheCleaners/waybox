@@ -311,6 +311,7 @@ static void parse_app_rules(struct wb_config *config, xmlXPathContextPtr ctxt) {
 			rule.fullscreen = parse_bool(child_text(app, "fullscreen"));
 			rule.iconic = parse_bool(child_text(app, "iconic"));
 			rule.focus = parse_bool(child_text(app, "focus"));
+			rule.decor = parse_bool(child_text(app, "decor"));
 
 			if (xmlNode *pos = child_node(app, "position")) {
 				if (const char *x = child_text(pos, "x"))

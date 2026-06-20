@@ -29,6 +29,7 @@ struct AppRule {
 	std::optional<bool> fullscreen;
 	std::optional<bool> iconic;      /* start minimised */
 	std::optional<bool> focus;       /* whether to focus on map */
+	std::optional<bool> decor;       /* server-side decorations on/off */
 	std::optional<int> x;
 	std::optional<int> y;
 	std::optional<int> width;

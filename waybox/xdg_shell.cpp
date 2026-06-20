@@ -4,6 +4,7 @@
 #include "layer_shell.h"
 #include "waybox/geometry.hpp"
 #include "waybox/xdg_shell.h"
+#include "decoration.h"
 
 static void log_geometry(struct wb_toplevel *toplevel, const char *tag);
 
@@ -448,6 +449,11 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 
 	/* Apply requested initial states after the base mapping. */
 	if (rule != nullptr) {
+		if (rule->decor.has_value()) {
+			toplevel->decorations = *rule->decor ? wb::DecorMode::Full
+					: wb::DecorMode::None;
+			apply_toplevel_decoration(toplevel);
+		}
 		if (rule->maximized.value_or(false))
 			set_toplevel_maximized(toplevel, true, true);
 		if (rule->fullscreen.value_or(false))

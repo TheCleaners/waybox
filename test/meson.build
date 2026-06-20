@@ -52,6 +52,13 @@ keychain_test = executable(
   )
 test('keychain', keychain_test)
 
+decor_mode_test = executable(
+  'decor_mode_test',
+  ['decor_mode_test.cpp', 'wb_test_main.cpp', decor_mode_src],
+  include_directories: [inc_dir],
+  )
+test('decor_mode', decor_mode_test)
+
 theme_test = executable(
   'theme_test',
   ['theme_test.cpp', 'wb_test_main.cpp', theme_src],
