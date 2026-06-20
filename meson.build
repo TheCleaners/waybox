@@ -23,6 +23,16 @@ project_args = [
 ]
 add_project_arguments(project_args, language: ['c', 'cpp'])
 
+# wl_container_of() expands to offsetof(), which the C++ wlroots glue must use
+# on the intrusive listener structs even though some of them are no longer
+# standard-layout (they hold std::unique_ptr / wb::Listener members). offsetof
+# is well defined for these layouts in practice; silence the warning rather
+# than fight the C API. (clang makes this an error under -Werror; gcc does not.)
+cpp = meson.get_compiler('cpp')
+if cpp.has_argument('-Wno-invalid-offsetof')
+  add_project_arguments('-Wno-invalid-offsetof', language: 'cpp')
+endif
+
 cc = meson.get_compiler('c')
 
 # Optionally build with AddressSanitizer + UndefinedBehaviorSanitizer. With the
