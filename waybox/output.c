@@ -127,6 +127,11 @@ void new_output_notify(struct wl_listener *listener, void *data) {
 
 	wl_list_insert(&server->outputs, &output->link);
 
+	/* Initialise the usable area to the full output; arrange_layers() will
+	 * shrink it once layer-shell clients (panels) reserve exclusive zones. */
+	wlr_output_effective_resolution(wlr_output,
+			&output->usable_area.width, &output->usable_area.height);
+
 	output->destroy.notify = output_destroy_notify;
 	wl_signal_add(&wlr_output->events.destroy, &output->destroy);
 	output->frame.notify = output_frame_notify;
