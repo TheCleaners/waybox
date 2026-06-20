@@ -317,6 +317,12 @@ bool init_config(struct wb_server *server) {
 	}
 	parse_mouse_bindings(config, ctxt);
 
+	if (char *policy = parse_xpath_expr("//ob:placement/ob:policy", ctxt)) {
+		if (auto parsed = wb::placement_policy_from_name(policy))
+			config->placement_policy = *parsed;
+		free(policy);
+	}
+
 	config->margins.bottom = strtoulong(parse_xpath_expr("//ob:margins/ob:bottom", ctxt));
 	config->margins.left = strtoulong(parse_xpath_expr("//ob:margins/ob:left", ctxt));
 	config->margins.right = strtoulong(parse_xpath_expr("//ob:margins/ob:right", ctxt));
