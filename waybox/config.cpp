@@ -1,3 +1,8 @@
+#include <filesystem>
+#include <string>
+#include <system_error>
+#include <vector>
+
 #include <pwd.h>
 #include <unistd.h>
 #include <libxml/parser.h>
@@ -6,32 +11,47 @@
 
 #include "config.h"
 
-/* Join two path components into a freshly-allocated string. */
-static char *path_join(const char *base, const char *suffix) {
-	char *path = static_cast<char *>(malloc(strlen(base) + strlen(suffix) + 1));
-	if (!path)
-		return NULL;
-	strcpy(path, base);
-	strcat(path, suffix);
-	return path;
+namespace fs = std::filesystem;
+
+/* Build the ordered list of candidate config files, most-preferred first:
+ * the user's config (honoring $XDG_CONFIG_HOME, else $HOME/.config or the
+ * password database) followed by the installed system default. */
+static std::vector<fs::path> rc_file_candidates() {
+	std::vector<fs::path> candidates;
+
+	if (const char *xdg = getenv("XDG_CONFIG_HOME"); xdg && xdg[0] != '\0') {
+		candidates.push_back(fs::path(xdg) / "waybox" / "rc.xml");
+	} else {
+		const char *home = getenv("HOME");
+		if (!home || home[0] == '\0') {
+			struct passwd *pw = getpwuid(getuid());
+			home = pw ? pw->pw_dir : nullptr;
+		}
+		if (home && home[0] != '\0')
+			candidates.push_back(fs::path(home) / ".config" / "waybox" / "rc.xml");
+	}
+
+#ifdef WB_SYSCONFDIR
+	candidates.push_back(fs::path(WB_SYSCONFDIR) / "xdg" / "waybox" / "rc.xml");
+#endif
+
+	return candidates;
 }
 
-/* Resolve the user's config home, honoring $XDG_CONFIG_HOME and falling back
- * to $HOME/.config (or the password database if $HOME is unset). */
-static char *default_rc_file(void) {
-	const char *xdg_config = getenv("XDG_CONFIG_HOME");
-	if (xdg_config && xdg_config[0] != '\0')
-		return path_join(xdg_config, "/waybox/rc.xml");
+/* Resolve the config file to load: the first candidate that exists on disk,
+ * or the most-preferred candidate so the caller can report a meaningful path
+ * if none exists. Returns an empty path only when no candidate could be
+ * constructed at all. */
+static fs::path default_rc_file() {
+	std::vector<fs::path> candidates = rc_file_candidates();
 
-	const char *home = getenv("HOME");
-	if (!home || home[0] == '\0') {
-		struct passwd *pw = getpwuid(getuid());
-		home = pw ? pw->pw_dir : NULL;
+	std::error_code ec;
+	for (const fs::path &path : candidates) {
+		if (fs::exists(path, ec))
+			return path;
 	}
-	if (!home || home[0] == '\0')
-		return NULL;
 
-	return path_join(home, "/.config/waybox/rc.xml");
+	return candidates.empty() ? fs::path{} : candidates.front();
 }
 
 static unsigned long strtoulong(char *s) {
@@ -173,25 +193,25 @@ bool init_config(struct wb_server *server) {
 	if (config == NULL)
 		return false;
 	xmlDocPtr doc;
-	char *rc_file;
-	if (getenv("WB_RC_XML")) {
-		rc_file = strdup(getenv("WB_RC_XML"));
+	fs::path rc_file;
+	if (const char *env = getenv("WB_RC_XML"); env && env[0] != '\0') {
+		rc_file = env;
 	} else if (server->config_file != NULL) {
-		rc_file = strdup(server->config_file);
+		rc_file = server->config_file;
 	} else {
 		rc_file = default_rc_file();
 	}
 
-	if (rc_file == NULL) {
+	if (rc_file.empty()) {
 		wlr_log(WLR_ERROR, "%s", _("Unable to determine the configuration file path."));
 		free(config);
 		return false;
 	}
 
-	doc = xmlReadFile(rc_file, NULL, XML_PARSE_RECOVER);
-	wlr_log(WLR_INFO, "Using config file %s", rc_file);
-	setenv("WAYBOX_CONFIG_FILE", rc_file, true);
-	free(rc_file);
+	const std::string rc_file_str = rc_file.string();
+	doc = xmlReadFile(rc_file_str.c_str(), NULL, XML_PARSE_RECOVER);
+	wlr_log(WLR_INFO, "Using config file %s", rc_file_str.c_str());
+	setenv("WAYBOX_CONFIG_FILE", rc_file_str.c_str(), true);
 	if (doc == NULL) {
 		wlr_log(WLR_ERROR, "%s", _("Unable to parse the configuration file. Consult stderr for more information."));
 		free(config);

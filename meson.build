@@ -20,6 +20,7 @@ project_args = [
   '-DWLR_USE_UNSTABLE',
   '-DPACKAGE_NAME="' + meson.project_name() + '"',
   '-DPACKAGE_VERSION="' + meson.project_version() + '"',
+  '-DWB_SYSCONFDIR="' + get_option('prefix') / get_option('sysconfdir') + '"',
 ]
 add_project_arguments(project_args, language: ['c', 'cpp'])
 
