@@ -141,8 +141,16 @@ Theme default_theme() {
 	Theme t;
 	t.window_active.title_bg.color = {0x30, 0x50, 0x80, 0xff};
 	t.window_active.label_text = {0xff, 0xff, 0xff, 0xff};
+	t.window_active.border_color = {0x10, 0x20, 0x40, 0xff};
+	t.window_active.button_icon = {0xff, 0xff, 0xff, 0xff};
+	t.window_active.button_icon_hover = {0xff, 0xff, 0xff, 0xff};
+	t.window_active.button_icon_pressed = {0xc0, 0xc0, 0xc0, 0xff};
 	t.window_inactive.title_bg.color = {0x80, 0x80, 0x80, 0xff};
 	t.window_inactive.label_text = {0xd0, 0xd0, 0xd0, 0xff};
+	t.window_inactive.border_color = {0x50, 0x50, 0x50, 0xff};
+	t.window_inactive.button_icon = {0xd0, 0xd0, 0xd0, 0xff};
+	t.window_inactive.button_icon_hover = {0xff, 0xff, 0xff, 0xff};
+	t.window_inactive.button_icon_pressed = {0xa0, 0xa0, 0xa0, 0xff};
 	t.menu.title_bg.color = {0x30, 0x50, 0x80, 0xff};
 	t.menu.title_text = {0xff, 0xff, 0xff, 0xff};
 	t.menu.items_bg.color = {0xe0, 0xe0, 0xe0, 0xff};
@@ -151,6 +159,16 @@ Theme default_theme() {
 	t.menu.items_active_text = {0xff, 0xff, 0xff, 0xff};
 	t.menu.separator = {0x80, 0x80, 0x80, 0xff};
 	return t;
+}
+
+std::optional<Justify> justify_from_name(std::string_view name) {
+	if (name == "left")
+		return Justify::Left;
+	if (name == "center" || name == "centre")
+		return Justify::Center;
+	if (name == "right")
+		return Justify::Right;
+	return std::nullopt;
 }
 
 namespace {
@@ -178,16 +196,54 @@ std::optional<int> parse_int(std::string_view value) {
 	return static_cast<int>(v);
 }
 
+std::optional<double> parse_double(std::string_view value) {
+	value = trim(value);
+	if (value.empty())
+		return std::nullopt;
+	std::string s(value);
+	char *end = nullptr;
+	double v = std::strtod(s.c_str(), &end);
+	if (end == nullptr || *end != '\0')
+		return std::nullopt;
+	return v;
+}
+
 /* Pointer to the Color a color-valued key targets, or nullptr. Centralising
  * this lets the ".alpha" extension key reuse the same routing. */
 Color *color_field_for(Theme &t, std::string_view key) {
 	if (key == "border.color") return &t.border_color;
 	if (key == "window.active.title.bg.color") return &t.window_active.title_bg.color;
 	if (key == "window.active.title.bg.colorTo") return &t.window_active.title_bg.color_to;
+	if (key == "window.active.label.bg.color") return &t.window_active.label_bg.color;
+	if (key == "window.active.label.bg.colorTo") return &t.window_active.label_bg.color_to;
 	if (key == "window.active.label.text.color") return &t.window_active.label_text;
+	if (key == "window.active.border.color") return &t.window_active.border_color;
+	if (key == "window.active.client.color") return &t.window_active.client_color;
+	if (key == "window.active.handle.bg.color") return &t.window_active.handle_bg.color;
+	if (key == "window.active.handle.bg.colorTo") return &t.window_active.handle_bg.color_to;
+	if (key == "window.active.grip.bg.color") return &t.window_active.grip_bg.color;
+	if (key == "window.active.grip.bg.colorTo") return &t.window_active.grip_bg.color_to;
+	if (key == "window.active.button.unpressed.bg.color") return &t.window_active.button_bg.color;
+	if (key == "window.active.button.unpressed.image.color") return &t.window_active.button_icon;
+	if (key == "window.active.button.hover.image.color") return &t.window_active.button_icon_hover;
+	if (key == "window.active.button.pressed.image.color") return &t.window_active.button_icon_pressed;
+	if (key == "window.active.button.disabled.image.color") return &t.window_active.button_icon_disabled;
 	if (key == "window.inactive.title.bg.color") return &t.window_inactive.title_bg.color;
 	if (key == "window.inactive.title.bg.colorTo") return &t.window_inactive.title_bg.color_to;
+	if (key == "window.inactive.label.bg.color") return &t.window_inactive.label_bg.color;
+	if (key == "window.inactive.label.bg.colorTo") return &t.window_inactive.label_bg.color_to;
 	if (key == "window.inactive.label.text.color") return &t.window_inactive.label_text;
+	if (key == "window.inactive.border.color") return &t.window_inactive.border_color;
+	if (key == "window.inactive.client.color") return &t.window_inactive.client_color;
+	if (key == "window.inactive.handle.bg.color") return &t.window_inactive.handle_bg.color;
+	if (key == "window.inactive.handle.bg.colorTo") return &t.window_inactive.handle_bg.color_to;
+	if (key == "window.inactive.grip.bg.color") return &t.window_inactive.grip_bg.color;
+	if (key == "window.inactive.grip.bg.colorTo") return &t.window_inactive.grip_bg.color_to;
+	if (key == "window.inactive.button.unpressed.bg.color") return &t.window_inactive.button_bg.color;
+	if (key == "window.inactive.button.unpressed.image.color") return &t.window_inactive.button_icon;
+	if (key == "window.inactive.button.hover.image.color") return &t.window_inactive.button_icon_hover;
+	if (key == "window.inactive.button.pressed.image.color") return &t.window_inactive.button_icon_pressed;
+	if (key == "window.inactive.button.disabled.image.color") return &t.window_inactive.button_icon_disabled;
 	if (key == "menu.title.bg.color") return &t.menu.title_bg.color;
 	if (key == "menu.title.bg.colorTo") return &t.menu.title_bg.color_to;
 	if (key == "menu.title.text.color") return &t.menu.title_text;
@@ -215,12 +271,42 @@ void apply_key(Theme &t, std::string_view key, std::string_view value) {
 	if (key == "border.width") { set_int(t.border_width); return; }
 	if (key == "padding.width") { set_int(t.padding_x); return; }
 	if (key == "padding.height") { set_int(t.padding_y); return; }
+	if (key == "window.handle.width") { set_int(t.handle_width); return; }
 	if (key == "menu.overlap.x" || key == "menu.overlap") { set_int(t.menu_overlap_x); return; }
 	if (key == "menu.overlap.y") { set_int(t.menu_overlap_y); return; }
 
+	/* Label justification (themerc window.label.text.justify). */
+	if (key == "window.label.text.justify" ||
+			key == "window.active.label.text.justify" ||
+			key == "window.inactive.label.text.justify") {
+		if (auto j = justify_from_name(to_lower(value)))
+			t.label_justify = *j;
+		return;
+	}
+
+	/* waybox themerc extensions (Openbox ignores these keys). */
+	if (key == "waybox.menu.corner.radius") { set_int(t.menu_corner_radius); return; }
+	if (key == "waybox.menu.item.spacing") { set_int(t.menu_item_spacing); return; }
+	if (key == "waybox.window.corner.radius") { set_int(t.window_corner_radius); return; }
+	if (key == "waybox.menu.opacity") {
+		if (auto v = parse_double(value)) {
+			double clamped = *v < 0.0 ? 0.0 : (*v > 1.0 ? 1.0 : *v);
+			t.menu_opacity = clamped;
+		}
+		return;
+	}
+
 	/* Texture type lines (the bare ".bg" without ".color"). */
 	if (key == "window.active.title.bg") { apply_texture_type(value, t.window_active.title_bg); return; }
+	if (key == "window.active.label.bg") { apply_texture_type(value, t.window_active.label_bg); return; }
+	if (key == "window.active.handle.bg") { apply_texture_type(value, t.window_active.handle_bg); return; }
+	if (key == "window.active.grip.bg") { apply_texture_type(value, t.window_active.grip_bg); return; }
+	if (key == "window.active.button.unpressed.bg") { apply_texture_type(value, t.window_active.button_bg); return; }
 	if (key == "window.inactive.title.bg") { apply_texture_type(value, t.window_inactive.title_bg); return; }
+	if (key == "window.inactive.label.bg") { apply_texture_type(value, t.window_inactive.label_bg); return; }
+	if (key == "window.inactive.handle.bg") { apply_texture_type(value, t.window_inactive.handle_bg); return; }
+	if (key == "window.inactive.grip.bg") { apply_texture_type(value, t.window_inactive.grip_bg); return; }
+	if (key == "window.inactive.button.unpressed.bg") { apply_texture_type(value, t.window_inactive.button_bg); return; }
 	if (key == "menu.title.bg") { apply_texture_type(value, t.menu.title_bg); return; }
 	if (key == "menu.items.bg") { apply_texture_type(value, t.menu.items_bg); return; }
 	if (key == "menu.items.active.bg") { apply_texture_type(value, t.menu.items_active_bg); return; }

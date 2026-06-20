@@ -30,9 +30,11 @@ framework (`waybox/action.cpp`), the Alt+Tab cycle selector
 (`waybox/placement.cpp`), and the per-application rule matching
 (`waybox/applications.cpp`), the key-chain stepping
 (`waybox/keychain.cpp`), the theme model + themerc parsing
-(`waybox/theme.cpp`), and the menu model + layout/hit-testing
+(`waybox/theme.cpp`), the menu model + layout/hit-testing
 (`waybox/menu.cpp`; menu.xml parsing lives in the libxml-linked
-`waybox/menu_parse.cpp`, exercised by the full-build `menu_parse` test). Run it with:
+`waybox/menu_parse.cpp`, exercised by the full-build `menu_parse` test), the
+shared widget-styling primitives (`waybox/widget.cpp`), and the resolved
+presentation/behaviour styles + theme adapters (`waybox/style.cpp`). Run it with:
 
 ```sh
 meson test -C build --print-errorlogs
@@ -147,9 +149,19 @@ that the GPU then composites: `waybox/render.cpp` has the painting primitives
 (`paint_rect`/`paint_texture`/`paint_text`, pixel-tested in `render_test`, no
 wlroots), and `waybox/scene_buffer.cpp`'s `wb::SceneCanvas` wraps a Cairo
 surface as a `wlr_buffer` and attaches it to the scene (HiDPI via dest-size).
-Colours/fonts/metrics come from `wb::Theme` (`waybox/theme.cpp`, themerc-
-compatible). Rasterise static chrome once and cache; reserve per-frame GPU
-work for genuine animations/effects.
+
+Presentation is layered so widgets never re-derive look-and-feel: `wb::Theme`
+(`waybox/theme.cpp`) is the **raw themerc file model** (Openbox keys verbatim,
+plus `waybox.*` extension keys Openbox ignores); `waybox/widget.cpp` defines a
+shared **styling vocabulary** (`Insets`, `Border`, `TextStyle`, `Surface`,
+`ControlStyle`/`StateStyle` per `WidgetState`); and `waybox/style.cpp` resolves
+a Theme into render-ready, per-widget styles (`MenuStyle`, `FrameStyle`,
+`SwitcherStyle`) plus behaviour structs (`MenuBehavior`, `SwitcherBehavior`) via
+`*_from_theme()` adapters. **Renderers consume the resolved `*Style` structs,
+never `wb::Theme` directly** — so richer themes/settings can populate fields
+themerc never had, and the menu/switcher/frame all share one substrate.
+Rasterise static chrome once and cache; reserve per-frame GPU work for genuine
+animations/effects.
 
 ## Conventions
 

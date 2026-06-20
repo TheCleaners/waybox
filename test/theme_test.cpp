@@ -109,6 +109,39 @@ WB_TEST(themerc_ignores_unknown_and_malformed) {
 	WB_CHECK(t.window_active.title_bg.color == base.window_active.title_bg.color);
 }
 
+WB_TEST(themerc_parses_full_window_section) {
+	Theme t = wb::parse_themerc(
+			"window.active.border.color: #112233\n"
+			"window.inactive.border.color: #445566\n"
+			"window.active.client.color: #778899\n"
+			"window.active.handle.bg: flat solid\n"
+			"window.active.handle.bg.color: #abcdef\n"
+			"window.active.grip.bg.color: #fedcba\n"
+			"window.active.button.unpressed.image.color: #010203\n"
+			"window.active.button.hover.image.color: #040506\n"
+			"window.handle.width: 6\n"
+			"window.label.text.justify: right\n");
+	WB_CHECK(t.window_active.border_color == (Color{0x11, 0x22, 0x33, 255}));
+	WB_CHECK(t.window_inactive.border_color == (Color{0x44, 0x55, 0x66, 255}));
+	WB_CHECK(t.window_active.client_color == (Color{0x77, 0x88, 0x99, 255}));
+	WB_CHECK(t.window_active.handle_bg.color == (Color{0xab, 0xcd, 0xef, 255}));
+	WB_CHECK(t.window_active.grip_bg.color == (Color{0xfe, 0xdc, 0xba, 255}));
+	WB_CHECK(t.window_active.button_icon == (Color{0x01, 0x02, 0x03, 255}));
+	WB_CHECK(t.window_active.button_icon_hover == (Color{0x04, 0x05, 0x06, 255}));
+	WB_CHECK(t.handle_width == 6);
+	WB_CHECK(t.label_justify == wb::Justify::Right);
+}
+
+WB_TEST(themerc_waybox_extension_keys) {
+	Theme t = wb::parse_themerc(
+			"waybox.menu.corner.radius: 8\n"
+			"waybox.window.corner.radius: 4\n"
+			"waybox.menu.item.spacing: 2\n");
+	WB_CHECK(t.menu_corner_radius == 8);
+	WB_CHECK(t.window_corner_radius == 4);
+	WB_CHECK(t.menu_item_spacing == 2);
+}
+
 WB_TEST(search_paths_follow_openbox_convention) {
 	auto paths = wb::themerc_search_paths("Clearlooks", "/home/u",
 			"/home/u/.local/share", "/usr/local/share:/usr/share");
