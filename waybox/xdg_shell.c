@@ -201,7 +201,6 @@ static void xdg_toplevel_destroy(struct wl_listener *listener, void *data) {
 	wl_list_remove(&toplevel->unmap.link);
 	wl_list_remove(&toplevel->commit.link);
 	wl_list_remove(&toplevel->destroy.link);
-	wl_list_remove(&toplevel->new_popup.link);
 
 	wl_list_remove(&toplevel->request_fullscreen.link);
 	wl_list_remove(&toplevel->request_minimize.link);
@@ -373,15 +372,68 @@ static void xdg_toplevel_request_resize(
 	begin_interactive(toplevel, WB_CURSOR_RESIZE, event->edges);
 }
 
+/* Walk a popup's parent chain to the toplevel it ultimately belongs to, or
+ * NULL if it isn't rooted in an xdg toplevel. */
+static struct wb_toplevel *popup_root_toplevel(struct wlr_xdg_popup *xdg_popup) {
+	struct wlr_surface *parent = xdg_popup->parent;
+	while (parent != NULL) {
+		struct wlr_xdg_surface *xdg_surface =
+			wlr_xdg_surface_try_from_wlr_surface(parent);
+		if (xdg_surface == NULL)
+			return NULL;
+		if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL) {
+			struct wlr_scene_tree *tree = xdg_surface->data;
+			return tree ? tree->node.data : NULL;
+		}
+		if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP &&
+				xdg_surface->popup != NULL) {
+			parent = xdg_surface->popup->parent;
+		} else {
+			return NULL;
+		}
+	}
+	return NULL;
+}
+
 static void xdg_popup_commit(struct wl_listener *listener, void *data) {
 	struct wb_popup *popup = wl_container_of(listener, popup, commit);
 	if (!popup->xdg_popup) return;
 	struct wlr_xdg_surface *base = popup->xdg_popup->base;
 
-	if (base && base->initial_commit) {
-		update_fractional_scale(base->surface);
-		wlr_xdg_surface_schedule_configure(base);
+	if (!base || !base->initial_commit)
+		return;
+
+	update_fractional_scale(base->surface);
+
+	/* Unconstrain the popup against its toplevel's output. This must happen
+	 * here, on the initial commit, rather than when the popup is created:
+	 * wlr_xdg_popup_unconstrain_from_box() schedules a configure, which
+	 * asserts the surface is initialized, and it is not yet initialized at
+	 * creation time. */
+	struct wb_toplevel *toplevel = popup_root_toplevel(popup->xdg_popup);
+	if (toplevel != NULL) {
+		struct wlr_output *wlr_output = wlr_output_layout_output_at(
+				toplevel->server->output_layout,
+				toplevel->geometry.x + popup->xdg_popup->current.geometry.x,
+				toplevel->geometry.y + popup->xdg_popup->current.geometry.y);
+		if (wlr_output != NULL && wlr_output->data != NULL) {
+			struct wb_output *output = wlr_output->data;
+			int top_margin = toplevel->server->config ?
+				toplevel->server->config->margins.top : 0;
+			struct wlr_box output_toplevel_box = {
+				.x = output->geometry.x - toplevel->geometry.x,
+				.y = output->geometry.y - toplevel->geometry.y,
+				.width = output->geometry.width,
+				.height = output->geometry.height - top_margin,
+			};
+			wlr_xdg_popup_unconstrain_from_box(popup->xdg_popup,
+					&output_toplevel_box);
+			/* unconstrain_from_box schedules the configure for us. */
+			return;
+		}
 	}
+
+	wlr_xdg_surface_schedule_configure(base);
 }
 
 static void xdg_popup_destroy(struct wl_listener *listener, void *data) {
@@ -392,31 +444,6 @@ static void xdg_popup_destroy(struct wl_listener *listener, void *data) {
 	wl_list_remove(&popup->commit.link);
 	wl_list_remove(&popup->destroy.link);
 	free(popup);
-}
-
-static void handle_new_popup(struct wl_listener *listener, void *data) {
-	struct wlr_xdg_popup *popup = data;
-	struct wb_toplevel *toplevel = wl_container_of(listener, toplevel, new_popup);
-
-	struct wlr_output *wlr_output = wlr_output_layout_output_at(
-			toplevel->server->output_layout,
-			toplevel->geometry.x + popup->current.geometry.x,
-			toplevel->geometry.y + popup->current.geometry.y);
-
-	if (!wlr_output) {
-		return;
-	}
-	struct wb_output *output = wlr_output->data;
-
-	int top_margin = (toplevel->server->config) ?
-		toplevel->server->config->margins.top : 0;
-	struct wlr_box output_toplevel_box = {
-		.x = output->geometry.x - toplevel->geometry.x,
-		.y = output->geometry.y - toplevel->geometry.y,
-		.width = output->geometry.width,
-		.height = output->geometry.height - top_margin,
-	};
-	wlr_xdg_popup_unconstrain_from_box(popup, &output_toplevel_box);
 }
 
 static void handle_new_xdg_popup(struct wl_listener *listener, void *data) {
@@ -468,8 +495,6 @@ static void handle_new_xdg_toplevel(struct wl_listener *listener, void *data) {
 	wl_signal_add(&xdg_toplevel->base->surface->events.commit, &toplevel->commit);
 	toplevel->destroy.notify = xdg_toplevel_destroy;
 	wl_signal_add(&xdg_toplevel->events.destroy, &toplevel->destroy);
-	toplevel->new_popup.notify = handle_new_popup;
-	wl_signal_add(&xdg_toplevel->base->events.new_popup, &toplevel->new_popup);
 
 	toplevel->scene_tree = wlr_scene_xdg_surface_create(
 		&toplevel->server->scene->tree, xdg_toplevel->base);
