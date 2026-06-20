@@ -27,7 +27,7 @@ wb_dep = [
   xkbcommon,
   ]
 
-executable(
+waybox_exe = executable(
   'waybox',
   wb_src,
   include_directories: [inc_dir],

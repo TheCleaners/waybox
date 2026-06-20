@@ -37,6 +37,7 @@ struct wb_toplevel {
 
 	struct wlr_box geometry = {};
 	struct wlr_box previous_geometry = {};
+	bool mapped = false;
 
 	struct wl_list link;       /* server::toplevels — stacking (z-)order */
 	struct wl_list focus_link; /* server::focus_order — MRU focus order */

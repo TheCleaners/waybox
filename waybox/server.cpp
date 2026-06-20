@@ -192,6 +192,8 @@ bool wb_terminate(struct wb_server* server) {
 	wlr_renderer_destroy(server->renderer);
 
 	server->new_input.disconnect();
+	server->new_virtual_keyboard.disconnect();
+	server->new_virtual_pointer.disconnect();
 	server->new_output.disconnect();
 	server->output_configuration_applied.disconnect();
 	server->output_configuration_tested.disconnect();

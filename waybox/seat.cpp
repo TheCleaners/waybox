@@ -47,7 +47,7 @@ static void cycle_toplevels_dir(struct wb_server *server, bool reverse) {
 	}
 
 	auto eligible = [&order](std::size_t i) {
-		return order[i]->scene_tree && order[i]->scene_tree->node.enabled;
+		return order[i]->mapped;
 	};
 	std::optional<std::size_t> next =
 		wb::cycle_next(order.size(), eligible, current, reverse);
@@ -448,6 +448,31 @@ struct wb_seat *wb_seat_create(struct wb_server *server) {
 	wl_list_init(&seat->keyboards);
 	server->new_input.connect(&server->backend->events.new_input,
 			[server](void *data) { new_input_notify(server, data); });
+
+	/* Virtual input. These let clients (notably test harnesses and tools like
+	 * wtype/ydotool/wlrctl) inject keyboard and pointer events; virtual devices
+	 * are routed through the same handlers as physical ones. Note: this allows
+	 * any client to synthesise input, which is a security trade-off a future
+	 * config knob may want to gate. */
+	server->virtual_keyboard_manager =
+		wlr_virtual_keyboard_manager_v1_create(server->wl_display);
+	server->new_virtual_keyboard.connect(
+			&server->virtual_keyboard_manager->events.new_virtual_keyboard,
+			[server](void *data) {
+		auto *virtual_keyboard =
+			static_cast<struct wlr_virtual_keyboard_v1 *>(data);
+		handle_new_keyboard(server, &virtual_keyboard->keyboard.base);
+	});
+	server->virtual_pointer_manager =
+		wlr_virtual_pointer_manager_v1_create(server->wl_display);
+	server->new_virtual_pointer.connect(
+			&server->virtual_pointer_manager->events.new_virtual_pointer,
+			[server](void *data) {
+		auto *event =
+			static_cast<struct wlr_virtual_pointer_v1_new_pointer_event *>(data);
+		handle_new_pointer(server, &event->new_pointer->pointer.base);
+	});
+
 	seat->seat = wlr_seat_create(server->wl_display, "seat0");
 
 	wlr_primary_selection_v1_device_manager_create(server->wl_display);
