@@ -281,19 +281,46 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 	struct wlr_box usable_area = get_usable_area(toplevel);
 	struct wlr_box geo_box = toplevel->xdg_toplevel->base->geometry;
 
-	if (config) {
-		toplevel->geometry.height = MIN(geo_box.height,
-				usable_area.height - config->margins.top - config->margins.bottom);
-		toplevel->geometry.width = MIN(geo_box.width,
-				usable_area.width - config->margins.left - config->margins.right);
-		toplevel->geometry.x = usable_area.x + config->margins.left;
-		toplevel->geometry.y = usable_area.y + config->margins.top;
-	} else {
-		toplevel->geometry.height = MIN(geo_box.height, usable_area.height);
-		toplevel->geometry.width = MIN(geo_box.width, usable_area.width);
-		toplevel->geometry.x = usable_area.x;
-		toplevel->geometry.y = usable_area.y;
+	/* Placement region: the usable area inset by the configured margins. */
+	wb::Rect area{usable_area.x, usable_area.y, usable_area.width,
+			usable_area.height};
+	if (config)
+		area = wb::apply_strut(area, wb::Strut{config->margins.left,
+				config->margins.top, config->margins.right,
+				config->margins.bottom});
+
+	int width = MIN(geo_box.width, area.width);
+	int height = MIN(geo_box.height, area.height);
+
+	/* Gather the other mapped windows so Smart placement can avoid them. */
+	std::vector<wb::Rect> others;
+	struct wb_toplevel *other;
+	wl_list_for_each(other, &toplevel->server->toplevels, link) {
+		if (other == toplevel || !other->mapped)
+			continue;
+		others.push_back(wb::Rect{other->geometry.x, other->geometry.y,
+				other->geometry.width, other->geometry.height});
 	}
+
+	wb::PlacementPolicy policy =
+			config ? config->placement_policy : wb::PlacementPolicy::Smart;
+	wb::Rect placed;
+	switch (policy) {
+	case wb::PlacementPolicy::Center:
+		placed = wb::place_center(area, width, height);
+		break;
+	case wb::PlacementPolicy::UnderMouse:
+		placed = wb::place_under_mouse(area, width, height,
+				static_cast<int>(toplevel->server->cursor->cursor->x),
+				static_cast<int>(toplevel->server->cursor->cursor->y));
+		break;
+	case wb::PlacementPolicy::Smart:
+	default:
+		placed = wb::place_smart(area, width, height, others);
+		break;
+	}
+
+	toplevel->geometry = {placed.x, placed.y, placed.width, placed.height};
 
 	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
 			toplevel->geometry.width, toplevel->geometry.height);

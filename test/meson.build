@@ -31,6 +31,13 @@ mousebind_test = executable(
   )
 test('mousebind', mousebind_test)
 
+placement_test = executable(
+  'placement_test',
+  ['placement_test.cpp', 'wb_test_main.cpp', placement_src, geometry_src],
+  include_directories: [inc_dir],
+  )
+test('placement', placement_test)
+
 # Headless integration test driving real synthesized input via the
 # virtual-keyboard protocol. Skips (exit 77) when foot/wtype or a headless
 # display are unavailable, so CI stays green; run a sanitized local build to
@@ -62,6 +69,16 @@ if python.found()
     args: [
       files('integration' / 'mouse_binding_test.py'),
       waybox_exe,
+    ],
+    timeout: 60,
+    )
+  test(
+    'integration_placement',
+    python,
+    args: [
+      files('integration' / 'placement_test.py'),
+      waybox_exe,
+      meson.project_source_root() / 'data' / 'rc.xml',
     ],
     timeout: 60,
     )

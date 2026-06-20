@@ -25,8 +25,9 @@ There is a small **unit-test suite** under `test/` (wired into `meson test` and
 CI) that covers the **pure, wlroots-free logic** — currently the action
 framework (`waybox/action.cpp`), the Alt+Tab cycle selector
 (`waybox/window_cycle.cpp`), the usable-area/strut + size-hint geometry
-(`waybox/geometry.cpp`), and the mouse-binding parsing/matching
-(`waybox/mousebind.cpp`). Run it with:
+(`waybox/geometry.cpp`), the mouse-binding parsing/matching
+(`waybox/mousebind.cpp`), and the window-placement policies
+(`waybox/placement.cpp`). Run it with:
 
 ```sh
 meson test -C build --print-errorlogs
@@ -93,7 +94,9 @@ Subsystem map (`waybox/<name>.cpp`, headers in `include/waybox/` or `waybox/`):
   state lives on `wb_toplevel`: independent `max_horz`/`max_vert`, plus separate
   `restore_*` rects per state (maximize/fullscreen/shade/minimize) so
   interleaving them restores correctly. `set_toplevel_maximized()` /
-  `set_toplevel_fullscreen()` are the canonical state setters.
+  `set_toplevel_fullscreen()` are the canonical state setters. New windows are
+  positioned by the pure policies in `waybox/placement.cpp` (Smart/Center/
+  UnderMouse, `<placement><policy>`).
 - `layer_shell` — panels/launchers (`wb_layer_surface`); `arrange_layers()`
   computes each output's `usable_area` from exclusive zones. Usable-area
   consumers (constrain-to-usable, maximize insets) run through the pure,

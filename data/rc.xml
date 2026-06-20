@@ -8,6 +8,11 @@
     <left>0</left>
     <right>0</right>
   </margins>
+  <!-- Where newly-mapped windows are placed: Smart (avoid overlap, then
+       cascade), Center, or UnderMouse. -->
+  <placement>
+    <policy>Smart</policy>
+  </placement>
   <keyboard>
     <!-- XKB configuration.  See `man xkeyboard-config` for more information -->
     <!-- You can use the XKB_* environment variables instead -->

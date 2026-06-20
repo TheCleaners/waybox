@@ -5,6 +5,7 @@
 
 #include "waybox/action.hpp"
 #include "waybox/mousebind.hpp"
+#include "waybox/placement.hpp"
 #include "waybox/server.h"
 
 struct wb_config {
@@ -48,6 +49,7 @@ struct wb_config {
 	struct wl_list applications;
 	struct wl_list key_bindings;
 	std::vector<wb::MouseBinding> mouse_bindings;
+	wb::PlacementPolicy placement_policy = wb::PlacementPolicy::Smart;
 };
 
 struct wb_key_binding {
