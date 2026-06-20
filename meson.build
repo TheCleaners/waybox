@@ -56,31 +56,49 @@ endif
 # Adding include directory
 inc_dir = include_directories('include')
 
-if get_option('wlroots-version') != ''
-  wlroots_version = get_option('wlroots-version')
-else
-  wlroots_version = ['wlroots-0.20', 'wlroots-0.19']
+# Pure, wlroots-free sources shared by the compositor and the unit tests.
+# Defined here (always processed) so the unit tests can build in tests_only mode
+# without configuring the full compositor.
+action_src = files('waybox/action.cpp')
+window_cycle_src = files('waybox/window_cycle.cpp')
+geometry_src = files('waybox/geometry.cpp')
+mousebind_src = files('waybox/mousebind.cpp')
+placement_src = files('waybox/placement.cpp')
+applications_src = files('waybox/applications.cpp')
+
+# tests_only builds just the dependency-free unit tests (no wlroots, no
+# compositor), so they can run sanitized in CI on a stock distro that lacks a
+# matching wlroots package. The full build is unaffected.
+tests_only = get_option('tests_only')
+
+if not tests_only
+  if get_option('wlroots-version') != ''
+    wlroots_version = get_option('wlroots-version')
+  else
+    wlroots_version = ['wlroots-0.20', 'wlroots-0.19']
+  endif
+
+  libevdev = dependency('libevdev')
+  libinput = dependency('libinput', version: '>=1.21.0', required: false)
+  libxml2 = dependency('libxml-2.0')
+  wayland_protos = dependency('wayland-protocols', version: '>=1.39')
+  wayland_server = dependency('wayland-server', version: '>=1.15')
+  wlroots = dependency(wlroots_version, version: '>=0.17.0')
+  xkbcommon = dependency('xkbcommon')
+
+  if libinput.found()
+    add_project_arguments('-DHAS_LIBINPUT', language: 'c')
+  endif
+
+  msgfmt = find_program('msgfmt', required: false)
+  if msgfmt.found()
+    source_root = meson.current_source_dir()
+    subdir('po')
+  endif
+
+  subdir('data')
+  subdir('protocol')
+  subdir('waybox')
 endif
 
-libevdev = dependency('libevdev')
-libinput = dependency('libinput', version: '>=1.21.0', required: false)
-libxml2 = dependency('libxml-2.0')
-wayland_protos = dependency('wayland-protocols', version: '>=1.39')
-wayland_server = dependency('wayland-server', version: '>=1.15')
-wlroots = dependency(wlroots_version, version: '>=0.17.0')
-xkbcommon = dependency('xkbcommon')
-
-if libinput.found()
-  add_project_arguments('-DHAS_LIBINPUT', language: 'c')
-endif
-
-msgfmt = find_program('msgfmt', required: false)
-if msgfmt.found()
-  source_root = meson.current_source_dir()
-  subdir('po')
-endif
-
-subdir('data')
-subdir('protocol')
-subdir('waybox')
 subdir('test')

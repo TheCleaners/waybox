@@ -37,7 +37,10 @@ meson test -C build --print-errorlogs
 Each unit-test executable links just the source under test plus the header-only
 harness (`test/wb_test.hpp` + `test/wb_test_main.cpp`); it pulls in **no**
 wlroots/Wayland deps, so it builds and runs anywhere (incl. CI without a
-compositor or sanitizer runtime). When you add a new framework with pure logic
+compositor or sanitizer runtime). A dedicated CI job builds these with
+`-Dtests_only=true -Dsanitize=enabled` on stock Ubuntu (which has the
+sanitizer runtimes Alpine lacks), so the pure logic is exercised under
+ASan/UBSan on every push. When you add a new framework with pure logic
 (geometry/struts, window-state math, parsing), factor that logic into a
 wlroots-free TU and add a `test/<name>_test.cpp` in the same PR.
 

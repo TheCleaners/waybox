@@ -50,7 +50,7 @@ test('applications', applications_test)
 # display are unavailable, so CI stays green; run a sanitized local build to
 # actually exercise it. Give it a generous timeout (it spawns clients + sleeps).
 python = find_program('python3', required: false)
-if python.found()
+if python.found() and not get_option('tests_only')
   test(
     'integration_alt_tab',
     python,

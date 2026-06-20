@@ -29,3 +29,22 @@ jobs:
                 CC=clang CXX=clang++ meson setup build-clang -Dsanitize=disabled
                 ninja -C build-clang
                 meson test -C build-clang --print-errorlogs
+
+    # Run the dependency-free unit tests under AddressSanitizer +
+    # UndefinedBehaviorSanitizer. This uses a stock Ubuntu image (which has
+    # libasan/libubsan) and the tests_only build, so it needs no wlroots — the
+    # pure logic (geometry, placement, actions, ...) is exercised sanitized on
+    # every push, which the Alpine build cannot do (its toolchain lacks the
+    # sanitizer runtimes).
+    sanitized-tests:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+            - name: packages
+              run: |
+                sudo apt-get update
+                sudo apt-get install -y meson ninja-build g++ python3
+            - name: build-and-test
+              run: |
+                CC=gcc CXX=g++ meson setup build-asan -Dtests_only=true -Dsanitize=enabled
+                meson test -C build-asan --print-errorlogs
