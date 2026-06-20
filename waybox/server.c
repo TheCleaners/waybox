@@ -69,6 +69,9 @@ bool wb_create_backend(struct wb_server* server) {
 
 bool wb_start_server(struct wb_server* server) {
 	init_config(server);
+	/* Initialise the toplevel list before the backend starts, since bringing
+	 * up outputs can trigger arrange_toplevels() before xdg-shell is set up. */
+	wl_list_init(&server->toplevels);
 	init_output(server);
 
 	/* Create a scene graph. This is a wlroots abstraction that handles all
@@ -112,7 +115,6 @@ bool wb_start_server(struct wb_server* server) {
 	wlr_ext_output_image_capture_source_manager_v1_create(server->wl_display, 1);
 	create_idle_manager(server);
 
-	wl_list_init(&server->toplevels);
 	init_xdg_decoration(server);
 	init_layer_shell(server);
 

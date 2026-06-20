@@ -42,6 +42,7 @@ struct wb_toplevel {
 
 void init_xdg_shell(struct wb_server *server);
 void focus_toplevel(struct wb_toplevel *toplevel);
+void arrange_toplevels(struct wb_server *server);
 void begin_interactive(struct wb_toplevel *toplevel,
 		enum wb_cursor_mode mode, uint32_t edges);
 struct wb_toplevel *first_toplevel(struct wb_server *server);

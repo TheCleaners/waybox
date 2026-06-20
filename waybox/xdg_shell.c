@@ -1,3 +1,5 @@
+#include <wlr/util/box.h>
+
 #include "idle.h"
 #include "waybox/xdg_shell.h"
 
@@ -116,6 +118,68 @@ static struct wlr_box get_usable_area(struct wb_toplevel *toplevel) {
 		}
 	}
 	return usable_area;
+}
+
+/* Re-apply geometry to managed toplevels after the output configuration
+ * changes (mode, scale, transform, or panel reservation). Maximized and
+ * fullscreen windows are resized to match, and floating windows are clamped
+ * so they remain reachable. */
+void arrange_toplevels(struct wb_server *server) {
+	struct wb_toplevel *toplevel;
+	wl_list_for_each(toplevel, &server->toplevels, link) {
+		if (toplevel->xdg_toplevel == NULL || toplevel->scene_tree == NULL ||
+				!toplevel->xdg_toplevel->base->initialized) {
+			continue;
+		}
+
+		if (toplevel->xdg_toplevel->current.fullscreen) {
+			struct wlr_output *output = get_active_output(toplevel);
+			if (output == NULL)
+				continue;
+			struct wlr_box box;
+			wlr_output_layout_get_box(server->output_layout, output, &box);
+			if (wlr_box_empty(&box))
+				continue;
+			toplevel->geometry = box;
+			wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
+					box.width, box.height);
+			wlr_scene_node_set_position(&toplevel->scene_tree->node,
+					box.x, box.y);
+			continue;
+		}
+
+		struct wlr_box usable = get_usable_area(toplevel);
+		if (usable.width <= 0 || usable.height <= 0)
+			continue;
+		struct wb_config *config = server->config;
+		int ml = config ? config->margins.left : 0;
+		int mr = config ? config->margins.right : 0;
+		int mt = config ? config->margins.top : 0;
+		int mb = config ? config->margins.bottom : 0;
+
+		if (toplevel->xdg_toplevel->current.maximized) {
+			toplevel->geometry.x = usable.x + ml;
+			toplevel->geometry.y = usable.y + mt;
+			toplevel->geometry.width = usable.width - ml - mr;
+			toplevel->geometry.height = usable.height - mt - mb;
+			wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
+					toplevel->geometry.width, toplevel->geometry.height);
+		} else {
+			/* Keep floating windows reachable after a resolution/scale change. */
+			int max_x = usable.x + usable.width - 1;
+			int max_y = usable.y + usable.height - 1;
+			if (toplevel->geometry.x > max_x)
+				toplevel->geometry.x = max_x;
+			if (toplevel->geometry.y > max_y)
+				toplevel->geometry.y = max_y;
+			if (toplevel->geometry.x < usable.x)
+				toplevel->geometry.x = usable.x;
+			if (toplevel->geometry.y < usable.y)
+				toplevel->geometry.y = usable.y;
+		}
+		wlr_scene_node_set_position(&toplevel->scene_tree->node,
+				toplevel->geometry.x, toplevel->geometry.y);
+	}
 }
 
 static void xdg_toplevel_map(struct wl_listener *listener, void *data) {

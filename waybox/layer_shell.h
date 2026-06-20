@@ -46,6 +46,7 @@ struct wb_scene_descriptor {
 };
 
 void init_layer_shell(struct wb_server *server);
+void arrange_layers(struct wb_output *output);
 void assign_scene_descriptor(struct wlr_scene_node *node,
 	enum wb_scene_descriptor_type type, void *data);
 
