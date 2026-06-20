@@ -13,6 +13,7 @@ wb_src = [
   placement_src,
   applications_src,
   keychain_src,
+  theme_src,
   files(
     'config.cpp',
     'cursor.cpp',

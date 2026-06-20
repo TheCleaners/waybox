@@ -52,6 +52,13 @@ keychain_test = executable(
   )
 test('keychain', keychain_test)
 
+theme_test = executable(
+  'theme_test',
+  ['theme_test.cpp', 'wb_test_main.cpp', theme_src],
+  include_directories: [inc_dir],
+  )
+test('theme', theme_test)
+
 # Headless integration test driving real synthesized input via the
 # virtual-keyboard protocol. Skips (exit 77) when foot/wtype or a headless
 # display are unavailable, so CI stays green; run a sanitized local build to

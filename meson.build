@@ -66,6 +66,7 @@ mousebind_src = files('waybox/mousebind.cpp')
 placement_src = files('waybox/placement.cpp')
 applications_src = files('waybox/applications.cpp')
 keychain_src = files('waybox/keychain.cpp')
+theme_src = files('waybox/theme.cpp')
 
 # tests_only builds just the dependency-free unit tests (no wlroots, no
 # compositor), so they can run sanitized in CI on a stock distro that lacks a

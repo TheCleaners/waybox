@@ -28,8 +28,9 @@ framework (`waybox/action.cpp`), the Alt+Tab cycle selector
 (`waybox/geometry.cpp`), the mouse-binding parsing/matching
 (`waybox/mousebind.cpp`), the window-placement policies
 (`waybox/placement.cpp`), and the per-application rule matching
-(`waybox/applications.cpp`), and the key-chain stepping
-(`waybox/keychain.cpp`). Run it with:
+(`waybox/applications.cpp`), the key-chain stepping
+(`waybox/keychain.cpp`), and the theme model + themerc parsing
+(`waybox/theme.cpp`). Run it with:
 
 ```sh
 meson test -C build --print-errorlogs
