@@ -29,8 +29,10 @@ framework (`waybox/action.cpp`), the Alt+Tab cycle selector
 (`waybox/mousebind.cpp`), the window-placement policies
 (`waybox/placement.cpp`), and the per-application rule matching
 (`waybox/applications.cpp`), the key-chain stepping
-(`waybox/keychain.cpp`), and the theme model + themerc parsing
-(`waybox/theme.cpp`). Run it with:
+(`waybox/keychain.cpp`), the theme model + themerc parsing
+(`waybox/theme.cpp`), and the menu model + layout/hit-testing
+(`waybox/menu.cpp`; menu.xml parsing lives in the libxml-linked
+`waybox/menu_parse.cpp`, exercised by the full-build `menu_parse` test). Run it with:
 
 ```sh
 meson test -C build --print-errorlogs

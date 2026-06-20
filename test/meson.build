@@ -59,6 +59,13 @@ theme_test = executable(
   )
 test('theme', theme_test)
 
+menu_test = executable(
+  'menu_test',
+  ['menu_test.cpp', 'wb_test_main.cpp', menu_src, action_src],
+  include_directories: [inc_dir],
+  )
+test('menu', menu_test)
+
 # Pixel test for the Cairo/Pango painting primitives. Needs cairo/pango, so it
 # is only built in the full build (not tests_only); it links no wlroots.
 if not get_option('tests_only')
@@ -73,6 +80,18 @@ if not get_option('tests_only')
       'LSAN_OPTIONS': 'suppressions=' + meson.current_source_dir() / 'lsan.supp',
     },
     )
+endif
+
+# Parser test for menu.xml; links libxml2, so full-build only (like render).
+if not get_option('tests_only')
+  menu_parse_test = executable(
+    'menu_parse_test',
+    ['menu_parse_test.cpp', 'wb_test_main.cpp', menu_src,
+     action_src, files('../waybox/menu_parse.cpp')],
+    include_directories: [inc_dir],
+    dependencies: [libxml2],
+    )
+  test('menu_parse', menu_parse_test)
 endif
 
 # Headless integration test driving real synthesized input via the
