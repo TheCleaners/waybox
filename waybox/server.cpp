@@ -192,6 +192,16 @@ bool wb_start_server(struct wb_server* server) {
 	wlr_fractional_scale_manager_v1_create(server->wl_display, 1);
 	wlr_viewporter_create(server->wl_display);
 
+	/* Lightweight client-facing protocols:
+	 * - presentation-time: lets clients (media players, games) learn when their
+	 *   frames are actually shown, for smooth A/V sync and vsync timing.
+	 * - single-pixel-buffer: a cheap solid-colour 1x1 buffer source.
+	 * - content-type: clients hint their content (e.g. "video", "game") so the
+	 *   compositor can adapt. */
+	wlr_presentation_create(server->wl_display, server->backend, 2);
+	wlr_single_pixel_buffer_manager_v1_create(server->wl_display);
+	wlr_content_type_manager_v1_create(server->wl_display, 1);
+
 	struct wlr_xdg_toplevel_icon_manager_v1 * icon_manager = wlr_xdg_toplevel_icon_manager_v1_create(server->wl_display, 1);
 	int sizes[] = {16, 24, 32, 48, 64};
 	wlr_xdg_toplevel_icon_manager_v1_set_sizes(icon_manager, (int *) sizes, 5);
