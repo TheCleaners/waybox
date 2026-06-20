@@ -169,6 +169,32 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	}
 }
 
+/* A lone modifier keypress must never advance or abort a key chain (e.g.
+ * releasing and re-pressing Super between the two keys of "W-a, b"). */
+static bool is_modifier_keysym(xkb_keysym_t sym) {
+	switch (sym) {
+	case XKB_KEY_Shift_L:
+	case XKB_KEY_Shift_R:
+	case XKB_KEY_Control_L:
+	case XKB_KEY_Control_R:
+	case XKB_KEY_Alt_L:
+	case XKB_KEY_Alt_R:
+	case XKB_KEY_Super_L:
+	case XKB_KEY_Super_R:
+	case XKB_KEY_Meta_L:
+	case XKB_KEY_Meta_R:
+	case XKB_KEY_Hyper_L:
+	case XKB_KEY_Hyper_R:
+	case XKB_KEY_Caps_Lock:
+	case XKB_KEY_Num_Lock:
+	case XKB_KEY_ISO_Level3_Shift:
+	case XKB_KEY_ISO_Level5_Shift:
+		return true;
+	default:
+		return false;
+	}
+}
+
 static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32_t modifiers) {
 	/*
 	 * Here we handle compositor keybindings. This is when the compositor is
@@ -178,6 +204,11 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 	 * Returns true if the keybinding is handled, false to send it to the
 	 * client.
 	 */
+
+	/* Ignore modifier keys entirely so they don't disturb an in-progress
+	 * key chain. */
+	if (is_modifier_keysym(sym))
+		return false;
 
 	/* TODO: Make these configurable through rc.xml */
 	if (modifiers & (WLR_MODIFIER_CTRL|WLR_MODIFIER_ALT) &&
@@ -204,13 +235,33 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 		return true;
 	}
 
-	struct wb_key_binding *key_binding;
-	wl_list_for_each(key_binding, &server->config->key_bindings, link) {
-		if (sym == key_binding->sym && modifiers == key_binding->modifiers) {
-			for (const wb::Action &action : key_binding->actions)
-				wb::run_action(action, server);
+	/* Resolve against the key-binding tree, tracking chain state. While a chain
+	 * is active we match against the current node's children, otherwise the
+	 * root bindings. */
+	const std::vector<wb::KeyBinding> &children =
+		server->active_keychain ? server->active_keychain->children
+		                        : server->config->key_bindings;
+	wb::ChainStep step = wb::chain_step(children, sym, modifiers);
+	switch (step.outcome) {
+	case wb::ChainOutcome::Fire: {
+		/* Copy the actions before running them: a Reconfigure action rebuilds
+		 * the binding tree and would free step.node mid-iteration. */
+		std::vector<wb::Action> actions = step.node->actions;
+		server->active_keychain = nullptr;
+		for (const wb::Action &action : actions)
+			wb::run_action(action, server);
+		return true;
+	}
+	case wb::ChainOutcome::Descend:
+		server->active_keychain = step.node;
+		return true;
+	case wb::ChainOutcome::NoMatch:
+		if (server->active_keychain != nullptr) {
+			/* An unmatched key aborts the in-progress chain and is consumed. */
+			server->active_keychain = nullptr;
 			return true;
 		}
+		return false;
 	}
 	return false;
 }

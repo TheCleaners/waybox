@@ -28,7 +28,8 @@ framework (`waybox/action.cpp`), the Alt+Tab cycle selector
 (`waybox/geometry.cpp`), the mouse-binding parsing/matching
 (`waybox/mousebind.cpp`), the window-placement policies
 (`waybox/placement.cpp`), and the per-application rule matching
-(`waybox/applications.cpp`). Run it with:
+(`waybox/applications.cpp`), and the key-chain stepping
+(`waybox/keychain.cpp`). Run it with:
 
 ```sh
 meson test -C build --print-errorlogs
@@ -106,7 +107,9 @@ Subsystem map (`waybox/<name>.cpp`, headers in `include/waybox/` or `waybox/`):
   computes each output's `usable_area` from exclusive zones. Usable-area
   consumers (constrain-to-usable, maximize insets) run through the pure,
   unit-tested `wb::Rect`/`wb::Strut` helpers in `waybox/geometry.cpp`.
-- `seat` — keyboards, keybindings (`handle_keybinding`), libinput config, and
+- `seat` — keyboards, keybindings (`handle_keybinding`; bindings are a tree of
+  `wb::KeyBinding` supporting Openbox key chains, stepped via the pure
+  `waybox/keychain.cpp`), libinput config, and
   virtual keyboard/pointer (`zwp_virtual_keyboard_v1` / `wlr_virtual_pointer_v1`,
   routed through the same handlers as physical devices).
 - `cursor` — pointer handling, interactive move/resize (with edge/window

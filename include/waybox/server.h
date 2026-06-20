@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "waybox/cursor.h"
+#include "waybox/keychain.hpp"
 #include "decoration.h"
 #include "layer_shell.h"
 #include "waybox/xdg_shell.h"
@@ -85,6 +86,10 @@ struct wb_server {
 
 	struct wlr_xdg_activation_v1 *xdg_activation;
 	wb::Listener request_activate;
+
+	/* Current node in the key-binding tree while resolving a key chain
+	 * (nullptr = at the root, awaiting the first chord). */
+	const wb::KeyBinding *active_keychain = nullptr;
 };
 
 bool wb_create_backend(struct wb_server *server);

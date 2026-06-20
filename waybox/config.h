@@ -5,6 +5,7 @@
 
 #include "waybox/action.hpp"
 #include "waybox/applications.hpp"
+#include "waybox/keychain.hpp"
 #include "waybox/mousebind.hpp"
 #include "waybox/placement.hpp"
 #include "waybox/server.h"
@@ -48,17 +49,10 @@ struct wb_config {
 	} margins;
 
 	struct wl_list applications;
-	struct wl_list key_bindings;
+	std::vector<wb::KeyBinding> key_bindings;
 	std::vector<wb::MouseBinding> mouse_bindings;
 	std::vector<wb::AppRule> app_rules;
 	wb::PlacementPolicy placement_policy = wb::PlacementPolicy::Smart;
-};
-
-struct wb_key_binding {
-	xkb_keysym_t sym;
-	uint32_t modifiers;
-	std::vector<wb::Action> actions;
-	struct wl_list link;
 };
 
 bool init_config(struct wb_server *server);

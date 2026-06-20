@@ -12,6 +12,7 @@ wb_src = [
   mousebind_src,
   placement_src,
   applications_src,
+  keychain_src,
   files(
     'config.cpp',
     'cursor.cpp',

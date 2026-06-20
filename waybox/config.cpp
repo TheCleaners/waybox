@@ -133,66 +133,86 @@ static void collect_actions(xmlNode *first, std::vector<wb::Action> &out) {
 	}
 }
 
+/* Parse a "key" attribute like "W-S-M" into a keysym + modifier mask, matching
+ * Openbox's syntax. strtok mutates its buffer, so work on a copy (the attribute
+ * content belongs to the parsed document). */
+static void parse_key_combo(const char *spec, uint32_t *sym, uint32_t *modifiers) {
+	*sym = 0;
+	*modifiers = 0;
+	if (spec == nullptr)
+		return;
+	char *buf = strdup(spec);
+	if (buf == nullptr)
+		return;
+	char *saveptr = nullptr;
+	for (char *s = strtok_r(buf, "-", &saveptr); s != nullptr;
+			s = strtok_r(nullptr, "-", &saveptr)) {
+		if (strcmp(s, "A") == 0 || strcmp(s, "Alt") == 0)
+			*modifiers |= WLR_MODIFIER_ALT;
+		else if (strcmp(s, "Caps") == 0)
+			*modifiers |= WLR_MODIFIER_CAPS;
+		else if (strcmp(s, "C") == 0 || strcmp(s, "Ctrl") == 0)
+			*modifiers |= WLR_MODIFIER_CTRL;
+		else if (strcmp(s, "Mod2") == 0)
+			*modifiers |= WLR_MODIFIER_MOD2;
+		else if (strcmp(s, "Mod3") == 0)
+			*modifiers |= WLR_MODIFIER_MOD3;
+		else if (strcmp(s, "Mod5") == 0)
+			*modifiers |= WLR_MODIFIER_MOD5;
+		else if (strcmp(s, "S") == 0 || strcmp(s, "Shift") == 0)
+			*modifiers |= WLR_MODIFIER_SHIFT;
+		else if (strcmp(s, "W") == 0 || strcmp(s, "Logo") == 0)
+			*modifiers |= WLR_MODIFIER_LOGO;
+		/* The last token is the key itself (intermediate modifier tokens are
+		 * overwritten, matching the historical behaviour). */
+		*sym = xkb_keysym_from_name(s, XKB_KEYSYM_NO_FLAGS);
+	}
+	free(buf);
+}
+
+/* Recursively parse a <keybind>: its chord, its direct <action> children, and
+ * any nested <keybind> children (a key chain). Nested keybinds are NOT walked
+ * for actions of their own here -- those belong to the child node. */
+static wb::KeyBinding parse_keybind(xmlNode *node) {
+	wb::KeyBinding binding;
+	parse_key_combo((const char *) get_attribute(node, "key"),
+			&binding.sym, &binding.modifiers);
+
+	for (xmlNode *child = node->children; child; child = child->next) {
+		if (child->type != XML_ELEMENT_NODE)
+			continue;
+		if (strcmp((char *) child->name, "keybind") == 0) {
+			binding.children.push_back(parse_keybind(child));
+		} else if (strcmp((char *) child->name, "action") == 0) {
+			const char *name = (const char *) get_attribute(child, "name");
+			const wb::ActionSpec *spec = wb::action_spec_from_name(name);
+			std::string command =
+				(spec && spec->takes_command) ? action_command(child) : std::string{};
+			if (auto action = wb::make_action(name, command))
+				binding.actions.push_back(std::move(*action));
+		}
+	}
+	return binding;
+}
+
 static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt) {
-	/* Get the key bindings */
-	wl_list_init(&config->key_bindings);
-	xmlXPathObjectPtr object = xmlXPathEvalExpression((xmlChar *) "//ob:keyboard/ob:keybind", ctxt);
+	/* Only top-level keybinds (direct children of <keyboard>); nested ones are
+	 * reached recursively by parse_keybind(). */
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(xmlChar *) "//ob:keyboard/ob:keybind", ctxt);
 	if (object == NULL) {
 		wlr_log(WLR_INFO, "%s", _("Unable to evaluate expression"));
-		return(false);
+		return false;
 	}
 	if (!object->nodesetval) {
 		wlr_log(WLR_INFO, "%s", _("No nodeset"));
 		return false;
 	}
 
-	/* Iterate through the nodes to get the information */
-	if (object->nodesetval->nodeNr > 0) {
-		int i;
-		for (i = 0; i < object->nodesetval->nodeNr; i++) {
-			if (object->nodesetval->nodeTab[i]) {
-				/* First get the key combinations */
-				xmlNode *keycomb = object->nodesetval->nodeTab[i];
-				char *sym;
-				uint32_t modifiers = 0;
-				sym = (char *) get_attribute(keycomb, "key");
-				char *s;
-
-				struct wb_key_binding *key_bind = new (std::nothrow) wb_key_binding{};
-				if (key_bind == NULL) {
-					continue;
-				}
-				key_bind->sym = 0;
-				key_bind->modifiers = 0;
-				while ((s = strtok(sym, "-")) != NULL) {
-					if (strcmp(s, "A") == 0 || strcmp(s, "Alt") == 0)
-						modifiers |= WLR_MODIFIER_ALT;
-					else if (strcmp(s, "Caps") == 0)
-						modifiers |= WLR_MODIFIER_CAPS;
-					else if (strcmp(s, "C") == 0 || strcmp(s, "Ctrl") == 0)
-						modifiers |= WLR_MODIFIER_CTRL;
-					else if (strcmp(s, "Mod2") == 0)
-						modifiers |= WLR_MODIFIER_MOD2;
-					else if (strcmp(s, "Mod3") == 0)
-						modifiers |= WLR_MODIFIER_MOD3;
-					else if (strcmp(s, "Mod5") == 0)
-						modifiers |= WLR_MODIFIER_MOD5;
-					else if (strcmp(s, "S") == 0 || strcmp(s, "Shift") == 0)
-						modifiers |= WLR_MODIFIER_SHIFT;
-					else if (strcmp(s, "W") == 0 || strcmp(s, "Logo") == 0)
-						modifiers |= WLR_MODIFIER_LOGO;
-					key_bind->modifiers = modifiers;
-					key_bind->sym = xkb_keysym_from_name(s, XKB_KEYSYM_NO_FLAGS);
-					sym = NULL;
-				}
-
-				/* Now get the actions */
-				xmlNode *new_node = object->nodesetval->nodeTab[i]->children;
-				collect_actions(new_node, key_bind->actions);
-
-				wl_list_insert(&config->key_bindings, &key_bind->link);
-			}
-		}
+	for (int i = 0; i < object->nodesetval->nodeNr; i++) {
+		xmlNode *node = object->nodesetval->nodeTab[i];
+		if (node != NULL)
+			config->key_bindings.push_back(parse_keybind(node));
 	}
 	xmlXPathFreeObject(object);
 	return true;
@@ -436,10 +456,7 @@ void deinit_config(struct wb_config *config) {
 	free(config->libinput_config.tap_drag);
 	free(config->libinput_config.tap_drag_lock);
 
-	struct wb_key_binding *key_binding, *tmp;
-	wl_list_for_each_safe(key_binding, tmp, &config->key_bindings, link) {
-		wl_list_remove(&key_binding->link);
-		delete key_binding;
-	}
+	/* key_bindings/mouse_bindings/app_rules are std::vectors and free
+	 * themselves when `config` is deleted. */
 	delete config;
 }
