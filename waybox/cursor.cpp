@@ -1,10 +1,18 @@
 #include <linux/input-event-codes.h>
 
+#include <vector>
+
 #include "waybox/cursor.h"
 #include "config.h"
 #include "waybox/geometry.hpp"
 #include "waybox/mousebind.hpp"
+#include "waybox/output.h"
+#include "waybox/placement.hpp"
 #include "waybox/xdg_shell.h"
+
+/* How close (in layout pixels) a dragged window's edge must come to a usable-
+ * area or window edge before it snaps. */
+static constexpr int WB_SNAP_DISTANCE = 16;
 
 void reset_cursor_mode(struct wb_server *server) {
 	/* Reset the cursor mode to passthrough */
@@ -18,6 +26,33 @@ static void process_cursor_move(struct wb_server *server) {
 	if (toplevel->scene_tree->node.type == WLR_SCENE_NODE_TREE) {
 		toplevel->geometry.x = server->cursor->cursor->x - server->grab_x;
 		toplevel->geometry.y = server->cursor->cursor->y - server->grab_y;
+
+		/* Snap window/usable edges that come within range while dragging. */
+		struct wlr_output *output = get_active_output(toplevel);
+		if (output != nullptr && output->data != nullptr) {
+			auto *wb_out = static_cast<struct wb_output *>(output->data);
+			struct wlr_box ob;
+			wlr_output_layout_get_box(server->output_layout, output, &ob);
+			struct wlr_box ua = wb_out->usable_area;
+			wb::Rect area{ob.x + ua.x, ob.y + ua.y, ua.width, ua.height};
+
+			std::vector<wb::Rect> others;
+			struct wb_toplevel *other;
+			wl_list_for_each(other, &server->toplevels, link) {
+				if (other == toplevel || !other->mapped)
+					continue;
+				others.push_back(wb::Rect{other->geometry.x, other->geometry.y,
+						other->geometry.width, other->geometry.height});
+			}
+
+			wb::Rect snapped = wb::snap_move(
+					wb::Rect{toplevel->geometry.x, toplevel->geometry.y,
+							toplevel->geometry.width, toplevel->geometry.height},
+					area, others, WB_SNAP_DISTANCE);
+			toplevel->geometry.x = snapped.x;
+			toplevel->geometry.y = snapped.y;
+		}
+
 		/* Don't let the window be dragged over a panel's reserved area. */
 		constrain_toplevel_to_usable_area(toplevel);
 		wlr_scene_node_set_position(&toplevel->scene_tree->node,

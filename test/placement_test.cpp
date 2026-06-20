@@ -97,3 +97,45 @@ WB_TEST(under_mouse_handles_window_larger_than_area) {
 	WB_CHECK(r.x == 0);
 	WB_CHECK(r.y == 0);
 }
+
+WB_TEST(snap_disabled_when_distance_zero) {
+	Rect area{0, 0, 800, 600};
+	std::vector<Rect> none;
+	WB_CHECK(wb::snap_move(Rect{3, 4, 50, 50}, area, none, 0) == (Rect{3, 4, 50, 50}));
+}
+
+WB_TEST(snap_to_area_edges) {
+	Rect area{0, 0, 800, 600};
+	std::vector<Rect> none;
+	/* near the top-left -> snaps both edges to 0 */
+	WB_CHECK(wb::snap_move(Rect{4, 3, 50, 50}, area, none, 8) == (Rect{0, 0, 50, 50}));
+	/* near the bottom-right -> right/bottom edges snap to the area edges */
+	Rect r = wb::snap_move(Rect{746, 548, 50, 50}, area, none, 8);
+	WB_CHECK(r.x == 750);  /* 800 - 50 */
+	WB_CHECK(r.y == 550);  /* 600 - 50 */
+}
+
+WB_TEST(snap_far_from_edges_is_noop) {
+	Rect area{0, 0, 800, 600};
+	std::vector<Rect> none;
+	WB_CHECK(wb::snap_move(Rect{400, 300, 50, 50}, area, none, 8) == (Rect{400, 300, 50, 50}));
+}
+
+WB_TEST(snap_to_adjacent_window_edge) {
+	Rect area{0, 0, 800, 600};
+	/* an existing window occupying the left half, overlapping vertically */
+	std::vector<Rect> windows{{0, 0, 400, 600}};
+	/* a window dragged near the right edge of the existing one snaps flush */
+	Rect r = wb::snap_move(Rect{404, 100, 200, 200}, area, windows, 8);
+	WB_CHECK(r.x == 400);  /* left edge snaps to the other window's right edge */
+	WB_CHECK(r.y == 100);  /* y far from any edge, unchanged */
+}
+
+WB_TEST(snap_skips_window_without_perpendicular_overlap) {
+	Rect area{0, 0, 800, 600};
+	/* existing window only in the top band; the dragged window is far below it,
+	 * so there is no vertical overlap and its right edge should NOT pull us. */
+	std::vector<Rect> windows{{0, 0, 400, 50}};
+	Rect r = wb::snap_move(Rect{404, 400, 200, 100}, area, windows, 8);
+	WB_CHECK(r.x == 404);  /* no snap: windows don't overlap vertically */
+}

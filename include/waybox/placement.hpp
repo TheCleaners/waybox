@@ -41,6 +41,17 @@ Rect place_center(const Rect &area, int width, int height);
 Rect place_under_mouse(const Rect &area, int width, int height,
 		int cursor_x, int cursor_y);
 
+/*
+ * Snap a window being interactively moved so its edges align with the usable
+ * `area`'s edges and with nearby `windows`' edges when they come within
+ * `distance` pixels. Screen/usable edges always snap; another window snaps only
+ * where it overlaps on the perpendicular axis (so you snap to an adjacent
+ * window, not one across the screen). Only the position is changed; `distance`
+ * <= 0 disables snapping (returns the window unchanged).
+ */
+Rect snap_move(Rect window, const Rect &area, std::span<const Rect> windows,
+		int distance);
+
 }  // namespace wb
 
 #endif /* WB_PLACEMENT_HPP */

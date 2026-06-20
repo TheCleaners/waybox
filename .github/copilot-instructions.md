@@ -104,7 +104,8 @@ Subsystem map (`waybox/<name>.cpp`, headers in `include/waybox/` or `waybox/`):
 - `seat` — keyboards, keybindings (`handle_keybinding`), libinput config, and
   virtual keyboard/pointer (`zwp_virtual_keyboard_v1` / `wlr_virtual_pointer_v1`,
   routed through the same handlers as physical devices).
-- `cursor` — pointer handling, interactive move/resize, Alt+drag, and mouse
+- `cursor` — pointer handling, interactive move/resize (with edge/window
+  snapping via `waybox/placement.cpp`'s `snap_move`), Alt+drag, and mouse
   bindings (`waybox/mousebind.cpp` parses `<mouse><context>`; `on_button`
   resolves the context — Root/Client today, Titlebar/Frame once SSD lands — and
   dispatches matching bindings through `run_action`).
