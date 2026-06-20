@@ -6,41 +6,19 @@
  * Copyright 2022 Sway Developers
  */
 #include "waybox/wlroots.hpp"
-#include "waybox/wlroots.hpp"
 
 #include "waybox/xdg_shell.h"
 
-static void descriptor_destroy(struct wb_scene_descriptor *desc) {
-	if (!desc) {
-		return;
-	}
-
-	wl_list_remove(&desc->destroy.link);
-
-	free(desc);
-}
-
-static void handle_descriptor_destroy(struct wl_listener *listener, void *data) {
-	struct wb_scene_descriptor *desc =
-		wl_container_of(listener, desc, destroy);
-
-	descriptor_destroy(desc);
-}
-
 void assign_scene_descriptor(struct wlr_scene_node *node,
 		enum wb_scene_descriptor_type type, void *data) {
-	struct wb_scene_descriptor *desc =
-		static_cast<wb_scene_descriptor *>(calloc(1, sizeof(struct wb_scene_descriptor)));
-
-	if (!desc) {
-		return;
-	}
-
+	auto *desc = new wb_scene_descriptor{};
 	desc->type = type;
 	desc->data = data;
 
-	desc->destroy.notify = handle_descriptor_destroy;
-	wl_signal_add(&node->events.destroy, &desc->destroy);
+	desc->destroy.connect(&node->events.destroy, [desc](void *data) {
+		/* The wb::Listener disconnects itself when the descriptor is deleted. */
+		delete desc;
+	});
 
 	node->data = desc;
 }
@@ -101,19 +79,12 @@ static struct wlr_scene_tree *wb_layer_get_scene(struct wb_output *output,
 
 static struct wb_layer_surface *wb_layer_surface_create(
 		struct wlr_scene_layer_surface_v1 *scene) {
-	struct wb_layer_surface *surface = static_cast<struct wb_layer_surface *>(calloc(1, sizeof(struct wb_layer_surface)));
-	if (!surface) {
-		return NULL;
-	}
-
+	auto *surface = new wb_layer_surface{};
 	surface->scene = scene;
-
 	return surface;
 }
 
-static void handle_surface_commit(struct wl_listener *listener, void *data) {
-	struct wb_layer_surface *surface =
-		wl_container_of(listener, surface, surface_commit);
+static void handle_surface_commit(struct wb_layer_surface *surface, void *data) {
 	struct wb_toplevel *current_toplevel = first_toplevel(surface->server);
 
 	if (!surface->output || (current_toplevel && current_toplevel->xdg_toplevel->current.fullscreen)) {
@@ -150,9 +121,7 @@ static void handle_surface_commit(struct wl_listener *listener, void *data) {
 	}
 }
 
-static void handle_map(struct wl_listener *listener, void *data) {
-	struct wb_layer_surface *surface = wl_container_of(listener,
-			surface, map);
+static void handle_map(struct wb_layer_surface *surface, void *data) {
 
 	struct wlr_layer_surface_v1 *layer_surface =
 				surface->scene->layer_surface;
@@ -172,10 +141,7 @@ static void handle_map(struct wl_listener *listener, void *data) {
 	}
 }
 
-static void handle_unmap(struct wl_listener *listener, void *data) {
-	struct wb_layer_surface *surface = wl_container_of(
-			listener, surface, unmap);
-
+static void handle_unmap(struct wb_layer_surface *surface, void *data) {
 	struct wb_seat *seat = surface->server->seat.get();
 	if (seat->focused_layer == surface->scene->layer_surface) {
 		seat_set_focus_layer(seat, NULL);
@@ -194,38 +160,23 @@ static void wb_layer_surface_destroy(struct wb_layer_surface *surface) {
 	if (surface == NULL) {
 		return;
 	}
-
 	/* Do not touch surface->scene->layer_surface here: this runs from the
 	 * layer surface's destroy handler, by which point wlroots has already
-	 * torn down the wlr_layer_surface_v1 and its scene helper. */
-	wl_list_remove(&surface->map.link);
-	wl_list_remove(&surface->unmap.link);
-	wl_list_remove(&surface->surface_commit.link);
-	wl_list_remove(&surface->destroy.link);
-
-	free(surface);
+	 * torn down the wlr_layer_surface_v1 and its scene helper. The wb::Listener
+	 * members disconnect themselves on delete. */
+	delete surface;
 }
 
-static void handle_destroy(struct wl_listener *listener, void *data) {
-	struct wb_layer_surface *surface =
-		wl_container_of(listener, surface, destroy);
-
+static void handle_destroy(struct wb_layer_surface *surface, void *data) {
 	if (surface->output) {
 		arrange_layers(surface->output);
 	}
-
-	wl_list_remove(&surface->new_popup.link);
 	wb_layer_surface_destroy(surface);
 }
 
-static void popup_handle_destroy(struct wl_listener *listener, void *data) {
-	struct wb_layer_popup *popup =
-		wl_container_of(listener, popup, destroy);
-
-	wl_list_remove(&popup->commit.link);
-	wl_list_remove(&popup->destroy.link);
-	wl_list_remove(&popup->new_popup.link);
-	free(popup);
+static void popup_handle_destroy(struct wb_layer_popup *popup, void *data) {
+	/* The wb::Listener members disconnect themselves on delete. */
+	delete popup;
 }
 
 static struct wb_layer_surface *popup_get_layer(
@@ -272,10 +223,9 @@ static void popup_unconstrain(struct wb_layer_popup *popup) {
 	wlr_xdg_popup_unconstrain_from_box(wlr_popup, &output_toplevel_sx_box);
 }
 
-static void popup_handle_new_popup(struct wl_listener *listener, void *data);
+static void popup_handle_new_popup(struct wb_layer_popup *popup, void *data);
 
-static void popup_handle_commit(struct wl_listener *listener, void *data) {
-	struct wb_layer_popup *popup = wl_container_of(listener, popup, commit);
+static void popup_handle_commit(struct wb_layer_popup *popup, void *data) {
 	/* Unconstrain on the first commit: doing it at creation time asserts in
 	 * wlroots because the popup surface is not yet initialized. */
 	if (popup->wlr_popup->base->initial_commit) {
@@ -285,50 +235,36 @@ static void popup_handle_commit(struct wl_listener *listener, void *data) {
 
 static struct wb_layer_popup *create_popup(struct wlr_xdg_popup *wlr_popup,
 			struct wlr_scene_tree *parent) {
-	struct wb_layer_popup *popup =
-		static_cast<wb_layer_popup *>(calloc(1, sizeof(struct wb_layer_popup)));
-	if (popup == NULL) {
-		return NULL;
-	}
-
+	auto *popup = new wb_layer_popup{};
 	popup->wlr_popup = wlr_popup;
 
-	popup->scene = wlr_scene_xdg_surface_create(parent,
-			wlr_popup->base);
-
+	popup->scene = wlr_scene_xdg_surface_create(parent, wlr_popup->base);
 	if (!popup->scene) {
-		free(popup);
-		return NULL;
+		delete popup;
+		return nullptr;
 	}
 
 	assign_scene_descriptor(&popup->scene->node, WB_SCENE_DESC_LAYER_SHELL_POPUP,
 			popup);
 
-	popup->commit.notify = popup_handle_commit;
-	wl_signal_add(&wlr_popup->base->surface->events.commit, &popup->commit);
-
-	popup->destroy.notify = popup_handle_destroy;
-	wl_signal_add(&wlr_popup->base->events.destroy, &popup->destroy);
-
-	popup->new_popup.notify = popup_handle_new_popup;
-	wl_signal_add(&wlr_popup->base->events.new_popup, &popup->new_popup);
+	popup->commit.connect(&wlr_popup->base->surface->events.commit,
+			[popup](void *data) { popup_handle_commit(popup, data); });
+	popup->destroy.connect(&wlr_popup->base->events.destroy,
+			[popup](void *data) { popup_handle_destroy(popup, data); });
+	popup->new_popup.connect(&wlr_popup->base->events.new_popup,
+			[popup](void *data) { popup_handle_new_popup(popup, data); });
 
 	return popup;
 }
 
-static void popup_handle_new_popup(struct wl_listener *listener, void *data) {
-	struct wb_layer_popup *layer_popup =
-		wl_container_of(listener, layer_popup, new_popup);
+static void popup_handle_new_popup(struct wb_layer_popup *popup, void *data) {
 	struct wlr_xdg_popup *wlr_popup = static_cast<struct wlr_xdg_popup *>(data);
-	create_popup(wlr_popup, layer_popup->scene);
+	create_popup(wlr_popup, popup->scene);
 }
 
-static void handle_new_popup(struct wl_listener *listener, void *data) {
-	struct wb_layer_surface *wb_layer_surface =
-		wl_container_of(listener, wb_layer_surface, new_popup);
+static void handle_new_popup(struct wb_layer_surface *surface, void *data) {
 	struct wlr_xdg_popup *wlr_popup = static_cast<struct wlr_xdg_popup *>(data);
-
-	create_popup(wlr_popup, wb_layer_surface->scene->tree);
+	create_popup(wlr_popup, surface->scene->tree);
 }
 
 void handle_layer_shell_surface(struct wl_listener *listener, void *data) {
@@ -388,17 +324,16 @@ void handle_layer_shell_surface(struct wl_listener *listener, void *data) {
 	surface->output = output;
 	surface->server = output->server;
 
-	surface->surface_commit.notify = handle_surface_commit;
-	wl_signal_add(&layer_surface->surface->events.commit,
-		&surface->surface_commit);
-	surface->map.notify = handle_map;
-	wl_signal_add(&layer_surface->surface->events.map, &surface->map);
-	surface->unmap.notify = handle_unmap;
-	wl_signal_add(&layer_surface->surface->events.unmap, &surface->unmap);
-	surface->destroy.notify = handle_destroy;
-	wl_signal_add(&layer_surface->events.destroy, &surface->destroy);
-	surface->new_popup.notify = handle_new_popup;
-	wl_signal_add(&layer_surface->events.new_popup, &surface->new_popup);
+	surface->surface_commit.connect(&layer_surface->surface->events.commit,
+			[surface](void *data) { handle_surface_commit(surface, data); });
+	surface->map.connect(&layer_surface->surface->events.map,
+			[surface](void *data) { handle_map(surface, data); });
+	surface->unmap.connect(&layer_surface->surface->events.unmap,
+			[surface](void *data) { handle_unmap(surface, data); });
+	surface->destroy.connect(&layer_surface->events.destroy,
+			[surface](void *data) { handle_destroy(surface, data); });
+	surface->new_popup.connect(&layer_surface->events.new_popup,
+			[surface](void *data) { handle_new_popup(surface, data); });
 
 	/* Temporarily set the layer's current state to pending
 	 * So that we can easily arrange it */
