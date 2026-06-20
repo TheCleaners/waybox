@@ -59,7 +59,14 @@ load_wallpaper() {
             sleep 60m
         done
     elif which swaybg >/dev/null 2>&1; then
-        get_random_wallpaper | xargs swaybg -c '#303030' -m fill -i &
+        wallpaper="$(get_random_wallpaper)"
+        if [ -n "$wallpaper" ]; then
+            swaybg -c '#303030' -m fill -i "$wallpaper" &
+        else
+            # No wallpaper image found; just set a solid background color
+            # rather than passing swaybg an empty -i argument.
+            swaybg -c '#303030' &
+        fi
     elif which wpaperd >/dev/null 2>&1; then
         wpaperd &
     fi
