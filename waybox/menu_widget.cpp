@@ -243,13 +243,86 @@ bool MenuWidget::on_button(uint32_t button, bool pressed) {
 }
 
 bool MenuWidget::on_key(xkb_keysym_t sym) {
-	if (sym != XKB_KEY_Escape)
+	if (levels_.empty())
+		return true;
+	Level &level = levels_.back();
+	const size_t depth = levels_.size() - 1;
+
+	auto reselect = [&](int item) {
+		if (level.hovered != item) {
+			level.hovered = item;
+			render_level(level);
+		}
+	};
+
+	switch (sym) {
+	case XKB_KEY_Escape:
+		if (levels_.size() > 1) {
+			levels_.pop_back();  /* close the deepest submenu */
+			return false;
+		}
+		return true;  /* close the root: dismiss */
+
+	case XKB_KEY_Up:
+	case XKB_KEY_KP_Up:
+		reselect(menu_step_selection(*level.menu, level.hovered, -1,
+				behavior_.wrap));
 		return false;
-	if (levels_.size() > 1) {
-		levels_.pop_back();  /* close the deepest submenu */
+
+	case XKB_KEY_Down:
+	case XKB_KEY_KP_Down:
+		reselect(menu_step_selection(*level.menu, level.hovered, +1,
+				behavior_.wrap));
+		return false;
+
+	case XKB_KEY_Left:
+	case XKB_KEY_KP_Left:
+		if (levels_.size() > 1)
+			levels_.pop_back();  /* back to the parent menu */
+		return false;
+
+	case XKB_KEY_Right:
+	case XKB_KEY_KP_Right:
+		/* Open the highlighted submenu and step into it. */
+		if (level.hovered >= 0 &&
+				level.menu->items[level.hovered].kind ==
+						MenuItem::Kind::Submenu) {
+			open_submenu(depth, level.hovered);
+			if (levels_.size() > depth + 1) {
+				Level &child = levels_.back();
+				child.hovered = menu_step_selection(*child.menu, -1, +1,
+						behavior_.wrap);
+				render_level(child);
+			}
+		}
+		return false;
+
+	case XKB_KEY_Return:
+	case XKB_KEY_KP_Enter:
+	case XKB_KEY_space:
+		if (level.hovered < 0)
+			return false;
+		switch (level.menu->items[level.hovered].kind) {
+		case MenuItem::Kind::Submenu:
+			open_submenu(depth, level.hovered);
+			if (levels_.size() > depth + 1) {
+				Level &child = levels_.back();
+				child.hovered = menu_step_selection(*child.menu, -1, +1,
+						behavior_.wrap);
+				render_level(child);
+			}
+			return false;
+		case MenuItem::Kind::Entry:
+			pending_ = level.menu->items[level.hovered].actions;
+			return true;  /* dismiss; caller runs the actions */
+		case MenuItem::Kind::Separator:
+			return false;
+		}
+		return false;
+
+	default:
 		return false;
 	}
-	return true;  /* close the root: dismiss */
 }
 
 }  // namespace wb

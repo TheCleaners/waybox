@@ -326,8 +326,17 @@ void wb_keyboard::on_key(void *data) {
 		 * they neither trigger bindings nor reach clients. */
 		if (server->menu != nullptr) {
 			for (int i = 0; i < nsyms; i++) {
-				if (server->menu->on_key(syms[i]))
+				if (server->menu->on_key(syms[i])) {
+					/* The key dismissed the menu. Selecting an entry yields its
+					 * actions, run only AFTER the widget is destroyed (no
+					 * reentrancy), mirroring the pointer path in cursor.cpp. */
+					std::vector<wb::Action> actions =
+							server->menu->take_actions();
 					server->menu.reset();
+					for (const wb::Action &action : actions)
+						wb::run_action(action, server);
+					break;
+				}
 			}
 			wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
 			return;
