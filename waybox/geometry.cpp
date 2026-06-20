@@ -53,4 +53,33 @@ Rect constrain_to_usable(Rect box, const Rect &outer, const Rect &usable) {
 	return box;
 }
 
+static int clamp_dimension(int value, int min_value, int max_value) {
+	const int floor = std::max(1, min_value);
+	if (value < floor)
+		value = floor;
+	if (max_value > 0) {
+		/* A max below the floor is nonsensical; never let it shrink below it. */
+		const int ceiling = std::max(max_value, floor);
+		if (value > ceiling)
+			value = ceiling;
+	}
+	return value;
+}
+
+Rect clamp_resize(Rect box, bool resizing_left, bool resizing_top,
+		const SizeHints &hints) {
+	const int new_width = clamp_dimension(box.width, hints.min_width, hints.max_width);
+	const int new_height = clamp_dimension(box.height, hints.min_height, hints.max_height);
+
+	/* When dragging the left/top edge, keep the opposite edge fixed by shifting
+	 * the origin to absorb the size change. */
+	if (resizing_left)
+		box.x += box.width - new_width;
+	if (resizing_top)
+		box.y += box.height - new_height;
+	box.width = new_width;
+	box.height = new_height;
+	return box;
+}
+
 }  // namespace wb

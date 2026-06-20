@@ -82,3 +82,45 @@ WB_TEST(constrain_respects_output_origin) {
 	/* a window already past the panel is untouched */
 	WB_CHECK(constrain_to_usable(Rect{2000, 10, 50, 50}, outer, usable).x == 2000);
 }
+
+WB_TEST(clamp_resize_enforces_minimum) {
+	wb::SizeHints hints{200, 100, 0, 0};  /* min 200x100, no max */
+	/* dragging the bottom-right smaller than the min clamps the size, origin
+	 * unchanged (right/bottom are the dragged edges). */
+	Rect r = wb::clamp_resize(Rect{0, 0, 50, 50}, false, false, hints);
+	WB_CHECK(r == (Rect{0, 0, 200, 100}));
+}
+
+WB_TEST(clamp_resize_enforces_maximum) {
+	wb::SizeHints hints{0, 0, 300, 150};  /* max 300x150 */
+	Rect r = wb::clamp_resize(Rect{0, 0, 999, 999}, false, false, hints);
+	WB_CHECK(r == (Rect{0, 0, 300, 150}));
+}
+
+WB_TEST(clamp_resize_floor_is_one_pixel) {
+	wb::SizeHints hints{};  /* unset */
+	Rect r = wb::clamp_resize(Rect{0, 0, 0, -5}, false, false, hints);
+	WB_CHECK(r.width == 1);
+	WB_CHECK(r.height == 1);
+}
+
+WB_TEST(clamp_resize_anchors_fixed_edges_when_dragging_left_top) {
+	wb::SizeHints hints{200, 100, 0, 0};
+	/* box right edge at x=100, bottom at y=100; dragging left+top edges so the
+	 * size is clamped up to the min by moving the origin, keeping right/bottom
+	 * fixed at 100. */
+	Rect box{60, 70, 40, 30};  /* right=100, bottom=100 */
+	Rect r = wb::clamp_resize(box, true, true, hints);
+	WB_CHECK(r.width == 200);
+	WB_CHECK(r.height == 100);
+	WB_CHECK(r.x == 100 - 200);  /* right edge preserved */
+	WB_CHECK(r.y == 100 - 100);  /* bottom edge preserved */
+}
+
+WB_TEST(clamp_resize_ignores_max_below_min) {
+	/* a nonsensical max < min must not shrink below the min */
+	wb::SizeHints hints{200, 100, 50, 50};
+	Rect r = wb::clamp_resize(Rect{0, 0, 999, 999}, false, false, hints);
+	WB_CHECK(r.width == 200);
+	WB_CHECK(r.height == 100);
+}

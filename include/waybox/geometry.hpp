@@ -26,6 +26,16 @@ struct Strut {
 	int bottom = 0;
 };
 
+/* A client's size constraints (from xdg_toplevel). A zero max means unbounded
+ * on that axis; a zero min means "no client minimum" (a 1px floor still
+ * applies). */
+struct SizeHints {
+	int min_width = 0;
+	int min_height = 0;
+	int max_width = 0;
+	int max_height = 0;
+};
+
 inline bool operator==(const Rect &a, const Rect &b) {
 	return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
 }
@@ -56,6 +66,15 @@ Strut strut_between(const Rect &outer, const Rect &inner);
  * Only the position is adjusted; the size is preserved.
  */
 Rect constrain_to_usable(Rect box, const Rect &outer, const Rect &usable);
+
+/*
+ * Clamp the size of a rect being interactively resized to the client's size
+ * hints, keeping the edges that are NOT being dragged anchored (so resizing the
+ * left/top edge grows/shrinks away from the fixed right/bottom edge). A 1px
+ * floor is always enforced; a max below the effective minimum is ignored.
+ */
+Rect clamp_resize(Rect box, bool resizing_left, bool resizing_top,
+		const SizeHints &hints);
 
 }  // namespace wb
 

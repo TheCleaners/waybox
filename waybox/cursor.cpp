@@ -1,6 +1,7 @@
 #include <linux/input-event-codes.h>
 
 #include "waybox/cursor.h"
+#include "waybox/geometry.hpp"
 #include "waybox/xdg_shell.h"
 
 void reset_cursor_mode(struct wb_server *server) {
@@ -55,14 +56,27 @@ static void process_cursor_resize(struct wb_server *server) {
 	}
 
 	struct wlr_box geo_box = toplevel->xdg_toplevel->base->geometry;
-	toplevel->geometry.x = new_left - geo_box.x;
-	toplevel->geometry.y = new_top - geo_box.y;
+
+	/* Honor the client's size hints: clamp the proposed size to its min/max,
+	 * keeping the non-dragged edges anchored. */
+	wb::SizeHints hints{
+		toplevel->xdg_toplevel->current.min_width,
+		toplevel->xdg_toplevel->current.min_height,
+		toplevel->xdg_toplevel->current.max_width,
+		toplevel->xdg_toplevel->current.max_height,
+	};
+	wb::Rect resized = wb::clamp_resize(
+			wb::Rect{new_left, new_top, new_right - new_left, new_bottom - new_top},
+			(server->resize_edges & WLR_EDGE_LEFT) != 0,
+			(server->resize_edges & WLR_EDGE_TOP) != 0,
+			hints);
+
+	toplevel->geometry.x = resized.x - geo_box.x;
+	toplevel->geometry.y = resized.y - geo_box.y;
 		wlr_scene_node_set_position(&toplevel->scene_tree->node,
 				toplevel->geometry.x, toplevel->geometry.y);
 
-	int new_width = new_right - new_left;
-	int new_height = new_bottom - new_top;
-	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, new_width, new_height);
+	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, resized.width, resized.height);
 }
 
 static void process_cursor_motion(struct wb_server *server, uint32_t time) {
