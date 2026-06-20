@@ -318,15 +318,29 @@ void handle_layer_shell_surface(struct wl_listener *listener, void *data) {
 		wl_container_of(listener, server, new_layer_surface);
 
 	if (layer_surface->output == NULL) {
-		/* No output was requested; place it on the active output, if any. */
-		struct wb_toplevel *toplevel = first_toplevel(server);
-		if (toplevel != NULL) {
-			layer_surface->output = get_active_output(toplevel);
+		/* The client didn't request a specific output, so pick one for it.
+		 * Most layer clients (panels, launchers like rofi) rely on this.
+		 * Prefer the output under the cursor, then the active toplevel's
+		 * output, then simply the first connected output. */
+		struct wlr_output *output = wlr_output_layout_output_at(
+				server->output_layout,
+				server->cursor->cursor->x, server->cursor->cursor->y);
+		if (output == NULL) {
+			struct wb_toplevel *toplevel = first_toplevel(server);
+			if (toplevel != NULL) {
+				output = get_active_output(toplevel);
+			}
 		}
+		if (output == NULL && !wl_list_empty(&server->outputs)) {
+			struct wb_output *first_output =
+				wl_container_of(server->outputs.next, first_output, link);
+			output = first_output->wlr_output;
+		}
+		layer_surface->output = output;
 	}
 
 	if (layer_surface->output == NULL || layer_surface->output->data == NULL) {
-		/* We have nowhere to place this surface; reject it rather than
+		/* We have no connected output at all; reject the surface rather than
 		 * dereferencing a NULL output. */
 		wlr_layer_surface_v1_destroy(layer_surface);
 		return;
