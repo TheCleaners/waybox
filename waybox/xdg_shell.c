@@ -182,6 +182,44 @@ void arrange_toplevels(struct wb_server *server) {
 	}
 }
 
+/* Clamp a toplevel's position so it does not cover layer-shell reserved areas
+ * (e.g. a panel like Waybar). Only edges that actually have a reservation
+ * constrain the window, so it can still be dragged off-screen on free edges. */
+void constrain_toplevel_to_usable_area(struct wb_toplevel *toplevel) {
+	struct wlr_output *output = get_active_output(toplevel);
+	if (output == NULL || output->data == NULL)
+		return;
+	struct wb_output *wb_output = output->data;
+	struct wlr_box usable = wb_output->usable_area;
+	if (usable.width <= 0 || usable.height <= 0)
+		return;
+
+	struct wlr_box output_box;
+	wlr_output_layout_get_box(toplevel->server->output_layout, output,
+			&output_box);
+	if (wlr_box_empty(&output_box))
+		return;
+
+	/* Usable area in layout coordinates. */
+	int ux = output_box.x + usable.x;
+	int uy = output_box.y + usable.y;
+	int uw = usable.width;
+	int uh = usable.height;
+	int w = toplevel->geometry.width;
+	int h = toplevel->geometry.height;
+
+	if (uy > output_box.y && toplevel->geometry.y < uy)
+		toplevel->geometry.y = uy;                 /* top reserved */
+	if (ux > output_box.x && toplevel->geometry.x < ux)
+		toplevel->geometry.x = ux;                 /* left reserved */
+	if (uy + uh < output_box.y + output_box.height &&
+			toplevel->geometry.y + h > uy + uh)
+		toplevel->geometry.y = uy + uh - h;        /* bottom reserved */
+	if (ux + uw < output_box.x + output_box.width &&
+			toplevel->geometry.x + w > ux + uw)
+		toplevel->geometry.x = ux + uw - w;        /* right reserved */
+}
+
 static void xdg_toplevel_map(struct wl_listener *listener, void *data) {
 	/* Called when the surface is mapped, or ready to display on-screen. */
 	struct wb_toplevel *toplevel = wl_container_of(listener, toplevel, map);

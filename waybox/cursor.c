@@ -15,6 +15,8 @@ static void process_cursor_move(struct wb_server *server) {
 	if (toplevel->scene_tree->node.type == WLR_SCENE_NODE_TREE) {
 		toplevel->geometry.x = server->cursor->cursor->x - server->grab_x;
 		toplevel->geometry.y = server->cursor->cursor->y - server->grab_y;
+		/* Don't let the window be dragged over a panel's reserved area. */
+		constrain_toplevel_to_usable_area(toplevel);
 		wlr_scene_node_set_position(&toplevel->scene_tree->node,
 				toplevel->geometry.x, toplevel->geometry.y);
 	}
