@@ -27,6 +27,9 @@ WB_TEST(registry_lookup_by_name) {
 	WB_CHECK(action_spec_from_name("Fullscreen")->type == ActionType::Fullscreen);
 	WB_CHECK(action_spec_from_name("ToggleMaximizeHorizontal") != nullptr);
 	WB_CHECK(action_spec_from_name("ToggleMaximizeVertical") != nullptr);
+	WB_CHECK(action_spec_from_name("ToggleDecorations") != nullptr);
+	WB_CHECK(action_spec_from_name("ToggleDecorations")->type ==
+			ActionType::ToggleDecorations);
 }
 
 WB_TEST(registry_rejects_unknown_and_is_case_sensitive) {

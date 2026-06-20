@@ -17,6 +17,7 @@
 #include "waybox/seat.h"
 #include "waybox/window_cycle.hpp"
 #include "waybox/xdg_shell.h"
+#include "decoration.h"
 
 static void deiconify_toplevel(struct wb_toplevel *toplevel) {
 	if (toplevel->xdg_toplevel->requested.minimized) {
@@ -163,6 +164,14 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		deinit_config(server->config);
 		init_config(server);
 		break;
+	case wb::ActionType::ToggleDecorations: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel && toplevel->scene_tree->node.enabled) {
+			toplevel->decorations = wb::toggle_decor(toplevel->decorations);
+			apply_toplevel_decoration(toplevel);
+		}
+		break;
+	}
 	case wb::ActionType::Exit:
 		wl_display_terminate(server->wl_display);
 		break;

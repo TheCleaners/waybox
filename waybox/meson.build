@@ -5,6 +5,7 @@ wb_src = [
   mousebind_src,
   placement_src,
   applications_src,
+  decor_mode_src,
   keychain_src,
   theme_src,
   widget_src,

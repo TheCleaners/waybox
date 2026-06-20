@@ -38,6 +38,7 @@ enum class ActionType {
 	Lower,
 	Exit,
 	Reconfigure,
+	ToggleDecorations,
 };
 
 /* A parsed action ready to run. `command` is only meaningful for actions whose

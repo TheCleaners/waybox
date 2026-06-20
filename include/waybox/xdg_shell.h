@@ -3,6 +3,7 @@
 
 #include "waybox/wlroots.hpp"
 
+#include "waybox/decor_mode.hpp"
 #include "waybox/listener.hpp"
 #include "waybox/server.h"
 
@@ -18,6 +19,8 @@ struct wb_toplevel {
 	struct wlr_scene_tree *scene_tree = nullptr;
 
 	struct wlr_xdg_toplevel_decoration_v1 *decoration = nullptr;
+	/* Per-window decoration preference (app rule / ToggleDecorations). */
+	wb::DecorMode decorations = wb::DecorMode::Default;
 
 	struct wlr_ext_foreign_toplevel_handle_v1 *foreign_toplevel_handle = nullptr;
 	struct wlr_ext_foreign_toplevel_handle_v1_state foreign_toplevel_state = {};
