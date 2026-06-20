@@ -93,8 +93,8 @@ bool wb_create_backend(struct wb_server* server) {
 		wlr_compositor_create(server->wl_display, 5, server->renderer);
 	server->subcompositor = wlr_subcompositor_create(server->wl_display);
 	server->output_layout = wlr_output_layout_create(server->wl_display);
-	server->seat = wb_seat_create(server);
-	if (server->seat == NULL) {
+	server->seat.reset(wb_seat_create(server));
+	if (server->seat == nullptr) {
 		wlr_log(WLR_ERROR, "%s", _("Failed to create seat"));
 		return false;
 	}
@@ -204,7 +204,7 @@ bool wb_terminate(struct wb_server* server) {
 	wl_list_remove(&server->new_xdg_popup.link);
 
 	wlr_backend_destroy(server->backend);
-	wb_seat_destroy(server->seat);
+	server->seat.reset();
 	wl_display_destroy(server->wl_display);
 	wlr_scene_node_destroy(&server->scene->tree.node);
 
