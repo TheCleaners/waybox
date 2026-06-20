@@ -9,6 +9,8 @@
 #include "waybox/menu.hpp"
 #include "waybox/mousebind.hpp"
 #include "waybox/placement.hpp"
+#include "waybox/style.hpp"
+#include "waybox/theme.hpp"
 #include "waybox/server.h"
 
 struct wb_config {
@@ -55,6 +57,8 @@ struct wb_config {
 	std::vector<wb::AppRule> app_rules;
 	wb::PlacementPolicy placement_policy = wb::PlacementPolicy::Smart;
 	wb::MenuFile menu;  /* parsed menu.xml (root-menu and submenus) */
+	wb::Theme theme;    /* resolved theme (themerc), styles all drawn chrome */
+	wb::MenuBehavior menu_behavior;  /* rc.xml <waybox><menu ...> extensions */
 };
 
 bool init_config(struct wb_server *server);

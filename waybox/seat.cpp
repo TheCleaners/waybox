@@ -178,10 +178,10 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	case wb::ActionType::ShowMenu: {
 		if (server->config == nullptr)
 			break;
-		wb::Theme theme = wb::default_theme();
 		auto widget = std::make_unique<wb::MenuWidget>(server,
-				server->config->menu, wb::menu_style_from_theme(theme),
-				wb::MenuBehavior{});
+				server->config->menu,
+				wb::menu_style_from_theme(server->config->theme),
+				server->config->menu_behavior);
 		int x = static_cast<int>(server->cursor->cursor->x);
 		int y = static_cast<int>(server->cursor->cursor->y);
 		if (widget->open(action.command, x, y))

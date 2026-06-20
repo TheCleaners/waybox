@@ -377,6 +377,31 @@ static void parse_app_rules(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathFreeObject(object);
 }
 
+/* Parse the waybox extension block <waybox><menu submenuOpen="hover|click"
+ * hoverDelay="ms" wrap="yes|no"/></waybox>. Openbox ignores unknown elements,
+ * so this is forward/backward compatible. */
+static void parse_menu_behavior(struct wb_config *config,
+		xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:menu", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *node = object->nodesetval->nodeTab[0];
+		if (node != NULL) {
+			if (const char *v = (const char *) get_attribute(node, "submenuOpen"))
+				if (auto m = wb::submenu_open_from_name(v))
+					config->menu_behavior.submenu_open = *m;
+			if (const char *v = (const char *) get_attribute(node, "hoverDelay"))
+				if (v[0] != '\0')
+					config->menu_behavior.submenu_delay_ms = atoi(v);
+			if (auto w = parse_bool((const char *) get_attribute(node, "wrap")))
+				config->menu_behavior.wrap = *w;
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
 bool init_config(struct wb_server *server) {
 	struct wb_config *config = new (std::nothrow) wb_config{};
 	if (config == NULL)
@@ -467,6 +492,20 @@ bool init_config(struct wb_server *server) {
 	config->margins.top = strtoulong(parse_xpath_expr("//ob:margins/ob:top", ctxt));
 
 	config->menu = load_menu_file();
+
+	/* Theme: <theme><name>...</name></theme> (Openbox standard). load_theme
+	 * falls back to the built-in default when the name is absent or not found. */
+	if (char *name = parse_xpath_expr("//ob:theme/ob:name", ctxt)) {
+		config->theme = wb::load_theme(name);
+		free(name);
+	} else {
+		config->theme = wb::default_theme();
+	}
+
+	/* Menu behaviour: waybox extension block <waybox><menu .../></waybox>, which
+	 * Openbox ignores. Attributes: submenuOpen="hover|click", hoverDelay="ms",
+	 * wrap="yes|no". */
+	parse_menu_behavior(config, ctxt);
 
 	server->config = config;
 
