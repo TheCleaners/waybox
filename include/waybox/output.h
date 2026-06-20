@@ -6,9 +6,11 @@
 #include "waybox/server.h"
 #include "waybox/wlroots.hpp"
 
+#include "waybox/listener.hpp"
+
 struct wb_output {
-	struct wlr_output *wlr_output;
-	struct wb_server *server;
+	struct wlr_output *wlr_output = nullptr;
+	struct wb_server *server = nullptr;
 
 	struct {
 		struct wlr_scene_tree *shell_background;
@@ -18,20 +20,21 @@ struct wb_output {
 		struct wlr_scene_tree *shell_top;
 	} layers;
 
-	bool gamma_lut_changed;
-	struct wlr_box geometry;
-	struct wlr_box usable_area;
+	bool gamma_lut_changed = false;
+	struct wlr_box geometry = {};
+	struct wlr_box usable_area = {};
 
-	struct wl_listener destroy;
-	struct wl_listener frame;
-	struct wl_listener request_state;
+	wb::Listener destroy;
+	wb::Listener frame;
+	wb::Listener request_state;
 
 	struct wl_list link;
+
+	void on_frame(void *data);
+	void on_request_state(void *data);
 };
 
 void handle_gamma_control_set_gamma(struct wl_listener *listener, void *data);
-void output_frame_notify(struct wl_listener *listener, void *data);
-void output_destroy_notify(struct wl_listener *listener, void *data);
 void init_output(struct wb_server *server);
 
 #endif /* output.h */

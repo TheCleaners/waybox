@@ -117,10 +117,10 @@ static bool apply_output_config(struct wb_server *server,
 	return ok;
 }
 
-void output_frame_notify(struct wl_listener *listener, void *data) {
-	/* This function is called every time an output is ready to display a frame,
-	 * generally at the output's refresh rate (e.g. 60Hz). */
-	struct wb_output *output = wl_container_of(listener, output, frame);
+void wb_output::on_frame(void *data) {
+	/* Called every time the output is ready to display a frame, generally at
+	 * the output's refresh rate (e.g. 60Hz). */
+	wb_output *output = this;
 	struct wlr_scene *scene = output->server->scene;
 	struct wlr_scene_output *scene_output =
 		wlr_scene_get_scene_output(scene, output->wlr_output);
@@ -186,13 +186,12 @@ void output_configuration_tested(struct wl_listener *listener, void *data) {
 	wlr_output_configuration_v1_destroy(configuration);
 }
 
-void output_request_state_notify(struct wl_listener *listener, void *data) {
-	struct wb_output *output = wl_container_of(listener, output, request_state);
-	const struct wlr_output_event_request_state *event = static_cast<const struct wlr_output_event_request_state *>(data);
+void wb_output::on_request_state(void *data) {
+	auto *event = static_cast<const struct wlr_output_event_request_state *>(data);
 
-	if (wlr_output_commit_state(output->wlr_output, event->state)) {
-		reconfigure_output(output);
-		output_manager_update_config(output->server);
+	if (wlr_output_commit_state(wlr_output, event->state)) {
+		reconfigure_output(this);
+		output_manager_update_config(server);
 	}
 }
 
@@ -201,25 +200,6 @@ void handle_gamma_control_set_gamma(struct wl_listener *listener, void *data) {
 	struct wb_output *output = static_cast<struct wb_output *>(event->output->data);
 	output->gamma_lut_changed = true;
 	wlr_output_schedule_frame(output->wlr_output);
-}
-
-void output_destroy_notify(struct wl_listener *listener, void *data) {
-       	struct wb_output *output = wl_container_of(listener, output, destroy);
-
-	wl_list_remove(&output->destroy.link);
-	wl_list_remove(&output->frame.link);
-	wl_list_remove(&output->request_state.link);
-
-	/* Frees the layers */
-	size_t num_layers = sizeof(output->layers) / sizeof(struct wlr_scene_node *);
-	for (size_t i = 0; i < num_layers; i++) {
-		struct wlr_scene_node *node =
-			((struct wlr_scene_node **) &output->layers)[i];
-		wlr_scene_node_destroy(node);
-	}
-
-	wl_list_remove(&output->link);
-	free(output);
 }
 
 void new_output_notify(struct wl_listener *listener, void *data) {
@@ -248,11 +228,7 @@ void new_output_notify(struct wl_listener *listener, void *data) {
 	wlr_output_commit_state(wlr_output, &state);
 	wlr_output_state_finish(&state);
 
-	struct wb_output *output = static_cast<struct wb_output *>(calloc(1, sizeof(struct wb_output)));
-	if (output == NULL) {
-		wlr_log(WLR_ERROR, "%s", _("Failed to allocate output"));
-		return;
-	}
+	auto *output = new wb_output{};
 	output->server = server;
 	output->wlr_output = wlr_output;
 	wlr_output->data = output;
@@ -271,12 +247,22 @@ void new_output_notify(struct wl_listener *listener, void *data) {
 	wlr_output_effective_resolution(wlr_output,
 			&output->usable_area.width, &output->usable_area.height);
 
-	output->destroy.notify = output_destroy_notify;
-	wl_signal_add(&wlr_output->events.destroy, &output->destroy);
-	output->frame.notify = output_frame_notify;
-	wl_signal_add(&wlr_output->events.frame, &output->frame);
-	output->request_state.notify = output_request_state_notify;
-	wl_signal_add(&wlr_output->events.request_state, &output->request_state);
+	output->frame.connect(&wlr_output->events.frame,
+			[output](void *data) { output->on_frame(data); });
+	output->request_state.connect(&wlr_output->events.request_state,
+			[output](void *data) { output->on_request_state(data); });
+	output->destroy.connect(&wlr_output->events.destroy, [output](void *data) {
+		/* Frees the layer scene-trees; the wb::Listener members disconnect
+		 * themselves when the output is deleted. */
+		size_t num_layers =
+			sizeof(output->layers) / sizeof(struct wlr_scene_node *);
+		for (size_t i = 0; i < num_layers; i++) {
+			wlr_scene_node_destroy(
+					((struct wlr_scene_node **) &output->layers)[i]);
+		}
+		wl_list_remove(&output->link);
+		delete output;
+	});
 
 	/* Adds this to the output layout. The add_auto function arranges outputs
 	 * from left-to-right in the order they appear. A more sophisticated
