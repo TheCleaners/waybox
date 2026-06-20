@@ -65,9 +65,9 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 
 	struct wlr_surface *surface = toplevel->xdg_toplevel->base->surface;
 	struct wlr_xdg_surface *xdg_surface = wlr_xdg_surface_try_from_wlr_surface(surface);
-	if (xdg_surface != NULL)
+	if (xdg_surface != NULL && xdg_surface->toplevel != NULL)
 		wlr_log(WLR_INFO, "%s: %s", _("Keyboard focus is now on surface"),
-				xdg_surface->toplevel->app_id);
+				xdg_surface->toplevel->app_id ? xdg_surface->toplevel->app_id : "(unnamed)");
 
 	struct wb_server *server = toplevel->server;
 	if (server->seat->focused_layer != NULL) {
@@ -588,6 +588,9 @@ static void handle_new_xdg_popup(struct wl_listener *listener, void *data) {
 	}
 
 	struct wb_popup *popup = calloc(1, sizeof(struct wb_popup));
+	if (popup == NULL) {
+		return;
+	}
 	popup->xdg_popup = xdg_popup;
 	popup->commit.notify = xdg_popup_commit;
 	wl_signal_add(&xdg_popup->base->surface->events.commit, &popup->commit);
@@ -604,6 +607,9 @@ static void handle_new_xdg_toplevel(struct wl_listener *listener, void *data) {
 	/* Allocate a wb_toplevel for this toplevel */
 	struct wb_toplevel *toplevel =
 		calloc(1, sizeof(struct wb_toplevel));
+	if (toplevel == NULL) {
+		return;
+	}
 	toplevel->server = server;
 	toplevel->xdg_toplevel = xdg_toplevel;
 

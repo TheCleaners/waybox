@@ -1,8 +1,8 @@
 #ifndef _WB_SERVER_H
 #define _WB_SERVER_H
 
-#define MAX(a, b) ((a > b) ? (a) : (b))
-#define MIN(a, b) ((a < b) ? (a) : (b))
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define TITLEBAR_HEIGHT 8 /* TODO: Get this from the theme */
 #include <wlr/version.h>
 #define WLR_CHECK_VERSION(major, minor, micro) (WLR_VERSION_NUM >= ((major << 16) | (minor << 8) | (micro)))
@@ -97,5 +97,6 @@ struct wb_server {
 bool wb_create_backend(struct wb_server *server);
 bool wb_start_server(struct wb_server *server);
 bool wb_terminate(struct wb_server *server);
+void wb_spawn(const char *cmd);
 
 #endif /* server.h */

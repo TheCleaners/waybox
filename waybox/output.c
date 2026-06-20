@@ -249,6 +249,10 @@ void new_output_notify(struct wl_listener *listener, void *data) {
 	wlr_output_state_finish(&state);
 
 	struct wb_output *output = calloc(1, sizeof(struct wb_output));
+	if (output == NULL) {
+		wlr_log(WLR_ERROR, "%s", _("Failed to allocate output"));
+		return;
+	}
 	output->server = server;
 	output->wlr_output = wlr_output;
 	wlr_output->data = output;

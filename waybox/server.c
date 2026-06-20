@@ -1,3 +1,9 @@
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
 #include <wlr/types/wlr_ext_data_control_v1.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_viewporter.h>
@@ -6,6 +12,35 @@
 #include "idle.h"
 #include "waybox/server.h"
 #include "waybox/xdg_shell.h"
+
+void wb_spawn(const char *cmd) {
+	if (cmd == NULL || cmd[0] == '\0') {
+		return;
+	}
+
+	/* Double-fork so the spawned process is reparented to init and never
+	 * becomes a zombie of the compositor, which does not reap children. */
+	pid_t pid = fork();
+	if (pid < 0) {
+		wlr_log(WLR_ERROR, "fork failed: %s", strerror(errno));
+		return;
+	}
+	if (pid == 0) {
+		setsid();
+		pid_t grandchild = fork();
+		if (grandchild < 0) {
+			_exit(EXIT_FAILURE);
+		}
+		if (grandchild == 0) {
+			execl("/bin/sh", "/bin/sh", "-c", cmd, (char *) NULL);
+			/* Only reached if exec fails. */
+			_exit(EXIT_FAILURE);
+		}
+		_exit(EXIT_SUCCESS);
+	}
+	/* Reap the intermediate child so it does not linger as a zombie. */
+	waitpid(pid, NULL, 0);
+}
 
 bool wb_create_backend(struct wb_server* server) {
 	/* The Wayland display is managed by libwayland. It handles accepting
@@ -59,7 +94,15 @@ bool wb_create_backend(struct wb_server* server) {
 	server->subcompositor = wlr_subcompositor_create(server->wl_display);
 	server->output_layout = wlr_output_layout_create(server->wl_display);
 	server->seat = wb_seat_create(server);
+	if (server->seat == NULL) {
+		wlr_log(WLR_ERROR, "%s", _("Failed to create seat"));
+		return false;
+	}
 	server->cursor = wb_cursor_create(server);
+	if (server->cursor == NULL) {
+		wlr_log(WLR_ERROR, "%s", _("Failed to create cursor"));
+		return false;
+	}
 
 	server->output_manager = wlr_xdg_output_manager_v1_create(server->wl_display,
 				server->output_layout);

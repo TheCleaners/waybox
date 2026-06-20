@@ -50,6 +50,9 @@ static void arrange_surface(struct wb_output *output, struct wlr_box *full_area,
 	struct wlr_scene_node *node;
 	wl_list_for_each(node, &scene_tree->children, link) {
 		struct wb_scene_descriptor *desc = node->data;
+		if (desc == NULL) {
+			continue;
+		}
 
 		if (desc->type == WB_SCENE_DESC_LAYER_SHELL) {
 			struct wb_layer_surface *surface = desc->data;
