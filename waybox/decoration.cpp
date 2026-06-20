@@ -1,10 +1,9 @@
 #include "decoration.h"
 #include "waybox/xdg_shell.h"
 
-static void handle_new_xdg_toplevel_decoration(struct wl_listener *listener, void *data) {
+static void handle_new_xdg_toplevel_decoration(struct wb_server *server, void *data) {
 	auto *toplevel_decoration =
 		static_cast<struct wlr_xdg_toplevel_decoration_v1 *>(data);
-	struct wb_server *server = wl_container_of(listener, server, new_xdg_decoration);
 
 	auto *decoration = new wb_decoration{};
 	decoration->server = server;
@@ -39,6 +38,6 @@ static void handle_new_xdg_toplevel_decoration(struct wl_listener *listener, voi
 
 void init_xdg_decoration(struct wb_server *server) {
 	struct wlr_xdg_decoration_manager_v1 *decoration = wlr_xdg_decoration_manager_v1_create(server->wl_display);
-	server->new_xdg_decoration.notify = handle_new_xdg_toplevel_decoration;
-	wl_signal_add(&decoration->events.new_toplevel_decoration, &server->new_xdg_decoration);
+	server->new_xdg_decoration.connect(&decoration->events.new_toplevel_decoration,
+			[server](void *data) { handle_new_xdg_toplevel_decoration(server, data); });
 }

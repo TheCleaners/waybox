@@ -34,7 +34,7 @@ struct wb_output {
 	void on_request_state(void *data);
 };
 
-void handle_gamma_control_set_gamma(struct wl_listener *listener, void *data);
+void handle_gamma_control_set_gamma(struct wb_server *server, void *data);
 void init_output(struct wb_server *server);
 
 #endif /* output.h */
