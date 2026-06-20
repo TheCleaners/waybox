@@ -65,6 +65,11 @@ SceneCanvas::~SceneCanvas() {
 		cairo_destroy(cr_);
 	if (surface_ != nullptr)
 		cairo_surface_destroy(surface_);
+	/* Own the scene node: destroying the canvas removes it from the scene, so a
+	 * closed submenu's panel disappears instead of lingering as a stale,
+	 * unresponsive artifact. */
+	if (node_ != nullptr)
+		wlr_scene_node_destroy(&node_->node);
 }
 
 void SceneCanvas::commit() {
