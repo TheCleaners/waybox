@@ -109,6 +109,20 @@ void FrameView::set_maximized(bool maximized) {
 	render_titlebar();
 }
 
+void FrameView::set_hovered_button(int index) {
+	if (hovered_button_ == index)
+		return;
+	hovered_button_ = index;
+	render_titlebar();
+}
+
+void FrameView::set_pressed_button(int index) {
+	if (pressed_button_ == index)
+		return;
+	pressed_button_ = index;
+	render_titlebar();
+}
+
 void FrameView::layout() {
 	if (bg_ != nullptr) {
 		wlr_scene_rect_set_size(bg_, outer_w_, outer_h_);
@@ -163,8 +177,16 @@ void FrameView::render_titlebar() {
 		Rect r = brects[i];
 		r.x -= metrics_.border;
 		r.y -= metrics_.border;
-		const StateStyle &bs = s.button.for_state(WidgetState::Normal);
-		paint_fill(cr, r.x, r.y, r.width, r.height, bs.fill);
+		WidgetState ws = WidgetState::Normal;
+		if (static_cast<int>(i) == pressed_button_)
+			ws = WidgetState::Pressed;
+		else if (static_cast<int>(i) == hovered_button_)
+			ws = WidgetState::Hover;
+		const StateStyle &bs = s.button.for_state(ws);
+		/* The normal button background is the titlebar (parentrelative), already
+		 * painted; only fill when hovered/pressed so the accent shows. */
+		if (ws != WidgetState::Normal)
+			paint_fill(cr, r.x, r.y, r.width, r.height, bs.fill);
 		paint_button_glyph(cr, r, buttons_[i], maximized_, bs.fg);
 	}
 

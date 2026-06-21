@@ -606,6 +606,8 @@ static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 	toplevel->frame.reset();
 	if (toplevel->scene_tree != nullptr)
 		wlr_scene_node_destroy(&toplevel->scene_tree->node);
+	if (toplevel->server->frame_pressed == toplevel)
+		toplevel->server->frame_pressed = nullptr;
 
 	wl_list_remove(&toplevel->link);
 	wl_list_remove(&toplevel->focus_link);

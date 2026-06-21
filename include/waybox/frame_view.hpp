@@ -44,6 +44,10 @@ public:
 	void set_active(bool active);
 	void set_title(std::string title);
 	void set_maximized(bool maximized);
+	/* Highlight the hovered titlebar button (index into buttons(), or -1). */
+	void set_hovered_button(int index);
+	/* Mark a titlebar button as held down (index into buttons(), or -1). */
+	void set_pressed_button(int index);
 
 	/* Button rectangles in frame-local coordinates (for input hit-testing). */
 	std::vector<Rect> button_rects() const;
@@ -66,6 +70,8 @@ private:
 	int outer_h_ = 0;
 	bool active_state_ = true;
 	bool maximized_ = false;
+	int hovered_button_ = -1;
+	int pressed_button_ = -1;
 	std::string title_;
 	float scale_ = 1.0f;
 };

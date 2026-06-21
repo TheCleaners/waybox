@@ -67,10 +67,48 @@ FrameStyle frame_style_from_theme(const Theme &theme, bool active) {
 	f.grip.fill = paint_from_texture(w.grip_bg);
 	f.handle_width = theme.handle_width;
 
-	f.button.normal = StateStyle{paint_from_texture(w.button_bg), w.button_icon};
-	f.button.hover = StateStyle{paint_from_texture(w.button_bg), w.button_icon_hover};
-	f.button.pressed = StateStyle{paint_from_texture(w.button_bg), w.button_icon_pressed};
-	f.button.disabled = StateStyle{paint_from_texture(w.button_bg), w.button_icon_disabled};
+	/* Normal button background: when the theme says parentrelative (or sets no
+	 * explicit button bg), let the titlebar show through; otherwise use the
+	 * themed button bg. Hover uses the accent (hover) bg, falling back to the
+	 * titlebar's active gradient so a bare theme still shows feedback. */
+	Paint normal_btn = w.button_bg_parentrelative
+			? paint_from_texture(w.title_bg)
+			: paint_from_texture(w.button_bg);
+	bool has_hover_bg = w.button_hover_bg.color.a != 0 ||
+			w.button_hover_bg.color_to.a != 0;
+	Paint hover_btn = has_hover_bg ? paint_from_texture(w.button_hover_bg)
+			: normal_btn;
+	Color icon_hover = (w.button_icon_hover.a != 0) ? w.button_icon_hover
+			: w.button_icon;
+
+	/* Pressed (held-down): the theme's pressed bg if set, else a slightly
+	 * darker shade derived from the hover accent so there is feedback. */
+	auto darken = [](Color c, double f) {
+		c.r = static_cast<uint8_t>(c.r * f);
+		c.g = static_cast<uint8_t>(c.g * f);
+		c.b = static_cast<uint8_t>(c.b * f);
+		return c;
+	};
+	bool has_pressed_bg = w.button_pressed_bg.color.a != 0 ||
+			w.button_pressed_bg.color_to.a != 0;
+	Paint pressed_btn;
+	if (has_pressed_bg) {
+		pressed_btn = paint_from_texture(w.button_pressed_bg);
+	} else if (has_hover_bg) {
+		Texture d = w.button_hover_bg;
+		d.color = darken(d.color, 0.7);
+		d.color_to = darken(d.color_to, 0.7);
+		pressed_btn = paint_from_texture(d);
+	} else {
+		pressed_btn = hover_btn;
+	}
+	Color icon_pressed = (w.button_icon_pressed.a != 0) ? w.button_icon_pressed
+			: icon_hover;
+
+	f.button.normal = StateStyle{normal_btn, w.button_icon};
+	f.button.hover = StateStyle{hover_btn, icon_hover};
+	f.button.pressed = StateStyle{pressed_btn, icon_pressed};
+	f.button.disabled = StateStyle{normal_btn, w.button_icon_disabled};
 	return f;
 }
 
