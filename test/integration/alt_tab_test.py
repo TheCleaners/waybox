@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Headless integration test: drive Waybox with synthesized input.
 
-Exercises the real input path end to end — the virtual-keyboard protocol feeds
-a keybinding (Alt+Tab -> NextWindow), which runs through the action framework
-and focus/stacking code — under AddressSanitizer.
+Exercises the real input path end to end — the virtual-keyboard protocol holds
+Alt and taps Tab (Alt+Tab -> NextWindow), which opens the interactive task
+switcher OSD; releasing Alt commits the selection. This runs through the action
+framework, the switcher grab/OSD render, and the focus/stacking code under
+AddressSanitizer.
 
 Designed to run from `meson test`. It SKIPS (exit 77) when its runtime
 dependencies are unavailable (no foot/wtype, or the headless backend cannot

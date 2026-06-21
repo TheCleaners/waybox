@@ -9,6 +9,9 @@
 #define WLR_CHECK_VERSION(major, minor, micro) (WLR_VERSION_NUM >= ((major << 16) | (minor << 8) | (micro)))
 
 #include <stdlib.h>
+#include <cstdint>
+#include <memory>
+#include <vector>
 
 #ifdef USE_NLS
 #	include <libintl.h>
@@ -26,7 +29,7 @@
 #include "waybox/xdg_shell.h"
 #include "waybox/seat.h"
 
-namespace wb { class MenuWidget; }
+namespace wb { class MenuWidget; class SwitcherWidget; }
 
 struct wb_server {
 	struct wl_display *wl_display;
@@ -100,6 +103,16 @@ struct wb_server {
 	/* The toplevel whose titlebar button is currently held down (for the
 	 * pressed visual + activate-on-release), or null. */
 	struct wb_toplevel *frame_pressed = nullptr;
+
+	/* Interactive Alt+Tab task switcher (a keyboard grab) while a trigger
+	 * modifier is held, or null. `switcher_windows` is the stable cyclable
+	 * list parallel to the OSD entries; `switcher_mods` is the modifier mask
+	 * whose release commits the selection. `last_key_modifiers` carries the
+	 * modifiers of the key event currently firing an action into run_action. */
+	std::unique_ptr<wb::SwitcherWidget> switcher;
+	std::vector<struct wb_toplevel *> switcher_windows;
+	uint32_t switcher_mods = 0;
+	uint32_t last_key_modifiers = 0;
 };
 
 bool wb_create_backend(struct wb_server *server);

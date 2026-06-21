@@ -29,6 +29,7 @@ wb_src = [
     'scene_buffer.cpp',
     'seat.cpp',
     'server.cpp',
+    'switcher_widget.cpp',
     'xdg_shell.cpp',
   ),
   ]

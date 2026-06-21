@@ -406,6 +406,29 @@ static void parse_menu_behavior(struct wb_config *config,
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><switcher order="mru|stacking|spatial" osd="yes|no"
+ * wrap="yes|no"/></waybox>: the interactive Alt+Tab task switcher options. */
+static void parse_switcher_behavior(struct wb_config *config,
+		xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:switcher", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *node = object->nodesetval->nodeTab[0];
+		if (node != NULL) {
+			if (const char *v = (const char *) get_attribute(node, "order"))
+				if (auto o = wb::switcher_order_from_name(v))
+					config->switcher_behavior.order = *o;
+			if (auto osd = parse_bool((const char *) get_attribute(node, "osd")))
+				config->switcher_behavior.show_on_hold = *osd;
+			if (auto w = parse_bool((const char *) get_attribute(node, "wrap")))
+				config->switcher_behavior.wrap = *w;
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
 bool init_config(struct wb_server *server) {
 	struct wb_config *config = new (std::nothrow) wb_config{};
 	if (config == NULL)
@@ -510,6 +533,7 @@ bool init_config(struct wb_server *server) {
 	 * Openbox ignores. Attributes: submenuOpen="hover|click", hoverDelay="ms",
 	 * wrap="yes|no". */
 	parse_menu_behavior(config, ctxt);
+	parse_switcher_behavior(config, ctxt);
 
 	server->config = config;
 
