@@ -117,6 +117,15 @@ int signal_waybox_reload() {
 	return signalled;
 }
 
+/* ---- A lightweight font picker: family + size + bold ----------------- */
+
+struct FontPicker {
+	GtkDropDown *family = nullptr;
+	GtkSpinButton *size = nullptr;
+	GtkToggleButton *bold = nullptr;
+	std::vector<std::string> families;  /* parallel to the dropdown model */
+};
+
 /* ---- Widget set, bound to a WayboxSettings on save ------------------- */
 
 struct Ui {
@@ -151,15 +160,25 @@ struct Ui {
 	GtkSwitch *switcher_osd = nullptr;
 	GtkSwitch *switcher_wrap = nullptr;
 
-	/* Fonts (GtkFontDialogButton per place) */
-	GtkFontDialogButton *font_active = nullptr;
-	GtkFontDialogButton *font_inactive = nullptr;
-	GtkFontDialogButton *font_menu_header = nullptr;
-	GtkFontDialogButton *font_menu_item = nullptr;
-	GtkFontDialogButton *font_osd = nullptr;
+	/* Fonts: a lightweight custom picker per place (family dropdown + size spin
+	 * + bold toggle). We avoid GtkFontDialogButton because GTK's font chooser
+	 * loads its list asynchronously and only highlights/scrolls to the current
+	 * font after a multi-second delay; the custom picker is instant and always
+	 * shows the current selection. */
+	FontPicker font_active;
+	FontPicker font_inactive;
+	FontPicker font_menu_header;
+	FontPicker font_menu_item;
+	FontPicker font_osd;
 
 	/* Live theme preview (redrawn when the theme/fonts change). */
 	GtkWidget *preview = nullptr;
+	GtkNotebook *notebook = nullptr;  /* for "reset this page" */
+
+	/* The settings as loaded, so Save only writes fonts the user changed
+	 * (the font buttons are seeded with a default so the picker pre-selects a
+	 * font, but we must not persist that default unless it was edited). */
+	wb::WayboxSettings original;
 };
 
 const char *const kPlacement[] = {"Smart", "Center", "UnderMouse", nullptr};
@@ -250,35 +269,100 @@ GtkDropDown *add_dropdown(GtkWidget *grid, int row, const char *label,
 
 /* ---- Fonts + live theme preview -------------------------------------- */
 
-GtkFontDialogButton *add_font(GtkWidget *grid, int row, const char *label) {
-	grid_label(grid, row, label);
-	GtkFontDialog *dialog = gtk_font_dialog_new();
-	GtkWidget *btn = gtk_font_dialog_button_new(dialog);
-	gtk_widget_set_hexpand(btn, TRUE);
-	gtk_grid_attach(GTK_GRID(grid), btn, 1, row, 1, 1);
-	return GTK_FONT_DIALOG_BUTTON(btn);
+/* The installed font families, sorted and de-duplicated. Uses the default
+ * Cairo/Pango font map, so no widget is needed. */
+const std::vector<std::string> &font_families() {
+	static const std::vector<std::string> families = [] {
+		std::vector<std::string> out;
+		PangoFontMap *fm = pango_cairo_font_map_get_default();
+		PangoFontFamily **fams = nullptr;
+		int n = 0;
+		pango_font_map_list_families(fm, &fams, &n);
+		out.reserve(n);
+		for (int i = 0; i < n; i++) {
+			const char *name = pango_font_family_get_name(fams[i]);
+			if (name != nullptr)
+				out.emplace_back(name);
+		}
+		g_free(fams);
+		std::sort(out.begin(), out.end());
+		out.erase(std::unique(out.begin(), out.end()), out.end());
+		return out;
+	}();
+	return families;
 }
 
-/* Read a font button as a Pango-style "Family [Bold] Size" string, or nullopt
- * if it was never set. */
-std::optional<std::string> font_value(GtkFontDialogButton *b) {
-	PangoFontDescription *d = gtk_font_dialog_button_get_font_desc(b);
-	if (d == nullptr)
+/* A custom, instant font picker: a family dropdown, a size spin button and a
+ * bold toggle, laid out in one row. Stored in `out`. */
+void add_font(GtkWidget *grid, int row, const char *label, FontPicker *out,
+		GCallback on_change, gpointer user) {
+	grid_label(grid, row, label);
+
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+	gtk_widget_set_hexpand(box, TRUE);
+
+	out->families = font_families();
+	std::vector<const char *> items;
+	items.reserve(out->families.size() + 1);
+	for (const std::string &f : out->families)
+		items.push_back(f.c_str());
+	items.push_back(nullptr);
+	GtkWidget *fam = gtk_drop_down_new_from_strings(items.data());
+	gtk_widget_set_hexpand(fam, TRUE);
+	/* Make the long list searchable by typing. */
+	gtk_drop_down_set_enable_search(GTK_DROP_DOWN(fam), TRUE);
+	out->family = GTK_DROP_DOWN(fam);
+	gtk_box_append(GTK_BOX(box), fam);
+
+	GtkWidget *size = gtk_spin_button_new_with_range(4, 96, 1);
+	out->size = GTK_SPIN_BUTTON(size);
+	gtk_box_append(GTK_BOX(box), size);
+
+	GtkWidget *bold = gtk_toggle_button_new_with_label(_("B"));
+	gtk_widget_set_tooltip_text(bold, _("Bold"));
+	out->bold = GTK_TOGGLE_BUTTON(bold);
+	gtk_box_append(GTK_BOX(box), bold);
+
+	gtk_grid_attach(GTK_GRID(grid), box, 1, row, 1, 1);
+
+	if (on_change != nullptr) {
+		g_signal_connect_swapped(fam, "notify::selected", on_change, user);
+		g_signal_connect_swapped(size, "value-changed", on_change, user);
+		g_signal_connect_swapped(bold, "toggled", on_change, user);
+	}
+}
+
+/* Read a picker as a Pango-style "Family [Bold] Size" string. */
+std::optional<std::string> font_value(const FontPicker *p) {
+	guint idx = gtk_drop_down_get_selected(p->family);
+	if (idx == GTK_INVALID_LIST_POSITION || idx >= p->families.size())
 		return std::nullopt;
-	char *s = pango_font_description_to_string(d);
-	std::string out = s ? s : "";
-	g_free(s);
-	if (out.empty())
-		return std::nullopt;
+	std::string out = p->families[idx];
+	if (gtk_toggle_button_get_active(p->bold))
+		out += " Bold";
+	out += " " + std::to_string(gtk_spin_button_get_value_as_int(p->size));
 	return out;
 }
 
-void font_set(GtkFontDialogButton *b, const std::optional<std::string> &v) {
+/* Set a picker from a Pango-style "Family [Bold] Size" string. */
+void font_set(FontPicker *p, const std::optional<std::string> &v) {
 	if (!v)
 		return;
 	PangoFontDescription *d = pango_font_description_from_string(v->c_str());
-	gtk_font_dialog_button_set_font_desc(b, d);
+	const char *fam = pango_font_description_get_family(d);
+	std::string family = fam ? fam : "Sans";
+	int size = pango_font_description_get_size(d);
+	int size_pt = size > 0 ? size / PANGO_SCALE : 10;
+	bool bold = pango_font_description_get_weight(d) >= PANGO_WEIGHT_BOLD;
 	pango_font_description_free(d);
+
+	guint sel = 0;
+	for (guint i = 0; i < p->families.size(); i++) {
+		if (p->families[i] == family) { sel = i; break; }
+	}
+	gtk_drop_down_set_selected(p->family, sel);
+	gtk_spin_button_set_value(p->size, size_pt);
+	gtk_toggle_button_set_active(p->bold, bold);
 }
 
 /* Collect the current settings from all widgets (forward declaration so the
@@ -411,6 +495,7 @@ void preview_refresh(Ui *ui) {
 }
 
 void populate(Ui *ui, const wb::WayboxSettings &s) {
+	ui->original = s;  /* remember the loaded state (for change detection) */
 	/* Theme list: every installed theme, current one guaranteed present and
 	 * selected (obconf shows the active theme highlighted in the list). */
 	ui->theme_names = wb::installed_theme_names();
@@ -467,11 +552,14 @@ void populate(Ui *ui, const wb::WayboxSettings &s) {
 	gtk_switch_set_active(ui->switcher_osd, s.switcher_osd.value_or(true));
 	gtk_switch_set_active(ui->switcher_wrap, s.switcher_wrap.value_or(true));
 
-	font_set(ui->font_active, s.font_active_window);
-	font_set(ui->font_inactive, s.font_inactive_window);
-	font_set(ui->font_menu_header, s.font_menu_header);
-	font_set(ui->font_menu_item, s.font_menu_item);
-	font_set(ui->font_osd, s.font_osd);
+	/* Always show a concrete font (the configured one, else waybox's effective
+	 * default Sans 10) so the picker opens with the current font selected and
+	 * the user can just tweak the size. */
+	font_set(&ui->font_active, s.font_active_window.value_or("Sans 10"));
+	font_set(&ui->font_inactive, s.font_inactive_window.value_or("Sans 10"));
+	font_set(&ui->font_menu_header, s.font_menu_header.value_or("Sans 10"));
+	font_set(&ui->font_menu_item, s.font_menu_item.value_or("Sans 10"));
+	font_set(&ui->font_osd, s.font_osd.value_or("Sans 10"));
 
 	preview_refresh(ui);
 }
@@ -506,11 +594,25 @@ wb::WayboxSettings collect(Ui *ui) {
 	s.switcher_osd = gtk_switch_get_active(ui->switcher_osd);
 	s.switcher_wrap = gtk_switch_get_active(ui->switcher_wrap);
 
-	s.font_active_window = font_value(ui->font_active);
-	s.font_inactive_window = font_value(ui->font_inactive);
-	s.font_menu_header = font_value(ui->font_menu_header);
-	s.font_menu_item = font_value(ui->font_menu_item);
-	s.font_osd = font_value(ui->font_osd);
+	s.font_active_window = font_value(&ui->font_active);
+	s.font_inactive_window = font_value(&ui->font_inactive);
+	s.font_menu_header = font_value(&ui->font_menu_header);
+	s.font_menu_item = font_value(&ui->font_menu_item);
+	s.font_osd = font_value(&ui->font_osd);
+
+	/* The font buttons are seeded with the effective default so the picker
+	 * pre-selects a font; don't persist that default unless the user actually
+	 * changed it from what was loaded. */
+	auto keep = [](std::optional<std::string> &v,
+			const std::optional<std::string> &orig) {
+		if (!orig.has_value() && v == std::optional<std::string>("Sans 10"))
+			v = std::nullopt;
+	};
+	keep(s.font_active_window, ui->original.font_active_window);
+	keep(s.font_inactive_window, ui->original.font_inactive_window);
+	keep(s.font_menu_header, ui->original.font_menu_header);
+	keep(s.font_menu_item, ui->original.font_menu_item);
+	keep(s.font_osd, ui->original.font_osd);
 	return s;
 }
 
@@ -548,7 +650,67 @@ void on_close(GtkButton *, gpointer data) {
 	gtk_window_close(ui->window);
 }
 
-/* ---- obconf-style tab pages ------------------------------------------ */
+/* ---- Reset to defaults ----------------------------------------------- */
+
+/* The default values for one notebook page, set straight onto its widgets.
+ * Page order matches build_window: 0 Theme, 1 Appearance, 2 Fonts, 3 Windows,
+ * 4 Margins, 5 Menu, 6 Switcher. */
+void reset_page_widgets(Ui *ui, int page) {
+	switch (page) {
+	case 0:  /* Theme: clear the selection (built-in default theme). */
+		gtk_list_box_unselect_all(ui->theme_list);
+		break;
+	case 1:  /* Appearance */
+		gtk_spin_button_set_value(ui->pad_y, 2);
+		gtk_spin_button_set_value(ui->button_size, 0);
+		gtk_spin_button_set_value(ui->resize_grab, 8);
+		break;
+	case 2:  /* Fonts */
+		font_set(&ui->font_active, "Sans 10");
+		font_set(&ui->font_inactive, "Sans 10");
+		font_set(&ui->font_menu_header, "Sans 10");
+		font_set(&ui->font_menu_item, "Sans 10");
+		font_set(&ui->font_osd, "Sans 10");
+		break;
+	case 3:  /* Windows */
+		gtk_drop_down_set_selected(ui->placement, 0);  /* Smart */
+		break;
+	case 4:  /* Margins */
+		gtk_spin_button_set_value(ui->margin_top, 0);
+		gtk_spin_button_set_value(ui->margin_bottom, 0);
+		gtk_spin_button_set_value(ui->margin_left, 0);
+		gtk_spin_button_set_value(ui->margin_right, 0);
+		break;
+	case 5:  /* Menu */
+		gtk_editable_set_text(GTK_EDITABLE(ui->menu_source), "builtin");
+		gtk_drop_down_set_selected(ui->submenu_open, 0);  /* hover */
+		gtk_spin_button_set_value(ui->hover_delay, 100);
+		gtk_switch_set_active(ui->menu_wrap, TRUE);
+		gtk_switch_set_active(ui->menu_icons, TRUE);
+		break;
+	case 6:  /* Switcher */
+		gtk_drop_down_set_selected(ui->switcher_order, 0);  /* mru */
+		gtk_switch_set_active(ui->switcher_osd, TRUE);
+		gtk_switch_set_active(ui->switcher_wrap, TRUE);
+		break;
+	}
+	preview_refresh(ui);
+}
+
+void on_reset_page(GtkButton *, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	int page = gtk_notebook_get_current_page(ui->notebook);
+	reset_page_widgets(ui, page);
+	set_status(ui, _("Reset this page to defaults (not yet saved)."));
+}
+
+void on_reset_all(GtkButton *, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	gint pages = gtk_notebook_get_n_pages(ui->notebook);
+	for (gint i = 0; i < pages; i++)
+		reset_page_widgets(ui, i);
+	set_status(ui, _("Reset all settings to defaults (not yet saved)."));
+}
 
 GtkWidget *build_theme_page(Ui *ui) {
 	GtkWidget *page = make_page();
@@ -582,17 +744,12 @@ GtkWidget *build_fonts_page(Ui *ui) {
 	GtkWidget *page = make_page();
 	GtkWidget *content = section(page, _("Fonts"));
 	GtkWidget *grid = section_grid(content);
-	ui->font_active = add_font(grid, 0, _("Active window title:"));
-	ui->font_inactive = add_font(grid, 1, _("Inactive window title:"));
-	ui->font_menu_header = add_font(grid, 2, _("Menu header:"));
-	ui->font_menu_item = add_font(grid, 3, _("Menu item:"));
-	ui->font_osd = add_font(grid, 4, _("On-screen display:"));
-	/* Refresh the preview whenever a font changes. */
-	for (GtkFontDialogButton *b : {ui->font_active, ui->font_inactive,
-			ui->font_menu_header, ui->font_menu_item, ui->font_osd}) {
-		g_signal_connect_swapped(b, "notify::font-desc",
-				G_CALLBACK(preview_refresh), ui);
-	}
+	GCallback refresh = G_CALLBACK(preview_refresh);
+	add_font(grid, 0, _("Active window title:"), &ui->font_active, refresh, ui);
+	add_font(grid, 1, _("Inactive window title:"), &ui->font_inactive, refresh, ui);
+	add_font(grid, 2, _("Menu header:"), &ui->font_menu_header, refresh, ui);
+	add_font(grid, 3, _("Menu item:"), &ui->font_menu_item, refresh, ui);
+	add_font(grid, 4, _("On-screen display:"), &ui->font_osd, refresh, ui);
 	return page;
 }
 
@@ -673,6 +830,7 @@ void build_window(GtkApplication *app, Ui *ui) {
 	GtkWidget *notebook = gtk_notebook_new();
 	gtk_widget_set_vexpand(notebook, TRUE);
 	gtk_box_append(GTK_BOX(vbox), notebook);
+	ui->notebook = GTK_NOTEBOOK(notebook);
 
 	add_tab(notebook, build_theme_page(ui), _("Theme"));
 	add_tab(notebook, build_appearance_page(ui), _("Appearance"));
@@ -693,6 +851,43 @@ void build_window(GtkApplication *app, Ui *ui) {
 	gtk_widget_set_halign(status, GTK_ALIGN_START);
 	ui->status = GTK_LABEL(status);
 	gtk_box_append(GTK_BOX(actions), status);
+
+	/* Reset: a split button — the main part resets the current page, the arrow
+	 * opens a menu with "Reset This Page" / "Reset All to Defaults". GTK core
+	 * has no split-button widget, so compose a linked button + menu button. */
+	GtkWidget *reset_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_add_css_class(reset_box, "linked");
+
+	GtkWidget *reset_primary = gtk_button_new_with_label(_("Reset Page"));
+	g_signal_connect(reset_primary, "clicked", G_CALLBACK(on_reset_page), ui);
+	gtk_box_append(GTK_BOX(reset_box), reset_primary);
+
+	GtkWidget *reset_menu = gtk_menu_button_new();
+	GtkWidget *pop = gtk_popover_new();
+	GtkWidget *pbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+	gtk_widget_set_margin_top(pbox, 4);
+	gtk_widget_set_margin_bottom(pbox, 4);
+	gtk_widget_set_margin_start(pbox, 4);
+	gtk_widget_set_margin_end(pbox, 4);
+
+	GtkWidget *rp = gtk_button_new_with_label(_("Reset This Page"));
+	gtk_button_set_has_frame(GTK_BUTTON(rp), FALSE);
+	gtk_widget_set_halign(rp, GTK_ALIGN_FILL);
+	g_signal_connect(rp, "clicked", G_CALLBACK(on_reset_page), ui);
+	g_signal_connect_swapped(rp, "clicked", G_CALLBACK(gtk_popover_popdown), pop);
+	gtk_box_append(GTK_BOX(pbox), rp);
+
+	GtkWidget *ra = gtk_button_new_with_label(_("Reset All to Defaults"));
+	gtk_button_set_has_frame(GTK_BUTTON(ra), FALSE);
+	gtk_widget_set_halign(ra, GTK_ALIGN_FILL);
+	g_signal_connect(ra, "clicked", G_CALLBACK(on_reset_all), ui);
+	g_signal_connect_swapped(ra, "clicked", G_CALLBACK(gtk_popover_popdown), pop);
+	gtk_box_append(GTK_BOX(pbox), ra);
+
+	gtk_popover_set_child(GTK_POPOVER(pop), pbox);
+	gtk_menu_button_set_popover(GTK_MENU_BUTTON(reset_menu), pop);
+	gtk_box_append(GTK_BOX(reset_box), reset_menu);
+	gtk_box_append(GTK_BOX(actions), reset_box);
 
 	GtkWidget *close = gtk_button_new_with_label(_("Close"));
 	g_signal_connect(close, "clicked", G_CALLBACK(on_close), ui);
