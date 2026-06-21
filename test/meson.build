@@ -59,6 +59,13 @@ decor_mode_test = executable(
   )
 test('decor_mode', decor_mode_test)
 
+frame_test = executable(
+  'frame_test',
+  ['frame_test.cpp', 'wb_test_main.cpp', frame_src, geometry_src],
+  include_directories: [inc_dir],
+  )
+test('frame', frame_test)
+
 theme_test = executable(
   'theme_test',
   ['theme_test.cpp', 'wb_test_main.cpp', theme_src],
