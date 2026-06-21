@@ -153,6 +153,52 @@ struct wb_toplevel *get_toplevel_at(
 	return NULL;
 }
 
+struct wb_toplevel *toplevel_frame_at(struct wb_server *server, double lx,
+		double ly, wb::FrameHit *hit) {
+	double sx, sy;
+	struct wlr_scene_node *node =
+		wlr_scene_node_at(&server->scene->tree.node, lx, ly, &sx, &sy);
+	if (node == NULL)
+		return NULL;
+
+	/* Walk up (inclusive) to the nearest node carrying a toplevel descriptor —
+	 * a decoration node resolves to its container, a client buffer to its
+	 * surface tree. */
+	struct wb_toplevel *toplevel = NULL;
+	for (struct wlr_scene_node *n = node; n != NULL;
+			n = n->parent != NULL ? &n->parent->node : NULL) {
+		if (n->data != NULL) {
+			toplevel = toplevel_from_node(n);
+			if (toplevel != NULL)
+				break;
+		}
+	}
+	if (toplevel == NULL || !toplevel->frame)
+		return NULL;
+
+	/* Confirm it is a live toplevel, then hit-test against the frame in
+	 * frame-local coordinates (the container sits at geometry - insets). */
+	bool live = false;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link) {
+		if (t == toplevel) { live = true; break; }
+	}
+	if (!live)
+		return NULL;
+
+	wb::FrameInsets in = toplevel->frame->insets();
+	int ox = static_cast<int>(lx) - (toplevel->geometry.x - in.left);
+	int oy = static_cast<int>(ly) - (toplevel->geometry.y - in.top);
+	wb::FrameHit h = wb::frame_part_at(ox, oy, toplevel->frame->outer_width(),
+			toplevel->frame->outer_height(), toplevel->frame->metrics(),
+			toplevel->frame->buttons());
+	if (h.part == wb::FramePart::Client || h.part == wb::FramePart::None)
+		return NULL;  /* the client surface (or outside) — let normal handling run */
+	if (hit != NULL)
+		*hit = h;
+	return toplevel;
+}
+
 /* Returns the active (most recently focused) toplevel, or NULL if there are
  * none. This is the head of the focus order, which is independent of the
  * stacking order (server->toplevels). */
@@ -878,6 +924,11 @@ static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 	toplevel->scene_tree = wlr_scene_tree_create(&toplevel->server->scene->tree);
 	toplevel->surface_tree = wlr_scene_xdg_surface_create(
 		toplevel->scene_tree, xdg_toplevel->base);
+	/* Tag both the container and the surface tree so a click on a decoration
+	 * node (which is a child of the container, not the surface) still resolves
+	 * to this toplevel via the scene walk-up. */
+	assign_scene_descriptor(&toplevel->scene_tree->node,
+			WB_SCENE_DESC_TOPLEVEL, toplevel);
 	assign_scene_descriptor(&toplevel->surface_tree->node,
 			WB_SCENE_DESC_TOPLEVEL, toplevel);
 	xdg_toplevel->base->data = toplevel->surface_tree;
