@@ -178,8 +178,12 @@ and `position_toplevel()` places the container at `geometry − insets` (insets 
 zero for CSD, so client-side windows are byte-identical to before). The pure
 frame geometry/hit-testing is `waybox/frame.cpp`; `update_toplevel_decoration()`
 (in `decoration.cpp`) builds/destroys the frame from the negotiated mode and
-syncs size/title/active/maximized. Frame **input** (titlebar drag, button
-clicks, border resize) and inset-aware maximize/placement are still to come.
+syncs size/title/active/maximized. Frame **input** is handled in `cursor.cpp`
+via `toplevel_frame_at()` (resolves a scene-node click to a `FramePart`,
+respecting z-order): a titlebar press begins an interactive move, a border/
+corner press begins a resize (`frame_part_resize_edges` → `WLR_EDGE_*`), and a
+titlebar-button press runs iconify/maximize/close. Inset-aware
+maximize/placement is still to come.
 
 Presentation is layered so widgets never re-derive look-and-feel: `wb::Theme`
 (`waybox/theme.cpp`) is the **raw themerc file model** (Openbox keys verbatim,

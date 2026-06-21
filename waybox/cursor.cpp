@@ -8,10 +8,35 @@
 #include "waybox/placement.hpp"
 #include "waybox/xdg_shell.h"
 #include "waybox/menu_widget.hpp"
+#include "waybox/frame_view.hpp"
 
 /* How close (in layout pixels) a dragged window's edge must come to a usable-
  * area or window edge before it snaps. */
 static constexpr int WB_SNAP_DISTANCE = 16;
+
+/* Run the action of titlebar button index `i` (iconify/maximize/close) for a
+ * server-side-decorated toplevel. */
+static void activate_frame_button(struct wb_toplevel *toplevel, int i) {
+	if (toplevel == nullptr || !toplevel->frame)
+		return;
+	const std::vector<wb::FrameButton> &buttons = toplevel->frame->buttons();
+	if (i < 0 || i >= static_cast<int>(buttons.size()))
+		return;
+	switch (buttons[i]) {
+	case wb::FrameButton::Iconify:
+		toplevel->xdg_toplevel->requested.minimized = true;
+		wl_signal_emit(&toplevel->xdg_toplevel->events.request_minimize, NULL);
+		break;
+	case wb::FrameButton::Maximize: {
+		bool full = toplevel->max_horz && toplevel->max_vert;
+		set_toplevel_maximized(toplevel, !full, !full);
+		break;
+	}
+	case wb::FrameButton::Close:
+		wlr_xdg_toplevel_send_close(toplevel->xdg_toplevel);
+		break;
+	}
+}
 
 void reset_cursor_mode(struct wb_server *server) {
 	/* Reset the cursor mode to passthrough */
@@ -216,6 +241,30 @@ void wb_cursor::on_button(void *data) {
 			cursor->x, cursor->y, &surface, &sx, &sy);
 
 	if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
+		/* Server-side decoration interaction: a press on a window's titlebar,
+		 * border or a titlebar button. Resolved against the scene (respects
+		 * z-order), so it takes priority over Root/Client bindings — a titlebar
+		 * click must not open the root menu. */
+		wb::FrameHit fh;
+		if (struct wb_toplevel *ft = toplevel_frame_at(server, cursor->x,
+				cursor->y, &fh)) {
+			focus_toplevel(ft);
+			if (fh.part == wb::FramePart::Titlebar) {
+				if (event->button == wb::MOUSE_BUTTON_LEFT)
+					begin_interactive(ft, WB_CURSOR_MOVE, 0);
+			} else if (fh.part == wb::FramePart::Button) {
+				if (event->button == wb::MOUSE_BUTTON_LEFT)
+					activate_frame_button(ft, fh.button);
+			} else {
+				uint32_t edges = static_cast<uint32_t>(
+						wb::frame_part_resize_edges(fh.part));
+				if (edges != 0 && event->button == wb::MOUSE_BUTTON_LEFT)
+					begin_interactive(ft, WB_CURSOR_RESIZE, edges);
+			}
+			wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+			return;
+		}
+
 		/* Alt + drag moves (left) or resizes (right) the window under the
 		 * pointer regardless of its decorations, matching Openbox's default
 		 * frame mouse bindings. The button is consumed, not forwarded. */

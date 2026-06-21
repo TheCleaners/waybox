@@ -97,6 +97,11 @@ void position_toplevel(struct wb_toplevel *toplevel);
 /* Create/destroy and synchronise the server-side decoration frame from the
  * toplevel's negotiated decoration mode + current state (size/title/focus). */
 void update_toplevel_decoration(struct wb_toplevel *toplevel);
+/* If the topmost scene node at (lx, ly) is a server-side decoration, return its
+ * toplevel and the frame part hit (in *hit); otherwise NULL (the point is a
+ * client surface, or empty desktop). Respects z-order/occlusion. */
+struct wb_toplevel *toplevel_frame_at(struct wb_server *server, double lx,
+		double ly, wb::FrameHit *hit);
 struct wb_toplevel *first_toplevel(struct wb_server *server);
 /* The wb_toplevel a scene node carries via its wb_scene_descriptor, or NULL if
  * the node is not (the root of) one of our toplevels. */

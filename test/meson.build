@@ -225,4 +225,14 @@ if python.found() and not get_option('tests_only')
     timeout: 60,
     env: integration_env,
     )
+  test(
+    'integration_ssd',
+    python,
+    args: [
+      files('integration' / 'ssd_test.py'),
+      waybox_exe,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
 endif
