@@ -117,6 +117,15 @@ int signal_waybox_reload() {
 	return signalled;
 }
 
+/* ---- A lightweight font picker: family + size + bold ----------------- */
+
+struct FontPicker {
+	GtkDropDown *family = nullptr;
+	GtkSpinButton *size = nullptr;
+	GtkToggleButton *bold = nullptr;
+	std::vector<std::string> families;  /* parallel to the dropdown model */
+};
+
 /* ---- Widget set, bound to a WayboxSettings on save ------------------- */
 
 struct Ui {
@@ -151,12 +160,16 @@ struct Ui {
 	GtkSwitch *switcher_osd = nullptr;
 	GtkSwitch *switcher_wrap = nullptr;
 
-	/* Fonts (GtkFontDialogButton per place) */
-	GtkFontDialogButton *font_active = nullptr;
-	GtkFontDialogButton *font_inactive = nullptr;
-	GtkFontDialogButton *font_menu_header = nullptr;
-	GtkFontDialogButton *font_menu_item = nullptr;
-	GtkFontDialogButton *font_osd = nullptr;
+	/* Fonts: a lightweight custom picker per place (family dropdown + size spin
+	 * + bold toggle). We avoid GtkFontDialogButton because GTK's font chooser
+	 * loads its list asynchronously and only highlights/scrolls to the current
+	 * font after a multi-second delay; the custom picker is instant and always
+	 * shows the current selection. */
+	FontPicker font_active;
+	FontPicker font_inactive;
+	FontPicker font_menu_header;
+	FontPicker font_menu_item;
+	FontPicker font_osd;
 
 	/* Live theme preview (redrawn when the theme/fonts change). */
 	GtkWidget *preview = nullptr;
@@ -256,35 +269,100 @@ GtkDropDown *add_dropdown(GtkWidget *grid, int row, const char *label,
 
 /* ---- Fonts + live theme preview -------------------------------------- */
 
-GtkFontDialogButton *add_font(GtkWidget *grid, int row, const char *label) {
-	grid_label(grid, row, label);
-	GtkFontDialog *dialog = gtk_font_dialog_new();
-	GtkWidget *btn = gtk_font_dialog_button_new(dialog);
-	gtk_widget_set_hexpand(btn, TRUE);
-	gtk_grid_attach(GTK_GRID(grid), btn, 1, row, 1, 1);
-	return GTK_FONT_DIALOG_BUTTON(btn);
+/* The installed font families, sorted and de-duplicated. Uses the default
+ * Cairo/Pango font map, so no widget is needed. */
+const std::vector<std::string> &font_families() {
+	static const std::vector<std::string> families = [] {
+		std::vector<std::string> out;
+		PangoFontMap *fm = pango_cairo_font_map_get_default();
+		PangoFontFamily **fams = nullptr;
+		int n = 0;
+		pango_font_map_list_families(fm, &fams, &n);
+		out.reserve(n);
+		for (int i = 0; i < n; i++) {
+			const char *name = pango_font_family_get_name(fams[i]);
+			if (name != nullptr)
+				out.emplace_back(name);
+		}
+		g_free(fams);
+		std::sort(out.begin(), out.end());
+		out.erase(std::unique(out.begin(), out.end()), out.end());
+		return out;
+	}();
+	return families;
 }
 
-/* Read a font button as a Pango-style "Family [Bold] Size" string, or nullopt
- * if it was never set. */
-std::optional<std::string> font_value(GtkFontDialogButton *b) {
-	PangoFontDescription *d = gtk_font_dialog_button_get_font_desc(b);
-	if (d == nullptr)
+/* A custom, instant font picker: a family dropdown, a size spin button and a
+ * bold toggle, laid out in one row. Stored in `out`. */
+void add_font(GtkWidget *grid, int row, const char *label, FontPicker *out,
+		GCallback on_change, gpointer user) {
+	grid_label(grid, row, label);
+
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+	gtk_widget_set_hexpand(box, TRUE);
+
+	out->families = font_families();
+	std::vector<const char *> items;
+	items.reserve(out->families.size() + 1);
+	for (const std::string &f : out->families)
+		items.push_back(f.c_str());
+	items.push_back(nullptr);
+	GtkWidget *fam = gtk_drop_down_new_from_strings(items.data());
+	gtk_widget_set_hexpand(fam, TRUE);
+	/* Make the long list searchable by typing. */
+	gtk_drop_down_set_enable_search(GTK_DROP_DOWN(fam), TRUE);
+	out->family = GTK_DROP_DOWN(fam);
+	gtk_box_append(GTK_BOX(box), fam);
+
+	GtkWidget *size = gtk_spin_button_new_with_range(4, 96, 1);
+	out->size = GTK_SPIN_BUTTON(size);
+	gtk_box_append(GTK_BOX(box), size);
+
+	GtkWidget *bold = gtk_toggle_button_new_with_label(_("B"));
+	gtk_widget_set_tooltip_text(bold, _("Bold"));
+	out->bold = GTK_TOGGLE_BUTTON(bold);
+	gtk_box_append(GTK_BOX(box), bold);
+
+	gtk_grid_attach(GTK_GRID(grid), box, 1, row, 1, 1);
+
+	if (on_change != nullptr) {
+		g_signal_connect_swapped(fam, "notify::selected", on_change, user);
+		g_signal_connect_swapped(size, "value-changed", on_change, user);
+		g_signal_connect_swapped(bold, "toggled", on_change, user);
+	}
+}
+
+/* Read a picker as a Pango-style "Family [Bold] Size" string. */
+std::optional<std::string> font_value(const FontPicker *p) {
+	guint idx = gtk_drop_down_get_selected(p->family);
+	if (idx == GTK_INVALID_LIST_POSITION || idx >= p->families.size())
 		return std::nullopt;
-	char *s = pango_font_description_to_string(d);
-	std::string out = s ? s : "";
-	g_free(s);
-	if (out.empty())
-		return std::nullopt;
+	std::string out = p->families[idx];
+	if (gtk_toggle_button_get_active(p->bold))
+		out += " Bold";
+	out += " " + std::to_string(gtk_spin_button_get_value_as_int(p->size));
 	return out;
 }
 
-void font_set(GtkFontDialogButton *b, const std::optional<std::string> &v) {
+/* Set a picker from a Pango-style "Family [Bold] Size" string. */
+void font_set(FontPicker *p, const std::optional<std::string> &v) {
 	if (!v)
 		return;
 	PangoFontDescription *d = pango_font_description_from_string(v->c_str());
-	gtk_font_dialog_button_set_font_desc(b, d);
+	const char *fam = pango_font_description_get_family(d);
+	std::string family = fam ? fam : "Sans";
+	int size = pango_font_description_get_size(d);
+	int size_pt = size > 0 ? size / PANGO_SCALE : 10;
+	bool bold = pango_font_description_get_weight(d) >= PANGO_WEIGHT_BOLD;
 	pango_font_description_free(d);
+
+	guint sel = 0;
+	for (guint i = 0; i < p->families.size(); i++) {
+		if (p->families[i] == family) { sel = i; break; }
+	}
+	gtk_drop_down_set_selected(p->family, sel);
+	gtk_spin_button_set_value(p->size, size_pt);
+	gtk_toggle_button_set_active(p->bold, bold);
 }
 
 /* Collect the current settings from all widgets (forward declaration so the
@@ -477,11 +555,11 @@ void populate(Ui *ui, const wb::WayboxSettings &s) {
 	/* Always show a concrete font (the configured one, else waybox's effective
 	 * default Sans 10) so the picker opens with the current font selected and
 	 * the user can just tweak the size. */
-	font_set(ui->font_active, s.font_active_window.value_or("Sans 10"));
-	font_set(ui->font_inactive, s.font_inactive_window.value_or("Sans 10"));
-	font_set(ui->font_menu_header, s.font_menu_header.value_or("Sans 10"));
-	font_set(ui->font_menu_item, s.font_menu_item.value_or("Sans 10"));
-	font_set(ui->font_osd, s.font_osd.value_or("Sans 10"));
+	font_set(&ui->font_active, s.font_active_window.value_or("Sans 10"));
+	font_set(&ui->font_inactive, s.font_inactive_window.value_or("Sans 10"));
+	font_set(&ui->font_menu_header, s.font_menu_header.value_or("Sans 10"));
+	font_set(&ui->font_menu_item, s.font_menu_item.value_or("Sans 10"));
+	font_set(&ui->font_osd, s.font_osd.value_or("Sans 10"));
 
 	preview_refresh(ui);
 }
@@ -516,11 +594,11 @@ wb::WayboxSettings collect(Ui *ui) {
 	s.switcher_osd = gtk_switch_get_active(ui->switcher_osd);
 	s.switcher_wrap = gtk_switch_get_active(ui->switcher_wrap);
 
-	s.font_active_window = font_value(ui->font_active);
-	s.font_inactive_window = font_value(ui->font_inactive);
-	s.font_menu_header = font_value(ui->font_menu_header);
-	s.font_menu_item = font_value(ui->font_menu_item);
-	s.font_osd = font_value(ui->font_osd);
+	s.font_active_window = font_value(&ui->font_active);
+	s.font_inactive_window = font_value(&ui->font_inactive);
+	s.font_menu_header = font_value(&ui->font_menu_header);
+	s.font_menu_item = font_value(&ui->font_menu_item);
+	s.font_osd = font_value(&ui->font_osd);
 
 	/* The font buttons are seeded with the effective default so the picker
 	 * pre-selects a font; don't persist that default unless the user actually
@@ -588,11 +666,11 @@ void reset_page_widgets(Ui *ui, int page) {
 		gtk_spin_button_set_value(ui->resize_grab, 8);
 		break;
 	case 2:  /* Fonts */
-		font_set(ui->font_active, "Sans 10");
-		font_set(ui->font_inactive, "Sans 10");
-		font_set(ui->font_menu_header, "Sans 10");
-		font_set(ui->font_menu_item, "Sans 10");
-		font_set(ui->font_osd, "Sans 10");
+		font_set(&ui->font_active, "Sans 10");
+		font_set(&ui->font_inactive, "Sans 10");
+		font_set(&ui->font_menu_header, "Sans 10");
+		font_set(&ui->font_menu_item, "Sans 10");
+		font_set(&ui->font_osd, "Sans 10");
 		break;
 	case 3:  /* Windows */
 		gtk_drop_down_set_selected(ui->placement, 0);  /* Smart */
@@ -666,17 +744,12 @@ GtkWidget *build_fonts_page(Ui *ui) {
 	GtkWidget *page = make_page();
 	GtkWidget *content = section(page, _("Fonts"));
 	GtkWidget *grid = section_grid(content);
-	ui->font_active = add_font(grid, 0, _("Active window title:"));
-	ui->font_inactive = add_font(grid, 1, _("Inactive window title:"));
-	ui->font_menu_header = add_font(grid, 2, _("Menu header:"));
-	ui->font_menu_item = add_font(grid, 3, _("Menu item:"));
-	ui->font_osd = add_font(grid, 4, _("On-screen display:"));
-	/* Refresh the preview whenever a font changes. */
-	for (GtkFontDialogButton *b : {ui->font_active, ui->font_inactive,
-			ui->font_menu_header, ui->font_menu_item, ui->font_osd}) {
-		g_signal_connect_swapped(b, "notify::font-desc",
-				G_CALLBACK(preview_refresh), ui);
-	}
+	GCallback refresh = G_CALLBACK(preview_refresh);
+	add_font(grid, 0, _("Active window title:"), &ui->font_active, refresh, ui);
+	add_font(grid, 1, _("Inactive window title:"), &ui->font_inactive, refresh, ui);
+	add_font(grid, 2, _("Menu header:"), &ui->font_menu_header, refresh, ui);
+	add_font(grid, 3, _("Menu item:"), &ui->font_menu_item, refresh, ui);
+	add_font(grid, 4, _("On-screen display:"), &ui->font_osd, refresh, ui);
 	return page;
 }
 
