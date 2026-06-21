@@ -5,8 +5,12 @@
  */
 #include "waybox/menu_widget.hpp"
 
+#include <algorithm>
+#include <cstdlib>
+
 #include <cairo.h>
 
+#include "waybox/icon.hpp"
 #include "waybox/render.hpp"
 #include "waybox/server.h"
 
@@ -53,14 +57,67 @@ MenuWidget::MenuWidget(struct wb_server *server, const MenuFile &menus,
 	if (metrics_.pad_x < comfortable_x)
 		metrics_.pad_x = comfortable_x;
 
+	/* Icons are square, sized to the row's text height; the column also gets a
+	 * little padding to the right of the icon. */
+	icon_size_ = style_.icon_column_width > 0 ? style_.icon_column_width
+			: text_height_ + 2;
+	if (const char *t = getenv("WB_ICON_THEME"); t && t[0] != '\0')
+		icon_theme_ = t;
+
 	tree_ = wlr_scene_tree_create(&server_->scene->tree);
 	wlr_scene_node_raise_to_top(&tree_->node);
 }
 
 MenuWidget::~MenuWidget() {
 	levels_.clear();  /* destroy canvases (scene buffers) before their tree */
+	for (auto &[name, surf] : icon_cache_) {
+		if (surf != nullptr)
+			cairo_surface_destroy(surf);
+	}
 	if (tree_ != nullptr)
 		wlr_scene_node_destroy(&tree_->node);
+}
+
+/* The icon column width for `menu`: icon size + a small gap when any item has
+ * an icon, else zero (so icon-less menus are not indented). */
+int MenuWidget::menu_icon_column(const Menu *menu) const {
+	if (menu == nullptr)
+		return 0;
+	for (const MenuItem &item : menu->items) {
+		if (!item.icon.empty())
+			return icon_size_ + 4;
+	}
+	return 0;
+}
+
+/* Resolve and load an icon (PNG only) once, caching the surface (or nullptr on
+ * miss, so we never retry). SVG icons need librsvg and are skipped safely. */
+cairo_surface_t *MenuWidget::icon_surface(const std::string &name) {
+	if (name.empty())
+		return nullptr;
+	if (auto it = icon_cache_.find(name); it != icon_cache_.end())
+		return it->second;
+
+	const char *home = getenv("HOME");
+	const char *xdh = getenv("XDG_DATA_HOME");
+	const char *xdd = getenv("XDG_DATA_DIRS");
+	std::vector<std::string> bases = icon_base_dirs(home ? home : "",
+			xdh ? xdh : "", xdd ? xdd : "");
+	cairo_surface_t *loaded = nullptr;
+	for (const std::string &path : icon_search_paths(name, icon_theme_,
+			icon_size_, bases)) {
+		if (path.size() < 4 ||
+				path.compare(path.size() - 4, 4, ".png") != 0)
+			continue;  /* CPU loader handles PNG only for now */
+		cairo_surface_t *s = cairo_image_surface_create_from_png(path.c_str());
+		if (cairo_surface_status(s) == CAIRO_STATUS_SUCCESS) {
+			loaded = s;
+			break;
+		}
+		cairo_surface_destroy(s);
+	}
+	icon_cache_[name] = loaded;
+	return loaded;
 }
 
 int MenuWidget::text_width(std::string_view label) const {
@@ -89,7 +146,10 @@ float MenuWidget::output_scale(int lx, int ly) const {
 void MenuWidget::push_menu(const Menu *menu, const Rect &rect, int parent_item) {
 	Level level;
 	level.menu = menu;
-	level.layout = layout_menu(*menu, metrics_,
+	level.icon_col = menu_icon_column(menu);
+	MenuMetrics m = metrics_;
+	m.icon_column = level.icon_col;
+	level.layout = layout_menu(*menu, m,
 			[this](std::string_view s) { return text_width(s); });
 	level.rect = rect;
 	level.parent_item = parent_item;
@@ -104,7 +164,9 @@ bool MenuWidget::open(std::string_view root_id, int lx, int ly) {
 	const Menu *menu = menus_.find(root_id);
 	if (menu == nullptr)
 		return false;
-	MenuLayout layout = layout_menu(*menu, metrics_,
+	MenuMetrics m = metrics_;
+	m.icon_column = menu_icon_column(menu);
+	MenuLayout layout = layout_menu(*menu, m,
 			[this](std::string_view s) { return text_width(s); });
 	Rect bounds = output_bounds(lx, ly);
 	Rect rect = place_root_menu(lx, ly, layout.width, layout.height, bounds);
@@ -141,8 +203,29 @@ void MenuWidget::render_level(Level &level) {
 		if (active)
 			paint_fill(cr, ir.x, ir.y, ir.width, ir.height, st.fill);
 
+		/* Optional icon in the reserved column, vertically centred. */
+		if (level.icon_col > 0 && !item.icon.empty()) {
+			if (cairo_surface_t *icon = icon_surface(item.icon)) {
+				int iw = cairo_image_surface_get_width(icon);
+				int ih = cairo_image_surface_get_height(icon);
+				if (iw > 0 && ih > 0) {
+					double s = static_cast<double>(icon_size_) /
+							std::max(iw, ih);
+					double dx = ir.x + metrics_.pad_x;
+					double dy = ir.y + (ir.height - ih * s) / 2.0;
+					cairo_save(cr);
+					cairo_translate(cr, dx, dy);
+					cairo_scale(cr, s, s);
+					cairo_set_source_surface(cr, icon, 0, 0);
+					cairo_paint(cr);
+					cairo_restore(cr);
+				}
+			}
+		}
+
+		int text_x = ir.x + metrics_.pad_x + level.icon_col;
 		int text_y = ir.y + (ir.height - text_height_) / 2;
-		paint_text(cr, ir.x + metrics_.pad_x, text_y, item.label, st.fg,
+		paint_text(cr, text_x, text_y, item.label, st.fg,
 				style_.item_text.font);
 
 		if (item.kind == MenuItem::Kind::Submenu) {
@@ -175,7 +258,9 @@ void MenuWidget::open_submenu(size_t level_index, int item_index) {
 		return;
 	close_below(level_index);
 
-	MenuLayout layout = layout_menu(*submenu, metrics_,
+	MenuMetrics m = metrics_;
+	m.icon_column = menu_icon_column(submenu);
+	MenuLayout layout = layout_menu(*submenu, m,
 			[this](std::string_view s) { return text_width(s); });
 	const Rect &ir = parent.layout.item_rects[item_index];
 	Rect bounds = output_bounds(parent.rect.x, parent.rect.y);

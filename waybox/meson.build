@@ -7,6 +7,7 @@ wb_src = [
   applications_src,
   decor_mode_src,
   frame_src,
+  icon_src,
   keychain_src,
   theme_src,
   widget_src,

@@ -17,9 +17,9 @@ auto fake_width() {
 Menu sample() {
 	Menu m;
 	m.id = "root";
-	m.items.push_back(MenuItem{MenuItem::Kind::Entry, "Terminal", {}, ""});
-	m.items.push_back(MenuItem{MenuItem::Kind::Separator, "", {}, ""});
-	m.items.push_back(MenuItem{MenuItem::Kind::Submenu, "Apps", {}, "apps"});
+	m.items.push_back(MenuItem{MenuItem::Kind::Entry, "Terminal", {}, "", ""});
+	m.items.push_back(MenuItem{MenuItem::Kind::Separator, "", {}, "", ""});
+	m.items.push_back(MenuItem{MenuItem::Kind::Submenu, "Apps", {}, "apps", ""});
 	return m;
 }
 
@@ -36,8 +36,8 @@ WB_TEST(menufile_find) {
 
 WB_TEST(layout_width_is_widest_label_plus_padding) {
 	Menu m;
-	m.items.push_back(MenuItem{MenuItem::Kind::Entry, "OK", {}, ""});         /* 2ch */
-	m.items.push_back(MenuItem{MenuItem::Kind::Entry, "Terminal", {}, ""});   /* 8ch */
+	m.items.push_back(MenuItem{MenuItem::Kind::Entry, "OK", {}, "", ""});         /* 2ch */
+	m.items.push_back(MenuItem{MenuItem::Kind::Entry, "Terminal", {}, "", ""});   /* 8ch */
 	MenuMetrics metrics;
 	metrics.min_width = 0;
 	metrics.border = 0;
@@ -48,7 +48,7 @@ WB_TEST(layout_width_is_widest_label_plus_padding) {
 
 WB_TEST(layout_respects_min_width_and_border) {
 	Menu m;
-	m.items.push_back(MenuItem{MenuItem::Kind::Entry, "x", {}, ""});
+	m.items.push_back(MenuItem{MenuItem::Kind::Entry, "x", {}, "", ""});
 	MenuMetrics metrics;
 	metrics.min_width = 200;
 	metrics.border = 2;
@@ -58,9 +58,9 @@ WB_TEST(layout_respects_min_width_and_border) {
 
 WB_TEST(layout_submenu_reserves_arrow_width) {
 	Menu only_entry;
-	only_entry.items.push_back(MenuItem{MenuItem::Kind::Entry, "Apps", {}, ""});
+	only_entry.items.push_back(MenuItem{MenuItem::Kind::Entry, "Apps", {}, "", ""});
 	Menu submenu;
-	submenu.items.push_back(MenuItem{MenuItem::Kind::Submenu, "Apps", {}, "apps"});
+	submenu.items.push_back(MenuItem{MenuItem::Kind::Submenu, "Apps", {}, "apps", ""});
 	MenuMetrics metrics;
 	metrics.min_width = 0;
 	metrics.border = 0;
@@ -191,11 +191,11 @@ WB_TEST(step_selection_handles_degenerate_menus) {
 	WB_CHECK(wb::menu_step_selection(empty, -1, +1, true) == -1);
 
 	Menu only_sep;
-	only_sep.items.push_back(MenuItem{MenuItem::Kind::Separator, "", {}, ""});
+	only_sep.items.push_back(MenuItem{MenuItem::Kind::Separator, "", {}, "", ""});
 	WB_CHECK(wb::menu_step_selection(only_sep, -1, +1, true) == -1);
 
 	Menu one;
-	one.items.push_back(MenuItem{MenuItem::Kind::Entry, "Only", {}, ""});
+	one.items.push_back(MenuItem{MenuItem::Kind::Entry, "Only", {}, "", ""});
 	WB_CHECK(wb::menu_step_selection(one, -1, +1, true) == 0);
 	WB_CHECK(wb::menu_step_selection(one, 0, +1, true) == 0);   /* wraps to self */
 	WB_CHECK(wb::menu_step_selection(one, 0, +1, false) == 0);  /* stays */

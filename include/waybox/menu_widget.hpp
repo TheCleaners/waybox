@@ -1,9 +1,13 @@
 #ifndef WB_MENU_WIDGET_HPP
 #define WB_MENU_WIDGET_HPP
 
+#include <map>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
+
+#include <cairo.h>
 
 #include "waybox/wlroots.hpp"
 
@@ -62,6 +66,7 @@ private:
 		Rect rect;        /* screen position + size (layout coords) */
 		int parent_item = -1;  /* the submenu item in the parent that opened it */
 		int hovered = -1;
+		int icon_col = 0;  /* this menu's icon column width (0 if no icons) */
 	};
 
 	int text_width(std::string_view label) const;
@@ -71,6 +76,8 @@ private:
 	void push_menu(const Menu *menu, const Rect &rect, int parent_item);
 	void close_below(size_t keep);  /* close levels deeper than index `keep` */
 	void open_submenu(size_t level_index, int item_index);
+	int menu_icon_column(const Menu *menu) const;
+	cairo_surface_t *icon_surface(const std::string &name);
 
 	struct wb_server *server_;
 	const MenuFile &menus_;
@@ -79,6 +86,9 @@ private:
 	MenuMetrics metrics_;
 	struct wlr_scene_tree *tree_ = nullptr;
 	int text_height_ = 0;  /* measured label cell height (logical px) */
+	int icon_size_ = 0;    /* icon edge length (logical px) */
+	std::string icon_theme_;
+	std::map<std::string, cairo_surface_t *> icon_cache_;  /* owned surfaces */
 	std::vector<Level> levels_;
 	std::vector<Action> pending_;  /* actions of a chosen entry, for the caller */
 };

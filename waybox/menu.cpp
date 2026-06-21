@@ -33,10 +33,11 @@ MenuLayout layout_menu(const Menu &menu, const MenuMetrics &m,
 		const std::function<int(std::string_view)> &text_width) {
 	MenuLayout layout;
 
-	/* Content width = widest label (+ arrow for submenus), clamped to min. */
+	/* Content width = widest label (+ icon column + arrow for submenus),
+	 * clamped to min. */
 	int content_width = m.min_width;
 	for (const MenuItem &item : menu.items) {
-		int w = text_width(item.label) + 2 * m.pad_x;
+		int w = text_width(item.label) + 2 * m.pad_x + m.icon_column;
 		if (item.kind == MenuItem::Kind::Submenu)
 			w += m.submenu_arrow_width;
 		content_width = std::max(content_width, w);
