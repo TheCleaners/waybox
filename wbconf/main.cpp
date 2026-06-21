@@ -442,6 +442,15 @@ void build_window(GtkApplication *app, Ui *ui) {
 	gtk_window_set_title(ui->window, _("Waybox Configuration Manager"));
 	gtk_window_set_default_size(ui->window, 500, 460);
 
+	/* An explicit header bar: GTK then owns a proper, draggable client-side
+	 * titlebar (a GtkWindowHandle) that drives compositor move/maximize
+	 * correctly. Without one, a decorated GtkWindow falls back to a degenerate
+	 * titlebar that misbehaves under a wlroots compositor (the window can jump
+	 * or resize on drag). waybox leaves GTK windows client-side decorated
+	 * because GTK does not implement the server-side xdg-decoration protocol. */
+	GtkWidget *header = gtk_header_bar_new();
+	gtk_window_set_titlebar(ui->window, header);
+
 	GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 	gtk_window_set_child(ui->window, vbox);
 
