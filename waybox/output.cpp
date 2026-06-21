@@ -233,6 +233,20 @@ void new_output_notify(struct wb_server *server, void *data) {
 			&wlr_scene_tree_create(&server->scene->tree)->node;
 	}
 
+	/* Stack this output's layer trees around the shared toplevel container so
+	 * panels render correctly: background/bottom below ordinary windows; the
+	 * fullscreen, top and overlay layers (where panels like Waybar live) above
+	 * them. New toplevels are children of toplevel_tree, so they never lift
+	 * above the top/overlay layers. */
+	struct wlr_scene_node *tl = &server->toplevel_tree->node;
+	wlr_scene_node_place_below(&output->layers.shell_background->node, tl);
+	wlr_scene_node_place_below(&output->layers.shell_bottom->node, tl);
+	wlr_scene_node_place_above(&output->layers.shell_top->node, tl);
+	wlr_scene_node_place_above(&output->layers.shell_fullscreen->node,
+			&output->layers.shell_top->node);
+	wlr_scene_node_place_above(&output->layers.shell_overlay->node,
+			&output->layers.shell_fullscreen->node);
+
 	wl_list_insert(&server->outputs, &output->link);
 
 	/* Initialise the usable area to the full output; arrange_layers() will

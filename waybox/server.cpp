@@ -129,6 +129,11 @@ bool wb_start_server(struct wb_server* server) {
 	server->scene = wlr_scene_create();
 	server->scene_layout =
 		wlr_scene_attach_output_layout(server->scene, server->output_layout);
+	/* The toplevel container. Created up-front so per-output layer trees (made
+	 * as outputs come up) can be stacked relative to it; toplevels are added as
+	 * its children, so adding/raising a window never lifts it above the panel
+	 * layers. */
+	server->toplevel_tree = wlr_scene_tree_create(&server->scene->tree);
 
 	const char *socket = wl_display_add_socket_auto(server->wl_display);
 	if (!socket) {

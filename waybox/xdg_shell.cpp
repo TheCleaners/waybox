@@ -724,11 +724,21 @@ void set_toplevel_fullscreen(struct wb_toplevel *toplevel, bool fullscreen) {
 		struct wlr_output *wlr_output = get_active_output(toplevel);
 		struct wb_output *output = static_cast<struct wb_output *>(
 				wlr_output ? wlr_output->data : NULL);
-		if (output != NULL)
+		if (output != NULL) {
 			toplevel->geometry = output->geometry;  /* layout box: pos + size */
+			/* Lift the window into the fullscreen layer so it covers panels
+			 * (the top layer), which ordinary toplevels sit below. */
+			if (toplevel->scene_tree != NULL)
+				wlr_scene_node_reparent(&toplevel->scene_tree->node,
+						output->layers.shell_fullscreen);
+		}
 		raise_toplevel(toplevel);
 	} else {
 		toplevel->geometry = toplevel->restore_fullscreen;
+		/* Return to the ordinary toplevel container (below the panel layers). */
+		if (toplevel->scene_tree != NULL)
+			wlr_scene_node_reparent(&toplevel->scene_tree->node,
+					toplevel->server->toplevel_tree);
 	}
 
 	wlr_xdg_toplevel_set_fullscreen(toplevel->xdg_toplevel, fullscreen);
@@ -951,7 +961,7 @@ static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 	 * decoration nodes). For now the surface sits at the container origin: with
 	 * no decorations the insets are zero, so this is identical to attaching the
 	 * surface directly. */
-	toplevel->scene_tree = wlr_scene_tree_create(&toplevel->server->scene->tree);
+	toplevel->scene_tree = wlr_scene_tree_create(toplevel->server->toplevel_tree);
 	toplevel->surface_tree = wlr_scene_xdg_surface_create(
 		toplevel->scene_tree, xdg_toplevel->base);
 	/* Tag both the container and the surface tree so a click on a decoration
