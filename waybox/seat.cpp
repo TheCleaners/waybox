@@ -665,6 +665,19 @@ static void handle_new_pointer(struct wb_server *server, struct wlr_input_device
 	wlr_cursor_attach_input_device(server->cursor->cursor, device);
 }
 
+/* Advertise the seat's input capabilities to clients. waybox always owns a
+ * cursor, so POINTER is always advertised; KEYBOARD is advertised once at least
+ * one keyboard exists. This must run whenever an input device is added through
+ * ANY path — including the virtual-pointer/virtual-keyboard protocols, which
+ * bypass new_input_notify — otherwise clients never receive input from a
+ * virtual device (e.g. under the headless backend used by the tests). */
+static void update_seat_capabilities(struct wb_server *server) {
+	uint32_t caps = WL_SEAT_CAPABILITY_POINTER;
+	if (!wl_list_empty(&server->seat->keyboards))
+		caps |= WL_SEAT_CAPABILITY_KEYBOARD;
+	wlr_seat_set_capabilities(server->seat->seat, caps);
+}
+
 static void new_input_notify(struct wb_server *server, void *data) {
 	struct wlr_input_device *device = static_cast<struct wlr_input_device *>(data);
 	switch (device->type) {
@@ -681,11 +694,7 @@ static void new_input_notify(struct wb_server *server, void *data) {
 			break;
 	}
 
-	uint32_t caps = WL_SEAT_CAPABILITY_POINTER;
-	if (!wl_list_empty(&server->seat->keyboards)) {
-		caps |= WL_SEAT_CAPABILITY_KEYBOARD;
-	}
-	wlr_seat_set_capabilities(server->seat->seat, caps);
+	update_seat_capabilities(server);
 }
 
 void seat_focus_surface(struct wb_seat *seat, struct wlr_surface *surface) {
@@ -731,6 +740,7 @@ struct wb_seat *wb_seat_create(struct wb_server *server) {
 		auto *virtual_keyboard =
 			static_cast<struct wlr_virtual_keyboard_v1 *>(data);
 		handle_new_keyboard(server, &virtual_keyboard->keyboard.base);
+		update_seat_capabilities(server);
 	});
 	server->virtual_pointer_manager =
 		wlr_virtual_pointer_manager_v1_create(server->wl_display);
@@ -740,6 +750,7 @@ struct wb_seat *wb_seat_create(struct wb_server *server) {
 		auto *event =
 			static_cast<struct wlr_virtual_pointer_v1_new_pointer_event *>(data);
 		handle_new_pointer(server, &event->new_pointer->pointer.base);
+		update_seat_capabilities(server);
 	});
 
 	seat->seat = wlr_seat_create(server->wl_display, "seat0");
