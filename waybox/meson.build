@@ -18,6 +18,7 @@ wb_src = [
     'config.cpp',
     'cursor.cpp',
     'decoration.cpp',
+    'frame_view.cpp',
     'idle.cpp',
     'layer_shell.cpp',
     'main.cpp',

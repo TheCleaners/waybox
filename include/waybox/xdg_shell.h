@@ -3,9 +3,14 @@
 
 #include "waybox/wlroots.hpp"
 
+#include <memory>
+
 #include "waybox/decor_mode.hpp"
+#include "waybox/frame.hpp"
 #include "waybox/listener.hpp"
 #include "waybox/server.h"
+
+namespace wb { class FrameView; }
 
 struct wb_popup {
 	struct wlr_xdg_popup *xdg_popup = nullptr;
@@ -23,6 +28,8 @@ struct wb_toplevel {
 	 * under scene_tree. */
 	struct wlr_scene_tree *scene_tree = nullptr;
 	struct wlr_scene_tree *surface_tree = nullptr;
+	/* Server-side decoration view (titlebar/borders), or null for CSD. */
+	std::unique_ptr<wb::FrameView> frame;
 
 	struct wlr_xdg_toplevel_decoration_v1 *decoration = nullptr;
 	/* Per-window decoration preference (app rule / ToggleDecorations). */
@@ -80,6 +87,16 @@ void arrange_toplevels(struct wb_server *server);
 void constrain_toplevel_to_usable_area(struct wb_toplevel *toplevel);
 void begin_interactive(struct wb_toplevel *toplevel,
 		enum wb_cursor_mode mode, uint32_t edges);
+
+/* Decoration insets for a toplevel (zero unless it has a server-side frame). */
+wb::FrameInsets toplevel_insets(struct wb_toplevel *toplevel);
+/* Position the frame container from toplevel->geometry, accounting for the
+ * decoration insets so the *client* lands at geometry.x/y. Use this instead of
+ * positioning scene_tree directly. */
+void position_toplevel(struct wb_toplevel *toplevel);
+/* Create/destroy and synchronise the server-side decoration frame from the
+ * toplevel's negotiated decoration mode + current state (size/title/focus). */
+void update_toplevel_decoration(struct wb_toplevel *toplevel);
 struct wb_toplevel *first_toplevel(struct wb_server *server);
 /* The wb_toplevel a scene node carries via its wb_scene_descriptor, or NULL if
  * the node is not (the root of) one of our toplevels. */

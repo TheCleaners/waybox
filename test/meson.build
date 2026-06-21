@@ -134,6 +134,13 @@ endif
 # display are unavailable, so CI stays green; run a sanitized local build to
 # actually exercise it. Give it a generous timeout (it spawns clients + sleeps).
 python = find_program('python3', required: false)
+# Integration tests now exercise server-side decorations, so the compositor
+# renders titlebars via Pango/fontconfig, whose process-global font caches
+# LeakSanitizer would flag at exit. Suppress those library caches (as the
+# render test does) for every integration test.
+integration_env = {
+  'LSAN_OPTIONS': 'suppressions=' + meson.current_source_dir() / 'lsan.supp',
+}
 if python.found() and not get_option('tests_only')
   test(
     'integration_alt_tab',
@@ -144,6 +151,7 @@ if python.found() and not get_option('tests_only')
       meson.project_source_root() / 'data' / 'rc.xml',
     ],
     timeout: 60,
+    env: integration_env,
     )
   test(
     'integration_window_state',
@@ -153,6 +161,7 @@ if python.found() and not get_option('tests_only')
       waybox_exe,
     ],
     timeout: 60,
+    env: integration_env,
     )
   test(
     'integration_mouse_binding',
@@ -162,6 +171,7 @@ if python.found() and not get_option('tests_only')
       waybox_exe,
     ],
     timeout: 60,
+    env: integration_env,
     )
   test(
     'integration_placement',
@@ -172,6 +182,7 @@ if python.found() and not get_option('tests_only')
       meson.project_source_root() / 'data' / 'rc.xml',
     ],
     timeout: 60,
+    env: integration_env,
     )
   test(
     'integration_app_rule',
@@ -181,6 +192,7 @@ if python.found() and not get_option('tests_only')
       waybox_exe,
     ],
     timeout: 60,
+    env: integration_env,
     )
   test(
     'integration_key_chain',
@@ -190,6 +202,7 @@ if python.found() and not get_option('tests_only')
       waybox_exe,
     ],
     timeout: 60,
+    env: integration_env,
     )
   test(
     'integration_foreign_toplevel',
@@ -200,6 +213,7 @@ if python.found() and not get_option('tests_only')
       meson.project_source_root() / 'data' / 'rc.xml',
     ],
     timeout: 60,
+    env: integration_env,
     )
   test(
     'integration_menu',
@@ -209,5 +223,6 @@ if python.found() and not get_option('tests_only')
       waybox_exe,
     ],
     timeout: 60,
+    env: integration_env,
     )
 endif

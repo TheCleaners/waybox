@@ -54,8 +54,7 @@ static void process_cursor_move(struct wb_server *server) {
 
 		/* Don't let the window be dragged over a panel's reserved area. */
 		constrain_toplevel_to_usable_area(toplevel);
-		wlr_scene_node_set_position(&toplevel->scene_tree->node,
-				toplevel->geometry.x, toplevel->geometry.y);
+		position_toplevel(toplevel);
 	}
 }
 
@@ -109,8 +108,7 @@ static void process_cursor_resize(struct wb_server *server) {
 
 	toplevel->geometry.x = resized.x - geo_box.x;
 	toplevel->geometry.y = resized.y - geo_box.y;
-		wlr_scene_node_set_position(&toplevel->scene_tree->node,
-				toplevel->geometry.x, toplevel->geometry.y);
+		position_toplevel(toplevel);
 
 	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, resized.width, resized.height);
 }
