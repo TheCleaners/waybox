@@ -168,7 +168,18 @@ which the caller runs **after** destroying the widget (no reentrancy). The pure
 geometry (`layout_menu`/`menu_item_at`/`place_root_menu`/`place_submenu`) lives
 in `menu.cpp` and is unit-tested; the widget is covered by `integration_menu`.
 
-Compositor-drawn chrome (titlebars, OSD, SSD) is otherwise not built yet.
+Server-side decorations: each toplevel's scene is a frame **container**
+(`wb_toplevel::scene_tree`) holding the client's `surface_tree`; when SSD is
+negotiated, `waybox/frame_view.cpp`'s `wb::FrameView` adds a border-coloured
+backdrop rect + a titlebar `SceneCanvas` (label + iconify/maximize/close
+buttons) styled from a `FrameStyle`, and the surface is offset by the decoration
+insets. Geometry uses **Model A**: `toplevel->geometry` stays the *client* rect,
+and `position_toplevel()` places the container at `geometry − insets` (insets are
+zero for CSD, so client-side windows are byte-identical to before). The pure
+frame geometry/hit-testing is `waybox/frame.cpp`; `update_toplevel_decoration()`
+(in `decoration.cpp`) builds/destroys the frame from the negotiated mode and
+syncs size/title/active/maximized. Frame **input** (titlebar drag, button
+clicks, border resize) and inset-aware maximize/placement are still to come.
 
 Presentation is layered so widgets never re-derive look-and-feel: `wb::Theme`
 (`waybox/theme.cpp`) is the **raw themerc file model** (Openbox keys verbatim,

@@ -2,11 +2,29 @@
 
 #include "idle.h"
 #include "layer_shell.h"
+#include "waybox/frame_view.hpp"
 #include "waybox/geometry.hpp"
 #include "waybox/xdg_shell.h"
 #include "decoration.h"
 
 static void log_geometry(struct wb_toplevel *toplevel, const char *tag);
+
+wb::FrameInsets toplevel_insets(struct wb_toplevel *toplevel) {
+	if (toplevel != nullptr && toplevel->frame)
+		return toplevel->frame->insets();
+	return wb::FrameInsets{};
+}
+
+void position_toplevel(struct wb_toplevel *toplevel) {
+	if (toplevel == nullptr || toplevel->scene_tree == nullptr)
+		return;
+	/* The container holds the decorations; the client surface sits inside it at
+	 * the insets, so to land the client at geometry.x/y the container goes up
+	 * and left by the inset amount. With no frame the insets are zero. */
+	wb::FrameInsets in = toplevel_insets(toplevel);
+	wlr_scene_node_set_position(&toplevel->scene_tree->node,
+			toplevel->geometry.x - in.left, toplevel->geometry.y - in.top);
+}
 
 /* A scene node's wb_toplevel, via its tagged wb_scene_descriptor, or NULL if
  * the node does not belong to a toplevel (e.g. a layer-shell node). */
@@ -147,6 +165,16 @@ struct wb_toplevel *first_toplevel(struct wb_server *server) {
 	return toplevel;
 }
 
+/* Update every framed toplevel's active styling to match the current focus. */
+static void sync_frame_active(struct wb_server *server) {
+	struct wb_toplevel *active = first_toplevel(server);
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link) {
+		if (t->frame)
+			t->frame->set_active(t == active);
+	}
+}
+
 /* Raise a toplevel to the top of the stacking order (z-order), without
  * touching focus. */
 void raise_toplevel(struct wb_toplevel *toplevel) {
@@ -228,6 +256,7 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	 * clients without additional work on your part.
 	 */
 	seat_focus_surface(server->seat.get(), surface);
+	sync_frame_active(server);
 }
 
 struct wlr_output *get_active_output(struct wb_toplevel *toplevel) {
@@ -294,8 +323,7 @@ void arrange_toplevels(struct wb_server *server) {
 			toplevel->geometry = box;
 			wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
 					box.width, box.height);
-			wlr_scene_node_set_position(&toplevel->scene_tree->node,
-					box.x, box.y);
+			position_toplevel(toplevel);
 			continue;
 		}
 
@@ -322,8 +350,7 @@ void arrange_toplevels(struct wb_server *server) {
 			toplevel->geometry.x = usable.x;
 		if (toplevel->geometry.y < usable.y)
 			toplevel->geometry.y = usable.y;
-		wlr_scene_node_set_position(&toplevel->scene_tree->node,
-				toplevel->geometry.x, toplevel->geometry.y);
+		position_toplevel(toplevel);
 	}
 }
 
@@ -443,16 +470,19 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 	if (do_focus)
 		focus_toplevel(toplevel);
 
-	wlr_scene_node_set_position(&toplevel->scene_tree->node,
-			toplevel->geometry.x, toplevel->geometry.y);
+	position_toplevel(toplevel);
 	log_geometry(toplevel, "mapped");
+
+	/* Sync the server-side frame (no-op unless SSD is negotiated for it). */
+	update_toplevel_decoration(toplevel);
 
 	/* Apply requested initial states after the base mapping. */
 	if (rule != nullptr) {
 		if (rule->decor.has_value()) {
 			toplevel->decorations = *rule->decor ? wb::DecorMode::Full
 					: wb::DecorMode::None;
-			apply_toplevel_decoration(toplevel);
+			apply_toplevel_decoration(toplevel);   /* wlr protocol mode */
+			update_toplevel_decoration(toplevel);  /* build/destroy our frame */
 		}
 		if (rule->maximized.value_or(false))
 			set_toplevel_maximized(toplevel, true, true);
@@ -501,6 +531,10 @@ static void xdg_toplevel_commit(struct wb_toplevel *toplevel, void *data) {
 		if (toplevel->decoration != NULL)
 			wl_signal_emit(&toplevel->decoration->events.request_mode, toplevel->decoration);
 	}
+	/* Keep the frame matched to the client's current size (the client may have
+	 * resized itself). No-op when the window has no server-side frame. */
+	if (toplevel->frame && toplevel->mapped)
+		update_toplevel_decoration(toplevel);
 }
 
 static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
@@ -515,8 +549,10 @@ static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 	destroy_foreign_handle(toplevel);  /* no-op if already gone via unmap */
 
 	/* The wb::Listener members disconnect themselves when the toplevel is
-	 * deleted. Destroy the frame container we created; its children (the
-	 * client's surface_tree and any decoration nodes) are destroyed with it. */
+	 * deleted. Tear the decoration frame down first (it owns scene nodes under
+	 * the container), then destroy the container we created; its remaining
+	 * children (incl. the auto-managed surface_tree) go with it. */
+	toplevel->frame.reset();
 	if (toplevel->scene_tree != nullptr)
 		wlr_scene_node_destroy(&toplevel->scene_tree->node);
 
@@ -543,6 +579,10 @@ static void xdg_toplevel_set_title(
 	if (toplevel->wlr_foreign_handle != NULL && toplevel->xdg_toplevel->title != NULL)
 		wlr_foreign_toplevel_handle_v1_set_title(
 				toplevel->wlr_foreign_handle, toplevel->xdg_toplevel->title);
+	if (toplevel->frame) {
+		const char *title = toplevel->xdg_toplevel->title;
+		toplevel->frame->set_title(title != nullptr ? title : "");
+	}
 }
 
 /* Log a toplevel's geometry on a state transition. Helps debugging window
@@ -594,8 +634,9 @@ void set_toplevel_maximized(struct wb_toplevel *toplevel, bool horz, bool vert) 
 		wlr_foreign_toplevel_handle_v1_set_maximized(
 				toplevel->wlr_foreign_handle, horz && vert);
 	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, g.width, g.height);
-	wlr_scene_node_set_position(&toplevel->scene_tree->node, g.x, g.y);
+	position_toplevel(toplevel);
 	log_geometry(toplevel, now_any ? "maximize-on" : "maximize-off");
+	update_toplevel_decoration(toplevel);
 }
 
 void set_toplevel_fullscreen(struct wb_toplevel *toplevel, bool fullscreen) {
@@ -620,9 +661,10 @@ void set_toplevel_fullscreen(struct wb_toplevel *toplevel, bool fullscreen) {
 				toplevel->wlr_foreign_handle, fullscreen);
 	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
 			toplevel->geometry.width, toplevel->geometry.height);
-	wlr_scene_node_set_position(&toplevel->scene_tree->node,
-			toplevel->geometry.x, toplevel->geometry.y);
+	position_toplevel(toplevel);
 	log_geometry(toplevel, fullscreen ? "fullscreen-on" : "fullscreen-off");
+	/* Fullscreen hides the frame; leaving it restores it. */
+	update_toplevel_decoration(toplevel);
 }
 
 static void xdg_toplevel_request_fullscreen(
@@ -656,8 +698,7 @@ static void xdg_toplevel_request_minimize(struct wb_toplevel *toplevel, void *da
 		toplevel->geometry = toplevel->restore_minimize;
 	}
 
-	wlr_scene_node_set_position(&toplevel->scene_tree->node,
-			toplevel->geometry.x, toplevel->geometry.y);
+	position_toplevel(toplevel);
 	if (toplevel->wlr_foreign_handle != NULL)
 		wlr_foreign_toplevel_handle_v1_set_minimized(
 				toplevel->wlr_foreign_handle, minimize_requested);
