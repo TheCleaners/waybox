@@ -33,7 +33,9 @@ static wb::FrameMetrics frame_metrics(const wb::Theme &theme,
 	m.titlebar = text_h + 2 * theme.padding_y;
 	if (m.titlebar < 16)
 		m.titlebar = 16;
-	m.button = m.titlebar - 6;
+	/* Square button, sized as a fraction of the titlebar so the glyph stays
+	 * comfortably inside it (and scales with the font). */
+	m.button = (m.titlebar * 2) / 3;
 	if (m.button < 10)
 		m.button = 10;
 	m.title_pad = theme.padding_x > 0 ? theme.padding_x : 4;
