@@ -7,8 +7,13 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <fstream>
 
 #include <cairo.h>
+
+#ifdef HAVE_RSVG
+#include <librsvg/rsvg.h>
+#endif
 
 #include "waybox/icon.hpp"
 #include "waybox/render.hpp"
@@ -21,6 +26,45 @@ namespace {
 /* Draw a small right-pointing triangle (the submenu arrow) centred in the
  * column reserved at the right of an item row. `w` is both the horizontal reach
  * and half the vertical extent, so the arrow stays visually balanced. */
+bool ends_with(const std::string &s, const char *suf) {
+	size_t n = std::char_traits<char>::length(suf);
+	return s.size() >= n && s.compare(s.size() - n, n, suf) == 0;
+}
+
+/* The user's selected icon theme: $WB_ICON_THEME, else the GTK setting
+ * (gtk-icon-theme-name in gtk-4.0/gtk-3.0 settings.ini), else empty (the
+ * resolver then uses hicolor). hicolor is always searched as the fallback. */
+std::string detect_icon_theme() {
+	if (const char *t = getenv("WB_ICON_THEME"); t && t[0] != '\0')
+		return t;
+	const char *home = getenv("HOME");
+	const char *xdg = getenv("XDG_CONFIG_HOME");
+	std::string cfg = (xdg && xdg[0]) ? std::string(xdg)
+			: (home ? std::string(home) + "/.config" : std::string());
+	if (cfg.empty())
+		return {};
+	for (const char *rel : {"/gtk-4.0/settings.ini", "/gtk-3.0/settings.ini"}) {
+		std::ifstream f(cfg + rel);
+		std::string line;
+		while (std::getline(f, line)) {
+			auto eq = line.find('=');
+			if (eq == std::string::npos)
+				continue;
+			std::string key = line.substr(0, eq);
+			while (!key.empty() && key.back() == ' ')
+				key.pop_back();
+			if (key == "gtk-icon-theme-name") {
+				std::string val = line.substr(eq + 1);
+				size_t a = val.find_first_not_of(" \t");
+				size_t b = val.find_last_not_of(" \t\r");
+				if (a != std::string::npos)
+					return val.substr(a, b - a + 1);
+			}
+		}
+	}
+	return {};
+}
+
 void paint_arrow(cairo_t *cr, double x, double y, double h, double w,
 		const Color &c) {
 	double cy = y + h / 2.0;
@@ -50,10 +94,9 @@ MenuWidget::MenuWidget(struct wb_server *server, const MenuFile &menus,
 	if (metrics_.pad_y < 2)
 		metrics_.pad_y = 2;  /* always a little breathing room top/bottom */
 
-	/* Horizontal text inset should scale with the font, not sit at a tiny fixed
-	 * themerc value: a label looks cramped if the side padding is much smaller
-	 * than the glyph height. Keep at least ~0.6x the line height. */
-	int comfortable_x = (text_height_ * 3) / 5;
+	/* Horizontal text inset should scale with the font, but stay compact: a
+	 * small fraction of the line height reads better than a large gap. */
+	int comfortable_x = (text_height_ * 2) / 5;
 	if (metrics_.pad_x < comfortable_x)
 		metrics_.pad_x = comfortable_x;
 
@@ -61,8 +104,7 @@ MenuWidget::MenuWidget(struct wb_server *server, const MenuFile &menus,
 	 * little padding to the right of the icon. */
 	icon_size_ = style_.icon_column_width > 0 ? style_.icon_column_width
 			: text_height_ + 2;
-	if (const char *t = getenv("WB_ICON_THEME"); t && t[0] != '\0')
-		icon_theme_ = t;
+	icon_theme_ = detect_icon_theme();
 
 	tree_ = wlr_scene_tree_create(&server_->scene->tree);
 	wlr_scene_node_raise_to_top(&tree_->node);
@@ -79,19 +121,54 @@ MenuWidget::~MenuWidget() {
 }
 
 /* The icon column width for `menu`: icon size + a small gap when any item has
- * an icon, else zero (so icon-less menus are not indented). */
-int MenuWidget::menu_icon_column(const Menu *menu) const {
-	if (menu == nullptr)
+ * an icon that actually loads, else zero (so menus whose icons can't be
+ * resolved are not left with an empty, over-wide left margin). */
+int MenuWidget::menu_icon_column(const Menu *menu) {
+	if (menu == nullptr || icon_size_ <= 0 || !behavior_.show_icons)
 		return 0;
 	for (const MenuItem &item : menu->items) {
-		if (!item.icon.empty())
+		if (!item.icon.empty() && icon_surface(item.icon) != nullptr)
 			return icon_size_ + 4;
 	}
 	return 0;
 }
 
-/* Resolve and load an icon (PNG only) once, caching the surface (or nullptr on
- * miss, so we never retry). SVG icons need librsvg and are skipped safely. */
+namespace {
+
+#ifdef HAVE_RSVG
+/* Render an SVG file to a square ARGB surface of `size` px via librsvg. */
+cairo_surface_t *render_svg(const char *path, int size) {
+	GError *err = nullptr;
+	RsvgHandle *h = rsvg_handle_new_from_file(path, &err);
+	if (h == nullptr) {
+		if (err)
+			g_error_free(err);
+		return nullptr;
+	}
+	cairo_surface_t *s =
+			cairo_image_surface_create(CAIRO_FORMAT_ARGB32, size, size);
+	cairo_t *cr = cairo_create(s);
+	RsvgRectangle vp = {0.0, 0.0, static_cast<double>(size),
+			static_cast<double>(size)};
+	gboolean ok = rsvg_handle_render_document(h, cr, &vp, &err);
+	cairo_destroy(cr);
+	g_object_unref(h);
+	if (!ok) {
+		if (err)
+			g_error_free(err);
+		cairo_surface_destroy(s);
+		return nullptr;
+	}
+	cairo_surface_flush(s);
+	return s;
+}
+#endif
+
+}  // namespace
+
+/* Resolve and load an icon once, caching the surface (or nullptr on miss, so we
+ * never retry). PNG is loaded with Cairo; SVG with librsvg when built with it
+ * (otherwise SVG candidates are skipped safely). */
 cairo_surface_t *MenuWidget::icon_surface(const std::string &name) {
 	if (name.empty())
 		return nullptr;
@@ -106,15 +183,23 @@ cairo_surface_t *MenuWidget::icon_surface(const std::string &name) {
 	cairo_surface_t *loaded = nullptr;
 	for (const std::string &path : icon_search_paths(name, icon_theme_,
 			icon_size_, bases)) {
-		if (path.size() < 4 ||
-				path.compare(path.size() - 4, 4, ".png") != 0)
-			continue;  /* CPU loader handles PNG only for now */
-		cairo_surface_t *s = cairo_image_surface_create_from_png(path.c_str());
-		if (cairo_surface_status(s) == CAIRO_STATUS_SUCCESS) {
-			loaded = s;
-			break;
+		if (ends_with(path, ".png")) {
+			cairo_surface_t *s =
+					cairo_image_surface_create_from_png(path.c_str());
+			if (cairo_surface_status(s) == CAIRO_STATUS_SUCCESS) {
+				loaded = s;
+				break;
+			}
+			cairo_surface_destroy(s);
 		}
-		cairo_surface_destroy(s);
+#ifdef HAVE_RSVG
+		else if (ends_with(path, ".svg")) {
+			if (cairo_surface_t *s = render_svg(path.c_str(), icon_size_)) {
+				loaded = s;
+				break;
+			}
+		}
+#endif
 	}
 	icon_cache_[name] = loaded;
 	return loaded;

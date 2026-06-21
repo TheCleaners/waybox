@@ -29,10 +29,11 @@ static wb::FrameMetrics frame_metrics(const wb::Theme &theme,
 	wb::FrameMetrics m;
 	m.border = theme.border_width > 0 ? theme.border_width : 1;
 	int text_h = wb::measure_text("Ag", style.label.font).height;
-	m.titlebar = text_h + 2 * (theme.padding_y + 2);
-	if (m.titlebar < 18)
-		m.titlebar = 18;
-	m.button = m.titlebar - 8;
+	/* Compact: just enough vertical padding to comfortably fit the title. */
+	m.titlebar = text_h + 2 * theme.padding_y;
+	if (m.titlebar < 16)
+		m.titlebar = 16;
+	m.button = m.titlebar - 6;
 	if (m.button < 10)
 		m.button = 10;
 	m.title_pad = theme.padding_x > 0 ? theme.padding_x : 4;

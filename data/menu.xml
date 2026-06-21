@@ -16,7 +16,7 @@
 -->
 
 <menu id="root-menu" label="Waybox">
-  <item label="Terminal" icon="utilities-terminal">
+  <item label="Terminal" icon="foot">
     <action name="Execute">
       <execute>foot</execute>
     </action>

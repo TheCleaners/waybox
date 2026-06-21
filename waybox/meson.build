@@ -40,6 +40,7 @@ wb_dep = [
   libxml2,
   pango,
   pangocairo,
+  rsvg,
   wayland_server,
   wlroots,
   xkbcommon,
