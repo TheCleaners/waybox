@@ -160,8 +160,9 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 		return;
 	}
 
-	/* Server-side decoration button hover feedback: highlight the titlebar
-	 * button under the pointer (if any) and clear it on every other frame. */
+	/* Server-side decoration hover feedback: highlight the titlebar button under
+	 * the pointer (if any), and show a resize cursor over the frame's border /
+	 * corner grab areas. Cleared on every other frame. */
 	{
 		wb::FrameHit fh;
 		struct wb_toplevel *fhover = toplevel_frame_at(server,
@@ -172,6 +173,19 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 		wl_list_for_each(t, &server->toplevels, link) {
 			if (t->frame)
 				t->frame->set_hovered_button((t == fhover) ? btn : -1);
+		}
+		if (fhover != nullptr) {
+			if (const char *cur = wb::frame_part_cursor(fh.part)) {
+				wlr_cursor_set_xcursor(server->cursor->cursor,
+						server->cursor->xcursor_manager, cur);
+			} else {
+				/* Titlebar / button: a normal pointer. */
+				wlr_cursor_set_xcursor(server->cursor->cursor,
+						server->cursor->xcursor_manager, "default");
+			}
+			wlr_idle_notifier_v1_notify_activity(server->idle_notifier,
+					server->seat->seat);
+			return;
 		}
 	}
 

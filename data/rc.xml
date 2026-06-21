@@ -24,6 +24,7 @@
   <waybox>
     <menu source="builtin" submenuOpen="hover" hoverDelay="100" wrap="yes" icons="yes"/>
     <switcher order="mru" osd="yes" wrap="yes"/>
+    <titlebar paddingY="2" buttonSize="0" resizeGrab="8"/>
   </waybox>
   <!-- Where newly-mapped windows are placed: Smart (avoid overlap, then
        cascade), Center, or UnderMouse. -->

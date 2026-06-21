@@ -64,6 +64,7 @@ private:
 	FrameMetrics metrics_;
 	std::vector<FrameButton> buttons_;
 
+	struct wlr_scene_rect *grab_ = nullptr;      /* invisible resize-grab area */
 	struct wlr_scene_rect *bg_ = nullptr;        /* border-coloured backdrop */
 	std::unique_ptr<SceneCanvas> titlebar_;
 	int outer_w_ = 0;

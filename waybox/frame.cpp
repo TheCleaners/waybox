@@ -7,10 +7,10 @@ namespace wb {
 
 FrameInsets frame_insets(const FrameMetrics &m) {
 	FrameInsets in;
-	in.top = m.border + m.titlebar;
-	in.left = m.border;
-	in.right = m.border;
-	in.bottom = m.border;
+	in.top = m.resize_grab + m.border + m.titlebar;
+	in.left = m.resize_grab + m.border;
+	in.right = m.resize_grab + m.border;
+	in.bottom = m.resize_grab + m.border;
 	return in;
 }
 
@@ -25,8 +25,10 @@ int frame_height(int client_h, const FrameMetrics &m) {
 }
 
 Rect titlebar_rect(int outer_w, const FrameMetrics &m) {
-	/* Just inside the top/side borders. */
-	return Rect{m.border, m.border, outer_w - 2 * m.border, m.titlebar};
+	/* Just inside the top/side borders (which themselves sit inside the
+	 * invisible resize-grab margin). */
+	int inset = m.resize_grab + m.border;
+	return Rect{inset, inset, outer_w - 2 * inset, m.titlebar};
 }
 
 std::vector<Rect> button_rects(int outer_w, const FrameMetrics &m,
@@ -59,11 +61,13 @@ FrameHit frame_part_at(int ox, int oy, int outer_w, int outer_h,
 		const FrameMetrics &m, const std::vector<FrameButton> &buttons) {
 	FrameInsets in = frame_insets(m);
 
-	/* Corners first (diagonal resize), using the corner grab reach. */
-	bool near_left = ox < m.corner;
-	bool near_right = ox >= outer_w - m.corner;
-	bool near_top = oy < m.corner;
-	bool near_bottom = oy >= outer_h - m.corner;
+	/* Corners first (diagonal resize). The grab margin widens the reach so the
+	 * corners are easy to grab even with a thin visible border. */
+	int reach = m.resize_grab + m.corner;
+	bool near_left = ox < reach;
+	bool near_right = ox >= outer_w - reach;
+	bool near_top = oy < reach;
+	bool near_bottom = oy >= outer_h - reach;
 	if (near_top && near_left)
 		return {FramePart::CornerTopLeft, -1};
 	if (near_top && near_right)
@@ -84,8 +88,8 @@ FrameHit frame_part_at(int ox, int oy, int outer_w, int outer_h,
 	if (m.titlebar > 0 && in_rect(ox, oy, titlebar_rect(outer_w, m)))
 		return {FramePart::Titlebar, -1};
 
-	/* Edges. */
-	if (oy < in.top - m.titlebar)  /* the top border above the titlebar */
+	/* Edges: the whole inset ring (grab margin + visible border) resizes. */
+	if (oy < in.top - m.titlebar)  /* everything above the titlebar */
 		return {FramePart::BorderTop, -1};
 	if (oy >= outer_h - in.bottom)
 		return {FramePart::BorderBottom, -1};
@@ -117,6 +121,29 @@ int frame_part_resize_edges(FramePart part) {
 		return WB_FRAME_EDGE_BOTTOM | WB_FRAME_EDGE_RIGHT;
 	default:
 		return 0;
+	}
+}
+
+const char *frame_part_cursor(FramePart part) {
+	switch (part) {
+	case FramePart::BorderTop:
+		return "n-resize";
+	case FramePart::BorderBottom:
+		return "s-resize";
+	case FramePart::BorderLeft:
+		return "w-resize";
+	case FramePart::BorderRight:
+		return "e-resize";
+	case FramePart::CornerTopLeft:
+		return "nw-resize";
+	case FramePart::CornerTopRight:
+		return "ne-resize";
+	case FramePart::CornerBottomLeft:
+		return "sw-resize";
+	case FramePart::CornerBottomRight:
+		return "se-resize";
+	default:
+		return nullptr;
 	}
 }
 

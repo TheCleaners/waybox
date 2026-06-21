@@ -61,6 +61,15 @@ struct wb_config {
 	wb::Theme theme;    /* resolved theme (themerc), styles all drawn chrome */
 	wb::MenuBehavior menu_behavior;  /* rc.xml <waybox><menu ...> extensions */
 	wb::SwitcherBehavior switcher_behavior;  /* rc.xml <waybox><switcher ...> */
+
+	/* rc.xml <waybox><titlebar ...> server-side-decoration tuning. A value of
+	 * -1 means "unset" (fall back to a sensible default derived from the
+	 * theme/font); see frame_metrics() in decoration.cpp. */
+	struct {
+		int pad_y = -1;        /* vertical padding per side inside the titlebar */
+		int button_size = -1;  /* square button edge in px; -1 = auto (2/3 bar) */
+		int resize_grab = -1;  /* invisible resize border width; -1 = default */
+	} titlebar;
 };
 
 bool init_config(struct wb_server *server);
