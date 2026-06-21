@@ -72,6 +72,7 @@ void parse_menu_node(xmlNode *menu_node, MenuFile &file) {
 			MenuItem item;
 			item.kind = MenuItem::Kind::Entry;
 			item.label = attr(c, "label");
+			item.icon = attr(c, "icon");
 			collect_actions(c, item.actions);
 			menu.items.push_back(std::move(item));
 		} else if (strcmp(tag, "separator") == 0) {
@@ -89,6 +90,7 @@ void parse_menu_node(xmlNode *menu_node, MenuFile &file) {
 			MenuItem item;
 			item.kind = MenuItem::Kind::Submenu;
 			item.label = attr(c, "label");
+			item.icon = attr(c, "icon");
 			item.submenu_id = sub_id;
 			menu.items.push_back(std::move(item));
 		}

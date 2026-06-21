@@ -31,6 +31,7 @@ struct MenuItem {
 	std::string label;
 	std::vector<Action> actions;  /* for Entry */
 	std::string submenu_id;       /* for Submenu */
+	std::string icon;             /* icon name or path (XDG icon theme), optional */
 };
 
 struct Menu {
@@ -69,6 +70,7 @@ struct MenuMetrics {
 	int border = 1;
 	int min_width = 80;
 	int submenu_arrow_width = 16;  /* reserved space for the "submenu" arrow */
+	int icon_column = 0;           /* width reserved left of labels for icons */
 };
 
 struct MenuLayout {

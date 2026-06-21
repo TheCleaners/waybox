@@ -36,8 +36,9 @@ model + themerc parsing
 (`waybox/theme.cpp`), the menu model + layout/hit-testing
 (`waybox/menu.cpp`; menu.xml parsing lives in the libxml-linked
 `waybox/menu_parse.cpp`, exercised by the full-build `menu_parse` test), the
-shared widget-styling primitives (`waybox/widget.cpp`), and the resolved
-presentation/behaviour styles + theme adapters (`waybox/style.cpp`). Run it with:
+shared widget-styling primitives (`waybox/widget.cpp`), the resolved
+presentation/behaviour styles + theme adapters (`waybox/style.cpp`), and the
+XDG icon-theme path resolution (`waybox/icon.cpp`). Run it with:
 
 ```sh
 meson test -C build --print-errorlogs

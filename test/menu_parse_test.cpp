@@ -9,7 +9,7 @@ using wb::MenuItem;
 static const char *kSample = R"(<?xml version="1.0" encoding="UTF-8"?>
 <openbox_menu xmlns="http://openbox.org/3.4/menu">
   <menu id="root-menu" label="Waybox">
-    <item label="Terminal">
+    <item label="Terminal" icon="utilities-terminal">
       <action name="Execute"><command>foot</command></action>
     </item>
     <separator/>
@@ -51,6 +51,7 @@ WB_TEST(parse_item_kinds_and_actions) {
 	WB_CHECK(root->items[0].actions.size() == 1);
 	WB_CHECK(root->items[0].actions[0].type == wb::ActionType::Execute);
 	WB_CHECK(root->items[0].actions[0].command == "foot");
+	WB_CHECK(root->items[0].icon == "utilities-terminal");
 
 	WB_CHECK(root->items[1].kind == MenuItem::Kind::Separator);
 	WB_CHECK(root->items[2].kind == MenuItem::Kind::Separator);

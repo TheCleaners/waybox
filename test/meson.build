@@ -66,6 +66,13 @@ frame_test = executable(
   )
 test('frame', frame_test)
 
+icon_test = executable(
+  'icon_test',
+  ['icon_test.cpp', 'wb_test_main.cpp', icon_src],
+  include_directories: [inc_dir],
+  )
+test('icon', icon_test)
+
 theme_test = executable(
   'theme_test',
   ['theme_test.cpp', 'wb_test_main.cpp', theme_src],
