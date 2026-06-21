@@ -96,6 +96,10 @@ struct wb_server {
 
 	/* The open root/context menu (a compositor-drawn input grab), or null. */
 	std::unique_ptr<wb::MenuWidget> menu;
+
+	/* The toplevel whose titlebar button is currently held down (for the
+	 * pressed visual + activate-on-release), or null. */
+	struct wb_toplevel *frame_pressed = nullptr;
 };
 
 bool wb_create_backend(struct wb_server *server);

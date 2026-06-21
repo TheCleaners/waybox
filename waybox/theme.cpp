@@ -145,12 +145,16 @@ Theme default_theme() {
 	t.window_active.button_icon = {0xff, 0xff, 0xff, 0xff};
 	t.window_active.button_icon_hover = {0xff, 0xff, 0xff, 0xff};
 	t.window_active.button_icon_pressed = {0xc0, 0xc0, 0xc0, 0xff};
+	t.window_active.button_bg_parentrelative = true;
+	t.window_active.button_hover_bg.color = {0x50, 0x70, 0xa0, 0xff};
 	t.window_inactive.title_bg.color = {0x80, 0x80, 0x80, 0xff};
 	t.window_inactive.label_text = {0xd0, 0xd0, 0xd0, 0xff};
 	t.window_inactive.border_color = {0x50, 0x50, 0x50, 0xff};
 	t.window_inactive.button_icon = {0xd0, 0xd0, 0xd0, 0xff};
 	t.window_inactive.button_icon_hover = {0xff, 0xff, 0xff, 0xff};
 	t.window_inactive.button_icon_pressed = {0xa0, 0xa0, 0xa0, 0xff};
+	t.window_inactive.button_bg_parentrelative = true;
+	t.window_inactive.button_hover_bg.color = {0xa0, 0xa0, 0xa0, 0xff};
 	t.menu.title_bg.color = {0x30, 0x50, 0x80, 0xff};
 	t.menu.title_text = {0xff, 0xff, 0xff, 0xff};
 	t.menu.items_bg.color = {0xe0, 0xe0, 0xe0, 0xff};
@@ -228,6 +232,16 @@ Color *color_field_for(Theme &t, std::string_view key) {
 	if (key == "window.active.button.hover.image.color") return &t.window_active.button_icon_hover;
 	if (key == "window.active.button.pressed.image.color") return &t.window_active.button_icon_pressed;
 	if (key == "window.active.button.disabled.image.color") return &t.window_active.button_icon_disabled;
+	/* Openbox wildcard button keys (apply to all buttons), used by themes like
+	 * Onyx-Citrus that don't name each button individually. */
+	if (key == "window.active.button.*.image.color") return &t.window_active.button_icon;
+	if (key == "window.active.button.*.hover.image.color") return &t.window_active.button_icon_hover;
+	if (key == "window.active.button.*.pressed.image.color") return &t.window_active.button_icon_pressed;
+	if (key == "window.active.button.*.disabled.image.color") return &t.window_active.button_icon_disabled;
+	if (key == "window.active.button.*.hover.bg.color") return &t.window_active.button_hover_bg.color;
+	if (key == "window.active.button.*.hover.bg.colorTo") return &t.window_active.button_hover_bg.color_to;
+	if (key == "window.active.button.*.pressed.bg.color") return &t.window_active.button_pressed_bg.color;
+	if (key == "window.active.button.*.pressed.bg.colorTo") return &t.window_active.button_pressed_bg.color_to;
 	if (key == "window.inactive.title.bg.color") return &t.window_inactive.title_bg.color;
 	if (key == "window.inactive.title.bg.colorTo") return &t.window_inactive.title_bg.color_to;
 	if (key == "window.inactive.label.bg.color") return &t.window_inactive.label_bg.color;
@@ -244,6 +258,14 @@ Color *color_field_for(Theme &t, std::string_view key) {
 	if (key == "window.inactive.button.hover.image.color") return &t.window_inactive.button_icon_hover;
 	if (key == "window.inactive.button.pressed.image.color") return &t.window_inactive.button_icon_pressed;
 	if (key == "window.inactive.button.disabled.image.color") return &t.window_inactive.button_icon_disabled;
+	if (key == "window.inactive.button.*.image.color") return &t.window_inactive.button_icon;
+	if (key == "window.inactive.button.*.hover.image.color") return &t.window_inactive.button_icon_hover;
+	if (key == "window.inactive.button.*.pressed.image.color") return &t.window_inactive.button_icon_pressed;
+	if (key == "window.inactive.button.*.disabled.image.color") return &t.window_inactive.button_icon_disabled;
+	if (key == "window.inactive.button.*.hover.bg.color") return &t.window_inactive.button_hover_bg.color;
+	if (key == "window.inactive.button.*.hover.bg.colorTo") return &t.window_inactive.button_hover_bg.color_to;
+	if (key == "window.inactive.button.*.pressed.bg.color") return &t.window_inactive.button_pressed_bg.color;
+	if (key == "window.inactive.button.*.pressed.bg.colorTo") return &t.window_inactive.button_pressed_bg.color_to;
 	if (key == "menu.title.bg.color") return &t.menu.title_bg.color;
 	if (key == "menu.title.bg.colorTo") return &t.menu.title_bg.color_to;
 	if (key == "menu.title.text.color") return &t.menu.title_text;
@@ -302,11 +324,31 @@ void apply_key(Theme &t, std::string_view key, std::string_view value) {
 	if (key == "window.active.handle.bg") { apply_texture_type(value, t.window_active.handle_bg); return; }
 	if (key == "window.active.grip.bg") { apply_texture_type(value, t.window_active.grip_bg); return; }
 	if (key == "window.active.button.unpressed.bg") { apply_texture_type(value, t.window_active.button_bg); return; }
+	if (key == "window.active.button.*.hover.bg") { apply_texture_type(value, t.window_active.button_hover_bg); return; }
+	if (key == "window.active.button.*.pressed.bg") { apply_texture_type(value, t.window_active.button_pressed_bg); return; }
+	if (key == "window.active.button.*.bg") {
+		t.window_active.button_bg_parentrelative =
+				to_lower(value).find("parentrelative") != std::string::npos;
+		return;
+	}
+	if (key == "window.*.button.*.bg") {
+		bool pr = to_lower(value).find("parentrelative") != std::string::npos;
+		t.window_active.button_bg_parentrelative = pr;
+		t.window_inactive.button_bg_parentrelative = pr;
+		return;
+	}
 	if (key == "window.inactive.title.bg") { apply_texture_type(value, t.window_inactive.title_bg); return; }
 	if (key == "window.inactive.label.bg") { apply_texture_type(value, t.window_inactive.label_bg); return; }
 	if (key == "window.inactive.handle.bg") { apply_texture_type(value, t.window_inactive.handle_bg); return; }
 	if (key == "window.inactive.grip.bg") { apply_texture_type(value, t.window_inactive.grip_bg); return; }
 	if (key == "window.inactive.button.unpressed.bg") { apply_texture_type(value, t.window_inactive.button_bg); return; }
+	if (key == "window.inactive.button.*.hover.bg") { apply_texture_type(value, t.window_inactive.button_hover_bg); return; }
+	if (key == "window.inactive.button.*.pressed.bg") { apply_texture_type(value, t.window_inactive.button_pressed_bg); return; }
+	if (key == "window.inactive.button.*.bg") {
+		t.window_inactive.button_bg_parentrelative =
+				to_lower(value).find("parentrelative") != std::string::npos;
+		return;
+	}
 	if (key == "menu.title.bg") { apply_texture_type(value, t.menu.title_bg); return; }
 	if (key == "menu.items.bg") { apply_texture_type(value, t.menu.items_bg); return; }
 	if (key == "menu.items.active.bg") { apply_texture_type(value, t.menu.items_active_bg); return; }

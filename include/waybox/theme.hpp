@@ -77,6 +77,9 @@ struct WindowColors {
 	Texture handle_bg;         /* window.*.handle.bg */
 	Texture grip_bg;           /* window.*.grip.bg */
 	Texture button_bg;         /* window.*.button.unpressed.bg */
+	Texture button_hover_bg;   /* window.*.button.*.hover.bg (accent on hover) */
+	Texture button_pressed_bg; /* window.*.button.*.pressed.bg (held-down) */
+	bool button_bg_parentrelative = false;  /* normal button bg = titlebar bg */
 	Color button_icon{0, 0, 0, 255};          /* button.unpressed.image.color */
 	Color button_icon_hover{0, 0, 0, 255};    /* button.hover.image.color */
 	Color button_icon_pressed{0, 0, 0, 255};  /* button.pressed.image.color */

@@ -160,6 +160,21 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 		return;
 	}
 
+	/* Server-side decoration button hover feedback: highlight the titlebar
+	 * button under the pointer (if any) and clear it on every other frame. */
+	{
+		wb::FrameHit fh;
+		struct wb_toplevel *fhover = toplevel_frame_at(server,
+				server->cursor->cursor->x, server->cursor->cursor->y, &fh);
+		int btn = (fhover != nullptr && fh.part == wb::FramePart::Button)
+				? fh.button : -1;
+		struct wb_toplevel *t;
+		wl_list_for_each(t, &server->toplevels, link) {
+			if (t->frame)
+				t->frame->set_hovered_button((t == fhover) ? btn : -1);
+		}
+	}
+
 	/* Otherwise, find the toplevel under the pointer and send the event along. */
 	double sx, sy;
 	struct wlr_seat *seat = server->seat->seat;
@@ -240,6 +255,24 @@ void wb_cursor::on_button(void *data) {
 	struct wb_toplevel *toplevel = get_toplevel_at(server,
 			cursor->x, cursor->y, &surface, &sx, &sy);
 
+	/* Release of a held titlebar button: clear the pressed visual and, if the
+	 * pointer is still over that same button, run its action (activate on
+	 * release, like a normal push button). */
+	if (event->state == WL_POINTER_BUTTON_STATE_RELEASED &&
+			server->frame_pressed != nullptr) {
+		struct wb_toplevel *pressed = server->frame_pressed;
+		server->frame_pressed = nullptr;
+		if (pressed->frame)
+			pressed->frame->set_pressed_button(-1);
+		wb::FrameHit rh;
+		struct wb_toplevel *ft = toplevel_frame_at(server, cursor->x,
+				cursor->y, &rh);
+		if (ft == pressed && rh.part == wb::FramePart::Button)
+			activate_frame_button(ft, rh.button);
+		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		return;
+	}
+
 	if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
 		/* Server-side decoration interaction: a press on a window's titlebar,
 		 * border or a titlebar button. Resolved against the scene (respects
@@ -253,8 +286,11 @@ void wb_cursor::on_button(void *data) {
 				if (event->button == wb::MOUSE_BUTTON_LEFT)
 					begin_interactive(ft, WB_CURSOR_MOVE, 0);
 			} else if (fh.part == wb::FramePart::Button) {
-				if (event->button == wb::MOUSE_BUTTON_LEFT)
-					activate_frame_button(ft, fh.button);
+				/* Show the pressed state now; the action runs on release. */
+				if (event->button == wb::MOUSE_BUTTON_LEFT && ft->frame) {
+					ft->frame->set_pressed_button(fh.button);
+					server->frame_pressed = ft;
+				}
 			} else {
 				uint32_t edges = static_cast<uint32_t>(
 						wb::frame_part_resize_edges(fh.part));
