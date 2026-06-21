@@ -45,6 +45,10 @@ struct wb_server {
 	struct wlr_xdg_output_manager_v1 *output_manager;
 	struct wlr_renderer *renderer;
 	struct wlr_scene *scene;
+	/* Container for all xdg toplevels, kept at a fixed z between the lower
+	 * (background, bottom) and upper (top, overlay) layer-shell trees so panels
+	 * like Waybar correctly render above ordinary windows. */
+	struct wlr_scene_tree *toplevel_tree;
 	struct wlr_scene_output_layout *scene_layout;
 	struct wlr_session *session;
 	struct wlr_subcompositor *subcompositor;

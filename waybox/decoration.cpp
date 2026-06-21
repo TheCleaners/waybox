@@ -13,14 +13,22 @@
  * negotiation honours DecorMode::Full and client SSD requests. */
 static constexpr bool kSsdAvailable = true;
 
-/* Whether this toplevel should currently wear a server-side frame: the
- * negotiated decoration is server-side and it is not fullscreen. */
+/* Whether this toplevel should currently wear a server-side frame.
+ *
+ * SSD requires the client to participate in the xdg-decoration protocol: a
+ * client that never created a decoration object (notably GTK, which is
+ * CSD-only and always draws its own titlebar + shadow) cannot be told to drop
+ * its decorations, so imposing an SSD frame on it produces conflicting double
+ * decorations. We therefore only wear a frame when the client bound the
+ * decoration protocol for this toplevel; for such clients we then honour
+ * DecorMode and the client's requested mode. */
 static bool toplevel_wants_ssd(struct wb_toplevel *toplevel) {
 	if (toplevel->xdg_toplevel->current.fullscreen)
 		return false;
-	bool client_wants_ssd = toplevel->decoration != nullptr &&
-			toplevel->decoration->requested_mode ==
-					WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE;
+	if (toplevel->decoration == nullptr)
+		return false;  /* CSD-only client (e.g. GTK): leave its decorations be */
+	bool client_wants_ssd = toplevel->decoration->requested_mode ==
+			WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE;
 	return wb::negotiate_decoration(toplevel->decorations, client_wants_ssd,
 			kSsdAvailable) == wb::NegotiatedDecoration::ServerSide;
 }
