@@ -2,3 +2,4 @@ option('wlroots-version', type: 'string', value: '', description: 'The version o
 option('sanitize', type: 'feature', value: 'auto', description: 'Build with AddressSanitizer and UndefinedBehaviorSanitizer (auto: enabled for debug buildtypes)')
 option('tests_only', type: 'boolean', value: false, description: 'Build only the dependency-free unit tests (no wlroots/compositor); used for a sanitized CI job on stock distros')
 option('svg', type: 'feature', value: 'auto', description: 'Build with librsvg for SVG menu-icon support (auto: enabled when librsvg is present)')
+option('wbconf', type: 'feature', value: 'auto', description: 'Build the wbconf GTK4 settings GUI (auto: enabled when GTK4 is present)')

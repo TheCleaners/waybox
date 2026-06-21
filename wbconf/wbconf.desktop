@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Waybox Configuration
+GenericName=Window Manager Settings
+Comment=Tweak the waybox compositor: theme, titlebar, menu and task switcher
+Exec=wbconf
+Icon=preferences-desktop
+Terminal=false
+Categories=Settings;DesktopSettings;GTK;
+Keywords=waybox;openbox;compositor;wayland;theme;configuration;

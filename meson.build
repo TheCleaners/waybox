@@ -131,9 +131,16 @@ if not tests_only
     subdir('po')
   endif
 
+  # wbconf: an optional GTK4 settings GUI (obconf-style). Built only when GTK4
+  # is available, so the compositor still builds on hosts without it.
+  gtk4 = dependency('gtk4', required: get_option('wbconf'))
+
   subdir('data')
   subdir('protocol')
   subdir('waybox')
+  if gtk4.found()
+    subdir('wbconf')
+  endif
 endif
 
 subdir('test')

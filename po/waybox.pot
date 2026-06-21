@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: waybox\n"
 "Report-Msgid-Bugs-To: https://github.com/wizbright/waybox/issues\n"
-"POT-Creation-Date: 2024-01-25 21:21-0500\n"
+"POT-Creation-Date: 2026-06-21 15:16+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,6 +18,9 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 msgid "WARNING: Using files from Openbox. These may not work correctly."
+msgstr ""
+
+msgid "ERROR: No menu file found."
 msgstr ""
 
 msgid "ERROR: No configuration file found."
@@ -30,6 +33,9 @@ msgid "No nodesetval"
 msgstr ""
 
 msgid "No nodeset"
+msgstr ""
+
+msgid "Unable to determine the configuration file path."
 msgstr ""
 
 msgid ""
@@ -131,6 +137,12 @@ msgstr ""
 msgid "Failed to create allocator"
 msgstr ""
 
+msgid "Failed to create seat"
+msgstr ""
+
+msgid "Failed to create cursor"
+msgstr ""
+
 msgid "Failed to start backend"
 msgstr ""
 
@@ -143,5 +155,89 @@ msgstr ""
 msgid "Keyboard focus is now on surface"
 msgstr ""
 
-msgid "Focusing next toplevel"
+msgid "Could not determine the rc.xml path."
+msgstr ""
+
+msgid "Failed to write "
+msgstr ""
+
+msgid "Saved and reloaded waybox."
+msgstr ""
+
+msgid "Saved to "
+msgstr ""
+
+msgid "(no running waybox to reload)."
+msgstr ""
+
+msgid "Waybox Configuration"
+msgstr ""
+
+msgid "Theme:"
+msgstr ""
+
+msgid "Titlebar padding (px):"
+msgstr ""
+
+msgid "Button size (px, 0 = auto):"
+msgstr ""
+
+msgid "Resize grab margin (px):"
+msgstr ""
+
+msgid "Appearance"
+msgstr ""
+
+msgid "Placement:"
+msgstr ""
+
+msgid "Windows"
+msgstr ""
+
+msgid "Top:"
+msgstr ""
+
+msgid "Bottom:"
+msgstr ""
+
+msgid "Left:"
+msgstr ""
+
+msgid "Right:"
+msgstr ""
+
+msgid "Margins"
+msgstr ""
+
+msgid "Source (builtin or command):"
+msgstr ""
+
+msgid "Submenu opens on:"
+msgstr ""
+
+msgid "Submenu hover delay (ms):"
+msgstr ""
+
+msgid "Wrap selection:"
+msgstr ""
+
+msgid "Show icons:"
+msgstr ""
+
+msgid "Menu"
+msgstr ""
+
+msgid "Order:"
+msgstr ""
+
+msgid "Show OSD:"
+msgstr ""
+
+msgid "Switcher"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Save & Apply"
 msgstr ""

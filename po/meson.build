@@ -1,6 +1,6 @@
 add_project_arguments('-DGETTEXT_PACKAGE="' + meson.project_name().to_lower() + '"',
   '-DLOCALEDIR="' + get_option('prefix') / get_option('localedir') + '"',
-  '-DUSE_NLS=1', language: 'c')
+  '-DUSE_NLS=1', language: ['c', 'cpp'])
 
 i18n = import('i18n', required: false)
 if i18n.found()
