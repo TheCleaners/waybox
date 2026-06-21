@@ -1,9 +1,10 @@
 /*
  * wbconf — a small GTK4 settings GUI for waybox, modelled after Openbox's
- * obconf. It edits the user's rc.xml in place (preserving keybindings,
- * application rules and comments) through wb::RcDocument, then asks a running
- * waybox to reload (SIGUSR2). Only the settings the compositor actually honours
- * are exposed, grouped into obconf-style tabs, plus the waybox extensions
+ * obconf (in scope and in visual layout: bold section headers over indented
+ * content, a scrolling theme list, obconf-style tabs). It edits the user's
+ * rc.xml in place (preserving keybindings, application rules and comments)
+ * through wb::RcDocument, then asks a running waybox to reload (SIGUSR2). Only
+ * the settings the compositor honours are exposed, plus the waybox extensions
  * (titlebar / menu / switcher).
  *
  * All user-visible strings are wrapped in _() for translation, consistent with
@@ -120,8 +121,8 @@ struct Ui {
 	GtkLabel *status = nullptr;
 
 	/* Appearance */
-	GtkDropDown *theme = nullptr;
-	std::vector<std::string> theme_names;  /* parallel to the drop-down model */
+	GtkListBox *theme_list = nullptr;        /* obconf-style scrolling list */
+	std::vector<std::string> theme_names;    /* parallel to the list rows */
 	GtkSpinButton *pad_y = nullptr;
 	GtkSpinButton *button_size = nullptr;
 	GtkSpinButton *resize_grab = nullptr;
@@ -159,16 +160,42 @@ int index_of(const char *const *list, const std::string &value, int fallback) {
 	return fallback;
 }
 
-/* ---- Widget builders -------------------------------------------------- */
+/* ---- obconf-style layout helpers ------------------------------------- */
 
-GtkWidget *make_grid() {
+/* A notebook page: a vertical box with obconf's outer padding. */
+GtkWidget *make_page() {
+	GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+	gtk_widget_set_margin_top(page, 12);
+	gtk_widget_set_margin_bottom(page, 12);
+	gtk_widget_set_margin_start(page, 12);
+	gtk_widget_set_margin_end(page, 12);
+	return page;
+}
+
+/* A bold section header followed by an indented content box (obconf's idiom of
+ * "<span weight=\"bold\">Title</span>" over a 12px-indented VBox). Returns the
+ * content box to which callers append their controls. */
+GtkWidget *section(GtkWidget *page, const char *title) {
+	GtkWidget *header = gtk_label_new(nullptr);
+	char *markup = g_markup_printf_escaped("<span weight=\"bold\">%s</span>",
+			title);
+	gtk_label_set_markup(GTK_LABEL(header), markup);
+	g_free(markup);
+	gtk_widget_set_halign(header, GTK_ALIGN_START);
+	gtk_box_append(GTK_BOX(page), header);
+
+	GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+	gtk_widget_set_margin_start(content, 12);
+	gtk_box_append(GTK_BOX(page), content);
+	return content;
+}
+
+/* A grid for label/control rows, appended to a section's content box. */
+GtkWidget *section_grid(GtkWidget *content) {
 	GtkWidget *grid = gtk_grid_new();
 	gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
 	gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
-	gtk_widget_set_margin_top(grid, 12);
-	gtk_widget_set_margin_bottom(grid, 12);
-	gtk_widget_set_margin_start(grid, 12);
-	gtk_widget_set_margin_end(grid, 12);
+	gtk_box_append(GTK_BOX(content), grid);
 	return grid;
 }
 
@@ -178,7 +205,7 @@ void grid_label(GtkWidget *grid, int row, const char *text) {
 	gtk_grid_attach(GTK_GRID(grid), label, 0, row, 1, 1);
 }
 
-GtkWidget *grid_widget(GtkWidget *grid, int row, GtkWidget *w) {
+GtkWidget *grid_control(GtkWidget *grid, int row, GtkWidget *w) {
 	gtk_widget_set_halign(w, GTK_ALIGN_START);
 	gtk_grid_attach(GTK_GRID(grid), w, 1, row, 1, 1);
 	return w;
@@ -188,7 +215,7 @@ GtkSpinButton *add_spin(GtkWidget *grid, int row, const char *label,
 		int min, int max) {
 	grid_label(grid, row, label);
 	GtkWidget *spin = gtk_spin_button_new_with_range(min, max, 1);
-	grid_widget(grid, row, spin);
+	grid_control(grid, row, spin);
 	return GTK_SPIN_BUTTON(spin);
 }
 
@@ -204,35 +231,43 @@ GtkDropDown *add_dropdown(GtkWidget *grid, int row, const char *label,
 		const char *const *items) {
 	grid_label(grid, row, label);
 	GtkWidget *dd = gtk_drop_down_new_from_strings(items);
-	grid_widget(grid, row, dd);
+	grid_control(grid, row, dd);
 	return GTK_DROP_DOWN(dd);
 }
 
 /* ---- Read settings into the widgets ---------------------------------- */
 
 void populate(Ui *ui, const wb::WayboxSettings &s) {
-	/* Theme drop-down: installed themes, with the current one guaranteed
-	 * present and selected. */
+	/* Theme list: every installed theme, current one guaranteed present and
+	 * selected (obconf shows the active theme highlighted in the list). */
 	ui->theme_names = wb::installed_theme_names();
 	std::string current = s.theme_name.value_or("");
 	if (!current.empty() &&
 			std::find(ui->theme_names.begin(), ui->theme_names.end(), current) ==
 					ui->theme_names.end())
 		ui->theme_names.insert(ui->theme_names.begin(), current);
-	if (ui->theme_names.empty())
-		ui->theme_names.push_back(current.empty() ? "Clearlooks" : current);
+	if (ui->theme_names.empty() && !current.empty())
+		ui->theme_names.push_back(current);
 
-	std::vector<const char *> items;
-	for (const std::string &n : ui->theme_names)
-		items.push_back(n.c_str());
-	items.push_back(nullptr);
-	GtkStringList *model = gtk_string_list_new(items.data());
-	gtk_drop_down_set_model(ui->theme, G_LIST_MODEL(model));
-	g_object_unref(model);
-	guint sel = 0;
-	for (guint i = 0; i < ui->theme_names.size(); ++i)
-		if (ui->theme_names[i] == current) { sel = i; break; }
-	gtk_drop_down_set_selected(ui->theme, sel);
+	/* Clear any existing rows, then repopulate. */
+	GtkListBoxRow *row;
+	while ((row = gtk_list_box_get_row_at_index(ui->theme_list, 0)) != nullptr)
+		gtk_list_box_remove(ui->theme_list, GTK_WIDGET(row));
+	int sel = -1;
+	for (size_t i = 0; i < ui->theme_names.size(); ++i) {
+		GtkWidget *label = gtk_label_new(ui->theme_names[i].c_str());
+		gtk_widget_set_halign(label, GTK_ALIGN_START);
+		gtk_widget_set_margin_top(label, 4);
+		gtk_widget_set_margin_bottom(label, 4);
+		gtk_widget_set_margin_start(label, 6);
+		gtk_widget_set_margin_end(label, 6);
+		gtk_list_box_append(ui->theme_list, label);
+		if (ui->theme_names[i] == current)
+			sel = static_cast<int>(i);
+	}
+	if (sel >= 0)
+		gtk_list_box_select_row(ui->theme_list,
+				gtk_list_box_get_row_at_index(ui->theme_list, sel));
 
 	gtk_spin_button_set_value(ui->pad_y, s.titlebar_pad_y.value_or(2));
 	gtk_spin_button_set_value(ui->button_size, s.titlebar_button_size.value_or(0));
@@ -264,9 +299,11 @@ void populate(Ui *ui, const wb::WayboxSettings &s) {
 
 wb::WayboxSettings collect(Ui *ui) {
 	wb::WayboxSettings s;
-	guint t = gtk_drop_down_get_selected(ui->theme);
-	if (t != GTK_INVALID_LIST_POSITION && t < ui->theme_names.size())
-		s.theme_name = ui->theme_names[t];
+	if (GtkListBoxRow *r = gtk_list_box_get_selected_row(ui->theme_list)) {
+		int idx = gtk_list_box_row_get_index(r);
+		if (idx >= 0 && idx < static_cast<int>(ui->theme_names.size()))
+			s.theme_name = ui->theme_names[idx];
+	}
 	s.titlebar_pad_y = gtk_spin_button_get_value_as_int(ui->pad_y);
 	s.titlebar_button_size = gtk_spin_button_get_value_as_int(ui->button_size);
 	s.titlebar_resize_grab = gtk_spin_button_get_value_as_int(ui->resize_grab);
@@ -324,10 +361,86 @@ void on_close(GtkButton *, gpointer data) {
 	gtk_window_close(ui->window);
 }
 
+/* ---- obconf-style tab pages ------------------------------------------ */
+
+GtkWidget *build_theme_page(Ui *ui) {
+	GtkWidget *page = make_page();
+	GtkWidget *content = section(page, _("Theme"));
+
+	GtkWidget *scroller = gtk_scrolled_window_new();
+	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller),
+			GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+	gtk_widget_set_vexpand(scroller, TRUE);
+
+	GtkWidget *list = gtk_list_box_new();
+	gtk_list_box_set_selection_mode(GTK_LIST_BOX(list), GTK_SELECTION_BROWSE);
+	ui->theme_list = GTK_LIST_BOX(list);
+	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), list);
+	gtk_box_append(GTK_BOX(content), scroller);
+	return page;
+}
+
+GtkWidget *build_appearance_page(Ui *ui) {
+	GtkWidget *page = make_page();
+	GtkWidget *content = section(page, _("Window Titles"));
+	GtkWidget *grid = section_grid(content);
+	ui->pad_y = add_spin(grid, 0, _("Titlebar padding (px):"), 0, 16);
+	ui->button_size = add_spin(grid, 1, _("Button size (px, 0 = auto):"), 0, 64);
+	ui->resize_grab = add_spin(grid, 2, _("Resize grab margin (px):"), 0, 32);
+	return page;
+}
+
+GtkWidget *build_windows_page(Ui *ui) {
+	GtkWidget *page = make_page();
+	GtkWidget *content = section(page, _("Placing Windows"));
+	GtkWidget *grid = section_grid(content);
+	ui->placement = add_dropdown(grid, 0, _("Prefer to place windows:"),
+			kPlacement);
+	return page;
+}
+
+GtkWidget *build_margins_page(Ui *ui) {
+	GtkWidget *page = make_page();
+	GtkWidget *content = section(page, _("Reserved Screen Margins"));
+	GtkWidget *grid = section_grid(content);
+	ui->margin_top = add_spin(grid, 0, _("Top:"), 0, 1024);
+	ui->margin_bottom = add_spin(grid, 1, _("Bottom:"), 0, 1024);
+	ui->margin_left = add_spin(grid, 2, _("Left:"), 0, 1024);
+	ui->margin_right = add_spin(grid, 3, _("Right:"), 0, 1024);
+	return page;
+}
+
+GtkWidget *build_menu_page(Ui *ui) {
+	GtkWidget *page = make_page();
+	GtkWidget *content = section(page, _("Root Menu"));
+	GtkWidget *grid = section_grid(content);
+	grid_label(grid, 0, _("Source (builtin or command):"));
+	ui->menu_source = GTK_ENTRY(grid_control(grid, 0, gtk_entry_new()));
+	ui->submenu_open = add_dropdown(grid, 1, _("Submenu opens on:"), kSubmenu);
+	ui->hover_delay = add_spin(grid, 2, _("Submenu hover delay (ms):"), 0, 2000);
+	ui->menu_wrap = add_switch(grid, 3, _("Wrap selection:"));
+	ui->menu_icons = add_switch(grid, 4, _("Show icons:"));
+	return page;
+}
+
+GtkWidget *build_switcher_page(Ui *ui) {
+	GtkWidget *page = make_page();
+	GtkWidget *content = section(page, _("Task Switcher"));
+	GtkWidget *grid = section_grid(content);
+	ui->switcher_order = add_dropdown(grid, 0, _("Order:"), kOrder);
+	ui->switcher_osd = add_switch(grid, 1, _("Show on-screen display:"));
+	ui->switcher_wrap = add_switch(grid, 2, _("Wrap selection:"));
+	return page;
+}
+
+void add_tab(GtkWidget *notebook, GtkWidget *page, const char *label) {
+	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), page, gtk_label_new(label));
+}
+
 void build_window(GtkApplication *app, Ui *ui) {
 	ui->window = GTK_WINDOW(gtk_application_window_new(app));
-	gtk_window_set_title(ui->window, _("Waybox Configuration"));
-	gtk_window_set_default_size(ui->window, 460, 420);
+	gtk_window_set_title(ui->window, _("Waybox Configuration Manager"));
+	gtk_window_set_default_size(ui->window, 500, 460);
 
 	GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 	gtk_window_set_child(ui->window, vbox);
@@ -336,51 +449,12 @@ void build_window(GtkApplication *app, Ui *ui) {
 	gtk_widget_set_vexpand(notebook, TRUE);
 	gtk_box_append(GTK_BOX(vbox), notebook);
 
-	/* Appearance */
-	GtkWidget *appearance = make_grid();
-	const char *const empty[] = {"", nullptr};
-	ui->theme = add_dropdown(appearance, 0, _("Theme:"), empty);
-	ui->pad_y = add_spin(appearance, 1, _("Titlebar padding (px):"), 0, 16);
-	ui->button_size = add_spin(appearance, 2,
-			_("Button size (px, 0 = auto):"), 0, 64);
-	ui->resize_grab = add_spin(appearance, 3,
-			_("Resize grab margin (px):"), 0, 32);
-	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), appearance,
-			gtk_label_new(_("Appearance")));
-
-	/* Windows */
-	GtkWidget *windows = make_grid();
-	ui->placement = add_dropdown(windows, 0, _("Placement:"), kPlacement);
-	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), windows,
-			gtk_label_new(_("Windows")));
-
-	/* Margins */
-	GtkWidget *margins = make_grid();
-	ui->margin_top = add_spin(margins, 0, _("Top:"), 0, 1024);
-	ui->margin_bottom = add_spin(margins, 1, _("Bottom:"), 0, 1024);
-	ui->margin_left = add_spin(margins, 2, _("Left:"), 0, 1024);
-	ui->margin_right = add_spin(margins, 3, _("Right:"), 0, 1024);
-	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), margins,
-			gtk_label_new(_("Margins")));
-
-	/* Menu */
-	GtkWidget *menu = make_grid();
-	grid_label(menu, 0, _("Source (builtin or command):"));
-	ui->menu_source = GTK_ENTRY(grid_widget(menu, 0, gtk_entry_new()));
-	ui->submenu_open = add_dropdown(menu, 1, _("Submenu opens on:"), kSubmenu);
-	ui->hover_delay = add_spin(menu, 2, _("Submenu hover delay (ms):"), 0, 2000);
-	ui->menu_wrap = add_switch(menu, 3, _("Wrap selection:"));
-	ui->menu_icons = add_switch(menu, 4, _("Show icons:"));
-	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), menu,
-			gtk_label_new(_("Menu")));
-
-	/* Switcher */
-	GtkWidget *switcher = make_grid();
-	ui->switcher_order = add_dropdown(switcher, 0, _("Order:"), kOrder);
-	ui->switcher_osd = add_switch(switcher, 1, _("Show OSD:"));
-	ui->switcher_wrap = add_switch(switcher, 2, _("Wrap selection:"));
-	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), switcher,
-			gtk_label_new(_("Switcher")));
+	add_tab(notebook, build_theme_page(ui), _("Theme"));
+	add_tab(notebook, build_appearance_page(ui), _("Appearance"));
+	add_tab(notebook, build_windows_page(ui), _("Windows"));
+	add_tab(notebook, build_margins_page(ui), _("Margins"));
+	add_tab(notebook, build_menu_page(ui), _("Menu"));
+	add_tab(notebook, build_switcher_page(ui), _("Switcher"));
 
 	/* Action row + status line. */
 	GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
