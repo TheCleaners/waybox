@@ -136,13 +136,16 @@ void FrameView::set_pressed_button(int index) {
 void FrameView::layout() {
 	int g = metrics_.resize_grab;
 	if (grab_ != nullptr) {
-		wlr_scene_rect_set_size(grab_, outer_w_, outer_h_);
-		wlr_scene_node_set_position(&grab_->node, 0, 0);
+		/* The invisible grab rect extends `g` past the visible frame on every
+		 * side; its negative offset means hit-tests in the margin land here
+		 * (and resolve to border/corner resize) without enlarging the frame's
+		 * layout insets. */
+		wlr_scene_rect_set_size(grab_, outer_w_ + 2 * g, outer_h_ + 2 * g);
+		wlr_scene_node_set_position(&grab_->node, -g, -g);
 	}
 	if (bg_ != nullptr) {
-		/* The visible border backdrop is the frame minus the invisible margin. */
-		wlr_scene_rect_set_size(bg_, outer_w_ - 2 * g, outer_h_ - 2 * g);
-		wlr_scene_node_set_position(&bg_->node, g, g);
+		wlr_scene_rect_set_size(bg_, outer_w_, outer_h_);
+		wlr_scene_node_set_position(&bg_->node, 0, 0);
 	}
 
 	if (metrics_.titlebar <= 0) {
@@ -170,7 +173,7 @@ void FrameView::render_titlebar() {
 
 	/* Buttons occupy the right; the label fills the space left of them. */
 	std::vector<Rect> brects = button_rects();
-	int tb_x = titlebar_rect(outer_w_, metrics_).x;  /* grab + border */
+	int tb_x = titlebar_rect(outer_w_, metrics_).x;  /* = border */
 	int label_right = w;
 	if (!brects.empty()) {
 		/* button rects are in frame-local coords; shift into titlebar-local
