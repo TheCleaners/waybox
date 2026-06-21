@@ -437,6 +437,34 @@ void constrain_toplevel_to_usable_area(struct wb_toplevel *toplevel) {
 	toplevel->geometry.y = constrained.y + in.top;
 }
 
+/* Clamp a freshly-placed window so its *entire frame* (client plus the
+ * decoration insets) lies within `area` (a layout-coordinate rectangle, e.g.
+ * the usable area minus margins). Unlike constrain_toplevel_to_usable_area
+ * (which only reserves panel edges and lets a window be dragged partly
+ * off-screen), this keeps every border on-screen at map time, so a server-side
+ * frame's left border and titlebar are never clipped or pushed under a panel.
+ * Top-left takes priority when the frame is larger than the area. */
+static void clamp_frame_into_area(struct wb_toplevel *toplevel,
+		const wb::Rect &area) {
+	wb::FrameInsets in = toplevel_insets(toplevel);
+	int fw = toplevel->geometry.width + in.left + in.right;
+	int fh = toplevel->geometry.height + in.top + in.bottom;
+	int fx = toplevel->geometry.x - in.left;
+	int fy = toplevel->geometry.y - in.top;
+
+	if (fx + fw > area.x + area.width)
+		fx = area.x + area.width - fw;
+	if (fy + fh > area.y + area.height)
+		fy = area.y + area.height - fh;
+	if (fx < area.x)
+		fx = area.x;
+	if (fy < area.y)
+		fy = area.y;
+
+	toplevel->geometry.x = fx + in.left;
+	toplevel->geometry.y = fy + in.top;
+}
+
 static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 	/* Called when the surface is mapped, or ready to display on-screen. */
 	if (toplevel->xdg_toplevel->base->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL)
@@ -521,11 +549,16 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 	if (do_focus)
 		focus_toplevel(toplevel);
 
-	position_toplevel(toplevel);
-	log_geometry(toplevel, "mapped");
-
 	/* Sync the server-side frame (no-op unless SSD is negotiated for it). */
 	update_toplevel_decoration(toplevel);
+
+	/* Now that the frame (and thus the insets) exist, pull the whole frame
+	 * inside the placement area so a server-side titlebar/border is never
+	 * clipped off-screen or placed under a panel's reserved zone. Log the
+	 * final, on-screen position as "mapped" so restore geometry matches it. */
+	clamp_frame_into_area(toplevel, area);
+	position_toplevel(toplevel);
+	log_geometry(toplevel, "mapped");
 
 	/* Apply requested initial states after the base mapping. */
 	if (rule != nullptr) {

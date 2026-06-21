@@ -183,6 +183,11 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 				wlr_cursor_set_xcursor(server->cursor->cursor,
 						server->cursor->xcursor_manager, "default");
 			}
+			/* The pointer is over our decoration, not the client surface: drop
+			 * the client's pointer focus so that moving back inside the window
+			 * re-sends a pointer enter, prompting the client to reassert its own
+			 * cursor (otherwise it would keep the resize cursor we just set). */
+			wlr_seat_pointer_clear_focus(server->seat->seat);
 			wlr_idle_notifier_v1_notify_activity(server->idle_notifier,
 					server->seat->seat);
 			return;
