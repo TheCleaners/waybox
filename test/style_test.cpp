@@ -104,3 +104,22 @@ WB_TEST(enum_parsers_round_trip_names) {
 	WB_CHECK(wb::justify_from_name("right") == Justify::Right);
 	WB_CHECK(!wb::justify_from_name("bogus").has_value());
 }
+
+WB_TEST(theme_fonts_flow_into_resolved_styles) {
+	wb::Theme t = wb::default_theme();
+	t.font_active_title = {"Inter", 13, true};
+	t.font_inactive_title = {"Inter", 11, false};
+	t.font_menu_item = {"Cantarell", 12, false};
+	t.font_osd = {"Mono", 9, false};
+
+	wb::FrameStyle fa = wb::frame_style_from_theme(t, true);
+	WB_CHECK(fa.label.font.family == "Inter");
+	WB_CHECK(fa.label.font.size_pt == 13 && fa.label.font.bold == true);
+	wb::FrameStyle fi = wb::frame_style_from_theme(t, false);
+	WB_CHECK(fi.label.font.size_pt == 11 && fi.label.font.bold == false);
+
+	wb::MenuStyle ms = wb::menu_style_from_theme(t);
+	WB_CHECK(ms.item_text.font.family == "Cantarell");
+	wb::SwitcherStyle ss = wb::switcher_style_from_theme(t);
+	WB_CHECK(ss.item_text.font.family == "Mono" && ss.item_text.font.size_pt == 9);
+}

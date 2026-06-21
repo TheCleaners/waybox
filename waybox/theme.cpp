@@ -175,6 +175,27 @@ std::optional<Justify> justify_from_name(std::string_view name) {
 	return std::nullopt;
 }
 
+std::optional<FontPlace> font_place_from_name(std::string_view name) {
+	std::string n;
+	n.reserve(name.size());
+	for (char c : name)
+		n.push_back(static_cast<char>(std::tolower(
+				static_cast<unsigned char>(c))));
+	if (n == "activewindow")
+		return FontPlace::ActiveWindow;
+	if (n == "inactivewindow")
+		return FontPlace::InactiveWindow;
+	if (n == "menuheader")
+		return FontPlace::MenuHeader;
+	if (n == "menuitem")
+		return FontPlace::MenuItem;
+	/* Openbox distinguishes active/inactive OSD; waybox uses one OSD font. */
+	if (n == "activeonscreendisplay" || n == "inactiveonscreendisplay" ||
+			n == "onscreendisplay")
+		return FontPlace::OnScreenDisplay;
+	return std::nullopt;
+}
+
 namespace {
 
 void apply_color(std::string_view value, Color &out) {

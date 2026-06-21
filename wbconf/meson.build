@@ -10,9 +10,10 @@ wbconf_args = [
 
 executable(
   'wbconf',
-  ['main.cpp', files('../waybox/wbconf.cpp'), theme_src],
+  ['main.cpp', files('../waybox/wbconf.cpp'), theme_src, style_src, widget_src,
+   render_src],
   include_directories: [inc_dir],
-  dependencies: [gtk4, libxml2],
+  dependencies: [gtk4, libxml2, cairo, pango, pangocairo],
   cpp_args: wbconf_args,
   install: true,
 )

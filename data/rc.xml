@@ -11,9 +11,16 @@
   <!-- Theme for compositor-drawn chrome (the root menu, and titlebars once
        server-side decorations land). <name> resolves an Openbox theme under
        <datadir>/themes/<name>/openbox-3/themerc (e.g. Clearlooks). Omit (as
-       below) to use the built-in default; uncomment and set a name to theme it. -->
+       below) to use the built-in default; uncomment and set a name to theme it.
+       Per-place fonts live here too (Openbox <font place="..."> convention):
+       places are ActiveWindow, InactiveWindow, MenuHeader, MenuItem and
+       ActiveOnScreenDisplay. The titlebar height tracks the title font size. -->
   <!-- <theme>
     <name>Clearlooks</name>
+    <font place="ActiveWindow"><name>Sans</name><size>10</size><weight>bold</weight></font>
+    <font place="InactiveWindow"><name>Sans</name><size>10</size><weight>normal</weight></font>
+    <font place="MenuItem"><name>Sans</name><size>10</size><weight>normal</weight></font>
+    <font place="ActiveOnScreenDisplay"><name>Sans</name><size>10</size><weight>bold</weight></font>
   </theme> -->
   <!-- waybox-only extensions (Openbox ignores this block). Menu behaviour:
        submenuOpen="hover|click", hoverDelay (ms before a submenu opens on

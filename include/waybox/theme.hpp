@@ -47,7 +47,7 @@ struct Texture {
 /* A font, by Pango family/size. Lives here (not render.hpp) so the pure theme
  * and style layers can reference it without pulling in Cairo. */
 struct FontSpec {
-	const char *family = "sans";
+	std::string family = "sans";
 	int size_pt = 10;
 	bool bold = false;
 };
@@ -116,6 +116,15 @@ struct Theme {
 	WindowColors window_active;
 	WindowColors window_inactive;
 	MenuColors menu;
+
+	/* Per-place fonts (rc.xml <theme><font place="...">). Openbox keeps fonts
+	 * in rc.xml rather than themerc; config.cpp fills these in. All default to
+	 * the FontSpec default (sans 10pt). */
+	FontSpec font_active_title;     /* place="ActiveWindow" */
+	FontSpec font_inactive_title;   /* place="InactiveWindow" */
+	FontSpec font_menu_header;      /* place="MenuHeader" */
+	FontSpec font_menu_item;        /* place="MenuItem" */
+	FontSpec font_osd;              /* place="ActiveOnScreenDisplay" */
 };
 
 /*
@@ -127,6 +136,20 @@ std::optional<Color> parse_color(std::string_view spec);
 
 /* Parse a themerc justify value ("left"/"center"/"centre"/"right"). */
 std::optional<Justify> justify_from_name(std::string_view name);
+
+/* The configurable text "places" for fonts (rc.xml <theme><font place="...">),
+ * mapping Openbox's place names to the Theme's font fields. */
+enum class FontPlace {
+	ActiveWindow,
+	InactiveWindow,
+	MenuHeader,
+	MenuItem,
+	OnScreenDisplay,
+};
+
+/* Map an Openbox font place name to a FontPlace (case-insensitive). Recognises
+ * the Openbox names plus the OSD aliases; returns nullopt if unknown. */
+std::optional<FontPlace> font_place_from_name(std::string_view name);
 
 /* A Theme with the built-in defaults (a neutral fallback). */
 Theme default_theme();

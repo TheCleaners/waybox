@@ -454,6 +454,65 @@ static void parse_titlebar(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathFreeObject(object);
 }
 
+/* Parse Openbox font configuration: <theme><font place="...">[<name>, <size>,
+ * <weight>bold</weight>]</font></theme>. Each place maps to a Theme font field;
+ * fonts live in rc.xml (not themerc), so this runs after the theme is loaded. */
+static void parse_fonts(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:theme/ob:font", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval) {
+		for (int i = 0; i < object->nodesetval->nodeNr; i++) {
+			xmlNode *node = object->nodesetval->nodeTab[i];
+			if (node == NULL)
+				continue;
+			const char *place = (const char *) get_attribute(node, "place");
+			if (place == NULL)
+				continue;
+			auto fp = wb::font_place_from_name(place);
+			if (!fp)
+				continue;
+			wb::FontSpec *target = nullptr;
+			switch (*fp) {
+			case wb::FontPlace::ActiveWindow:
+				target = &config->theme.font_active_title; break;
+			case wb::FontPlace::InactiveWindow:
+				target = &config->theme.font_inactive_title; break;
+			case wb::FontPlace::MenuHeader:
+				target = &config->theme.font_menu_header; break;
+			case wb::FontPlace::MenuItem:
+				target = &config->theme.font_menu_item; break;
+			case wb::FontPlace::OnScreenDisplay:
+				target = &config->theme.font_osd; break;
+			}
+			if (target == nullptr)
+				continue;
+			for (xmlNode *c = node->children; c != NULL; c = c->next) {
+				if (c->type != XML_ELEMENT_NODE)
+					continue;
+				xmlChar *content = xmlNodeGetContent(c);
+				const char *v = content ? (const char *) content : "";
+				if (xmlStrcmp(c->name, (const xmlChar *) "name") == 0 &&
+						v[0] != '\0') {
+					target->family = v;
+				} else if (xmlStrcmp(c->name, (const xmlChar *) "size") == 0 &&
+						v[0] != '\0') {
+					int s = atoi(v);
+					if (s > 0)
+						target->size_pt = s;
+				} else if (xmlStrcmp(c->name, (const xmlChar *) "weight") == 0) {
+					target->bold = (xmlStrcasecmp((const xmlChar *) v,
+							(const xmlChar *) "bold") == 0);
+				}
+				if (content)
+					xmlFree(content);
+			}
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
 bool init_config(struct wb_server *server) {
 	struct wb_config *config = new (std::nothrow) wb_config{};
 	if (config == NULL)
@@ -553,6 +612,10 @@ bool init_config(struct wb_server *server) {
 	} else {
 		config->theme = wb::default_theme();
 	}
+
+	/* Per-place fonts: <theme><font place="...">. Applied onto the loaded
+	 * theme so they override its defaults. */
+	parse_fonts(config, ctxt);
 
 	/* Menu behaviour: waybox extension block <waybox><menu .../></waybox>, which
 	 * Openbox ignores. Attributes: submenuOpen="hover|click", hoverDelay="ms",

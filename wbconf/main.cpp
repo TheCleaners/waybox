@@ -28,6 +28,9 @@
 #include <unistd.h>
 
 #include "waybox/wbconf.hpp"
+#include "waybox/theme.hpp"
+#include "waybox/style.hpp"
+#include "waybox/render.hpp"
 
 #ifndef GETTEXT_PACKAGE
 #define GETTEXT_PACKAGE "waybox"
@@ -147,6 +150,16 @@ struct Ui {
 	GtkDropDown *switcher_order = nullptr;  /* mru / stacking / spatial */
 	GtkSwitch *switcher_osd = nullptr;
 	GtkSwitch *switcher_wrap = nullptr;
+
+	/* Fonts (GtkFontDialogButton per place) */
+	GtkFontDialogButton *font_active = nullptr;
+	GtkFontDialogButton *font_inactive = nullptr;
+	GtkFontDialogButton *font_menu_header = nullptr;
+	GtkFontDialogButton *font_menu_item = nullptr;
+	GtkFontDialogButton *font_osd = nullptr;
+
+	/* Live theme preview (redrawn when the theme/fonts change). */
+	GtkWidget *preview = nullptr;
 };
 
 const char *const kPlacement[] = {"Smart", "Center", "UnderMouse", nullptr};
@@ -235,7 +248,167 @@ GtkDropDown *add_dropdown(GtkWidget *grid, int row, const char *label,
 	return GTK_DROP_DOWN(dd);
 }
 
-/* ---- Read settings into the widgets ---------------------------------- */
+/* ---- Fonts + live theme preview -------------------------------------- */
+
+GtkFontDialogButton *add_font(GtkWidget *grid, int row, const char *label) {
+	grid_label(grid, row, label);
+	GtkFontDialog *dialog = gtk_font_dialog_new();
+	GtkWidget *btn = gtk_font_dialog_button_new(dialog);
+	gtk_widget_set_hexpand(btn, TRUE);
+	gtk_grid_attach(GTK_GRID(grid), btn, 1, row, 1, 1);
+	return GTK_FONT_DIALOG_BUTTON(btn);
+}
+
+/* Read a font button as a Pango-style "Family [Bold] Size" string, or nullopt
+ * if it was never set. */
+std::optional<std::string> font_value(GtkFontDialogButton *b) {
+	PangoFontDescription *d = gtk_font_dialog_button_get_font_desc(b);
+	if (d == nullptr)
+		return std::nullopt;
+	char *s = pango_font_description_to_string(d);
+	std::string out = s ? s : "";
+	g_free(s);
+	if (out.empty())
+		return std::nullopt;
+	return out;
+}
+
+void font_set(GtkFontDialogButton *b, const std::optional<std::string> &v) {
+	if (!v)
+		return;
+	PangoFontDescription *d = pango_font_description_from_string(v->c_str());
+	gtk_font_dialog_button_set_font_desc(b, d);
+	pango_font_description_free(d);
+}
+
+/* Collect the current settings from all widgets (forward declaration so the
+ * preview can render the live, unsaved state). */
+struct Ui;
+wb::WayboxSettings collect(Ui *ui);
+
+void to_cairo(cairo_t *cr, const wb::Color &c) {
+	cairo_set_source_rgba(cr, c.r / 255.0, c.g / 255.0, c.b / 255.0,
+			c.a / 255.0);
+}
+
+/* Draw one of the three glyph shapes (iconify, maximize, close) centred in a
+ * square, in the given colour. */
+void preview_glyph(cairo_t *cr, double cx, double cy, double s, int kind,
+		const wb::Color &fg) {
+	to_cairo(cr, fg);
+	cairo_set_line_width(cr, 1.5);
+	if (kind == 0) {  /* iconify: bottom line */
+		cairo_move_to(cr, cx - s, cy + s);
+		cairo_line_to(cr, cx + s, cy + s);
+	} else if (kind == 1) {  /* maximize: square */
+		cairo_rectangle(cr, cx - s, cy - s, 2 * s, 2 * s);
+	} else {  /* close: X */
+		cairo_move_to(cr, cx - s, cy - s);
+		cairo_line_to(cr, cx + s, cy + s);
+		cairo_move_to(cr, cx + s, cy - s);
+		cairo_line_to(cr, cx - s, cy + s);
+	}
+	cairo_stroke(cr);
+}
+
+/* Draw a single titlebar sample (active or inactive) with the theme's colours
+ * and label font, plus the three window buttons. Returns the height drawn. */
+int preview_titlebar(cairo_t *cr, const wb::Theme &theme, bool active,
+		int x, int y, int w, const char *title) {
+	wb::FrameStyle fs = wb::frame_style_from_theme(theme, active);
+	int text_h = wb::measure_text("Ag", fs.label.font).height;
+	int pad = std::max(theme.padding_y, 3);
+	int h = text_h + 2 * pad;
+	if (h < 18)
+		h = 18;
+
+	/* border + titlebar fill */
+	to_cairo(cr, fs.border.color);
+	cairo_rectangle(cr, x - 1, y - 1, w + 2, h + 2);
+	cairo_fill(cr);
+	wb::paint_fill(cr, x, y, w, h, fs.title_bar.fill);
+
+	/* label */
+	int ty = y + (h - text_h) / 2;
+	wb::paint_text(cr, x + 6, ty, title, fs.label.color, fs.label.font);
+
+	/* three buttons on the right */
+	int bs = (h * 2) / 3;
+	int by = y + (h - bs) / 2;
+	int bx = x + w - 6 - 3 * (bs + 2);
+	const wb::StateStyle &btn = fs.button.for_state(wb::WidgetState::Normal);
+	for (int i = 0; i < 3; i++) {
+		int cx = bx + i * (bs + 2) + bs / 2;
+		preview_glyph(cr, cx, by + bs / 2.0, bs * 0.28, i, btn.fg);
+	}
+	return h;
+}
+
+void preview_draw(GtkDrawingArea *, cairo_t *cr, int width, int height,
+		gpointer data) {
+	Ui *ui = static_cast<Ui *>(data);
+	wb::WayboxSettings s = collect(ui);
+
+	/* Resolve the theme being previewed (the live selection), with the live
+	 * font overrides applied on top. */
+	wb::Theme theme = s.theme_name ? wb::load_theme(*s.theme_name)
+			: wb::default_theme();
+	auto apply_font = [](const std::optional<std::string> &v, wb::FontSpec &f) {
+		if (!v)
+			return;
+		PangoFontDescription *d = pango_font_description_from_string(v->c_str());
+		if (const char *fam = pango_font_description_get_family(d))
+			f.family = fam;
+		int sz = pango_font_description_get_size(d);
+		if (sz > 0)
+			f.size_pt = pango_font_description_get_size_is_absolute(d)
+					? sz / PANGO_SCALE
+					: sz / PANGO_SCALE;
+		f.bold = pango_font_description_get_weight(d) >= PANGO_WEIGHT_BOLD;
+		pango_font_description_free(d);
+	};
+	apply_font(s.font_active_window, theme.font_active_title);
+	apply_font(s.font_inactive_window, theme.font_inactive_title);
+	apply_font(s.font_menu_item, theme.font_menu_item);
+	apply_font(s.font_osd, theme.font_osd);
+
+	/* Backdrop. */
+	cairo_set_source_rgb(cr, 0.18, 0.18, 0.2);
+	cairo_rectangle(cr, 0, 0, width, height);
+	cairo_fill(cr);
+
+	int margin = 12;
+	int w = width - 2 * margin;
+	int y = margin;
+	y += preview_titlebar(cr, theme, true, margin, y, w, _("Active window")) + 4;
+	/* a thin client area below the active titlebar */
+	cairo_set_source_rgb(cr, 0.93, 0.93, 0.93);
+	cairo_rectangle(cr, margin, y, w, 26);
+	cairo_fill(cr);
+	y += 26 + 12;
+	y += preview_titlebar(cr, theme, false, margin, y, w, _("Inactive window")) + 4;
+
+	/* A small menu sample. */
+	wb::MenuStyle ms = wb::menu_style_from_theme(theme);
+	y += 12;
+	int mh = wb::measure_text("Ag", ms.item_text.font).height + 6;
+	const char *items[] = {_("Terminal"), _("Web Browser"), _("Files")};
+	int mw = w / 2;
+	for (int i = 0; i < 3; i++) {
+		bool hot = (i == 1);
+		const wb::StateStyle &st = ms.item.for_state(
+				hot ? wb::WidgetState::Hover : wb::WidgetState::Normal);
+		wb::paint_fill(cr, margin, y, mw, mh, st.fill);
+		wb::paint_text(cr, margin + 8, y + 3, items[i], st.fg,
+				ms.item_text.font);
+		y += mh;
+	}
+}
+
+void preview_refresh(Ui *ui) {
+	if (ui->preview != nullptr)
+		gtk_widget_queue_draw(ui->preview);
+}
 
 void populate(Ui *ui, const wb::WayboxSettings &s) {
 	/* Theme list: every installed theme, current one guaranteed present and
@@ -293,6 +466,14 @@ void populate(Ui *ui, const wb::WayboxSettings &s) {
 			index_of(kOrder, s.switcher_order.value_or("mru"), 0));
 	gtk_switch_set_active(ui->switcher_osd, s.switcher_osd.value_or(true));
 	gtk_switch_set_active(ui->switcher_wrap, s.switcher_wrap.value_or(true));
+
+	font_set(ui->font_active, s.font_active_window);
+	font_set(ui->font_inactive, s.font_inactive_window);
+	font_set(ui->font_menu_header, s.font_menu_header);
+	font_set(ui->font_menu_item, s.font_menu_item);
+	font_set(ui->font_osd, s.font_osd);
+
+	preview_refresh(ui);
 }
 
 /* ---- Collect widget state back into a WayboxSettings ----------------- */
@@ -324,6 +505,12 @@ wb::WayboxSettings collect(Ui *ui) {
 	s.switcher_order = kOrder[gtk_drop_down_get_selected(ui->switcher_order)];
 	s.switcher_osd = gtk_switch_get_active(ui->switcher_osd);
 	s.switcher_wrap = gtk_switch_get_active(ui->switcher_wrap);
+
+	s.font_active_window = font_value(ui->font_active);
+	s.font_inactive_window = font_value(ui->font_inactive);
+	s.font_menu_header = font_value(ui->font_menu_header);
+	s.font_menu_item = font_value(ui->font_menu_item);
+	s.font_osd = font_value(ui->font_osd);
 	return s;
 }
 
@@ -375,8 +562,37 @@ GtkWidget *build_theme_page(Ui *ui) {
 	GtkWidget *list = gtk_list_box_new();
 	gtk_list_box_set_selection_mode(GTK_LIST_BOX(list), GTK_SELECTION_BROWSE);
 	ui->theme_list = GTK_LIST_BOX(list);
+	g_signal_connect_swapped(list, "selected-rows-changed",
+			G_CALLBACK(preview_refresh), ui);
 	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), list);
 	gtk_box_append(GTK_BOX(content), scroller);
+
+	/* Live preview pane below the theme list. */
+	GtkWidget *pcontent = section(page, _("Preview"));
+	GtkWidget *area = gtk_drawing_area_new();
+	gtk_widget_set_size_request(area, -1, 230);
+	gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(area), preview_draw, ui,
+			nullptr);
+	ui->preview = area;
+	gtk_box_append(GTK_BOX(pcontent), area);
+	return page;
+}
+
+GtkWidget *build_fonts_page(Ui *ui) {
+	GtkWidget *page = make_page();
+	GtkWidget *content = section(page, _("Fonts"));
+	GtkWidget *grid = section_grid(content);
+	ui->font_active = add_font(grid, 0, _("Active window title:"));
+	ui->font_inactive = add_font(grid, 1, _("Inactive window title:"));
+	ui->font_menu_header = add_font(grid, 2, _("Menu header:"));
+	ui->font_menu_item = add_font(grid, 3, _("Menu item:"));
+	ui->font_osd = add_font(grid, 4, _("On-screen display:"));
+	/* Refresh the preview whenever a font changes. */
+	for (GtkFontDialogButton *b : {ui->font_active, ui->font_inactive,
+			ui->font_menu_header, ui->font_menu_item, ui->font_osd}) {
+		g_signal_connect_swapped(b, "notify::font-desc",
+				G_CALLBACK(preview_refresh), ui);
+	}
 	return page;
 }
 
@@ -460,6 +676,7 @@ void build_window(GtkApplication *app, Ui *ui) {
 
 	add_tab(notebook, build_theme_page(ui), _("Theme"));
 	add_tab(notebook, build_appearance_page(ui), _("Appearance"));
+	add_tab(notebook, build_fonts_page(ui), _("Fonts"));
 	add_tab(notebook, build_windows_page(ui), _("Windows"));
 	add_tab(notebook, build_margins_page(ui), _("Margins"));
 	add_tab(notebook, build_menu_page(ui), _("Menu"));
