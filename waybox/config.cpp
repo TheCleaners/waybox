@@ -429,6 +429,31 @@ static void parse_switcher_behavior(struct wb_config *config,
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><titlebar paddingY="N" buttonSize="N" resizeGrab="N"/></waybox>:
+ * server-side-decoration sizing. Each attribute is optional; an absent value
+ * leaves the field at -1 ("unset"), and frame_metrics() picks a default. */
+static void parse_titlebar(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:titlebar", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *node = object->nodesetval->nodeTab[0];
+		if (node != NULL) {
+			if (const char *v = (const char *) get_attribute(node, "paddingY"))
+				if (v[0] != '\0')
+					config->titlebar.pad_y = atoi(v);
+			if (const char *v = (const char *) get_attribute(node, "buttonSize"))
+				if (v[0] != '\0')
+					config->titlebar.button_size = atoi(v);
+			if (const char *v = (const char *) get_attribute(node, "resizeGrab"))
+				if (v[0] != '\0')
+					config->titlebar.resize_grab = atoi(v);
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
 bool init_config(struct wb_server *server) {
 	struct wb_config *config = new (std::nothrow) wb_config{};
 	if (config == NULL)
@@ -534,6 +559,7 @@ bool init_config(struct wb_server *server) {
 	 * wrap="yes|no". */
 	parse_menu_behavior(config, ctxt);
 	parse_switcher_behavior(config, ctxt);
+	parse_titlebar(config, ctxt);
 
 	server->config = config;
 

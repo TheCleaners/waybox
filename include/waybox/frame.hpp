@@ -50,6 +50,8 @@ struct FrameMetrics {
 	int button_spacing = 2;   /* gap between buttons */
 	int title_pad = 4;        /* horizontal padding inside the titlebar */
 	int corner = 10;          /* corner grab reach for diagonal resize */
+	int resize_grab = 0;      /* invisible resize margin outside the visible
+	                           * frame; widens the border/corner grab area */
 };
 
 /* Decoration thickness on each side; the client area is the frame inset by it. */
@@ -102,6 +104,10 @@ enum {
 	WB_FRAME_EDGE_RIGHT = 8,
 };
 int frame_part_resize_edges(FramePart part);
+
+/* The xcursor name (e.g. "se-resize", "left_side") for a frame part's resize
+ * affordance, or nullptr for non-resize parts (titlebar/button/client). */
+const char *frame_part_cursor(FramePart part);
 
 }  // namespace wb
 

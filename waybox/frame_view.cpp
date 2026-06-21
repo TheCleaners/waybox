@@ -60,18 +60,28 @@ FrameView::FrameView(struct wlr_scene_tree *container, const FrameStyle &active,
 		std::vector<FrameButton> buttons)
 	: active_(active), inactive_(inactive), metrics_(metrics),
 	  buttons_(std::move(buttons)) {
+	/* A fully transparent rect spanning the whole frame (including the invisible
+	 * resize-grab margin) so the margin is hit-testable for edge/corner resize
+	 * even though it paints nothing. It sits at the very bottom. */
+	float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+	grab_ = wlr_scene_rect_create(container, 1, 1, clear);
+
 	float bg[4];
 	to_rgba(style().border.color, bg);
 	bg_ = wlr_scene_rect_create(container, 1, 1, bg);
-	/* Keep the decoration behind the client surface (the caller places the
-	 * surface above us in the same container). */
-	wlr_scene_node_lower_to_bottom(&bg_->node);
+
+	/* Stack from the bottom: grab rect, then the border backdrop just above it;
+	 * the titlebar canvas and the caller's client surface stay on top. */
+	wlr_scene_node_lower_to_bottom(&grab_->node);
+	wlr_scene_node_place_above(&bg_->node, &grab_->node);
 }
 
 FrameView::~FrameView() {
 	titlebar_.reset();
 	if (bg_ != nullptr)
 		wlr_scene_node_destroy(&bg_->node);
+	if (grab_ != nullptr)
+		wlr_scene_node_destroy(&grab_->node);
 }
 
 std::vector<Rect> FrameView::button_rects() const {
@@ -124,9 +134,15 @@ void FrameView::set_pressed_button(int index) {
 }
 
 void FrameView::layout() {
+	int g = metrics_.resize_grab;
+	if (grab_ != nullptr) {
+		wlr_scene_rect_set_size(grab_, outer_w_, outer_h_);
+		wlr_scene_node_set_position(&grab_->node, 0, 0);
+	}
 	if (bg_ != nullptr) {
-		wlr_scene_rect_set_size(bg_, outer_w_, outer_h_);
-		wlr_scene_node_set_position(&bg_->node, 0, 0);
+		/* The visible border backdrop is the frame minus the invisible margin. */
+		wlr_scene_rect_set_size(bg_, outer_w_ - 2 * g, outer_h_ - 2 * g);
+		wlr_scene_node_set_position(&bg_->node, g, g);
 	}
 
 	if (metrics_.titlebar <= 0) {
@@ -154,16 +170,19 @@ void FrameView::render_titlebar() {
 
 	/* Buttons occupy the right; the label fills the space left of them. */
 	std::vector<Rect> brects = button_rects();
+	int tb_x = titlebar_rect(outer_w_, metrics_).x;  /* grab + border */
 	int label_right = w;
 	if (!brects.empty()) {
 		/* button rects are in frame-local coords; shift into titlebar-local
-		 * (the titlebar starts at (border, border)). */
-		label_right = brects.front().x - metrics_.border - metrics_.title_pad;
+		 * (the titlebar canvas starts at the titlebar origin). */
+		label_right = brects.front().x - tb_x - metrics_.title_pad;
 	}
 
 	int label_x = metrics_.title_pad;
 	int text_h = measure_text(title_, s.label.font).height;
-	int text_y = (h - text_h) / 2;
+	/* Round to the nearest pixel (bias down) so the label isn't a pixel high
+	 * when the leftover vertical space is odd. */
+	int text_y = (h - text_h + 1) / 2;
 	if (s.label.justify == Justify::Center) {
 		int tw = measure_text(title_, s.label.font).width;
 		label_x = (label_right - tw) / 2;
@@ -173,10 +192,10 @@ void FrameView::render_titlebar() {
 	paint_text(cr, label_x, text_y, title_, s.label.color, s.label.font);
 
 	for (size_t i = 0; i < brects.size() && i < buttons_.size(); ++i) {
-		/* button rects are frame-local; convert to titlebar-local. */
+		/* button rects are frame-local; convert to titlebar-canvas-local. */
 		Rect r = brects[i];
-		r.x -= metrics_.border;
-		r.y -= metrics_.border;
+		r.x -= tb_x;
+		r.y -= titlebar_rect(outer_w_, metrics_).y;
 		WidgetState ws = WidgetState::Normal;
 		if (static_cast<int>(i) == pressed_button_)
 			ws = WidgetState::Pressed;
