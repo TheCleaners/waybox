@@ -160,3 +160,20 @@ WB_TEST(search_paths_default_data_dirs_and_no_xdg_home) {
 	WB_CHECK(paths[0] == "/home/u/.local/share/themes/Onyx/openbox-3/themerc");
 	WB_CHECK(paths[3] == "/usr/share/themes/Onyx/openbox-3/themerc");
 }
+
+WB_TEST(font_place_names_map_to_places) {
+	using wb::FontPlace;
+	WB_CHECK(wb::font_place_from_name("ActiveWindow") == FontPlace::ActiveWindow);
+	WB_CHECK(wb::font_place_from_name("InactiveWindow") == FontPlace::InactiveWindow);
+	WB_CHECK(wb::font_place_from_name("MenuHeader") == FontPlace::MenuHeader);
+	WB_CHECK(wb::font_place_from_name("MenuItem") == FontPlace::MenuItem);
+	/* case-insensitive + OSD aliases collapse to one place */
+	WB_CHECK(wb::font_place_from_name("activewindow") == FontPlace::ActiveWindow);
+	WB_CHECK(wb::font_place_from_name("ActiveOnScreenDisplay") ==
+			FontPlace::OnScreenDisplay);
+	WB_CHECK(wb::font_place_from_name("InactiveOnScreenDisplay") ==
+			FontPlace::OnScreenDisplay);
+	WB_CHECK(wb::font_place_from_name("OnScreenDisplay") ==
+			FontPlace::OnScreenDisplay);
+	WB_CHECK(!wb::font_place_from_name("Nonsense").has_value());
+}

@@ -35,12 +35,14 @@ MenuStyle menu_style_from_theme(const Theme &theme) {
 
 	s.title_bar.fill = paint_from_texture(m.title_bg);
 	s.title_text.color = m.title_text;
+	s.title_text.font = theme.font_menu_header;
 
 	s.item.normal = StateStyle{paint_from_texture(m.items_bg), m.items_text};
 	s.item.hover = StateStyle{paint_from_texture(m.items_active_bg), m.items_active_text};
 	s.item.pressed = s.item.hover;
 	s.item.disabled = StateStyle{paint_from_texture(m.items_bg), m.separator};
 	s.item_text.color = m.items_text;
+	s.item_text.font = theme.font_menu_item;
 
 	s.separator = m.separator;
 	s.item_spacing = theme.menu_item_spacing;
@@ -62,6 +64,7 @@ FrameStyle frame_style_from_theme(const Theme &theme, bool active) {
 			theme.padding_y, theme.padding_x};
 	f.label.color = w.label_text;
 	f.label.justify = theme.label_justify;
+	f.label.font = active ? theme.font_active_title : theme.font_inactive_title;
 
 	f.handle.fill = paint_from_texture(w.handle_bg);
 	f.grip.fill = paint_from_texture(w.grip_bg);
@@ -129,6 +132,7 @@ SwitcherStyle switcher_style_from_theme(const Theme &theme) {
 	s.item.pressed = s.item.hover;
 	s.item.disabled = StateStyle{paint_from_texture(m.items_bg), m.separator};
 	s.item_text.color = m.items_text;
+	s.item_text.font = theme.font_osd;
 	return s;
 }
 

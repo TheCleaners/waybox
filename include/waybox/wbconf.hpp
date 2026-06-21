@@ -43,6 +43,14 @@ struct WayboxSettings {
 	std::optional<std::string> switcher_order;      /* mru | stacking | spatial */
 	std::optional<bool> switcher_osd;
 	std::optional<bool> switcher_wrap;
+
+	/* Per-place fonts (theme/font place="..."). Each is "Family Size" in the
+	 * Pango convention (e.g. "Sans Bold 11"); std::nullopt means unset. */
+	std::optional<std::string> font_active_window;   /* place="ActiveWindow" */
+	std::optional<std::string> font_inactive_window; /* place="InactiveWindow" */
+	std::optional<std::string> font_menu_header;     /* place="MenuHeader" */
+	std::optional<std::string> font_menu_item;       /* place="MenuItem" */
+	std::optional<std::string> font_osd;             /* place="OnScreenDisplay" */
 };
 
 /*

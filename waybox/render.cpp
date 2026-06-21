@@ -21,7 +21,7 @@ PangoLayout *make_layout(cairo_t *cr, std::string_view text,
 		const FontSpec &font) {
 	PangoLayout *layout = pango_cairo_create_layout(cr);
 	PangoFontDescription *desc = pango_font_description_new();
-	pango_font_description_set_family(desc, font.family);
+	pango_font_description_set_family(desc, font.family.c_str());
 	pango_font_description_set_weight(desc,
 			font.bold ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
 	pango_font_description_set_size(desc, font.size_pt * PANGO_SCALE);

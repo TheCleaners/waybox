@@ -131,6 +131,86 @@ std::optional<bool> to_bool(const std::optional<std::string> &s) {
 
 const char *bool_str(bool b) { return b ? "yes" : "no"; }
 
+/* The <theme><font place="P"> element, or nullptr. */
+xmlNode *find_font(xmlNode *root, const char *place) {
+	xmlNode *theme = child_named(root, "theme");
+	if (theme == nullptr)
+		return nullptr;
+	for (xmlNode *c = theme->children; c != nullptr; c = c->next) {
+		if (!is_element(c, "font"))
+			continue;
+		if (auto p = attr_value(c, "place"); p && *p == place)
+			return c;
+	}
+	return nullptr;
+}
+
+/* Compose a <font place="P"> into a Pango-style "Family [Bold] Size" string,
+ * or nullopt if the place is absent. */
+std::optional<std::string> read_font(xmlNode *root, const char *place) {
+	xmlNode *font = find_font(root, place);
+	if (font == nullptr)
+		return std::nullopt;
+	std::string family = node_text(child_named(font, "name")).value_or("Sans");
+	std::optional<std::string> size = node_text(child_named(font, "size"));
+	std::optional<std::string> weight = node_text(child_named(font, "weight"));
+	std::string out = family;
+	if (weight) {
+		std::string w = *weight;
+		std::transform(w.begin(), w.end(), w.begin(),
+				[](unsigned char c) { return std::tolower(c); });
+		if (w == "bold")
+			out += " Bold";
+	}
+	if (size && !size->empty())
+		out += " " + *size;
+	return out;
+}
+
+/* Split a Pango-style "Family [Bold] Size" string into (family, size, bold).
+ * A trailing integer is the size; a "Bold" token sets weight; the rest is the
+ * family. */
+void parse_font(const std::string &spec, std::string &family, std::string &size,
+		bool &bold) {
+	std::vector<std::string> tokens;
+	std::string cur;
+	for (char c : spec) {
+		if (c == ' ') {
+			if (!cur.empty()) { tokens.push_back(cur); cur.clear(); }
+		} else {
+			cur.push_back(c);
+		}
+	}
+	if (!cur.empty())
+		tokens.push_back(cur);
+
+	bold = false;
+	size.clear();
+	std::vector<std::string> fam;
+	for (const std::string &t : tokens) {
+		std::string lo = t;
+		std::transform(lo.begin(), lo.end(), lo.begin(),
+				[](unsigned char c) { return std::tolower(c); });
+		bool numeric = !t.empty() &&
+				t.find_first_not_of("0123456789") == std::string::npos;
+		if (numeric) {
+			size = t;  /* last numeric token wins */
+		} else if (lo == "bold") {
+			bold = true;
+		} else if (lo == "regular" || lo == "normal" || lo == "italic" ||
+				lo == "oblique" || lo == "light" || lo == "medium") {
+			/* style/weight words we don't model: drop from the family name */
+		} else {
+			fam.push_back(t);
+		}
+	}
+	family.clear();
+	for (size_t i = 0; i < fam.size(); ++i)
+		family += (i ? " " : "") + fam[i];
+	if (family.empty())
+		family = "Sans";
+}
+
 }  // namespace
 
 RcDocument::RcDocument(RcDocument &&o) noexcept : doc_(o.doc_) {
@@ -202,6 +282,12 @@ WayboxSettings RcDocument::read() const {
 	s.titlebar_pad_y = to_int(attr_value(tb, "paddingY"));
 	s.titlebar_button_size = to_int(attr_value(tb, "buttonSize"));
 	s.titlebar_resize_grab = to_int(attr_value(tb, "resizeGrab"));
+
+	s.font_active_window = read_font(root, "ActiveWindow");
+	s.font_inactive_window = read_font(root, "InactiveWindow");
+	s.font_menu_header = read_font(root, "MenuHeader");
+	s.font_menu_item = read_font(root, "MenuItem");
+	s.font_osd = read_font(root, "ActiveOnScreenDisplay");
 	return s;
 }
 
@@ -244,6 +330,43 @@ std::optional<std::string> bool_opt_str(const std::optional<bool> &v) {
 	return std::string(bool_str(*v));
 }
 
+/* Create/update or remove the <theme><font place="P"> element from a
+ * Pango-style "Family [Bold] Size" string. */
+void put_font(xmlNode *root, const char *place,
+		const std::optional<std::string> &value) {
+	xmlNode *existing = find_font(root, place);
+	if (!value) {
+		if (existing) {
+			xmlUnlinkNode(existing);
+			xmlFreeNode(existing);
+		}
+		return;
+	}
+	std::string family, size;
+	bool bold = false;
+	parse_font(*value, family, size, bold);
+
+	xmlNode *theme = ensure_child(root, "theme");
+	xmlNode *font = existing;
+	if (font == nullptr) {
+		font = xmlNewNode(theme->ns, xc("font"));
+		xmlAddChild(theme, font);
+	}
+	xmlSetProp(font, xc("place"), xc(place));
+	auto set_child = [&](const char *name, const std::string &text) {
+		xmlNode *c = child_named(font, name);
+		if (c == nullptr) {
+			c = xmlNewNode(theme->ns, xc(name));
+			xmlAddChild(font, c);
+		}
+		xmlNodeSetContent(c, xc(text.c_str()));
+	};
+	set_child("name", family);
+	if (!size.empty())
+		set_child("size", size);
+	set_child("weight", bold ? "bold" : "normal");
+}
+
 }  // namespace
 
 void RcDocument::apply(const WayboxSettings &s) {
@@ -273,6 +396,12 @@ void RcDocument::apply(const WayboxSettings &s) {
 			int_str(s.titlebar_button_size));
 	put_attr(root, {"waybox", "titlebar"}, "resizeGrab",
 			int_str(s.titlebar_resize_grab));
+
+	put_font(root, "ActiveWindow", s.font_active_window);
+	put_font(root, "InactiveWindow", s.font_inactive_window);
+	put_font(root, "MenuHeader", s.font_menu_header);
+	put_font(root, "MenuItem", s.font_menu_item);
+	put_font(root, "ActiveOnScreenDisplay", s.font_osd);
 }
 
 std::string RcDocument::to_string() const {

@@ -113,3 +113,31 @@ WB_TEST(clearing_removes_nodes_and_attrs) {
 	WB_CHECK(xml.find("icons=") == std::string::npos);
 	WB_CHECK(xml.find("<name>") == std::string::npos);
 }
+
+WB_TEST(round_trips_fonts) {
+	auto doc = RcDocument::from_string(kMinimalRc);
+	WB_CHECK(doc.has_value());
+	WayboxSettings s = doc->read();
+	s.font_active_window = "Inter Bold 12";
+	s.font_menu_item = "Cantarell 11";
+	doc->apply(s);
+
+	std::string xml = doc->to_string();
+	/* Structured font element written under <theme>. */
+	WB_CHECK(xml.find("place=\"ActiveWindow\"") != std::string::npos);
+	WB_CHECK(xml.find("<name>Inter</name>") != std::string::npos);
+	WB_CHECK(xml.find("<size>12</size>") != std::string::npos);
+	WB_CHECK(xml.find("<weight>bold</weight>") != std::string::npos);
+
+	auto doc2 = RcDocument::from_string(xml);
+	WB_CHECK(doc2.has_value());
+	WayboxSettings r = doc2->read();
+	WB_CHECK(r.font_active_window && *r.font_active_window == "Inter Bold 12");
+	WB_CHECK(r.font_menu_item && *r.font_menu_item == "Cantarell 11");
+	WB_CHECK(!r.font_osd.has_value());
+
+	/* Clearing removes the font element. */
+	r.font_active_window = std::nullopt;
+	doc2->apply(r);
+	WB_CHECK(doc2->to_string().find("place=\"ActiveWindow\"") == std::string::npos);
+}
