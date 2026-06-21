@@ -108,6 +108,27 @@ void update_toplevel_decoration(struct wb_toplevel *toplevel) {
 	position_toplevel(toplevel);
 }
 
+void reconfigure_decorations(struct wb_server *server) {
+	if (server == nullptr)
+		return;
+	struct wb_toplevel *toplevel;
+	wl_list_for_each(toplevel, &server->toplevels, link) {
+		if (!toplevel->mapped)
+			continue;
+		/* Drop the existing frame so update_toplevel_decoration rebuilds it from
+		 * the new theme (colours, fonts, titlebar metrics). Clear any stale
+		 * pressed-button reference into the frame we're about to destroy. */
+		if (toplevel->frame) {
+			if (server->frame_pressed == toplevel)
+				server->frame_pressed = nullptr;
+			toplevel->frame.reset();
+		}
+		update_toplevel_decoration(toplevel);
+	}
+	/* Reposition/clamp for any inset changes (e.g. a taller titlebar). */
+	arrange_toplevels(server);
+}
+
 void apply_toplevel_decoration(struct wb_toplevel *toplevel) {
 	if (toplevel == nullptr || toplevel->decoration == nullptr)
 		return;

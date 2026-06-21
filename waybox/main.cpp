@@ -5,6 +5,7 @@
 #include "waybox/server.h"
 #include "waybox/menu_widget.hpp"
 #include "waybox/switcher_widget.hpp"
+#include "waybox/xdg_shell.h"
 
 bool show_help(char *name) {
 	printf(_("Syntax: %s [options]\n"), name);
@@ -36,6 +37,7 @@ void signal_handler(int sig) {
 		case SIGUSR2:
 			deinit_config(server.config);
 			init_config(&server);
+			reconfigure_decorations(&server);
 			break;
 	}
 }

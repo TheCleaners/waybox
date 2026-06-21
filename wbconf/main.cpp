@@ -119,11 +119,17 @@ int signal_waybox_reload() {
 
 /* ---- A lightweight font picker: family + size + bold ----------------- */
 
+struct Ui;
+
 struct FontPicker {
 	GtkDropDown *family = nullptr;
 	GtkSpinButton *size = nullptr;
 	GtkToggleButton *bold = nullptr;
+	GtkToggleButton *link = nullptr;  /* padlock: make this row the master */
 	std::vector<std::string> families;  /* parallel to the dropdown model */
+	/* Stable per-picker context so signal handlers know which row fired. */
+	Ui *ui = nullptr;
+	int index = -1;
 };
 
 /* ---- Widget set, bound to a WayboxSettings on save ------------------- */
@@ -171,13 +177,13 @@ struct Ui {
 	FontPicker font_menu_item;
 	FontPicker font_osd;
 
-	/* "Apply to all" controls at the top of the Fonts page. */
-	GtkDropDown *bulk_family = nullptr;
-	GtkSpinButton *bulk_size = nullptr;
+	/* When one font row's padlock is closed it becomes the master: every other
+	 * row greys out and live-mirrors its family/size/bold. -1 = no link. */
+	int link_master = -1;
 
 	/* Live theme preview (redrawn when the theme/fonts change). */
 	GtkWidget *preview = nullptr;
-	GtkNotebook *notebook = nullptr;  /* for "reset this page" */
+	GtkStack *stack = nullptr;  /* vertical-tab pages; for "reset this page" */
 
 	/* The settings as loaded, so Save only writes fonts the user changed
 	 * (the font buttons are seeded with a default so the picker pre-selects a
@@ -322,14 +328,30 @@ void family_item_bind(GtkSignalListItemFactory *, GtkListItem *item,
 	pango_attr_list_unref(attrs);
 }
 
-/* A custom, instant font picker: a family dropdown (each item rendered in its
- * own font), a size spin button and a bold toggle, laid out in one row. */
+/* Font-row signal handlers (defined after the Ui helpers below). */
+void on_font_changed(FontPicker *p);
+void on_link_toggled(GtkToggleButton *btn, gpointer data);
+
+/* A custom, instant font picker: a padlock that links this row to the others, a
+ * family dropdown (each item rendered in its own font), a size spin button and
+ * a bold toggle, laid out in one row. */
 void add_font(GtkWidget *grid, int row, const char *label, FontPicker *out,
-		GCallback on_change, gpointer user) {
+		Ui *ui, int index) {
 	grid_label(grid, row, label);
+	out->ui = ui;
+	out->index = index;
 
 	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 	gtk_widget_set_hexpand(box, TRUE);
+
+	/* Padlock: closing it links every other row to this one. */
+	GtkWidget *link = gtk_toggle_button_new();
+	gtk_button_set_icon_name(GTK_BUTTON(link), "changes-allow-symbolic");
+	gtk_widget_set_tooltip_text(link,
+			_("Link the other fonts to this one"));
+	gtk_widget_add_css_class(link, "flat");
+	out->link = GTK_TOGGLE_BUTTON(link);
+	gtk_box_append(GTK_BOX(box), link);
 
 	out->families = font_families();
 	std::vector<const char *> items;
@@ -361,11 +383,13 @@ void add_font(GtkWidget *grid, int row, const char *label, FontPicker *out,
 
 	gtk_grid_attach(GTK_GRID(grid), box, 1, row, 1, 1);
 
-	if (on_change != nullptr) {
-		g_signal_connect_swapped(fam, "notify::selected", on_change, user);
-		g_signal_connect_swapped(size, "value-changed", on_change, user);
-		g_signal_connect_swapped(bold, "toggled", on_change, user);
-	}
+	g_signal_connect_swapped(fam, "notify::selected",
+			G_CALLBACK(on_font_changed), out);
+	g_signal_connect_swapped(size, "value-changed",
+			G_CALLBACK(on_font_changed), out);
+	g_signal_connect_swapped(bold, "toggled",
+			G_CALLBACK(on_font_changed), out);
+	g_signal_connect(link, "toggled", G_CALLBACK(on_link_toggled), out);
 }
 
 /* Read a picker as a Pango-style "Family [Bold] Size" string. */
@@ -531,31 +555,166 @@ void preview_refresh(Ui *ui) {
 		gtk_widget_queue_draw(ui->preview);
 }
 
-/* All five font pickers, for the "apply to all" bulk controls. */
+/* ---- Per-theme mini swatch (the right side of each theme-list row) ----
+ * Replicates obconf's feel: a tiny stack with the menu on top (a normal entry
+ * with a submenu arrow, a disabled entry and a selected entry), then the active
+ * titlebar, then the inactive titlebar, all in miniature using the theme's own
+ * colours and fonts. */
+
+void free_std_string(gpointer p) { delete static_cast<std::string *>(p); }
+
+void theme_swatch_draw(GtkDrawingArea *area, cairo_t *cr, int width, int height,
+		gpointer) {
+	auto *name = static_cast<std::string *>(
+			g_object_get_data(G_OBJECT(area), "theme"));
+	wb::Theme theme = (name != nullptr && !name->empty())
+			? wb::load_theme(*name)
+			: wb::default_theme();
+
+	const int x = 1;
+	const int w = width - 2;
+
+	/* Backdrop. */
+	cairo_set_source_rgb(cr, 0.16, 0.16, 0.18);
+	cairo_rectangle(cr, 0, 0, width, height);
+	cairo_fill(cr);
+
+	auto tiny = [](wb::FontSpec f) { f.size_pt = 7; f.bold = false; return f; };
+
+	double y = 1;
+
+	/* --- Menu on top: normal (with submenu arrow), disabled, selected. --- */
+	wb::MenuStyle ms = wb::menu_style_from_theme(theme);
+	wb::FontSpec mfont = tiny(ms.item_text.font);
+	int rh = wb::measure_text("Ag", mfont).height + 4;
+	struct Row { const char *text; wb::WidgetState st; bool arrow; };
+	Row rows[] = {
+		{_("Normal"), wb::WidgetState::Normal, true},
+		{_("Disabled"), wb::WidgetState::Disabled, false},
+		{_("Selected"), wb::WidgetState::Hover, false},
+	};
+	/* Panel border + fill behind the three rows. */
+	to_cairo(cr, ms.panel.border.color);
+	cairo_rectangle(cr, x - 0.5, y - 0.5, w + 1, 3 * rh + 1);
+	cairo_set_line_width(cr, 1.0);
+	cairo_stroke(cr);
+	wb::paint_fill(cr, x, y, w, 3 * rh, ms.panel.fill);
+	for (const Row &r : rows) {
+		const wb::StateStyle &st = ms.item.for_state(r.st);
+		wb::paint_fill(cr, x, y, w, rh, st.fill);
+		wb::paint_text(cr, x + 4, y + 2, r.text, st.fg, mfont);
+		if (r.arrow)
+			wb::paint_text(cr, x + w - 8, y + 2, "\u203A", st.fg, mfont);
+		y += rh;
+	}
+
+	y += 3;
+
+	/* --- Active then inactive titlebars in miniature. --- */
+	auto titlebar = [&](bool active, const char *title) {
+		wb::FrameStyle fs = wb::frame_style_from_theme(theme, active);
+		wb::FontSpec lf = tiny(fs.label.font);
+		int th = wb::measure_text("Ag", lf).height + 4;
+		to_cairo(cr, fs.border.color);
+		cairo_rectangle(cr, x - 0.5, y - 0.5, w + 1, th + 1);
+		cairo_set_line_width(cr, 1.0);
+		cairo_stroke(cr);
+		wb::paint_fill(cr, x, y, w, th, fs.title_bar.fill);
+		wb::paint_text(cr, x + 4, y + 2, title, fs.label.color, lf);
+		/* three tiny buttons on the right */
+		const wb::StateStyle &btn = fs.button.for_state(wb::WidgetState::Normal);
+		int bs = th - 4;
+		for (int i = 0; i < 3; i++) {
+			double bx = x + w - 4 - (i + 1) * (bs + 2) + 2;
+			to_cairo(cr, btn.fg);
+			cairo_set_line_width(cr, 1.0);
+			cairo_rectangle(cr, bx, y + 2, bs, bs);
+			cairo_stroke(cr);
+		}
+		y += th + 2;
+	};
+	titlebar(true, _("Active"));
+	titlebar(false, _("Inactive"));
+}
+
+/* All five font pickers, indexed by their row position. */
 std::vector<FontPicker *> all_pickers(Ui *ui) {
 	return {&ui->font_active, &ui->font_inactive, &ui->font_menu_header,
 			&ui->font_menu_item, &ui->font_osd};
 }
 
-/* Apply the bulk family selection to every row. */
-void on_apply_family_all(GtkButton *, gpointer data) {
-	auto *ui = static_cast<Ui *>(data);
-	guint idx = gtk_drop_down_get_selected(ui->bulk_family);
+/* Show a closed padlock on the master row, an open one elsewhere. */
+void set_link_icon(FontPicker *p) {
+	bool master = p->ui->link_master == p->index;
+	gtk_button_set_icon_name(GTK_BUTTON(p->link),
+			master ? "changes-prevent-symbolic" : "changes-allow-symbolic");
+}
+
+/* Grey out every non-master row's controls while a link is engaged. */
+void set_followers_sensitive(Ui *ui) {
 	for (FontPicker *p : all_pickers(ui)) {
-		if (idx != GTK_INVALID_LIST_POSITION && idx < p->families.size())
-			gtk_drop_down_set_selected(p->family, idx);
+		bool enabled = ui->link_master < 0 || p->index == ui->link_master;
+		gtk_widget_set_sensitive(GTK_WIDGET(p->family), enabled);
+		gtk_widget_set_sensitive(GTK_WIDGET(p->size), enabled);
+		gtk_widget_set_sensitive(GTK_WIDGET(p->bold), enabled);
+		set_link_icon(p);
 	}
-	set_status(ui, _("Applied the family to all fonts (not yet saved)."));
+}
+
+/* Copy the master row's family/size/bold onto every other row. */
+void apply_master_to_followers(Ui *ui) {
+	if (ui->link_master < 0)
+		return;
+	std::vector<FontPicker *> ps = all_pickers(ui);
+	FontPicker *m = ps[ui->link_master];
+	guint fam = gtk_drop_down_get_selected(m->family);
+	int sz = gtk_spin_button_get_value_as_int(m->size);
+	bool bold = gtk_toggle_button_get_active(m->bold);
+	for (FontPicker *p : ps) {
+		if (p->index == ui->link_master)
+			continue;
+		if (fam != GTK_INVALID_LIST_POSITION && fam < p->families.size())
+			gtk_drop_down_set_selected(p->family, fam);
+		gtk_spin_button_set_value(p->size, sz);
+		gtk_toggle_button_set_active(p->bold, bold);
+	}
+}
+
+/* Any family/size/bold change: if it's the master, push it to the followers;
+ * always refresh the live preview. */
+void on_font_changed(FontPicker *p) {
+	Ui *ui = p->ui;
+	if (ui->link_master == p->index)
+		apply_master_to_followers(ui);
 	preview_refresh(ui);
 }
 
-/* Apply the bulk size to every row. */
-void on_apply_size_all(GtkButton *, gpointer data) {
-	auto *ui = static_cast<Ui *>(data);
-	int sz = gtk_spin_button_get_value_as_int(ui->bulk_size);
-	for (FontPicker *p : all_pickers(ui))
-		gtk_spin_button_set_value(p->size, sz);
-	set_status(ui, _("Applied the size to all fonts (not yet saved)."));
+/* Padlock toggled: closing makes this row the master (others grey out and
+ * mirror it); opening the master's padlock unlinks everything. */
+void on_link_toggled(GtkToggleButton *btn, gpointer data) {
+	auto *p = static_cast<FontPicker *>(data);
+	Ui *ui = p->ui;
+	if (gtk_toggle_button_get_active(btn)) {
+		ui->link_master = p->index;
+		/* Only one master at a time: pop any other closed padlock. */
+		for (FontPicker *q : all_pickers(ui)) {
+			if (q->index != p->index &&
+					gtk_toggle_button_get_active(q->link)) {
+				g_signal_handlers_block_by_func(
+						q->link, (gpointer)on_link_toggled, q);
+				gtk_toggle_button_set_active(q->link, FALSE);
+				g_signal_handlers_unblock_by_func(
+						q->link, (gpointer)on_link_toggled, q);
+			}
+		}
+		set_followers_sensitive(ui);
+		apply_master_to_followers(ui);
+		set_status(ui, _("Linked the other fonts to this one."));
+	} else if (ui->link_master == p->index) {
+		ui->link_master = -1;
+		set_followers_sensitive(ui);
+		set_status(ui, _("Unlinked fonts."));
+	}
 	preview_refresh(ui);
 }
 
@@ -578,13 +737,29 @@ void populate(Ui *ui, const wb::WayboxSettings &s) {
 		gtk_list_box_remove(ui->theme_list, GTK_WIDGET(row));
 	int sel = -1;
 	for (size_t i = 0; i < ui->theme_names.size(); ++i) {
+		/* obconf-style row: theme name on the left, a tiny live preview of the
+		 * theme (menu + active/inactive titlebars) pushed to the right edge. */
+		GtkWidget *rowbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+		gtk_widget_set_margin_top(rowbox, 4);
+		gtk_widget_set_margin_bottom(rowbox, 4);
+		gtk_widget_set_margin_start(rowbox, 6);
+		gtk_widget_set_margin_end(rowbox, 6);
+
 		GtkWidget *label = gtk_label_new(ui->theme_names[i].c_str());
 		gtk_widget_set_halign(label, GTK_ALIGN_START);
-		gtk_widget_set_margin_top(label, 4);
-		gtk_widget_set_margin_bottom(label, 4);
-		gtk_widget_set_margin_start(label, 6);
-		gtk_widget_set_margin_end(label, 6);
-		gtk_list_box_append(ui->theme_list, label);
+		gtk_widget_set_hexpand(label, TRUE);
+		gtk_label_set_xalign(GTK_LABEL(label), 0.0);
+		gtk_box_append(GTK_BOX(rowbox), label);
+
+		GtkWidget *swatch = gtk_drawing_area_new();
+		gtk_widget_set_size_request(swatch, 132, 78);
+		g_object_set_data_full(G_OBJECT(swatch), "theme",
+				new std::string(ui->theme_names[i]), free_std_string);
+		gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(swatch),
+				theme_swatch_draw, nullptr, nullptr);
+		gtk_box_append(GTK_BOX(rowbox), swatch);
+
+		gtk_list_box_append(ui->theme_list, rowbox);
 		if (ui->theme_names[i] == current)
 			sel = static_cast<int>(i);
 	}
@@ -717,63 +892,54 @@ void on_close(GtkButton *, gpointer data) {
 
 /* ---- Reset to defaults ----------------------------------------------- */
 
-/* The default values for one notebook page, set straight onto its widgets.
- * Page order matches build_window: 0 Theme, 1 Appearance, 2 Fonts, 3 Windows,
- * 4 Margins, 5 Menu, 6 Switcher. */
-void reset_page_widgets(Ui *ui, int page) {
-	switch (page) {
-	case 0:  /* Theme: clear the selection (built-in default theme). */
+/* The default values for one page, set straight onto its widgets, keyed by the
+ * page's stack name so reset is robust to tab order/placeholder pages. */
+void reset_page_widgets(Ui *ui, const std::string &name) {
+	if (name == "theme") {
 		gtk_list_box_unselect_all(ui->theme_list);
-		break;
-	case 1:  /* Appearance */
+	} else if (name == "appearance") {
 		gtk_spin_button_set_value(ui->pad_y, 2);
 		gtk_spin_button_set_value(ui->button_size, 0);
 		gtk_spin_button_set_value(ui->resize_grab, 8);
-		break;
-	case 2:  /* Fonts */
+	} else if (name == "fonts") {
 		font_set(&ui->font_active, "Sans 10");
 		font_set(&ui->font_inactive, "Sans 10");
 		font_set(&ui->font_menu_header, "Sans 10");
 		font_set(&ui->font_menu_item, "Sans 10");
 		font_set(&ui->font_osd, "Sans 10");
-		break;
-	case 3:  /* Windows */
+	} else if (name == "windows") {
 		gtk_drop_down_set_selected(ui->placement, 0);  /* Smart */
-		break;
-	case 4:  /* Margins */
+	} else if (name == "margins") {
 		gtk_spin_button_set_value(ui->margin_top, 0);
 		gtk_spin_button_set_value(ui->margin_bottom, 0);
 		gtk_spin_button_set_value(ui->margin_left, 0);
 		gtk_spin_button_set_value(ui->margin_right, 0);
-		break;
-	case 5:  /* Menu */
+	} else if (name == "menu") {
 		gtk_editable_set_text(GTK_EDITABLE(ui->menu_source), "builtin");
 		gtk_drop_down_set_selected(ui->submenu_open, 0);  /* hover */
 		gtk_spin_button_set_value(ui->hover_delay, 100);
 		gtk_switch_set_active(ui->menu_wrap, TRUE);
 		gtk_switch_set_active(ui->menu_icons, TRUE);
-		break;
-	case 6:  /* Switcher */
+	} else if (name == "switcher") {
 		gtk_drop_down_set_selected(ui->switcher_order, 0);  /* mru */
 		gtk_switch_set_active(ui->switcher_osd, TRUE);
 		gtk_switch_set_active(ui->switcher_wrap, TRUE);
-		break;
 	}
 	preview_refresh(ui);
 }
 
 void on_reset_page(GtkButton *, gpointer data) {
 	auto *ui = static_cast<Ui *>(data);
-	int page = gtk_notebook_get_current_page(ui->notebook);
-	reset_page_widgets(ui, page);
+	const char *name = gtk_stack_get_visible_child_name(ui->stack);
+	reset_page_widgets(ui, name != nullptr ? name : "");
 	set_status(ui, _("Reset this page to defaults (not yet saved)."));
 }
 
 void on_reset_all(GtkButton *, gpointer data) {
 	auto *ui = static_cast<Ui *>(data);
-	gint pages = gtk_notebook_get_n_pages(ui->notebook);
-	for (gint i = 0; i < pages; i++)
-		reset_page_widgets(ui, i);
+	for (const char *name : {"theme", "appearance", "fonts", "windows",
+			"margins", "menu", "switcher"})
+		reset_page_widgets(ui, name);
 	set_status(ui, _("Reset all settings to defaults (not yet saved)."));
 }
 
@@ -808,49 +974,19 @@ GtkWidget *build_theme_page(Ui *ui) {
 GtkWidget *build_fonts_page(Ui *ui) {
 	GtkWidget *page = make_page();
 
-	/* "Apply to all" toolbar: pick a family or a size and push it to every row
-	 * at once (handy for scaling the whole UI or switching one typeface). */
-	GtkWidget *bulk = section(page, _("Apply to all fonts"));
-	GtkWidget *brow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-
-	std::vector<std::string> fams = font_families();
-	std::vector<const char *> items;
-	for (const std::string &f : fams)
-		items.push_back(f.c_str());
-	items.push_back(nullptr);
-	GtkWidget *bfam = gtk_drop_down_new_from_strings(items.data());
-	gtk_drop_down_set_enable_search(GTK_DROP_DOWN(bfam), TRUE);
-	GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
-	g_signal_connect(factory, "setup", G_CALLBACK(family_item_setup), nullptr);
-	g_signal_connect(factory, "bind", G_CALLBACK(family_item_bind), nullptr);
-	gtk_drop_down_set_factory(GTK_DROP_DOWN(bfam), factory);
-	g_object_unref(factory);
-	gtk_widget_set_hexpand(bfam, TRUE);
-	ui->bulk_family = GTK_DROP_DOWN(bfam);
-	gtk_box_append(GTK_BOX(brow), bfam);
-	GtkWidget *set_fam = gtk_button_new_with_label(_("Set family"));
-	g_signal_connect(set_fam, "clicked", G_CALLBACK(on_apply_family_all), ui);
-	gtk_box_append(GTK_BOX(brow), set_fam);
-
-	GtkWidget *bsize = gtk_spin_button_new_with_range(4, 96, 1);
-	gtk_spin_button_set_value(GTK_SPIN_BUTTON(bsize), 10);
-	ui->bulk_size = GTK_SPIN_BUTTON(bsize);
-	gtk_box_append(GTK_BOX(brow), bsize);
-	GtkWidget *set_size = gtk_button_new_with_label(_("Set size"));
-	g_signal_connect(set_size, "clicked", G_CALLBACK(on_apply_size_all), ui);
-	gtk_box_append(GTK_BOX(brow), set_size);
-
-	gtk_box_append(GTK_BOX(bulk), brow);
-
-	/* Per-place pickers. */
+	/* Per-place pickers. Close a row's padlock to link the others to it. */
 	GtkWidget *content = section(page, _("Fonts"));
+	GtkWidget *hint = gtk_label_new(
+			_("Tip: close a row's padlock to link the other fonts to it."));
+	gtk_widget_add_css_class(hint, "dim-label");
+	gtk_label_set_xalign(GTK_LABEL(hint), 0.0);
+	gtk_box_append(GTK_BOX(content), hint);
 	GtkWidget *grid = section_grid(content);
-	GCallback refresh = G_CALLBACK(preview_refresh);
-	add_font(grid, 0, _("Active window title:"), &ui->font_active, refresh, ui);
-	add_font(grid, 1, _("Inactive window title:"), &ui->font_inactive, refresh, ui);
-	add_font(grid, 2, _("Menu header:"), &ui->font_menu_header, refresh, ui);
-	add_font(grid, 3, _("Menu item:"), &ui->font_menu_item, refresh, ui);
-	add_font(grid, 4, _("On-screen display:"), &ui->font_osd, refresh, ui);
+	add_font(grid, 0, _("Active window title:"), &ui->font_active, ui, 0);
+	add_font(grid, 1, _("Inactive window title:"), &ui->font_inactive, ui, 1);
+	add_font(grid, 2, _("Menu header:"), &ui->font_menu_header, ui, 2);
+	add_font(grid, 3, _("Menu item:"), &ui->font_menu_item, ui, 3);
+	add_font(grid, 4, _("On-screen display:"), &ui->font_osd, ui, 4);
 	return page;
 }
 
@@ -907,14 +1043,47 @@ GtkWidget *build_switcher_page(Ui *ui) {
 	return page;
 }
 
-void add_tab(GtkWidget *notebook, GtkWidget *page, const char *label) {
-	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), page, gtk_label_new(label));
+/* A placeholder page for obconf tabs we don't yet back with settings, so the
+ * full tab structure is present and honest about what's wired up. */
+GtkWidget *build_placeholder_page(const char *title, const char *note) {
+	GtkWidget *page = make_page();
+	GtkWidget *content = section(page, title);
+	GtkWidget *lbl = gtk_label_new(note);
+	gtk_widget_add_css_class(lbl, "dim-label");
+	gtk_label_set_wrap(GTK_LABEL(lbl), TRUE);
+	gtk_label_set_xalign(GTK_LABEL(lbl), 0.0);
+	gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+	gtk_box_append(GTK_BOX(content), lbl);
+	return page;
+}
+
+void on_about(GtkButton *, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	GtkWidget *dlg = gtk_about_dialog_new();
+	GtkAboutDialog *about = GTK_ABOUT_DIALOG(dlg);
+	gtk_about_dialog_set_program_name(about, _("Waybox Configuration Manager"));
+#ifdef PACKAGE_VERSION
+	gtk_about_dialog_set_version(about, PACKAGE_VERSION);
+#endif
+	gtk_about_dialog_set_comments(about,
+			_("Settings for the Waybox Wayland compositor."));
+	gtk_about_dialog_set_website(about, "https://github.com/TheCleaners/waybox");
+	gtk_about_dialog_set_website_label(about, _("Project page"));
+	gtk_about_dialog_set_license_type(about, GTK_LICENSE_GPL_3_0);
+	gtk_about_dialog_set_logo_icon_name(about, "preferences-system");
+	gtk_window_set_transient_for(GTK_WINDOW(dlg), ui->window);
+	gtk_window_set_modal(GTK_WINDOW(dlg), TRUE);
+	gtk_window_present(GTK_WINDOW(dlg));
+}
+
+void add_page(Ui *ui, GtkWidget *page, const char *name, const char *title) {
+	gtk_stack_add_titled(ui->stack, page, name, title);
 }
 
 void build_window(GtkApplication *app, Ui *ui) {
 	ui->window = GTK_WINDOW(gtk_application_window_new(app));
 	gtk_window_set_title(ui->window, _("Waybox Configuration Manager"));
-	gtk_window_set_default_size(ui->window, 500, 460);
+	gtk_window_set_default_size(ui->window, 720, 520);
 
 	/* An explicit header bar: GTK then owns a proper, draggable client-side
 	 * titlebar (a GtkWindowHandle) that drives compositor move/maximize
@@ -925,21 +1094,55 @@ void build_window(GtkApplication *app, Ui *ui) {
 	GtkWidget *header = gtk_header_bar_new();
 	gtk_window_set_titlebar(ui->window, header);
 
+	GtkWidget *about_btn = gtk_button_new_from_icon_name("help-about-symbolic");
+	gtk_widget_set_tooltip_text(about_btn, _("About"));
+	g_signal_connect(about_btn, "clicked", G_CALLBACK(on_about), ui);
+	gtk_header_bar_pack_end(GTK_HEADER_BAR(header), about_btn);
+
 	GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 	gtk_window_set_child(ui->window, vbox);
 
-	GtkWidget *notebook = gtk_notebook_new();
-	gtk_widget_set_vexpand(notebook, TRUE);
-	gtk_box_append(GTK_BOX(vbox), notebook);
-	ui->notebook = GTK_NOTEBOOK(notebook);
+	/* Vertical tabs (obconf-style): a sidebar list on the left driving a stack
+	 * of pages on the right. */
+	GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_set_vexpand(hbox, TRUE);
+	gtk_box_append(GTK_BOX(vbox), hbox);
 
-	add_tab(notebook, build_theme_page(ui), _("Theme"));
-	add_tab(notebook, build_appearance_page(ui), _("Appearance"));
-	add_tab(notebook, build_fonts_page(ui), _("Fonts"));
-	add_tab(notebook, build_windows_page(ui), _("Windows"));
-	add_tab(notebook, build_margins_page(ui), _("Margins"));
-	add_tab(notebook, build_menu_page(ui), _("Menu"));
-	add_tab(notebook, build_switcher_page(ui), _("Switcher"));
+	GtkWidget *stack = gtk_stack_new();
+	gtk_stack_set_hhomogeneous(GTK_STACK(stack), FALSE);
+	ui->stack = GTK_STACK(stack);
+
+	GtkWidget *sidebar = gtk_stack_sidebar_new();
+	gtk_stack_sidebar_set_stack(GTK_STACK_SIDEBAR(sidebar), GTK_STACK(stack));
+	gtk_box_append(GTK_BOX(hbox), sidebar);
+
+	GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
+	gtk_box_append(GTK_BOX(hbox), sep);
+
+	gtk_widget_set_hexpand(stack, TRUE);
+	gtk_box_append(GTK_BOX(hbox), stack);
+
+	/* obconf's tab order, plus waybox-specific pages. Placeholders mark tabs
+	 * whose backing settings aren't wired up yet (Display lands later). */
+	add_page(ui, build_theme_page(ui), "theme", _("Theme"));
+	add_page(ui, build_appearance_page(ui), "appearance", _("Appearance"));
+	add_page(ui, build_windows_page(ui), "windows", _("Windows"));
+	add_page(ui, build_placeholder_page(_("Move & Resize"),
+			_("Window move/resize behaviour is not configurable here yet.")),
+			"moveresize", _("Move & Resize"));
+	add_page(ui, build_placeholder_page(_("Mouse"),
+			_("Mouse bindings and focus options are not configurable here "
+			  "yet.")), "mouse", _("Mouse"));
+	add_page(ui, build_placeholder_page(_("Desktops"),
+			_("Virtual desktops are not implemented yet.")),
+			"desktops", _("Desktops"));
+	add_page(ui, build_margins_page(ui), "margins", _("Margins"));
+	add_page(ui, build_placeholder_page(_("Dock"),
+			_("Panel/dock placement is managed by your layer-shell panel.")),
+			"dock", _("Dock"));
+	add_page(ui, build_menu_page(ui), "menu", _("Menu"));
+	add_page(ui, build_switcher_page(ui), "switcher", _("Switcher"));
+	add_page(ui, build_fonts_page(ui), "fonts", _("Fonts"));
 
 	/* Action row + status line. */
 	GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);

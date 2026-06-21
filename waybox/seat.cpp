@@ -262,6 +262,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	case wb::ActionType::Reconfigure:
 		deinit_config(server->config);
 		init_config(server);
+		reconfigure_decorations(server);
 		break;
 	case wb::ActionType::ToggleDecorations: {
 		struct wb_toplevel *toplevel = first_toplevel(server);

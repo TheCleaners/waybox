@@ -5,6 +5,7 @@
 wbconf_args = [
   '-DGETTEXT_PACKAGE="' + meson.project_name().to_lower() + '"',
   '-DLOCALEDIR="' + get_option('prefix') / get_option('localedir') + '"',
+  '-DPACKAGE_VERSION="' + meson.project_version() + '"',
   '-DUSE_NLS=1',
 ]
 

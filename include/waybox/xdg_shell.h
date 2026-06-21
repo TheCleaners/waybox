@@ -97,6 +97,10 @@ void position_toplevel(struct wb_toplevel *toplevel);
 /* Create/destroy and synchronise the server-side decoration frame from the
  * toplevel's negotiated decoration mode + current state (size/title/focus). */
 void update_toplevel_decoration(struct wb_toplevel *toplevel);
+/* Rebuild every mapped toplevel's server-side frame from the (just reloaded)
+ * theme/config, so a Reconfigure picks up new colours, fonts and titlebar
+ * metrics on already-open windows. Repositions them for the new insets. */
+void reconfigure_decorations(struct wb_server *server);
 /* If the topmost scene node at (lx, ly) is a server-side decoration, return its
  * toplevel and the frame part hit (in *hit); otherwise NULL (the point is a
  * client surface, or empty desktop). Respects z-order/occlusion. */
