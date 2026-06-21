@@ -60,6 +60,7 @@ struct wb_config {
 	wb::MenuSource menu_source;  /* native widget or external launcher */
 	wb::Theme theme;    /* resolved theme (themerc), styles all drawn chrome */
 	wb::MenuBehavior menu_behavior;  /* rc.xml <waybox><menu ...> extensions */
+	wb::SwitcherBehavior switcher_behavior;  /* rc.xml <waybox><switcher ...> */
 };
 
 bool init_config(struct wb_server *server);

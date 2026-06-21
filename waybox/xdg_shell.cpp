@@ -546,6 +546,21 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 	}
 }
 
+/* Cancel any in-progress Alt+Tab switcher whose stable window list references
+ * `toplevel` (it is about to unmap or be destroyed), so the OSD never
+ * dereferences a freed toplevel. */
+static void cancel_switcher_for(struct wb_toplevel *toplevel) {
+	struct wb_server *server = toplevel->server;
+	if (server->switcher == nullptr)
+		return;
+	for (struct wb_toplevel *w : server->switcher_windows) {
+		if (w == toplevel) {
+			wb_switcher_cancel(server);
+			return;
+		}
+	}
+}
+
 static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
 	/* Called when the surface is unmapped, and should no longer be shown. */
 	if (toplevel->xdg_toplevel->base->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL)
@@ -553,6 +568,7 @@ static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
 	toplevel->mapped = false;
 	reset_cursor_mode(toplevel->server);
 	destroy_foreign_handle(toplevel);
+	cancel_switcher_for(toplevel);
 
 	/* Focus the next most-recently-used toplevel, if any. */
 	focus_next_after(toplevel->server, toplevel);
@@ -590,7 +606,6 @@ static void xdg_toplevel_commit(struct wb_toplevel *toplevel, void *data) {
 
 static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 	/* Called when the xdg_toplevel is destroyed and should never be shown again. */
-
 	struct wlr_output *output = get_active_output(toplevel);
 	struct wlr_xdg_surface *base = toplevel->xdg_toplevel->base;
 	if (output != NULL)
@@ -608,6 +623,9 @@ static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 		wlr_scene_node_destroy(&toplevel->scene_tree->node);
 	if (toplevel->server->frame_pressed == toplevel)
 		toplevel->server->frame_pressed = nullptr;
+	/* If this window is part of an in-progress Alt+Tab cycle, drop the OSD so
+	 * its window list never dereferences a freed toplevel. */
+	cancel_switcher_for(toplevel);
 
 	wl_list_remove(&toplevel->link);
 	wl_list_remove(&toplevel->focus_link);

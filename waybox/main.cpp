@@ -4,6 +4,7 @@
 
 #include "waybox/server.h"
 #include "waybox/menu_widget.hpp"
+#include "waybox/switcher_widget.hpp"
 
 bool show_help(char *name) {
 	printf(_("Syntax: %s [options]\n"), name);

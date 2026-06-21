@@ -23,6 +23,7 @@
        launcher command (e.g. source="rofi -show drun"). -->
   <waybox>
     <menu source="builtin" submenuOpen="hover" hoverDelay="100" wrap="yes" icons="yes"/>
+    <switcher order="mru" osd="yes" wrap="yes"/>
   </waybox>
   <!-- Where newly-mapped windows are placed: Smart (avoid overlap, then
        cascade), Center, or UnderMouse. -->

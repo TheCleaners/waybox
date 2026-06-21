@@ -18,6 +18,7 @@
 #include "waybox/window_cycle.hpp"
 #include "waybox/xdg_shell.h"
 #include "waybox/menu_widget.hpp"
+#include "waybox/switcher_widget.hpp"
 #include "waybox/style.hpp"
 #include "waybox/theme.hpp"
 #include "decoration.h"
@@ -70,6 +71,101 @@ static void cycle_toplevels_reverse(struct wb_server *server) {
 	cycle_toplevels_dir(server, true);
 }
 
+/* The modifier bits whose release commits the Alt+Tab switcher. Shift and the
+ * lock modifiers are excluded so Shift+Tab (reverse) and Caps/Num don't end the
+ * cycle. */
+static constexpr uint32_t kSwitcherTriggerMask =
+		WLR_MODIFIER_ALT | WLR_MODIFIER_LOGO | WLR_MODIFIER_CTRL;
+
+static std::string toplevel_label(struct wb_toplevel *t) {
+	if (t->xdg_toplevel->title != nullptr && t->xdg_toplevel->title[0] != '\0')
+		return t->xdg_toplevel->title;
+	if (t->xdg_toplevel->app_id != nullptr && t->xdg_toplevel->app_id[0] != '\0')
+		return t->xdg_toplevel->app_id;
+	return "(untitled)";
+}
+
+/* Dismiss the OSD and focus the selected window (Alt released / Return). */
+void wb_switcher_commit(struct wb_server *server) {
+	if (server->switcher == nullptr)
+		return;
+	int sel = server->switcher->selected();
+	std::vector<struct wb_toplevel *> wins = std::move(server->switcher_windows);
+	server->switcher.reset();
+	server->switcher_windows.clear();
+	server->switcher_mods = 0;
+	if (sel >= 0 && sel < static_cast<int>(wins.size()) && wins[sel]->mapped) {
+		deiconify_toplevel(wins[sel]);
+		focus_toplevel(wins[sel]);
+	}
+}
+
+/* Dismiss the OSD without changing focus (Escape, or a window vanished). */
+void wb_switcher_cancel(struct wb_server *server) {
+	server->switcher.reset();
+	server->switcher_windows.clear();
+	server->switcher_mods = 0;
+}
+
+/* Drive the Alt+Tab cycle. If the OSD is already up, advance the selection;
+ * otherwise, when a trigger modifier is held, build and show the OSD (commit on
+ * release). With no modifier held (e.g. a NextWindow binding without one) fall
+ * back to Openbox's instant focus cycle. */
+static void switcher_invoke(struct wb_server *server, bool reverse) {
+	if (server->switcher != nullptr) {
+		if (reverse)
+			server->switcher->select_prev();
+		else
+			server->switcher->select_next();
+		return;
+	}
+
+	uint32_t trigger = server->last_key_modifiers & kSwitcherTriggerMask;
+	bool osd = server->config == nullptr ? true
+			: server->config->switcher_behavior.show_on_hold;
+	if (trigger == 0 || !osd) {
+		if (reverse)
+			cycle_toplevels_reverse(server);
+		else
+			cycle_toplevels(server);
+		return;
+	}
+
+	std::vector<struct wb_toplevel *> wins;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->focus_order, focus_link)
+		if (t->mapped)
+			wins.push_back(t);
+	if (wins.size() < 2) {  /* nothing meaningful to switch between */
+		if (reverse)
+			cycle_toplevels_reverse(server);
+		else
+			cycle_toplevels(server);
+		return;
+	}
+
+	/* focus_order head is the current window; first Tab selects the next
+	 * most-recently-used one, first Shift+Tab the least. */
+	int sel = reverse ? static_cast<int>(wins.size()) - 1 : 1;
+
+	wb::SwitcherBehavior behavior = server->config
+			? server->config->switcher_behavior
+			: wb::SwitcherBehavior{};
+	wb::SwitcherStyle style = server->config
+			? wb::switcher_style_from_theme(server->config->theme)
+			: wb::switcher_style_from_theme(wb::default_theme());
+	auto widget = std::make_unique<wb::SwitcherWidget>(server, style, behavior);
+	std::vector<std::string> labels;
+	labels.reserve(wins.size());
+	for (struct wb_toplevel *w : wins)
+		labels.push_back(toplevel_label(w));
+	widget->open(std::move(labels), sel);
+
+	server->switcher_windows = std::move(wins);
+	server->switcher_mods = trigger;
+	server->switcher = std::move(widget);
+}
+
 /* Run a single parsed action against the live compositor state. This is the
  * "live" half of the action framework (the registry/parsing half lives in
  * action.cpp). Adding a new action means adding a case here plus a row in the
@@ -80,10 +176,10 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		wb_spawn(action.command.c_str());
 		break;
 	case wb::ActionType::NextWindow:
-		cycle_toplevels(server);
+		switcher_invoke(server, false);
 		break;
 	case wb::ActionType::PreviousWindow:
-		cycle_toplevels_reverse(server);
+		switcher_invoke(server, true);
 		break;
 	case wb::ActionType::Close: {
 		struct wb_toplevel *toplevel = first_toplevel(server);
@@ -280,6 +376,9 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 		 * the binding tree and would free step.node mid-iteration. */
 		std::vector<wb::Action> actions = step.node->actions;
 		server->active_keychain = nullptr;
+		/* Expose the triggering modifiers so NextWindow/PreviousWindow can tell
+		 * an Alt-held interactive cycle from a modifier-less instant switch. */
+		server->last_key_modifiers = modifiers;
 		for (const wb::Action &action : actions)
 			wb::run_action(action, server);
 		return true;
@@ -307,6 +406,14 @@ void wb_keyboard::on_modifiers(void *data) {
 	wlr_seat_set_keyboard(server->seat->seat, keyboard);
 	wlr_seat_keyboard_notify_modifiers(server->seat->seat,
 		&keyboard->modifiers);
+
+	/* Committing the Alt+Tab cycle: once any of the modifiers that opened the
+	 * switcher is released, focus the selected window and drop the OSD. */
+	if (server->switcher != nullptr && server->switcher_mods != 0) {
+		uint32_t mods = wlr_keyboard_get_modifiers(keyboard);
+		if ((mods & server->switcher_mods) != server->switcher_mods)
+			wb_switcher_commit(server);
+	}
 }
 
 void wb_keyboard::on_key(void *data) {
@@ -322,6 +429,37 @@ void wb_keyboard::on_key(void *data) {
 	bool handled = false;
 	uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard);
 	if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+		/* The Alt+Tab OSD grabs the keyboard: Tab/Shift+Tab move the selection,
+		 * Escape cancels, Return commits. All keys are swallowed so they neither
+		 * fire bindings nor reach clients while cycling. */
+		if (server->switcher != nullptr) {
+			for (int i = 0; i < nsyms; i++) {
+				xkb_keysym_t s = syms[i];
+				if (s == XKB_KEY_Escape) {
+					wb_switcher_cancel(server);
+					break;
+				}
+				if (s == XKB_KEY_Return || s == XKB_KEY_KP_Enter) {
+					wb_switcher_commit(server);
+					break;
+				}
+				if (s == XKB_KEY_Tab || s == XKB_KEY_ISO_Left_Tab) {
+					bool reverse = (s == XKB_KEY_ISO_Left_Tab) ||
+							(modifiers & WLR_MODIFIER_SHIFT);
+					if (reverse)
+						server->switcher->select_prev();
+					else
+						server->switcher->select_next();
+				} else if (s == XKB_KEY_Up || s == XKB_KEY_Left) {
+					server->switcher->select_prev();
+				} else if (s == XKB_KEY_Down || s == XKB_KEY_Right) {
+					server->switcher->select_next();
+				}
+			}
+			wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+			return;
+		}
+
 		/* An open menu grabs the keyboard: feed it Escape and swallow keys so
 		 * they neither trigger bindings nor reach clients. */
 		if (server->menu != nullptr) {
@@ -344,8 +482,10 @@ void wb_keyboard::on_key(void *data) {
 		for (int i = 0; i < nsyms; i++) {
 			handled = handle_keybinding(server, syms[i], modifiers);
 		}
-	} else if (server->menu != nullptr) {
-		/* Swallow key releases too while the menu is up. */
+	} else if (server->menu != nullptr || server->switcher != nullptr) {
+		/* Swallow key releases too while a menu or the switcher OSD is up.
+		 * (The modifier-release that commits the switcher arrives via
+		 * on_modifiers, not here.) */
 		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
 		return;
 	}

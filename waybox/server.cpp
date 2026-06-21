@@ -12,6 +12,7 @@
 #include "idle.h"
 #include "waybox/server.h"
 #include "waybox/menu_widget.hpp"
+#include "waybox/switcher_widget.hpp"
 #include "waybox/xdg_shell.h"
 
 void wb_spawn(const char *cmd) {

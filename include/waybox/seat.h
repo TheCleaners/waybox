@@ -36,4 +36,10 @@ struct wb_keyboard {
 struct wb_seat *wb_seat_create(struct wb_server *server);
 void seat_focus_surface(struct wb_seat *seat, struct wlr_surface *surface);
 void seat_set_focus_layer(struct wb_seat *seat, struct wlr_layer_surface_v1 *layer);
+
+/* Alt+Tab task-switcher lifecycle (defined in seat.cpp). commit focuses the
+ * selected window and drops the OSD; cancel drops it without changing focus.
+ * Both are no-ops when no switcher is active. */
+void wb_switcher_commit(struct wb_server *server);
+void wb_switcher_cancel(struct wb_server *server);
 #endif

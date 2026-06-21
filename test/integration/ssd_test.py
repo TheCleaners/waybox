@@ -126,7 +126,7 @@ def main():
             rc = 1
 
         # Click the close button (top-right of the titlebar) -> foot exits.
-        move_to(474, 86)
+        move_to(484, 87)
         subprocess.run(["wlrctl", "pointer", "click", "left"], env=cenv,
                        capture_output=True)
         try:
