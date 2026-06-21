@@ -419,17 +419,22 @@ void constrain_toplevel_to_usable_area(struct wb_toplevel *toplevel) {
 		return;
 
 	/* usable_area is output-local; shift it into layout coordinates so it shares
-	 * a space with the toplevel geometry and the output box. */
-	wb::Rect box{toplevel->geometry.x, toplevel->geometry.y,
-			toplevel->geometry.width, toplevel->geometry.height};
+	 * a space with the toplevel geometry and the output box. Constrain the whole
+	 * frame (client expanded by the decoration insets), so a server-side
+	 * titlebar can't be pushed off-screen above the usable area; then derive the
+	 * client position back from the constrained frame. */
+	wb::FrameInsets in = toplevel_insets(toplevel);
+	wb::Rect box{toplevel->geometry.x - in.left, toplevel->geometry.y - in.top,
+			toplevel->geometry.width + in.left + in.right,
+			toplevel->geometry.height + in.top + in.bottom};
 	wb::Rect outer{output_box.x, output_box.y, output_box.width,
 			output_box.height};
 	wb::Rect usable_layout{output_box.x + usable.x, output_box.y + usable.y,
 			usable.width, usable.height};
 
 	wb::Rect constrained = wb::constrain_to_usable(box, outer, usable_layout);
-	toplevel->geometry.x = constrained.x;
-	toplevel->geometry.y = constrained.y;
+	toplevel->geometry.x = constrained.x + in.left;
+	toplevel->geometry.y = constrained.y + in.top;
 }
 
 static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
@@ -639,7 +644,9 @@ static void log_geometry(struct wb_toplevel *toplevel, const char *tag) {
 			toplevel->geometry.x, toplevel->geometry.y);
 }
 
-/* Margin-inset usable area for `toplevel`, as a wb::Rect in layout coords. */
+/* Margin-inset usable area for `toplevel`, as a wb::Rect in layout coords.
+ * Server-side-decorated windows also reserve their decoration insets, so the
+ * *frame* (not just the client) fills the usable area when maximized. */
 static wb::Rect maximize_area(struct wb_toplevel *toplevel) {
 	struct wlr_box usable = get_usable_area(toplevel);
 	wb::Rect area{usable.x, usable.y, usable.width, usable.height};
@@ -649,6 +656,9 @@ static wb::Rect maximize_area(struct wb_toplevel *toplevel) {
 				wb::Strut{config->margins.left, config->margins.top,
 						config->margins.right, config->margins.bottom});
 	}
+	wb::FrameInsets fi = toplevel_insets(toplevel);
+	area = wb::apply_strut(area,
+			wb::Strut{fi.left, fi.top, fi.right, fi.bottom});
 	return area;
 }
 

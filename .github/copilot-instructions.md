@@ -182,8 +182,10 @@ syncs size/title/active/maximized. Frame **input** is handled in `cursor.cpp`
 via `toplevel_frame_at()` (resolves a scene-node click to a `FramePart`,
 respecting z-order): a titlebar press begins an interactive move, a border/
 corner press begins a resize (`frame_part_resize_edges` → `WLR_EDGE_*`), and a
-titlebar-button press runs iconify/maximize/close. Inset-aware
-maximize/placement is still to come.
+titlebar-button press runs iconify/maximize/close. Maximize and the on-screen
+constraint are inset-aware (`maximize_area` / `constrain_toplevel_to_usable_area`
+reserve the decoration insets), so a maximized frame fills the usable area with
+its titlebar on-screen.
 
 Presentation is layered so widgets never re-derive look-and-feel: `wb::Theme`
 (`waybox/theme.cpp`) is the **raw themerc file model** (Openbox keys verbatim,
