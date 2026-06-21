@@ -397,6 +397,8 @@ static void parse_menu_behavior(struct wb_config *config,
 					config->menu_behavior.submenu_delay_ms = atoi(v);
 			if (auto w = parse_bool((const char *) get_attribute(node, "wrap")))
 				config->menu_behavior.wrap = *w;
+			if (auto si = parse_bool((const char *) get_attribute(node, "icons")))
+				config->menu_behavior.show_icons = *si;
 			config->menu_source = wb::menu_source_from_config(
 					(const char *) get_attribute(node, "source"));
 		}

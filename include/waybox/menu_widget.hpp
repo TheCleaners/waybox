@@ -76,7 +76,7 @@ private:
 	void push_menu(const Menu *menu, const Rect &rect, int parent_item);
 	void close_below(size_t keep);  /* close levels deeper than index `keep` */
 	void open_submenu(size_t level_index, int item_index);
-	int menu_icon_column(const Menu *menu) const;
+	int menu_icon_column(const Menu *menu);
 	cairo_surface_t *icon_surface(const std::string &name);
 
 	struct wb_server *server_;

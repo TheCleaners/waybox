@@ -109,6 +109,13 @@ if not tests_only
   cairo = dependency('cairo')
   pango = dependency('pango')
   pangocairo = dependency('pangocairo')
+  # librsvg is optional: when present, menu icons can be loaded from SVG
+  # (most modern icon themes are SVG-only); otherwise icons are PNG-only and
+  # SVG icons are skipped safely.
+  rsvg = dependency('librsvg-2.0', required: get_option('svg'))
+  if rsvg.found()
+    add_project_arguments('-DHAVE_RSVG', language: 'cpp')
+  endif
 
   # render.cpp needs cairo/pango (not wlroots), so it is shared by the
   # compositor and the pixel test; only defined in the full build.

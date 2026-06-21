@@ -33,7 +33,7 @@ struct MenuStyle {
 	 * font size plus these knobs (the "compactness" of the menu). item_height
 	 * == 0 => derive it as (measured text height + 2*item_pad_y). */
 	int item_height = 0;
-	int item_pad_y = 4;    /* vertical padding above/below each label (density) */
+	int item_pad_y = 3;    /* vertical padding above/below each label (density) */
 	int item_spacing = 0;
 	int separator_height = 7;
 	int submenu_arrow_width = 16;
@@ -47,6 +47,7 @@ struct MenuBehavior {
 	SubmenuOpen submenu_open = SubmenuOpen::Hover;
 	int submenu_delay_ms = 100;  /* hover dwell before a submenu opens */
 	bool wrap = true;            /* keyboard navigation wraps at the ends */
+	bool show_icons = true;      /* draw per-item icons when available */
 };
 
 /* ---- Window frame (SSD: borders, titlebar, handle, buttons) ---------- */
