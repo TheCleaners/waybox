@@ -515,7 +515,11 @@ static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 	destroy_foreign_handle(toplevel);  /* no-op if already gone via unmap */
 
 	/* The wb::Listener members disconnect themselves when the toplevel is
-	 * deleted. */
+	 * deleted. Destroy the frame container we created; its children (the
+	 * client's surface_tree and any decoration nodes) are destroyed with it. */
+	if (toplevel->scene_tree != nullptr)
+		wlr_scene_node_destroy(&toplevel->scene_tree->node);
+
 	wl_list_remove(&toplevel->link);
 	wl_list_remove(&toplevel->focus_link);
 	delete toplevel;
@@ -826,11 +830,16 @@ static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 	bind(toplevel->commit, &xdg_toplevel->base->surface->events.commit, xdg_toplevel_commit);
 	bind(toplevel->destroy, &xdg_toplevel->events.destroy, xdg_toplevel_destroy);
 
-	toplevel->scene_tree = wlr_scene_xdg_surface_create(
-		&toplevel->server->scene->tree, xdg_toplevel->base);
-	assign_scene_descriptor(&toplevel->scene_tree->node,
+	/* Frame container holds the client surface (and, later, server-side
+	 * decoration nodes). For now the surface sits at the container origin: with
+	 * no decorations the insets are zero, so this is identical to attaching the
+	 * surface directly. */
+	toplevel->scene_tree = wlr_scene_tree_create(&toplevel->server->scene->tree);
+	toplevel->surface_tree = wlr_scene_xdg_surface_create(
+		toplevel->scene_tree, xdg_toplevel->base);
+	assign_scene_descriptor(&toplevel->surface_tree->node,
 			WB_SCENE_DESC_TOPLEVEL, toplevel);
-	xdg_toplevel->base->data = toplevel->scene_tree;
+	xdg_toplevel->base->data = toplevel->surface_tree;
 
 	bind(toplevel->request_fullscreen, &xdg_toplevel->events.request_fullscreen, xdg_toplevel_request_fullscreen);
 	bind(toplevel->request_maximize, &xdg_toplevel->events.request_maximize, xdg_toplevel_request_maximize);

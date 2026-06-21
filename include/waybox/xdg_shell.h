@@ -16,7 +16,13 @@ struct wb_popup {
 struct wb_toplevel {
 	struct wb_server *server = nullptr;
 	struct wlr_xdg_toplevel *xdg_toplevel = nullptr;
+	/* scene_tree is the per-window frame container (positioned, raised/lowered
+	 * and z-ordered as the window). surface_tree holds the client's xdg surface
+	 * inside it, offset by the decoration insets (zero for client-side
+	 * decorations). Server-side decoration nodes are siblings of surface_tree
+	 * under scene_tree. */
 	struct wlr_scene_tree *scene_tree = nullptr;
+	struct wlr_scene_tree *surface_tree = nullptr;
 
 	struct wlr_xdg_toplevel_decoration_v1 *decoration = nullptr;
 	/* Per-window decoration preference (app rule / ToggleDecorations). */
