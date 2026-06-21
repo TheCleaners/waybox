@@ -171,6 +171,10 @@ struct Ui {
 	FontPicker font_menu_item;
 	FontPicker font_osd;
 
+	/* "Apply to all" controls at the top of the Fonts page. */
+	GtkDropDown *bulk_family = nullptr;
+	GtkSpinButton *bulk_size = nullptr;
+
 	/* Live theme preview (redrawn when the theme/fonts change). */
 	GtkWidget *preview = nullptr;
 	GtkNotebook *notebook = nullptr;  /* for "reset this page" */
@@ -292,8 +296,34 @@ const std::vector<std::string> &font_families() {
 	return families;
 }
 
-/* A custom, instant font picker: a family dropdown, a size spin button and a
- * bold toggle, laid out in one row. Stored in `out`. */
+/* List-item factory callbacks that render each family name in its own font, so
+ * the drop-down (both the list and the selected button) previews the family. */
+void family_item_setup(GtkSignalListItemFactory *, GtkListItem *item,
+		gpointer) {
+	GtkWidget *label = gtk_label_new(nullptr);
+	gtk_label_set_xalign(GTK_LABEL(label), 0.0);
+	gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+	gtk_list_item_set_child(item, label);
+}
+
+void family_item_bind(GtkSignalListItemFactory *, GtkListItem *item,
+		gpointer) {
+	GtkWidget *label = gtk_list_item_get_child(item);
+	auto *obj = static_cast<GtkStringObject *>(gtk_list_item_get_item(item));
+	if (label == nullptr || obj == nullptr)
+		return;
+	const char *family = gtk_string_object_get_string(obj);
+	gtk_label_set_text(GTK_LABEL(label), family);
+	/* Render the name in its own family at a readable size. */
+	PangoAttrList *attrs = pango_attr_list_new();
+	pango_attr_list_insert(attrs, pango_attr_family_new(family));
+	pango_attr_list_insert(attrs, pango_attr_size_new(12 * PANGO_SCALE));
+	gtk_label_set_attributes(GTK_LABEL(label), attrs);
+	pango_attr_list_unref(attrs);
+}
+
+/* A custom, instant font picker: a family dropdown (each item rendered in its
+ * own font), a size spin button and a bold toggle, laid out in one row. */
 void add_font(GtkWidget *grid, int row, const char *label, FontPicker *out,
 		GCallback on_change, gpointer user) {
 	grid_label(grid, row, label);
@@ -311,6 +341,12 @@ void add_font(GtkWidget *grid, int row, const char *label, FontPicker *out,
 	gtk_widget_set_hexpand(fam, TRUE);
 	/* Make the long list searchable by typing. */
 	gtk_drop_down_set_enable_search(GTK_DROP_DOWN(fam), TRUE);
+	/* Render each family in its own font (button + list). */
+	GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
+	g_signal_connect(factory, "setup", G_CALLBACK(family_item_setup), nullptr);
+	g_signal_connect(factory, "bind", G_CALLBACK(family_item_bind), nullptr);
+	gtk_drop_down_set_factory(GTK_DROP_DOWN(fam), factory);
+	g_object_unref(factory);
 	out->family = GTK_DROP_DOWN(fam);
 	gtk_box_append(GTK_BOX(box), fam);
 
@@ -369,6 +405,7 @@ void font_set(FontPicker *p, const std::optional<std::string> &v) {
  * preview can render the live, unsaved state). */
 struct Ui;
 wb::WayboxSettings collect(Ui *ui);
+void set_status(Ui *ui, const std::string &text);
 
 void to_cairo(cairo_t *cr, const wb::Color &c) {
 	cairo_set_source_rgba(cr, c.r / 255.0, c.g / 255.0, c.b / 255.0,
@@ -492,6 +529,34 @@ void preview_draw(GtkDrawingArea *, cairo_t *cr, int width, int height,
 void preview_refresh(Ui *ui) {
 	if (ui->preview != nullptr)
 		gtk_widget_queue_draw(ui->preview);
+}
+
+/* All five font pickers, for the "apply to all" bulk controls. */
+std::vector<FontPicker *> all_pickers(Ui *ui) {
+	return {&ui->font_active, &ui->font_inactive, &ui->font_menu_header,
+			&ui->font_menu_item, &ui->font_osd};
+}
+
+/* Apply the bulk family selection to every row. */
+void on_apply_family_all(GtkButton *, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	guint idx = gtk_drop_down_get_selected(ui->bulk_family);
+	for (FontPicker *p : all_pickers(ui)) {
+		if (idx != GTK_INVALID_LIST_POSITION && idx < p->families.size())
+			gtk_drop_down_set_selected(p->family, idx);
+	}
+	set_status(ui, _("Applied the family to all fonts (not yet saved)."));
+	preview_refresh(ui);
+}
+
+/* Apply the bulk size to every row. */
+void on_apply_size_all(GtkButton *, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	int sz = gtk_spin_button_get_value_as_int(ui->bulk_size);
+	for (FontPicker *p : all_pickers(ui))
+		gtk_spin_button_set_value(p->size, sz);
+	set_status(ui, _("Applied the size to all fonts (not yet saved)."));
+	preview_refresh(ui);
 }
 
 void populate(Ui *ui, const wb::WayboxSettings &s) {
@@ -742,6 +807,42 @@ GtkWidget *build_theme_page(Ui *ui) {
 
 GtkWidget *build_fonts_page(Ui *ui) {
 	GtkWidget *page = make_page();
+
+	/* "Apply to all" toolbar: pick a family or a size and push it to every row
+	 * at once (handy for scaling the whole UI or switching one typeface). */
+	GtkWidget *bulk = section(page, _("Apply to all fonts"));
+	GtkWidget *brow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+
+	std::vector<std::string> fams = font_families();
+	std::vector<const char *> items;
+	for (const std::string &f : fams)
+		items.push_back(f.c_str());
+	items.push_back(nullptr);
+	GtkWidget *bfam = gtk_drop_down_new_from_strings(items.data());
+	gtk_drop_down_set_enable_search(GTK_DROP_DOWN(bfam), TRUE);
+	GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
+	g_signal_connect(factory, "setup", G_CALLBACK(family_item_setup), nullptr);
+	g_signal_connect(factory, "bind", G_CALLBACK(family_item_bind), nullptr);
+	gtk_drop_down_set_factory(GTK_DROP_DOWN(bfam), factory);
+	g_object_unref(factory);
+	gtk_widget_set_hexpand(bfam, TRUE);
+	ui->bulk_family = GTK_DROP_DOWN(bfam);
+	gtk_box_append(GTK_BOX(brow), bfam);
+	GtkWidget *set_fam = gtk_button_new_with_label(_("Set family"));
+	g_signal_connect(set_fam, "clicked", G_CALLBACK(on_apply_family_all), ui);
+	gtk_box_append(GTK_BOX(brow), set_fam);
+
+	GtkWidget *bsize = gtk_spin_button_new_with_range(4, 96, 1);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(bsize), 10);
+	ui->bulk_size = GTK_SPIN_BUTTON(bsize);
+	gtk_box_append(GTK_BOX(brow), bsize);
+	GtkWidget *set_size = gtk_button_new_with_label(_("Set size"));
+	g_signal_connect(set_size, "clicked", G_CALLBACK(on_apply_size_all), ui);
+	gtk_box_append(GTK_BOX(brow), set_size);
+
+	gtk_box_append(GTK_BOX(bulk), brow);
+
+	/* Per-place pickers. */
 	GtkWidget *content = section(page, _("Fonts"));
 	GtkWidget *grid = section_grid(content);
 	GCallback refresh = G_CALLBACK(preview_refresh);
