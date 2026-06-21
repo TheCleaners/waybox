@@ -102,29 +102,34 @@ WB_TEST(hit_test_corners_edges_titlebar_client) {
 WB_TEST(resize_grab_margin) {
 	FrameMetrics m = metrics();
 	m.resize_grab = 6;
-	/* The invisible margin grows the insets and shifts the titlebar inward. */
+	/* The grab margin is input-only: it must NOT enlarge the layout insets, the
+	 * frame size, or shift the titlebar (otherwise SSD windows float away from
+	 * screen edges/panels). */
 	wb::FrameInsets in = wb::frame_insets(m);
-	WB_CHECK(in.left == m.resize_grab + m.border);
-	WB_CHECK(in.top == m.resize_grab + m.border + m.titlebar);
-	WB_CHECK(in.bottom == m.resize_grab + m.border);
-
-	int outer_w = 200, outer_h = 150;
-	Rect tb = wb::titlebar_rect(outer_w, m);
-	WB_CHECK(tb.x == m.resize_grab + m.border);
-	WB_CHECK(tb.y == m.resize_grab + m.border);
+	WB_CHECK(in.left == m.border);
+	WB_CHECK(in.top == m.border + m.titlebar);
+	WB_CHECK(in.bottom == m.border);
+	WB_CHECK(wb::frame_width(100, m) == 100 + 2 * m.border);
+	Rect tb = wb::titlebar_rect(200, m);
+	WB_CHECK(tb.x == m.border && tb.y == m.border);
 
 	std::vector<FrameButton> buttons = {FrameButton::Iconify,
 			FrameButton::Maximize, FrameButton::Close};
-	/* A point inside the invisible margin (1px from the very edge, away from a
-	 * corner) is a graspable border, not the client. */
-	WB_CHECK(wb::frame_part_at(1, outer_h / 2, outer_w, outer_h, m, buttons)
-			.part == FramePart::BorderLeft);
-	WB_CHECK(wb::frame_part_at(outer_w / 2, 1, outer_w, outer_h, m, buttons)
-			.part == FramePart::BorderTop);
-	/* The corner reach spans the grab margin plus the corner reach. */
-	WB_CHECK(wb::frame_part_at(m.resize_grab + m.corner - 1,
-			m.resize_grab + m.corner - 1, outer_w, outer_h, m, buttons)
-			.part == FramePart::CornerTopLeft);
+	int outer_w = 200, outer_h = 150;
+	/* Points in the invisible margin are addressed with coordinates outside
+	 * [0, outer): negative above/left, >= outer below/right. They resolve to a
+	 * graspable border (the FrameView's grab rect makes them hit-testable). */
+	WB_CHECK(wb::frame_part_at(-m.resize_grab + 1, outer_h / 2, outer_w, outer_h,
+			m, buttons).part == FramePart::BorderLeft);
+	WB_CHECK(wb::frame_part_at(outer_w / 2, -m.resize_grab + 1, outer_w, outer_h,
+			m, buttons).part == FramePart::BorderTop);
+	WB_CHECK(wb::frame_part_at(outer_w + m.resize_grab - 1, outer_h / 2, outer_w,
+			outer_h, m, buttons).part == FramePart::BorderRight);
+	WB_CHECK(wb::frame_part_at(outer_w / 2, outer_h + m.resize_grab - 1, outer_w,
+			outer_h, m, buttons).part == FramePart::BorderBottom);
+	/* A margin point near a corner is a diagonal resize. */
+	WB_CHECK(wb::frame_part_at(-m.resize_grab + 1, -m.resize_grab + 1, outer_w,
+			outer_h, m, buttons).part == FramePart::CornerTopLeft);
 	/* Deep inside is still the client. */
 	WB_CHECK(wb::frame_part_at(outer_w / 2, outer_h / 2, outer_w, outer_h, m,
 			buttons).part == FramePart::Client);

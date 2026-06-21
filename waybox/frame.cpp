@@ -6,11 +6,17 @@
 namespace wb {
 
 FrameInsets frame_insets(const FrameMetrics &m) {
+	/* The layout insets are the *visible* decoration only (border + titlebar).
+	 * The invisible resize-grab margin is deliberately excluded: it is an input
+	 * affordance handled by the FrameView's grab rect and frame_part_at, and
+	 * must not shift the client, the placement, or the maximize/usable area
+	 * (otherwise SSD windows would float a grab-margin's worth away from screen
+	 * edges and panels). */
 	FrameInsets in;
-	in.top = m.resize_grab + m.border + m.titlebar;
-	in.left = m.resize_grab + m.border;
-	in.right = m.resize_grab + m.border;
-	in.bottom = m.resize_grab + m.border;
+	in.top = m.border + m.titlebar;
+	in.left = m.border;
+	in.right = m.border;
+	in.bottom = m.border;
 	return in;
 }
 
@@ -25,10 +31,8 @@ int frame_height(int client_h, const FrameMetrics &m) {
 }
 
 Rect titlebar_rect(int outer_w, const FrameMetrics &m) {
-	/* Just inside the top/side borders (which themselves sit inside the
-	 * invisible resize-grab margin). */
-	int inset = m.resize_grab + m.border;
-	return Rect{inset, inset, outer_w - 2 * inset, m.titlebar};
+	/* Just inside the top/side borders. */
+	return Rect{m.border, m.border, outer_w - 2 * m.border, m.titlebar};
 }
 
 std::vector<Rect> button_rects(int outer_w, const FrameMetrics &m,
@@ -61,13 +65,13 @@ FrameHit frame_part_at(int ox, int oy, int outer_w, int outer_h,
 		const FrameMetrics &m, const std::vector<FrameButton> &buttons) {
 	FrameInsets in = frame_insets(m);
 
-	/* Corners first (diagonal resize). The grab margin widens the reach so the
-	 * corners are easy to grab even with a thin visible border. */
-	int reach = m.resize_grab + m.corner;
-	bool near_left = ox < reach;
-	bool near_right = ox >= outer_w - reach;
-	bool near_top = oy < reach;
-	bool near_bottom = oy >= outer_h - reach;
+	/* Corners first (diagonal resize). Coordinates in the invisible grab margin
+	 * are negative (top/left) or past outer_w/outer_h (bottom/right), so a
+	 * margin point is naturally "near" the corresponding edge here. */
+	bool near_left = ox < m.corner;
+	bool near_right = ox >= outer_w - m.corner;
+	bool near_top = oy < m.corner;
+	bool near_bottom = oy >= outer_h - m.corner;
 	if (near_top && near_left)
 		return {FramePart::CornerTopLeft, -1};
 	if (near_top && near_right)
@@ -88,7 +92,8 @@ FrameHit frame_part_at(int ox, int oy, int outer_w, int outer_h,
 	if (m.titlebar > 0 && in_rect(ox, oy, titlebar_rect(outer_w, m)))
 		return {FramePart::Titlebar, -1};
 
-	/* Edges: the whole inset ring (grab margin + visible border) resizes. */
+	/* Edges: the visible border plus the invisible grab margin outside it (the
+	 * margin falls outside [0, outer) so these comparisons capture it). */
 	if (oy < in.top - m.titlebar)  /* everything above the titlebar */
 		return {FramePart::BorderTop, -1};
 	if (oy >= outer_h - in.bottom)
