@@ -751,6 +751,12 @@ void set_toplevel_maximized(struct wb_toplevel *toplevel, bool horz, bool vert) 
 void set_toplevel_fullscreen(struct wb_toplevel *toplevel, bool fullscreen) {
 	if (!toplevel->xdg_toplevel->base->initialized)
 		return;
+	/* No-op if the state is already what was asked for. Clients (notably GTK)
+	 * send redundant unset_fullscreen requests while managing their state;
+	 * acting on them would corrupt geometry (restoring an unset restore rect)
+	 * or needlessly re-fullscreen. */
+	if (fullscreen == toplevel->xdg_toplevel->current.fullscreen)
+		return;
 
 	if (fullscreen) {
 		toplevel->restore_fullscreen = toplevel->geometry;
@@ -788,22 +794,30 @@ void set_toplevel_fullscreen(struct wb_toplevel *toplevel, bool fullscreen) {
 
 static void xdg_toplevel_request_fullscreen(
 		struct wb_toplevel *toplevel, void *data) {
-	/* Toggle fullscreen on the client's request (e.g. a video player). A
-	 * request before the first commit would assert in wlroots, so it is
-	 * ignored until the surface is initialized; the client can re-request. */
+	/* Apply the state the client actually asked for. wlroots raises this event
+	 * for both set_fullscreen and unset_fullscreen, with the desired value in
+	 * requested.fullscreen — toggling instead would turn a client's redundant
+	 * "unset fullscreen" (which GTK sends while managing its window state) into
+	 * an unexpected fullscreen, blowing the window up to full screen. A request
+	 * before the first commit would assert in wlroots, so ignore it until the
+	 * surface is initialized; the client can re-request. */
 	if (!toplevel->xdg_toplevel->base->initialized)
 		return;
 	set_toplevel_fullscreen(toplevel,
-			!toplevel->xdg_toplevel->current.fullscreen);
+			toplevel->xdg_toplevel->requested.fullscreen);
 }
 
 static void xdg_toplevel_request_maximize(struct wb_toplevel *toplevel, void *data) {
-	/* The client asked to (un)maximize, e.g. via its CSD maximize button.
-	 * Toggle full maximize. Ignored until initialized (see above). */
+	/* Apply the maximize state the client asked for (requested.maximized), for
+	 * the same reason as fullscreen above: a redundant unset_maximized must not
+	 * be toggled into a maximize. Ignored until initialized. */
 	if (!toplevel->xdg_toplevel->base->initialized)
 		return;
-	const bool full = toplevel->max_horz && toplevel->max_vert;
-	set_toplevel_maximized(toplevel, !full, !full);
+	bool maximize = toplevel->xdg_toplevel->requested.maximized;
+	bool currently_full = toplevel->max_horz && toplevel->max_vert;
+	if (maximize == currently_full)
+		return;  /* redundant request (e.g. GTK's unset while not maximized) */
+	set_toplevel_maximized(toplevel, maximize, maximize);
 }
 
 static void xdg_toplevel_request_minimize(struct wb_toplevel *toplevel, void *data) {
