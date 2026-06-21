@@ -136,6 +136,18 @@ if not get_option('tests_only')
   test('menu_parse', menu_parse_test)
 endif
 
+# wbconf rc.xml model round-trip test; links libxml2 + theme, full-build only.
+if not get_option('tests_only')
+  wbconf_test = executable(
+    'wbconf_test',
+    ['wbconf_test.cpp', 'wb_test_main.cpp', files('../waybox/wbconf.cpp'),
+     theme_src],
+    include_directories: [inc_dir],
+    dependencies: [libxml2],
+    )
+  test('wbconf', wbconf_test)
+endif
+
 # Headless integration test driving real synthesized input via the
 # virtual-keyboard protocol. Skips (exit 77) when foot/wtype or a headless
 # display are unavailable, so CI stays green; run a sanitized local build to

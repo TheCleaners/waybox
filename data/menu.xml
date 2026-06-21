@@ -37,6 +37,14 @@
     </action>
   </item>
 
+  <separator/>
+
+  <item label="Configure" icon="preferences-system">
+    <action name="Execute">
+      <execute>wbconf</execute>
+    </action>
+  </item>
+
   <menu id="waybox-menu" label="Waybox" icon="applications-system">
     <item label="Reconfigure" icon="view-refresh">
       <action name="Reconfigure"/>
