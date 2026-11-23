@@ -2,7 +2,7 @@
 
 A \*box-style (minimalist) Wayland compositor modeled on Openbox.
 
-![A 45-second tour: root menu, server-side titlebars, Smart placement, shading, the Alt+Tab switcher, live output scaling with wlr-randr, and wbconf](screenshots/tour.gif)
+![A 45-second tour with the Onyx-Citrus theme: root menu, server-side titlebars, Smart placement, maximize and shade, the Alt+Tab switcher, live output scaling with wlr-randr, and wbconf](screenshots/tour.gif)
 
 This is the [TheCleaners](https://github.com/TheCleaners/waybox) fork of
 [wizbright/waybox](https://github.com/wizbright/waybox). It began as a
@@ -134,6 +134,11 @@ fork: menu behaviour, switcher options and titlebar sizing. The shipped
 run `wbconf` or open it from the root menu.
 
 ## Screenshots
+
+Shown with the Onyx-Citrus Openbox theme. The tour and these stills come
+from [`tools/record-tour.py`](tools/record-tour.py), which runs a private
+headless Waybox, drives it with `wlrctl` and `wtype`, and captures it with
+`grim`. Run it again after UI changes; `--theme` picks another theme.
 
 ![Server-side titlebars on foot windows, a Waybar taskbar, and wbconf with its live theme preview](screenshots/desktop.png)
 
