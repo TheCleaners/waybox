@@ -23,6 +23,8 @@ wayland_scanner_client = generator(
 
 protocols = [
   [wl_protocol_dir, 'stable/xdg-shell/xdg-shell.xml'],
+  [wl_protocol_dir, 'staging/content-type/content-type-v1.xml'],
+  [wl_protocol_dir, 'staging/cursor-shape/cursor-shape-v1.xml'],
   [wl_protocol_dir, 'staging/ext-idle-notify/ext-idle-notify-v1.xml'],
   [wl_protocol_dir, 'staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml'],
   [wl_protocol_dir, 'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml'],
