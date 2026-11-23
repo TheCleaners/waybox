@@ -1,59 +1,176 @@
 # Waybox
 
-A \*box-style (minimalist) Wayland compositor modeled largely on Openbox (WIP)
+A \*box-style (minimalist) Wayland compositor modeled on Openbox.
 
-### Goals
+![A 45-second tour with the Onyx-Citrus theme: root menu, server-side titlebars, Smart placement, maximize and shade, the Alt+Tab switcher, live output scaling with wlr-randr, and wbconf](screenshots/tour.gif)
 
-The main goal of this project is to provide a similar feel to \*box-style window managers but on Wayland
+This is the [TheCleaners](https://github.com/TheCleaners/waybox) fork of
+[wizbright/waybox](https://github.com/wizbright/waybox). It began as a
+crash-fixing pass and grew into a C++20 rework that adds a native root menu,
+server-side decorations, Openbox theming, an Alt+Tab switcher and a settings
+GUI. It still reads Openbox-style `rc.xml`, `menu.xml` and `themerc` files.
+For background, see
+[wizbright/waybox#48](https://github.com/wizbright/waybox/issues/48).
 
-### Contributing
+- [Features](#features)
+- [Building](#building)
+- [Running](#running)
+- [Configuration](#configuration)
+- [Screenshots](#screenshots)
+- [Companion programs](#companion-programs)
+- [Contributing](#contributing)
 
-[Details on
-contributing.](https://github.com/wizbright/waybox/blob/master/CONTRIBUTING.md)
+## Features
 
-### Dependencies
+### Window management
 
-* [Meson](https://mesonbuild.com/) or [muon](http://muon.build)
-* [Wayland](https://wayland.freedesktop.org/)
-* [libevdev](https://www.freedesktop.org/wiki/Software/libevdev/)
-* [libinput](http://www.freedesktop.org/wiki/Software/libinput)
-* [libxml2](http://xmlsoft.org/)
-* [wlroots](https://gitlab.freedesktop.org/wlroots/wlroots/)
-* [xkbcommon](https://xkbcommon.org/)
+- **Server-side decorations**: themed titlebars, borders and buttons, with
+  resize cursors and grab borders. Client-side decorations are respected, and
+  decorations can be toggled per window or set with an app rule.
+- **Native root menu**: right-click the desktop. It is built from `menu.xml`,
+  with submenus, pipe menus, icons and keyboard navigation. You can hand it off
+  to an external launcher such as rofi instead.
+- **Alt+Tab switcher** with an on-screen list, in most-recently-used or
+  stacking order.
+- **Openbox themes** (`themerc`) with per-place fonts.
+- **Placement and snapping**: Smart, Center or UnderMouse placement; snapping
+  to edges and other windows; maximizing that respects panels; separate
+  horizontal and vertical maximize; shading.
+- **Bindings and rules**: Openbox key chains, mouse/context bindings,
+  Alt+drag to move or resize, and per-application rules (position, size,
+  state, focus, decorations).
+- **wbconf**: a GTK4 settings tool in the style of obconf, with a live theme
+  preview.
 
-### Build instructions
+### Protocols
+
+| Area | Protocols |
+|---|---|
+| Displays | `wlr-output-management` (wlr-randr, kanshi), `wp-fractional-scale` (sharp text in foot and others at 1.25×, 1.5× and so on), `xdg-output`, `gamma-control` |
+| Shell | `xdg-shell`, `xdg-decoration`, `layer-shell`, `xdg-activation`, `xdg-toplevel-icon` |
+| Taskbars | `wlr-foreign-toplevel-management`, `ext-foreign-toplevel-list` |
+| Clipboard | `primary-selection`, `ext-data-control` |
+| Capture | `ext-image-copy-capture` (grim, screen recorders) |
+| Other | `presentation-time`, `viewporter`, `single-pixel-buffer`, `content-type`, `cursor-shape`, `idle-notify`, `idle-inhibit`, virtual keyboard and pointer |
+
+### Robustness
+
+The code is C++20, with RAII wrappers around wlroots listeners. Debug builds
+run with AddressSanitizer and UndefinedBehaviorSanitizer. Unit tests and
+headless integration tests run in CI.
+
+## Building
+
+You need Meson (or muon), a C++20 compiler and wlroots 0.19 or 0.20, plus
+the libraries below. librsvg (SVG menu icons) and GTK4 (wbconf) are optional.
+
+**Debian / Ubuntu**
+
+```sh
+sudo apt install meson ninja-build g++ pkg-config libwlroots-0.19-dev \
+  libwayland-dev wayland-protocols libxkbcommon-dev libxml2-dev libevdev-dev \
+  libinput-dev libcairo2-dev libpango1.0-dev librsvg2-dev libgtk-4-dev
 ```
+
+**Alpine**
+
+```sh
+apk add meson g++ wlroots-dev wayland-dev wayland-protocols libxkbcommon-dev \
+  libxml2-dev libevdev-dev libinput-dev cairo-dev pango-dev
+```
+
+Then build and test:
+
+```sh
 meson setup build
-cd build
-ninja
+ninja -C build
+meson test -C build
 ```
 
-After that, you should have an executable as waybox/waybox
+| Option | Effect |
+|---|---|
+| `-Dbuildtype=release` | Optimized build. Sanitizers are on by default only for debug builds. |
+| `-Dsanitize=enabled\|disabled` | Force ASan and UBSan on or off. |
+| `-Dwlroots-version=0.19` | Pick a specific wlroots when several are installed. |
+| `-Dsvg=disabled`, `-Dwbconf=disabled` | Skip the optional pieces. |
+| `-Dtests_only=true` | Build only the unit tests, which don't need wlroots. |
 
-For those who don't want to use a Python-based build system, it's also possible
-to use muon instead of Meson.
+## Running
 
-### Screenshots
+`ninja -C build install` installs a `waybox` session script and a
+`waybox.desktop` session entry. Start `waybox` from a TTY, or choose Waybox
+in your display manager. To try it inside another Wayland session without
+installing, run `build/waybox/waybox`.
 
-![Plain desktop with wallpaper, panel, and dock](../../raw/master/screenshots/emptydesktop.png)
+Default bindings (from [`data/rc.xml`](data/rc.xml)):
 
-![Showing Firefox and some of the Waybox source code](../../raw/master/screenshots/work.png)
+| Binding | Action |
+|---|---|
+| Right-click desktop | Root menu |
+| <kbd>Alt</kbd>+<kbd>Tab</kbd> / <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | Next / previous window |
+| <kbd>Alt</kbd>+left-drag / right-drag | Move / resize window |
+| <kbd>Alt</kbd>+<kbd>F4</kbd> | Close window |
+| <kbd>Super</kbd>+<kbd>M</kbd> / <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | Iconify / toggle maximize |
+| <kbd>F11</kbd> | Fullscreen |
+| <kbd>Super</kbd>+<kbd>S</kbd> / <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | Shade / unshade |
+| <kbd>Super</kbd>+<kbd>T</kbd> | Toggle decorations |
+| <kbd>Super</kbd>+<kbd>Return</kbd> | Terminal (`$TERMINAL`) |
+| <kbd>Alt</kbd>+<kbd>F2</kbd> | Launcher (`rofi -show drun`) |
+| <kbd>Print</kbd> | Screenshot (grim) |
+| <kbd>Super</kbd>+<kbd>C</kbd> | Reload configuration |
+| <kbd>Ctrl</kbd>+<kbd>Escape</kbd> | Exit Waybox |
 
-![All work and no play](../../raw/master/screenshots/play.png)
+## Configuration
 
-### Useful Programs
+Waybox reads `rc.xml`, `menu.xml`, `environment` and `autostart` from
+`$XDG_CONFIG_HOME/waybox/` (normally `~/.config/waybox/`). For any file not
+found there, it uses the system copy in `<sysconfdir>/xdg/waybox/`, which is
+installed from [`data/`](data). The session script falls back to Openbox's
+files if it finds no Waybox ones.
 
-Because \*box-style compositors are minimalist, most functionality is left to external programs.  As such, Waybox only functions as a box in which you can put whatever you need.  Here are some useful programs to complement Waybox if you desire:
+The format follows Openbox. A `<waybox>` block holds settings specific to this
+fork: menu behaviour, switcher options and titlebar sizing. The shipped
+[`rc.xml`](data/rc.xml) is commented throughout. To edit settings in a GUI,
+run `wbconf` or open it from the root menu.
 
-* Panel: You can use [Waybar](https://github.com/Alexays/Waybar) or [yambar](https://codeberg.org/dnkl/yambar), similar to tint2 or fbpanel in Openbox or Fluxbox.
-* Dock: You can use [Cairo Dock](https://www.glx-dock.org/) just like you did on Openbox.  There's also a [port with Wayland-specific enhancements](https://github.com/dkondor/cairo-dock-core/) that you may want to try. A much more compact option is [LavaLauncher](https://sr.ht/~leon_plickat/LavaLauncher/), but it's much harder to configure.
-* Wallpaper utility: There are various utilities to set your wallpaper, each with their own advantages, including [wpaperd](https://github.com/danyspin97/wpaperd) (can select a random wallpaper from a directory), [swaybg](https://github.com/swaywm/swaybg) (can set the background color as well well as a wallpaper), and [hyprpaper](https://github.com/hyprwm/hyprpaper) (can change the wallpaper dynamically during runtime through IPC).
-* Notification client: [mako](https://wayland.emersion.fr/mako/)
-* [wl-clipboard](https://wayland.emersion.fr/mako/): Access the clipboard in scripts (also used by [neovim](https://neovim.io/))
-* Screenshots: [grim](https://git.sr.ht/~emersion/grim) and [slurp](https://github.com/emersion/slurp)
-* Screen recording: [wf-recorder](https://github.com/ammen99/wf-recorder)
-* Menu support: [rofi-wayland](https://github.com/lbonn/rofi)
+## Screenshots
 
-### Contact
-I can be found as wiz on Rizon and wizbright on Libera. 
-Join [#waybox](https://libera.chat/guides/connect) for discussion
+Shown with the Onyx-Citrus Openbox theme. The tour and these stills come
+from [`tools/record-tour.py`](tools/record-tour.py), which runs a private
+headless Waybox, drives it with `wlrctl` and `wtype`, and captures it with
+`grim`. Run it again after UI changes; `--theme` picks another theme.
+
+![Server-side titlebars on foot windows, a Waybar taskbar, and wbconf with its live theme preview](screenshots/desktop.png)
+
+| Root menu | Alt+Tab switcher |
+|---|---|
+| ![The root menu, opened by right-clicking the desktop](screenshots/menu.png) | ![The Alt+Tab switcher](screenshots/alttab.png) |
+
+## Companion programs
+
+Like Openbox, Waybox leaves most desktop functions to separate programs.
+
+| Purpose | Programs |
+|---|---|
+| Panel | [Waybar](https://github.com/Alexays/Waybar), [yambar](https://codeberg.org/dnkl/yambar) |
+| Dock | [Cairo-Dock](https://github.com/dkondor/cairo-dock-core/) (Wayland port), [LavaLauncher](https://sr.ht/~leon_plickat/LavaLauncher/) |
+| Wallpaper | [swaybg](https://github.com/swaywm/swaybg), [wpaperd](https://github.com/danyspin97/wpaperd), [hyprpaper](https://github.com/hyprwm/hyprpaper) |
+| Displays | [wlr-randr](https://sr.ht/~emersion/wlr-randr/), [kanshi](https://sr.ht/~emersion/kanshi/) (profiles) |
+| Launcher | [rofi-wayland](https://github.com/lbonn/rofi) or any dmenu-like tool |
+| Notifications | [mako](https://wayland.emersion.fr/mako/) |
+| Clipboard | [wl-clipboard](https://github.com/bugaevc/wl-clipboard) |
+| Screenshots | [grim](https://git.sr.ht/~emersion/grim) + [slurp](https://github.com/emersion/slurp) |
+| Screen recording | [wf-recorder](https://github.com/ammen99/wf-recorder) |
+
+## Contributing
+
+Issues and pull requests are welcome at
+[TheCleaners/waybox](https://github.com/TheCleaners/waybox). Maintenance time is
+limited, so a focused PR with a test is the easiest thing to merge. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Credits
+
+wizbright created Waybox. keithbowes did much of the later wlroots porting and
+protocol work. The original lives at
+[wizbright/waybox](https://github.com/wizbright/waybox).

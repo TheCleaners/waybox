@@ -484,8 +484,27 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 				config->margins.top, config->margins.right,
 				config->margins.bottom});
 
-	int width = MIN(geo_box.width, area.width);
-	int height = MIN(geo_box.height, area.height);
+	/* Per-application rules can override position/size and request initial
+	 * window states. Resolve the rule before placing, so the placement policy
+	 * (e.g. Smart overlap avoidance) works with the rule's size, as Openbox
+	 * does, rather than the client's natural size. */
+	const wb::AppRule *rule = nullptr;
+	if (config) {
+		const char *app_id = toplevel->xdg_toplevel->app_id
+				? toplevel->xdg_toplevel->app_id : "";
+		const char *title = toplevel->xdg_toplevel->title
+				? toplevel->xdg_toplevel->title : "";
+		rule = wb::match_app_rule(config->app_rules, app_id, title);
+	}
+
+	int width = geo_box.width;
+	int height = geo_box.height;
+	if (rule != nullptr && rule->width)
+		width = *rule->width;
+	if (rule != nullptr && rule->height)
+		height = *rule->height;
+	width = MIN(width, area.width);
+	height = MIN(height, area.height);
 
 	/* Gather the other mapped windows so Smart placement can avoid them. */
 	std::vector<wb::Rect> others;
@@ -515,21 +534,8 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 		break;
 	}
 
-	/* Per-application rules can override position/size and request initial
-	 * window states. Position overrides are relative to the placement area. */
-	const wb::AppRule *rule = nullptr;
-	if (config) {
-		const char *app_id = toplevel->xdg_toplevel->app_id
-				? toplevel->xdg_toplevel->app_id : "";
-		const char *title = toplevel->xdg_toplevel->title
-				? toplevel->xdg_toplevel->title : "";
-		rule = wb::match_app_rule(config->app_rules, app_id, title);
-	}
+	/* Position overrides are relative to the placement area. */
 	if (rule != nullptr) {
-		if (rule->width)
-			placed.width = *rule->width;
-		if (rule->height)
-			placed.height = *rule->height;
 		if (rule->x)
 			placed.x = area.x + *rule->x;
 		if (rule->y)

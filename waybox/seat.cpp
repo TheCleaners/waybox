@@ -672,10 +672,13 @@ static void handle_new_pointer(struct wb_server *server, struct wlr_input_device
  * bypass new_input_notify — otherwise clients never receive input from a
  * virtual device (e.g. under the headless backend used by the tests). */
 static void update_seat_capabilities(struct wb_server *server) {
-	uint32_t caps = WL_SEAT_CAPABILITY_POINTER;
-	if (!wl_list_empty(&server->seat->keyboards))
-		caps |= WL_SEAT_CAPABILITY_KEYBOARD;
-	wlr_seat_set_capabilities(server->seat->seat, caps);
+	/* Always advertise a keyboard, as with the pointer: a client only creates
+	 * its wl_keyboard when the capability is present, so withholding it until
+	 * a keyboard appears means a window focused before then (headless, or a
+	 * keyboard plugged in later) misses wl_keyboard.enter and the first keys
+	 * typed race the client binding its wl_keyboard. */
+	wlr_seat_set_capabilities(server->seat->seat,
+			WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD);
 }
 
 static void new_input_notify(struct wb_server *server, void *data) {
@@ -703,10 +706,15 @@ void seat_focus_surface(struct wb_seat *seat, struct wlr_surface *surface) {
 		return;
 	}
 
+	/* Always send enter, even with no keyboard attached yet (headless, or a
+	 * keyboard hot-plugged later): otherwise the surface never receives
+	 * wl_keyboard.enter and ignores keys once a keyboard does appear. */
 	struct wlr_keyboard *kb = wlr_seat_get_keyboard(seat->seat);
 	if (kb != NULL) {
 		wlr_seat_keyboard_notify_enter(seat->seat, surface, kb->keycodes,
 			kb->num_keycodes, &kb->modifiers);
+	} else {
+		wlr_seat_keyboard_notify_enter(seat->seat, surface, NULL, 0, NULL);
 	}
 }
 
@@ -754,6 +762,10 @@ struct wb_seat *wb_seat_create(struct wb_server *server) {
 	});
 
 	seat->seat = wlr_seat_create(server->wl_display, "seat0");
+	/* Advertise pointer + keyboard from the start (see
+	 * update_seat_capabilities), not only once the first device appears. */
+	wlr_seat_set_capabilities(seat->seat,
+			WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD);
 
 	wlr_primary_selection_v1_device_manager_create(server->wl_display);
 	seat->request_set_primary_selection.connect(

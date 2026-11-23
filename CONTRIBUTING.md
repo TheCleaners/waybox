@@ -2,8 +2,8 @@
 
 Contributing just involves sending a pull request. You will probably be more
 successful with your contribution if you visit
-[#waybox](https://webchat.freenode.net/?channels=waybox) on
-irc.freenode.net upfront and discuss your plans.
+[#waybox](https://libera.chat/guides/connect) on
+Libera.Chat, or opening an issue, upfront and discuss your plans.
 
 Note: rules are made to be broken. Adjust or ignore any/all of these as you see
 fit, but be prepared to justify it to your peers.
@@ -19,7 +19,7 @@ upstream. Try this:
 
 1. Fork Waybox
 2. `git clone https://github.com/username/waybox && cd waybox`
-3. `git remote add upstream https://github.com/wizbright/waybox`
+3. `git remote add upstream https://github.com/TheCleaners/waybox`
 
 You only need to do this once. You're never going to use your fork's master
 branch. Instead, when you start working on a feature, do this:
