@@ -70,3 +70,23 @@ WB_TEST(chain_first_match_wins) {
 	std::vector<KeyBinding> roots{leaf(0x61, 0), leaf(0x61, 0)};
 	WB_CHECK(wb::chain_step(roots, 0x61, 0).node == &roots[0]);
 }
+
+WB_TEST(chain_matches_shifted_letter_case_insensitively) {
+	/* "W-S-M": sym M, Logo|Shift. A US keymap reports M for Shift+m, but a
+	 * one-level keymap (e.g. a virtual keyboard) reports m; both must fire. */
+	std::vector<KeyBinding> roots{leaf(0x4d /*M*/, 64 | 1 /*Logo|Shift*/)};
+	WB_CHECK(wb::chain_step(roots, 0x4d, 64 | 1).outcome == ChainOutcome::Fire);
+	WB_CHECK(wb::chain_step(roots, 0x6d, 64 | 1).outcome == ChainOutcome::Fire);
+	/* The modifier mask still separates W-m from W-S-M. */
+	WB_CHECK(wb::chain_step(roots, 0x6d, 64).outcome == ChainOutcome::NoMatch);
+}
+
+WB_TEST(keysym_fold_case_only_touches_letters) {
+	WB_CHECK(wb::keysym_fold_case(0x41) == 0x61);   /* A -> a */
+	WB_CHECK(wb::keysym_fold_case(0x5a) == 0x7a);   /* Z -> z */
+	WB_CHECK(wb::keysym_fold_case(0x61) == 0x61);   /* a stays */
+	WB_CHECK(wb::keysym_fold_case(0xc9) == 0xe9);   /* Eacute -> eacute */
+	WB_CHECK(wb::keysym_fold_case(0xd7) == 0xd7);   /* multiply is not a letter */
+	WB_CHECK(wb::keysym_fold_case(0x31) == 0x31);   /* 1 */
+	WB_CHECK(wb::keysym_fold_case(0xff09) == 0xff09);  /* Tab */
+}

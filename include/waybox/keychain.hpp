@@ -34,12 +34,18 @@ struct ChainStep {
 };
 
 /*
- * Find the child of `children` whose chord equals (sym, modifiers) and
+ * Find the child of `children` whose chord equals (sym, modifiers) -- the
+ * keysym compared case-insensitively -- and
  * classify it: Descend if it has children (a chain prefix takes precedence),
  * Fire if it is a leaf with actions, NoMatch otherwise.
  */
 ChainStep chain_step(const std::vector<KeyBinding> &children, uint32_t sym,
 		uint32_t modifiers);
+
+/* Lower-case a Latin-1 letter keysym; other keysyms are returned unchanged.
+ * chain_step compares keysyms through this, so a binding's letter case does
+ * not matter (only its modifiers do), matching Openbox. */
+uint32_t keysym_fold_case(uint32_t sym);
 
 }  // namespace wb
 
