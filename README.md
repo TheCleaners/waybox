@@ -2,7 +2,7 @@
 
 A \*box-style (minimalist) Wayland compositor modeled on Openbox.
 
-![Waybox with server-side titlebars, a Waybar taskbar and the wbconf settings tool](screenshots/desktop.png)
+![A 45-second tour: root menu, server-side titlebars, Smart placement, shading, the Alt+Tab switcher, live output scaling with wlr-randr, and wbconf](screenshots/tour.gif)
 
 This is the [TheCleaners](https://github.com/TheCleaners/waybox) fork of
 [wizbright/waybox](https://github.com/wizbright/waybox). It began as a
@@ -134,6 +134,8 @@ fork: menu behaviour, switcher options and titlebar sizing. The shipped
 run `wbconf` or open it from the root menu.
 
 ## Screenshots
+
+![Server-side titlebars on foot windows, a Waybar taskbar, and wbconf with its live theme preview](screenshots/desktop.png)
 
 | Root menu | Alt+Tab switcher |
 |---|---|
