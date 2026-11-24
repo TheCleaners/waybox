@@ -604,6 +604,20 @@ static void parse_startup(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><tearing allow="yes|no"/>. */
+static void parse_tearing(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:tearing", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		if (auto v = parse_bool((const char *) get_attribute(
+				object->nodesetval->nodeTab[0], "allow")))
+			config->allow_tearing = *v;
+	}
+	xmlXPathFreeObject(object);
+}
+
 /* Parse <waybox><idle screenOff="seconds"/>. */
 static void parse_idle(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
@@ -841,6 +855,7 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	parse_titlebar(config, ctxt);
 	parse_startup(config, ctxt);
 	parse_idle(config, ctxt);
+	parse_tearing(config, ctxt);
 
 	xmlXPathFreeContext(ctxt);
 	xmlFreeDoc(doc);

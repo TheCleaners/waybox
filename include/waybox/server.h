@@ -49,6 +49,8 @@ struct wb_server {
 	/* drm-lease-v1: VR runtimes take a headset's connector (DRM backend
 	 * only; nullptr otherwise). */
 	struct wlr_drm_lease_v1_manager *drm_lease_manager = nullptr;
+	/* tearing-control-v1: games ask for unsynchronised flips. */
+	struct wlr_tearing_control_manager_v1 *tearing_control = nullptr;
 	wb::Listener drm_lease_request;
 	wb::Listener output_power_set_mode;
 	struct wlr_idle_inhibit_manager_v1 *idle_inhibit_manager;

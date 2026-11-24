@@ -60,6 +60,11 @@
          game asks to keep them on). Unset or 0: never.
     <idle screenOff="600"/>
     -->
+    <!-- Let a fullscreen game that asks for it (vsync off) show frames
+         without waiting for the display's refresh: lower latency, with
+         tearing. Needs GPU and driver support; off unless set.
+    <tearing allow="yes"/>
+    -->
   </waybox>
   <!-- Virtual desktops. Names are optional (unnamed ones show as
        "Desktop N"). -->
