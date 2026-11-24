@@ -142,22 +142,9 @@ Default bindings (from [`data/rc.xml`](data/rc.xml)):
 
 ### Multiple GPUs
 
-Waybox draws the desktop on the first GPU it opens (the boot GPU, unless
-`WLR_DRM_DEVICES` lists another first) and drives displays on every GPU it
-opens. Programs can still render on any GPU. Tested on an AMD + NVIDIA
-machine with Waybox on the AMD card:
-
-| Program renders on NVIDIA through | Works? |
-|---|---|
-| Vulkan, Wayland or X11 (DXVK/Proton, `vkcube --gpu_number N`) | Yes |
-| OpenGL under X11 (`__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia`) | Yes |
-| OpenGL under Wayland (`__NV_PRIME_RENDER_OFFLOAD=1`, NVIDIA's egl-wayland2) | No: the driver cannot create the window surface; labwc fails the same way. Run such programs under X11 (e.g. `SDL_VIDEODRIVER=x11`). |
-
-Clients can hand over GPU fences with explicit sync (`linux-drm-syncobj-v1`),
-which NVIDIA's driver relies on. If outputs flicker once a second GPU is
-added, keep Waybox to the GPU your displays are on with
-`WLR_DRM_DEVICES=/dev/dri/cardN` (in `~/.config/waybox/environment`); programs
-can still render on the other GPU as above.
+Waybox drives displays on every GPU and draws the desktop on the first one
+it opens. To choose the GPUs, or their order, set `WLR_DRM_DEVICES` (e.g.
+`/dev/dri/card0:/dev/dri/card1`) in `~/.config/waybox/environment`.
 
 ## Configuration
 
