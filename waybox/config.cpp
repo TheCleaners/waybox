@@ -758,6 +758,11 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 		config->theme = wb::default_theme();
 	}
 
+	if (char *layout = parse_xpath_expr("//ob:theme/ob:titleLayout", ctxt)) {
+		config->title_layout = layout;
+		free(layout);
+	}
+
 	/* Per-place fonts: <theme><font place="...">. Applied onto the loaded
 	 * theme so they override its defaults. */
 	parse_fonts(config, ctxt);

@@ -51,6 +51,9 @@ struct wb_server {
 	struct wlr_renderer *renderer;
 	/* text-input-v3 / input-method-v2 (see input_method.h). */
 	struct wb_input_method_relay *input_method_relay = nullptr;
+	/* xdg-toplevel-icon: icons clients set for their windows. */
+	struct wlr_xdg_toplevel_icon_manager_v1 *toplevel_icon_manager = nullptr;
+	wb::Listener set_toplevel_icon;
 	/* security-context-v1: marks sandboxed clients (see sandbox.h). */
 	struct wlr_security_context_manager_v1 *security_context_manager = nullptr;
 	/* color-management-v1, when the renderer supports it (else null). */
@@ -183,6 +186,9 @@ bool wb_terminate(struct wb_server *server);
 /* Run the actions of a chosen menu entry, on the window the menu was
  * opened for when it was the window menu. */
 void wb_run_menu_actions(struct wb_server *server, std::vector<wb::Action> actions);
+/* Open the window menu for the focused window (at the pointer when it is
+ * over the window, else at the window's corner). */
+void wb_show_client_menu(struct wb_server *server);
 void wb_spawn(const char *cmd);
 /* Reload rc.xml/menu.xml/theme and restyle existing window frames. */
 void wb_reconfigure(struct wb_server *server);

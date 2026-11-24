@@ -15,6 +15,7 @@
 #include "waybox/xwayland.h"
 #include "waybox/pointer_constraints.h"
 #include "waybox/sandbox.h"
+#include "waybox/window_icon.h"
 #include "waybox/desktop_popup.hpp"
 #include "waybox/input_method.h"
 #include "waybox/server.h"
@@ -357,9 +358,7 @@ bool wb_start_server(struct wb_server* server) {
 	wlr_single_pixel_buffer_manager_v1_create(server->wl_display);
 	wlr_content_type_manager_v1_create(server->wl_display, 1);
 
-	struct wlr_xdg_toplevel_icon_manager_v1 * icon_manager = wlr_xdg_toplevel_icon_manager_v1_create(server->wl_display, 1);
-	int sizes[] = {16, 24, 32, 48, 64};
-	wlr_xdg_toplevel_icon_manager_v1_set_sizes(icon_manager, (int *) sizes, 5);
+	init_window_icons(server);  /* xdg-toplevel-icon */
 
 	return true;
 }
@@ -386,6 +385,7 @@ bool wb_terminate(struct wb_server* server) {
 
 	server->new_input.disconnect();
 	server->new_virtual_keyboard.disconnect();
+	server->set_toplevel_icon.disconnect();
 	server->new_virtual_pointer.disconnect();
 	server->request_activate.disconnect();
 	server->new_output.disconnect();

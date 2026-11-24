@@ -26,9 +26,11 @@ namespace wb {
  */
 class FrameView {
 public:
+	/* `buttons` in titlebar order, the first `left` of them left of the
+	 * title (see TitleLayout). */
 	FrameView(struct wlr_scene_tree *container, const FrameStyle &active,
 			const FrameStyle &inactive, const FrameMetrics &metrics,
-			std::vector<FrameButton> buttons);
+			std::vector<FrameButton> buttons, int left = 0);
 	~FrameView();
 
 	FrameView(const FrameView &) = delete;
@@ -36,6 +38,7 @@ public:
 
 	const FrameMetrics &metrics() const { return metrics_; }
 	const std::vector<FrameButton> &buttons() const { return buttons_; }
+	int left_buttons() const { return left_; }
 	FrameInsets insets() const { return frame_insets(metrics_); }
 
 	/* Resize the frame to wrap a client of (client_w, client_h). Repaints. */
@@ -44,6 +47,9 @@ public:
 	void set_active(bool active);
 	void set_title(std::string title);
 	void set_maximized(bool maximized);
+	/* The window's icon for the Icon item (borrowed: the owner keeps it
+	 * alive while set, or clears it); null draws a generic glyph. */
+	void set_icon(cairo_surface_t *icon);
 	/* Highlight the hovered titlebar button (index into buttons(), or -1). */
 	void set_hovered_button(int index);
 	/* Mark a titlebar button as held down (index into buttons(), or -1). */
@@ -63,6 +69,8 @@ private:
 	FrameStyle inactive_;
 	FrameMetrics metrics_;
 	std::vector<FrameButton> buttons_;
+	int left_ = 0;
+	cairo_surface_t *icon_ = nullptr;
 
 	struct wlr_scene_rect *grab_ = nullptr;      /* invisible resize-grab area */
 	struct wlr_scene_rect *bg_ = nullptr;        /* border-coloured backdrop */

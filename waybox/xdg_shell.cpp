@@ -1,3 +1,4 @@
+#include "waybox/window_icon.h"
 #include "waybox/desktop_popup.hpp"
 #include "waybox/wlroots.hpp"
 
@@ -190,7 +191,7 @@ struct wb_toplevel *toplevel_frame_at(struct wb_server *server, double lx,
 	int oy = static_cast<int>(ly) - (toplevel->geometry.y - in.top);
 	wb::FrameHit h = wb::frame_part_at(ox, oy, toplevel->frame->outer_width(),
 			toplevel->frame->outer_height(), toplevel->frame->metrics(),
-			toplevel->frame->buttons());
+			toplevel->frame->buttons(), toplevel->frame->left_buttons());
 	if (h.part == wb::FramePart::Client || h.part == wb::FramePart::None)
 		return NULL;  /* the client surface (or outside) — let normal handling run */
 	if (hit != NULL)
@@ -963,10 +964,12 @@ void destroy_toplevel(struct wb_toplevel *toplevel) {
 
 	wl_list_remove(&toplevel->link);
 	wl_list_remove(&toplevel->focus_link);
+	toplevel_free_icon(toplevel);
 	delete toplevel;
 }
 
 void toplevel_app_id_changed(struct wb_toplevel *toplevel) {
+	toplevel_update_icon(toplevel);
 	toplevel->foreign_toplevel_state.app_id = view_app_id(toplevel);
 	wlr_ext_foreign_toplevel_handle_v1_update_state(
 			toplevel->foreign_toplevel_handle, &toplevel->foreign_toplevel_state);

@@ -35,8 +35,36 @@ Rect titlebar_rect(int outer_w, const FrameMetrics &m) {
 	return Rect{m.border, m.border, outer_w - 2 * m.border, m.titlebar};
 }
 
+TitleLayout parse_title_layout(std::string_view layout) {
+	TitleLayout out;
+	bool seen_label = false;
+	auto add = [&out](FrameButton b) {
+		for (FrameButton have : out.buttons)
+			if (have == b)
+				return;
+		out.buttons.push_back(b);
+	};
+	for (char c : layout) {
+		switch (c) {
+		case 'N': case 'n': add(FrameButton::Icon); break;
+		case 'I': case 'i': add(FrameButton::Iconify); break;
+		case 'M': case 'm': add(FrameButton::Maximize); break;
+		case 'C': case 'c': add(FrameButton::Close); break;
+		case 'L': case 'l':
+			if (!seen_label)
+				out.left = static_cast<int>(out.buttons.size());
+			seen_label = true;
+			break;
+		default: break;  /* S, D, or unknown */
+		}
+	}
+	if (!seen_label)
+		out.left = static_cast<int>(out.buttons.size());
+	return out;
+}
+
 std::vector<Rect> button_rects(int outer_w, const FrameMetrics &m,
-		const std::vector<FrameButton> &buttons) {
+		const std::vector<FrameButton> &buttons, int left) {
 	std::vector<Rect> rects;
 	rects.reserve(buttons.size());
 	if (m.titlebar <= 0)
@@ -44,13 +72,20 @@ std::vector<Rect> button_rects(int outer_w, const FrameMetrics &m,
 
 	Rect tb = titlebar_rect(outer_w, m);
 	int by = tb.y + (tb.height - m.button) / 2;  /* vertically centred */
-	/* Right-aligned group: the last button sits at the far right (minus pad),
-	 * earlier buttons to its left. Compute left-to-right so rects parallel the
-	 * input order. */
 	int n = static_cast<int>(buttons.size());
-	int group_w = n * m.button + (n > 0 ? (n - 1) * m.button_spacing : 0);
-	int x = tb.x + tb.width - m.title_pad - group_w;
-	for (int i = 0; i < n; ++i) {
+	left = left < 0 ? 0 : (left > n ? n : left);
+	/* Left group from the left edge (after the padding). */
+	int x = tb.x + m.title_pad;
+	for (int i = 0; i < left; ++i) {
+		rects.push_back(Rect{x, by, m.button, m.button});
+		x += m.button + m.button_spacing;
+	}
+	/* Right group: the last button at the far right (minus pad), earlier ones
+	 * to its left, computed left to right so rects parallel the input. */
+	int r = n - left;
+	int group_w = r * m.button + (r > 0 ? (r - 1) * m.button_spacing : 0);
+	x = tb.x + tb.width - m.title_pad - group_w;
+	for (int i = 0; i < r; ++i) {
 		rects.push_back(Rect{x, by, m.button, m.button});
 		x += m.button + m.button_spacing;
 	}
@@ -62,7 +97,7 @@ static bool in_rect(int x, int y, const Rect &r) {
 }
 
 FrameHit frame_part_at(int ox, int oy, int outer_w, int outer_h,
-		const FrameMetrics &m, const std::vector<FrameButton> &buttons) {
+		const FrameMetrics &m, const std::vector<FrameButton> &buttons, int left) {
 	FrameInsets in = frame_insets(m);
 
 	/* Corners first (diagonal resize). Coordinates in the invisible grab margin
@@ -82,7 +117,7 @@ FrameHit frame_part_at(int ox, int oy, int outer_w, int outer_h,
 		return {FramePart::CornerBottomRight, -1};
 
 	/* Buttons (win over the titlebar background). */
-	std::vector<Rect> brects = button_rects(outer_w, m, buttons);
+	std::vector<Rect> brects = button_rects(outer_w, m, buttons, left);
 	for (size_t i = 0; i < brects.size(); ++i) {
 		if (in_rect(ox, oy, brects[i]))
 			return {FramePart::Button, static_cast<int>(i)};

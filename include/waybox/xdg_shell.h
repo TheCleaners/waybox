@@ -4,6 +4,9 @@
 #include "waybox/wlroots.hpp"
 
 #include <memory>
+#include <string>
+
+#include <cairo.h>
 
 #include "waybox/decor_mode.hpp"
 #include "waybox/edge_tiling.hpp"
@@ -38,6 +41,11 @@ struct wb_toplevel {
 	struct wlr_scene_tree *surface_tree = nullptr;
 	/* Server-side decoration view (titlebar/borders), or null for CSD. */
 	std::unique_ptr<wb::FrameView> frame;
+	/* The titlebar icon (owned; see window_icon.h), and what the client set
+	 * with xdg-toplevel-icon: pixels (owned) or an icon name. */
+	cairo_surface_t *icon = nullptr;
+	cairo_surface_t *client_icon = nullptr;
+	std::string client_icon_name;
 
 	struct wlr_xdg_toplevel_decoration_v1 *decoration = nullptr;
 	/* Per-window decoration preference (app rule / ToggleDecorations). */

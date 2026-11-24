@@ -89,6 +89,9 @@ std::vector<std::string> icon_search_paths(std::string_view name,
 /* Convenience: resolve against the real environment is done by the caller; this
  * stays pure. */
 
+/* The Icon= of a desktop file's [Desktop Entry] group, or "". */
+std::string desktop_entry_icon(std::string_view contents);
+
 }  // namespace wb
 
 #endif /* WB_ICON_HPP */

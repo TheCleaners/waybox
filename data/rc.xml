@@ -17,6 +17,7 @@
        ActiveOnScreenDisplay. The titlebar height tracks the title font size. -->
   <!-- <theme>
     <name>Clearlooks</name>
+    <titleLayout>NLIMC</titleLayout>  (N icon, L title, I M C buttons)
     <font place="ActiveWindow"><name>Sans</name><size>10</size><weight>bold</weight></font>
     <font place="InactiveWindow"><name>Sans</name><size>10</size><weight>normal</weight></font>
     <font place="MenuItem"><name>Sans</name><size>10</size><weight>normal</weight></font>
@@ -256,6 +257,16 @@
       </mousebind>
       <mousebind button="Down" action="Click">
         <action name="GoToDesktop"><to>next</to><wrap>no</wrap></action>
+      </mousebind>
+    </context>
+    <!-- The window icon at the left of the title bar (<titleLayout> N):
+         the window menu, as in Openbox. -->
+    <context name="Icon">
+      <mousebind button="Left" action="Press">
+        <action name="ShowMenu"><menu>client-menu</menu></action>
+      </mousebind>
+      <mousebind button="Right" action="Press">
+        <action name="ShowMenu"><menu>client-menu</menu></action>
       </mousebind>
     </context>
     <!-- Title bar: double-click to maximize, middle-click to lower, scroll

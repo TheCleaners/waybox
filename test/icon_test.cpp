@@ -164,3 +164,14 @@ WB_TEST(search_paths_follow_theme_index_and_inherits) {
 	WB_CHECK(pos("/usr/share/icons/breeze/24x24/categories/applications-office.svg")
 			== static_cast<long>(p.size()));
 }
+
+WB_TEST(desktop_entry_icon_parsing) {
+	WB_CHECK(wb::desktop_entry_icon("[Desktop Entry]\nName=Foot\nIcon=foot\n") == "foot");
+	WB_CHECK(wb::desktop_entry_icon("[Desktop Entry]\nIcon = /opt/x/x.png \r\n") ==
+			"/opt/x/x.png");
+	/* Localised keys and other groups don't count. */
+	WB_CHECK(wb::desktop_entry_icon("[Desktop Entry]\nIcon[de]=a\nIcon=b\n") == "b");
+	WB_CHECK(wb::desktop_entry_icon("[Desktop Action New]\nIcon=new\n"
+			"[Desktop Entry]\nName=x\n").empty());
+	WB_CHECK(wb::desktop_entry_icon("").empty());
+}

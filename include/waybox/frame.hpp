@@ -1,6 +1,7 @@
 #ifndef WB_FRAME_HPP
 #define WB_FRAME_HPP
 
+#include <string_view>
 #include <vector>
 
 #include "waybox/geometry.hpp"
@@ -23,7 +24,21 @@ enum class FrameButton {
 	Iconify,
 	Maximize,
 	Close,
+	Icon,      /* the window's icon (opens the window menu) */
 };
+
+/* The titlebar's items (Openbox's <titleLayout>): `buttons` in order, the
+ * first `left` of them at the left of the title, the rest at its right. */
+struct TitleLayout {
+	std::vector<FrameButton> buttons;
+	int left = 0;
+};
+
+/* Parse Openbox's <titleLayout>: N icon, L the title, I iconify, M maximize,
+ * C close; letters before L go left of the title, after it right. Letters
+ * Waybox has no item for (S shade, D all desktops) and repeats are
+ * skipped. Without an L the title comes last. Openbox's default is NLIMC. */
+TitleLayout parse_title_layout(std::string_view layout);
 
 /* Which part of the frame is under a point — drives the cursor shape and what a
  * press does (move / resize / button action / pass to client). */
@@ -72,12 +87,12 @@ int frame_height(int client_h, const FrameMetrics &m);
 Rect titlebar_rect(int outer_w, const FrameMetrics &m);
 
 /*
- * Button rectangles in frame-local coordinates, right-aligned in the titlebar
- * in the given order (first element leftmost of the group). `buttons` lists the
- * buttons present; the returned rects are parallel to it.
+ * Button rectangles in frame-local coordinates, parallel to `buttons`: the
+ * first `left` from the titlebar's left edge, the rest right-aligned, each
+ * group in the given order.
  */
 std::vector<Rect> button_rects(int outer_w, const FrameMetrics &m,
-		const std::vector<FrameButton> &buttons);
+		const std::vector<FrameButton> &buttons, int left = 0);
 
 /* The result of hit-testing a frame-local point. */
 struct FrameHit {
@@ -91,7 +106,8 @@ struct FrameHit {
  * A point inside the client area returns FramePart::Client.
  */
 FrameHit frame_part_at(int ox, int oy, int outer_w, int outer_h,
-		const FrameMetrics &m, const std::vector<FrameButton> &buttons);
+		const FrameMetrics &m, const std::vector<FrameButton> &buttons,
+		int left = 0);
 
 /* Map resize parts to wlroots-style edge bitmasks is done at the call site;
  * frame_part_resize_edges yields the WLR_EDGE_* combination for a part (0 for

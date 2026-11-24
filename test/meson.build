@@ -324,6 +324,7 @@ if python.found() and not get_option('tests_only')
     ['session_lock_virtual_always', 'session_lock_test.py', [lock_client, 'always'], 60],
     ['ssd', 'ssd_test.py', [], 60],
     ['switcher_order', 'switcher_order_test.py', [], 60],
+    ['titlebar_icon', 'titlebar_icon_test.py', [], 60],
     ['window_capture', 'window_capture_test.py', [], 60],
     ['window_menu', 'window_menu_test.py', [], 90],
     ['window_state', 'window_state_test.py', [], 60],
