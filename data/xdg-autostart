@@ -1,100 +1,140 @@
 #!/bin/sh
-
-# Autostart script
 #
-# I've tried to make it compatible with the specification, but YMMV
+# Start XDG autostart programs (*.desktop in $XDG_CONFIG_HOME/autostart and
+# each $XDG_CONFIG_DIRS/autostart), following the Desktop Application
+# Autostart Specification plus the de-facto keys most desktops honour:
 #
-# Start autostart programs for the following environments:
-# WB_AUTOSTART_ENVIRONMENT= # No environment
-# WB_AUTOSTART_ENVIRONMENT=all # All environments
-# WB_AUTOSTART_ENVIRONMENT=GNOME:KDE # GNOME and KDE only
+#  - A file in an earlier directory shadows a same-named one in a later
+#    directory (so ~/.config/autostart/foo.desktop with Hidden=true disables
+#    a system-wide foo.desktop).
+#  - Hidden=true and X-GNOME-Autostart-enabled=false disable an entry.
+#  - OnlyShowIn / NotShowIn are matched against the current desktop names:
+#    $WB_AUTOSTART_ENVIRONMENT if set (colon-separated, e.g. "Waybox:GNOME",
+#    or "all" to ignore OnlyShowIn/NotShowIn), else $XDG_CURRENT_DESKTOP.
+#  - TryExec must name an existing program.
+#  - AutostartCondition: "GSettings <schema> <key>" (run if true),
+#    "if-exists <file>" / "unless-exists <file>" (relative to
+#    $XDG_CONFIG_HOME). Any other condition (e.g. "GNOME3 ...") is not
+#    understood and the entry is skipped.
+#  - Only keys in the [Desktop Entry] group count (not [Desktop Action ...]),
+#    and Exec field codes (%f, %U, ...) are removed.
+#
+# Set WB_AUTOSTART_DRY_RUN=1 to print the commands instead of running them.
 
-# Using the old set hack rather than ksh arrays, which some shells don't
-# implement correctly or at all
-set --
+config_home=${XDG_CONFIG_HOME:-$HOME/.config}
+config_dirs=${XDG_CONFIG_DIRS:-/etc/xdg}
+desktops=${WB_AUTOSTART_ENVIRONMENT:-${XDG_CURRENT_DESKTOP:-}}
 
-oldifs=$IFS
+# Print the value of key $2 from the [Desktop Entry] group of file $1.
+entry_key() {
+	awk -v key="$2" '
+		/^\[/ { in_entry = ($0 == "[Desktop Entry]"); next }
+		in_entry {
+			eq = index($0, "=")
+			if (eq == 0) next
+			k = substr($0, 1, eq - 1); sub(/[ \t]+$/, "", k)
+			if (k != key) next
+			v = substr($0, eq + 1); sub(/^[ \t]+/, "", v)
+			print v; exit
+		}' "$1"
+}
+
+# True if the ;-separated list $1 contains one of the current desktop names.
+lists_current_desktop() {
+	old_ifs=$IFS
+	IFS=:
+	for desktop in $desktops; do
+		IFS=';'
+		for listed in $1; do
+			if [ -n "$desktop" ] && [ "$listed" = "$desktop" ]; then
+				IFS=$old_ifs
+				return 0
+			fi
+		done
+		IFS=:
+	done
+	IFS=$old_ifs
+	return 1
+}
+
+# True if the AutostartCondition $1 holds (unknown conditions do not).
+condition_holds() {
+	set -- $1
+	case "$1" in
+	GSettings)
+		[ $# -ge 3 ] && command -v gsettings >/dev/null 2>&1 &&
+			[ "$(gsettings get "$2" "$3" 2>/dev/null)" = "true" ]
+		;;
+	if-exists)
+		[ $# -ge 2 ] && [ -e "$config_home/$2" ]
+		;;
+	unless-exists)
+		[ $# -ge 2 ] && [ ! -e "$config_home/$2" ]
+		;;
+	*)
+		return 1
+		;;
+	esac
+}
+
+# True if the desktop entry $1 should be started.
+should_start() {
+	[ "$(entry_key "$1" Hidden)" = "true" ] && return 1
+	[ "$(entry_key "$1" X-GNOME-Autostart-enabled)" = "false" ] && return 1
+
+	if [ "$desktops" != "all" ]; then
+		only=$(entry_key "$1" OnlyShowIn)
+		if [ -n "$only" ] && ! lists_current_desktop "$only"; then
+			return 1
+		fi
+		not=$(entry_key "$1" NotShowIn)
+		if [ -n "$not" ] && lists_current_desktop "$not"; then
+			return 1
+		fi
+	fi
+
+	try_exec=$(entry_key "$1" TryExec)
+	if [ -n "$try_exec" ]; then
+		case "$try_exec" in
+		/*) [ -x "$try_exec" ] || return 1 ;;
+		*) command -v "$try_exec" >/dev/null 2>&1 || return 1 ;;
+		esac
+	fi
+
+	condition=$(entry_key "$1" AutostartCondition)
+	if [ -n "$condition" ] && ! condition_holds "$condition"; then
+		return 1
+	fi
+	return 0
+}
+
+seen=" "
+# Split on ":" only the expanded value (a literal ":" in the for list would
+# not be split).
+search_dirs="$config_home:$config_dirs"
+old_ifs=$IFS
 IFS=:
-for d in ${XDG_CONFIG_HOME:-~/.config}:${XDG_CONFIG_DIRS:-${sysconfdir:-/etc}/xdg};
-do
-    for f in $d/autostart/*.desktop;
-    do
-        # Skip this entry if this file doesn't exist (e.g. if there are no
-        # desktop files in that directory)
-        if test ! -f "$f";
-        then
-            continue
-        # Hidden key; must not be shown
-        elif cat "$f" | grep -q "^Hidden\s*=\s*true$";
-        then
-            show_in=0
-        # Value of all: run all programs
-        elif test "$WB_AUTOSTART_ENVIRONMENT" = "all";
-        then
-            show_in=1
-        # No OnlyShowIn or NotShowIn key, so show regardless of the value of
-        # WB_AUTOSTART_ENVIRONMENT
-        elif ! (cat "$f" | grep -q '^\(Only\|Not\)ShowIn\s*=\s*');
-        then
-            show_in=1
-        # No WB_AUTOSTART_ENVIRONMENT specified, so don't run any programs that
-        # specify a special environment
-        elif test -z "$WB_AUTOSTART_ENVIRONMENT";
-        then
-            cat "$f" | grep -q '^OnlyShowIn\s*=\s*' && show_in=0
-        else
-            # Run programs only in the specified autostart environments
-            IFS=:
-            show_in=0
-            for autostart_environment in $WB_AUTOSTART_ENVIRONMENT;
-            do
-                IFS=\;
-                ONLY_SHOW_IN=$(cat "$f" | grep '^OnlyShowIn\s*=\s*' | sed -e 's/^OnlyShowIn\s*=\s*//g')
-                for only_show_in in $ONLY_SHOW_IN;
-                do
-                    if test "$only_show_in" = "$autostart_environment";
-                    then
-                        show_in=1
-                        break 2
-                    fi
-                done
-                # But don't show in these environments
-                NOT_SHOW_IN=$(cat "$f" | grep '^NotShowIn\s*=\s*' | sed -e 's/^NotShowIn\s*=\s*//g')
-                for not_show_in in $NOT_SHOW_IN;
-                do
-                    if test "$not_show_in" = "$autostart_environment";
-                    then
-                        show_in=0
-                        break 2
-                    else
-                        show_in=1
-                    fi
-                done
-            done
-        fi
+for dir in $search_dirs; do
+	IFS=$old_ifs
+	for file in "$dir"/autostart/*.desktop; do
+		[ -f "$file" ] || continue
+		name=${file##*/}
+		# The first directory that has this file name wins.
+		case "$seen" in
+		*" $name "*) continue ;;
+		esac
+		seen="$seen$name "
 
-        fn=$(basename "$f")
-        # Don't use if a desktop entry with the same name has already been used 
-        for df in "$@";
-        do
-            if test "$df" = "$fn";
-            then
-                show_in=0
-            fi
-        done
-        # Must be set back before executing the program
-        IFS=$oldifs
-
-        set -- $@ "$fn"
-        if test $show_in -ne 0;
-        then
-            # Don't run the Exec key if a non-empty TryExec command can't be found
-            TRY_EXEC=$(cat "$f" | grep '^TryExec\s*=\s*\S' | sed -e 's/^TryExec\s*=\s*//g');
-            if test -n "$TRY_EXEC" && ! command -v $TRY_EXEC >/dev/null 2>&1;
-            then
-                continue
-            fi
-            $(cat "$f" | grep '^Exec\s*=\s*' | sed -e 's/^Exec\s*=\s*//g') &
-        fi
-    done
+		should_start "$file" || continue
+		cmd=$(entry_key "$file" Exec | sed -e 's/%[fFuUdDnNickvm]//g' -e 's/%%/%/g')
+		[ -n "$cmd" ] || continue
+		if [ -n "${WB_AUTOSTART_DRY_RUN:-}" ]; then
+			printf '%s\n' "$cmd"
+		else
+			# Output goes to the session log, which helps when something misbehaves.
+			sh -c "$cmd" &
+		fi
+	done
+	IFS=:
 done
+IFS=$old_ifs

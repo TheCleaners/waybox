@@ -117,7 +117,10 @@ else
 fi
 export WB_RC_XML
 
-if which dbus-launch >/dev/null 2>&1;
+# Only start a private session bus when there is none. On systemd systems
+# (dbus-user-session) the user bus already exists; a second one would cut
+# apps off from portals, notifications and the keyring on the real bus.
+if test -z "$DBUS_SESSION_BUS_ADDRESS" && which dbus-launch >/dev/null 2>&1;
 then
     DBUS_LAUNCH="dbus-launch --exit-with-session"
 fi
