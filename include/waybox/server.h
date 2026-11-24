@@ -31,6 +31,7 @@
 
 namespace wb { class MenuWidget; class SwitcherWidget; }
 struct wb_session_lock_state;
+struct wb_workspace_state;
 
 struct wb_server {
 	struct wl_display *wl_display;
@@ -126,6 +127,9 @@ struct wb_server {
 
 	/* ext-session-lock-v1 state (see session_lock.h), or null. */
 	struct wb_session_lock_state *session_lock = nullptr;
+
+	/* ext-workspace-v1 state (see workspace.h), or null. */
+	struct wb_workspace_state *workspaces = nullptr;
 };
 
 bool wb_create_backend(struct wb_server *server);

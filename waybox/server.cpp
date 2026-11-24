@@ -11,6 +11,7 @@
 #include "waybox/wlroots.hpp"
 
 #include "idle.h"
+#include "waybox/workspace.h"
 #include "waybox/server.h"
 #include "waybox/session_lock.h"
 #include "waybox/frame_view.hpp"
@@ -76,6 +77,7 @@ void wb_reconfigure(struct wb_server *server) {
 		}
 	}
 	desktops_reconfigured(server);
+	workspace_schedule_sync(server);  /* names or count may have changed */
 	arrange_toplevels(server);
 	wlr_log(WLR_INFO, "%s", _("Reconfigured"));
 }
@@ -155,6 +157,7 @@ bool wb_start_server(struct wb_server* server) {
 	wl_list_init(&server->toplevels);
 	wl_list_init(&server->focus_order);
 	init_output(server);
+	workspace_init(server);  /* after init_output: watches outputs it adds */
 
 	/* Create a scene graph. This is a wlroots abstraction that handles all
 	 * rendering and damage tracking. All the compositor author needs to do
@@ -261,6 +264,7 @@ bool wb_terminate(struct wb_server* server) {
 	 * those objects are still alive. */
 	wl_display_destroy_clients(server->wl_display);
 	finish_session_lock(server);
+	workspace_finish(server);
 
 	server->cursor.reset();
 	server->new_xdg_decoration.disconnect(); /* wb_decoration_destroy */
