@@ -4,6 +4,7 @@
 #include <optional>
 #include <vector>
 
+#include "idle.h"
 #include "waybox/input_method.h"
 #include "waybox/wlroots.hpp"
 #if WLR_HAS_LIBINPUT_BACKEND && defined(HAS_LIBINPUT)
@@ -623,7 +624,7 @@ void wb_keyboard::on_key(void *data) {
 		wlr_seat_set_keyboard(seat, keyboard);
 		wlr_seat_keyboard_notify_key(seat, event->time_msec,
 			event->keycode, event->state);
-		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		idle_activity(server, seat);
 		return;
 	}
 
@@ -655,7 +656,7 @@ void wb_keyboard::on_key(void *data) {
 					server->switcher->select_next();
 				}
 			}
-			wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+			idle_activity(server, seat);
 			return;
 		}
 
@@ -674,7 +675,7 @@ void wb_keyboard::on_key(void *data) {
 					break;
 				}
 			}
-			wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+			idle_activity(server, seat);
 			return;
 		}
 		for (int i = 0; i < nsyms; i++) {
@@ -684,14 +685,14 @@ void wb_keyboard::on_key(void *data) {
 		/* Swallow key releases too while a menu or the switcher OSD is up.
 		 * (The modifier-release that commits the switcher arrives via
 		 * on_modifiers, not here.) */
-		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		idle_activity(server, seat);
 		return;
 	}
 
 	if (!handled && input_method_key(server, keyboard, event)) {
 		/* The input method has the keyboard; what it doesn't use it passes
 		 * on through its virtual keyboard. */
-		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		idle_activity(server, seat);
 		return;
 	}
 	if (!handled) {
@@ -701,7 +702,7 @@ void wb_keyboard::on_key(void *data) {
 			event->keycode, event->state);
 	}
 
-	wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+	idle_activity(server, seat);
 }
 
 /* Give a keyboard the keymap from rc.xml's <keyboard><xkb> (or xkbcommon's

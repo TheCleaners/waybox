@@ -484,36 +484,41 @@ void new_output_notify(struct wb_server *server, void *data) {
 		reconfigure_output(output);
 }
 
-static void output_power_set_mode(struct wb_server *server, void *data) {
-	auto *event = static_cast<struct wlr_output_power_v1_set_mode_event *>(data);
-	auto *output = static_cast<wb_output *>(event->output->data);
-	if (output == nullptr)
-		return;
-	bool on = event->mode == ZWLR_OUTPUT_POWER_V1_MODE_ON;
+bool output_set_power(struct wb_output *output, bool on) {
+	struct wb_server *server = output->server;
+	struct wlr_output *wlr_output = output->wlr_output;
 	/* Only screens that are on (or off for power saving): one disabled
 	 * in the settings stays disabled. */
-	if (on ? !output->powered_off : !event->output->enabled)
-		return;
+	if (on ? !output->powered_off : !wlr_output->enabled)
+		return false;
 	struct wlr_output_state state;
 	wlr_output_state_init(&state);
 	wlr_output_state_set_enabled(&state, on);
-	bool ok = wlr_output_commit_state(event->output, &state);
+	bool ok = wlr_output_commit_state(wlr_output, &state);
 	wlr_output_state_finish(&state);
 	if (!ok) {
-		wlr_log(WLR_ERROR, "Couldn't switch %s %s", event->output->name, on ? "on" : "off");
-		return;
+		wlr_log(WLR_ERROR, "Couldn't switch %s %s", wlr_output->name, on ? "on" : "off");
+		return false;
 	}
 	output->powered_off = !on;
-	wlr_log(WLR_INFO, "wb-output-power %s %s", event->output->name, on ? "on" : "off");
+	output->idle_off = false;
+	wlr_log(WLR_INFO, "wb-output-power %s %s", wlr_output->name, on ? "on" : "off");
 	if (on) {
 		/* Some outputs come back at a different refresh rate, and
 		 * clients need a frame to repaint. */
-		wlr_output_schedule_frame(event->output);
+		wlr_output_schedule_frame(wlr_output);
 	} else {
 		/* Don't wait for its frame before telling a locker it's locked. */
-		session_lock_output_gone(server, event->output);
+		session_lock_output_gone(server, wlr_output);
 	}
 	output_manager_update_config(server);
+	return true;
+}
+
+static void output_power_set_mode(struct wb_server *server, void *data) {
+	auto *event = static_cast<struct wlr_output_power_v1_set_mode_event *>(data);
+	if (auto *output = static_cast<wb_output *>(event->output->data))
+		output_set_power(output, event->mode == ZWLR_OUTPUT_POWER_V1_MODE_ON);
 }
 
 void apply_output_rules(struct wb_server *server) {

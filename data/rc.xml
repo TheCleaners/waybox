@@ -46,6 +46,20 @@
          edge the pointer must be (pixels). -->
     <edgeTiling enabled="yes" range="10"/>
     <titlebar paddingY="2" buttonSize="0" resizeGrab="8"/>
+    <!-- Programs to start with the session (none unless listed). Waybox
+         starts a program again if it crashes (restart="no" turns that
+         off), and Reconfigure starts, stops or restarts what changed.
+         name defaults to the program's name.
+    <startup>
+      <program name="panel">waybar</program>
+      <program name="night-light" enabled="no">wlsunset -l 51.5 -L -0.1</program>
+    </startup>
+    -->
+    <!-- Switch the screens off after this many seconds without input, and
+         back on with the next key press or mouse move (unless a video or
+         game asks to keep them on). Unset or 0: never.
+    <idle screenOff="600"/>
+    -->
   </waybox>
   <!-- Virtual desktops. Names are optional (unnamed ones show as
        "Desktop N"). -->

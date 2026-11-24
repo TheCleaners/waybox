@@ -11,6 +11,7 @@
 #include "waybox/wlroots.hpp"
 
 #include "idle.h"
+#include "startup_supervisor.h"
 #include "waybox/workspace.h"
 #include "waybox/xwayland.h"
 #include "waybox/pointer_constraints.h"
@@ -107,6 +108,8 @@ void wb_reconfigure(struct wb_server *server) {
 	}
 	workspace_schedule_sync(server);  /* names or count may have changed */
 	arrange_toplevels(server);
+	startup_apply(server);     /* <startup>: start, stop what changed */
+	idle_reconfigured(server); /* <idle>: the new timeout counts from now */
 	wlr_log(WLR_INFO, "%s", _("Reconfigured"));
 }
 
@@ -384,6 +387,8 @@ bool wb_terminate(struct wb_server* server) {
 	/* Destroy all clients first, so that surface unmap/destroy handlers (which
 	 * reference server->cursor, server->seat and server->config) run while
 	 * those objects are still alive. */
+	startup_finish(server);  /* end the <startup> programs */
+	finish_idle(server);
 	wl_display_destroy_clients(server->wl_display);
 	finish_session_lock(server);
 	workspace_finish(server);

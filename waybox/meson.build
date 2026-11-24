@@ -19,6 +19,7 @@ wb_src = [
   client_menu_src,
   security_src,
   output_rules_src,
+  startup_src,
   xml_strict_src,
   render_src,
   files(
@@ -30,6 +31,7 @@ wb_src = [
     'frame_view.cpp',
     'icon_loader.cpp',
     'idle.cpp',
+    'startup_supervisor.cpp',
     'input_method.cpp',
     'layer_shell.cpp',
     'main.cpp',

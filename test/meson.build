@@ -143,6 +143,13 @@ output_rules_test = executable(
   )
 test('output_rules', output_rules_test)
 
+startup_test = executable(
+  'startup_test',
+  ['startup_test.cpp', 'wb_test_main.cpp', startup_src],
+  include_directories: [inc_dir],
+  )
+test('startup', startup_test)
+
 # Pixel test for the Cairo/Pango painting primitives. Needs cairo/pango, so it
 # is only built in the full build (not tests_only); it links no wlroots.
 if not get_option('tests_only')
@@ -354,6 +361,7 @@ if python.found() and not get_option('tests_only')
     ['foreign_toplevel', 'foreign_toplevel_test.py', [default_rc], 60],
     ['fullscreen_panel', 'fullscreen_panel_test.py', [layer_client], 60],
     ['idle_inhibit', 'idle_inhibit_test.py', [inhibit_client], 60],
+    ['idle_screen_off', 'idle_screen_off_test.py', [inhibit_client], 60],
     ['input_focus', 'input_focus_test.py', [], 60],
     ['input_method', 'input_method_test.py', [ime_client, text_input_client], 90],
     ['key_chain', 'key_chain_test.py', [], 60],
@@ -377,6 +385,7 @@ if python.found() and not get_option('tests_only')
     ['session_lock', 'session_lock_test.py', [lock_client], 60],
     ['session_lock_virtual_always', 'session_lock_test.py', [lock_client, 'always'], 60],
     ['ssd', 'ssd_test.py', [], 60],
+    ['startup_programs', 'startup_programs_test.py', [], 60],
     ['switcher_icons', 'switcher_icons_test.py', [], 60],
     ['switcher_order', 'switcher_order_test.py', [], 60],
     ['titlebar_buttons', 'titlebar_buttons_test.py', [], 60],

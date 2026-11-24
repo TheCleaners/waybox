@@ -570,6 +570,55 @@ static void parse_edge_tiling(struct wb_config *config, xmlXPathContextPtr ctxt)
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><startup><program ...>command</program></startup>. */
+static void parse_startup(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:startup/ob:program", ctxt);
+	if (object == NULL)
+		return;
+	for (int i = 0; object->nodesetval && i < object->nodesetval->nodeNr; i++) {
+		xmlNode *node = object->nodesetval->nodeTab[i];
+		xmlChar *content = xmlNodeGetContent(node);
+		std::string command = content ? (const char *) content : "";
+		xmlFree(content);
+		size_t b = command.find_first_not_of(" \t\r\n");
+		command = b == std::string::npos ? ""
+			: command.substr(b, command.find_last_not_of(" \t\r\n") - b + 1);
+		wb::StartupProgram p;
+		p.command = command;
+		p.name = wb::startup_name((const char *) get_attribute(node, "name"), command);
+		if (auto v = parse_bool((const char *) get_attribute(node, "enabled")))
+			p.enabled = *v;
+		if (auto v = parse_bool((const char *) get_attribute(node, "restart")))
+			p.restart = *v;
+		if (p.command.empty()) {
+			wlr_log(WLR_ERROR, "%s", _("Ignoring a startup program with no command"));
+			continue;
+		}
+		config->startup.push_back(std::move(p));
+	}
+	xmlXPathFreeObject(object);
+}
+
+/* Parse <waybox><idle screenOff="seconds"/>. */
+static void parse_idle(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:idle", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		const char *v = (const char *) get_attribute(object->nodesetval->nodeTab[0],
+				"screenOff");
+		char *end = nullptr;
+		long s = strtol(v, &end, 10);
+		if (v[0] != '\0' && *end == '\0' && s >= 0 && s <= 24 * 3600)
+			config->idle_screen_off_s = static_cast<int>(s);
+		else if (v[0] != '\0')
+			wlr_log(WLR_ERROR, "%s screenOff=\"%s\"", _("Ignoring the idle setting"), v);
+	}
+	xmlXPathFreeObject(object);
+}
+
 /* Parse <waybox><titlebar paddingY="N" buttonSize="N" resizeGrab="N"/></waybox>:
  * server-side-decoration sizing. Each attribute is optional; an absent value
  * leaves the field at -1 ("unset"), and frame_metrics() picks a default. */
@@ -786,6 +835,8 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	parse_hdr(config, ctxt);
 	parse_outputs(config, ctxt);
 	parse_titlebar(config, ctxt);
+	parse_startup(config, ctxt);
+	parse_idle(config, ctxt);
 
 	xmlXPathFreeContext(ctxt);
 	xmlFreeDoc(doc);

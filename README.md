@@ -167,7 +167,9 @@ installed from [`data/`](data). The session script falls back to Openbox's
 files if it finds no Waybox ones.
 
 The format follows Openbox. A `<waybox>` block holds settings specific to this
-fork: menu behaviour, switcher options and titlebar sizing. The shipped
+fork: menu behaviour, switcher options, titlebar sizing, and optionally
+programs to start with the session (restarted if they crash) and switching
+the screens off when idle. The shipped
 [`rc.xml`](data/rc.xml) is commented throughout. To edit settings in a GUI,
 run `wbconf` or open it from the root menu.
 
