@@ -170,8 +170,11 @@ WB_TEST(title_layout_parsing) {
 	WB_CHECK(l.left == 2);
 	l = wb::parse_title_layout("LIMC");          /* no icon */
 	WB_CHECK(l.left == 0 && l.buttons.size() == 3);
-	l = wb::parse_title_layout("NDSLIIMC");      /* D, S skipped; I once */
-	WB_CHECK(l.left == 1 && l.buttons.size() == 4);
+	l = wb::parse_title_layout("NDSLIIMCX");     /* I once; X unknown */
+	WB_CHECK(l.buttons == (B{FrameButton::Icon, FrameButton::AllDesktops,
+			FrameButton::Shade, FrameButton::Iconify, FrameButton::Maximize,
+			FrameButton::Close}));
+	WB_CHECK(l.left == 3);
 	l = wb::parse_title_layout("NIMC");          /* no L: title last */
 	WB_CHECK(l.left == 4);
 	l = wb::parse_title_layout("");

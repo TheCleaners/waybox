@@ -39,6 +39,12 @@ static void activate_frame_button(struct wb_toplevel *toplevel, int i) {
 	case wb::FrameButton::Close:
 		view_close(toplevel);
 		break;
+	case wb::FrameButton::Shade:
+		set_toplevel_shaded(toplevel, !toplevel->shaded);
+		break;
+	case wb::FrameButton::AllDesktops:
+		wb_toggle_omnipresent(toplevel);
+		break;
 	case wb::FrameButton::Icon:
 		break;  /* acts on press (the window menu), not on release */
 	}

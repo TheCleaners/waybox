@@ -259,6 +259,7 @@ struct Ui {
 	GtkSpinButton *pad_y = nullptr;
 	GtkSpinButton *button_size = nullptr;
 	GtkSpinButton *resize_grab = nullptr;
+	GtkEntry *title_layout = nullptr;
 
 	/* Windows */
 	GtkDropDown *placement = nullptr;  /* Smart / Center / UnderMouse */
@@ -809,6 +810,8 @@ void populate(Ui *ui, const wb::WayboxSettings &s) {
 	gtk_spin_button_set_value(ui->pad_y, s.titlebar_pad_y.value_or(2));
 	gtk_spin_button_set_value(ui->button_size, s.titlebar_button_size.value_or(0));
 	gtk_spin_button_set_value(ui->resize_grab, s.titlebar_resize_grab.value_or(8));
+	gtk_editable_set_text(GTK_EDITABLE(ui->title_layout),
+			s.title_layout.value_or("NLIMC").c_str());
 
 	gtk_drop_down_set_selected(ui->placement,
 			index_of(kPlacement, s.placement_policy.value_or("Smart"), 0));
@@ -891,6 +894,16 @@ wb::WayboxSettings collect(Ui *ui) {
 	s.titlebar_pad_y = gtk_spin_button_get_value_as_int(ui->pad_y);
 	s.titlebar_button_size = gtk_spin_button_get_value_as_int(ui->button_size);
 	s.titlebar_resize_grab = gtk_spin_button_get_value_as_int(ui->resize_grab);
+	{
+		/* Only Openbox's letters, upper case. */
+		std::string layout;
+		for (char c : std::string(gtk_editable_get_text(GTK_EDITABLE(ui->title_layout)))) {
+			char u = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+			if (std::string("NLIMCSD").find(u) != std::string::npos)
+				layout += u;
+		}
+		s.title_layout = layout;
+	}
 
 	s.placement_policy = kPlacement[gtk_drop_down_get_selected(ui->placement)];
 
@@ -1045,6 +1058,7 @@ void reset_page_widgets(Ui *ui, int page) {
 		gtk_spin_button_set_value(ui->pad_y, 2);
 		gtk_spin_button_set_value(ui->button_size, 0);
 		gtk_spin_button_set_value(ui->resize_grab, 8);
+		gtk_editable_set_text(GTK_EDITABLE(ui->title_layout), "NLIMC");
 		break;
 	case 2:  /* Fonts */
 		font_set(&ui->font_active, "Sans 10");
@@ -1197,6 +1211,21 @@ GtkWidget *build_appearance_page(Ui *ui) {
 	ui->pad_y = add_spin(grid, 0, _("Titlebar padding (px):"), 0, 16);
 	ui->button_size = add_spin(grid, 1, _("Button size (px, 0 = auto):"), 0, 64);
 	ui->resize_grab = add_spin(grid, 2, _("Resize grab margin (px):"), 0, 32);
+
+	/* As obconf's "Button order". */
+	grid_label(grid, 3, _("Button order:"));
+	ui->title_layout = GTK_ENTRY(grid_control(grid, 3, gtk_entry_new()));
+	gtk_entry_set_max_length(ui->title_layout, 16);
+	GtkWidget *legend = gtk_label_new(_("N: Window icon\n"
+			"L: Window label (title)\n"
+			"I: Iconify\n"
+			"M: Maximize\n"
+			"C: Close\n"
+			"S: Shade (roll up)\n"
+			"D: Omnipresent (on all desktops)"));
+	gtk_label_set_xalign(GTK_LABEL(legend), 0);
+	gtk_widget_add_css_class(legend, "dim-label");
+	gtk_grid_attach(GTK_GRID(grid), legend, 1, 4, 1, 1);
 	return page;
 }
 

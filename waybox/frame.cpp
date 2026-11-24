@@ -50,12 +50,14 @@ TitleLayout parse_title_layout(std::string_view layout) {
 		case 'I': case 'i': add(FrameButton::Iconify); break;
 		case 'M': case 'm': add(FrameButton::Maximize); break;
 		case 'C': case 'c': add(FrameButton::Close); break;
+		case 'S': case 's': add(FrameButton::Shade); break;
+		case 'D': case 'd': add(FrameButton::AllDesktops); break;
 		case 'L': case 'l':
 			if (!seen_label)
 				out.left = static_cast<int>(out.buttons.size());
 			seen_label = true;
 			break;
-		default: break;  /* S, D, or unknown */
+		default: break;  /* unknown */
 		}
 	}
 	if (!seen_label)

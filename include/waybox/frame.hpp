@@ -25,6 +25,8 @@ enum class FrameButton {
 	Maximize,
 	Close,
 	Icon,      /* the window's icon (opens the window menu) */
+	Shade,     /* roll the window up to its titlebar, or back down */
+	AllDesktops, /* show the window on every desktop, or just this one */
 };
 
 /* The titlebar's items (Openbox's <titleLayout>): `buttons` in order, the
@@ -35,9 +37,9 @@ struct TitleLayout {
 };
 
 /* Parse Openbox's <titleLayout>: N icon, L the title, I iconify, M maximize,
- * C close; letters before L go left of the title, after it right. Letters
- * Waybox has no item for (S shade, D all desktops) and repeats are
- * skipped. Without an L the title comes last. Openbox's default is NLIMC. */
+ * C close, S shade (roll up), D all desktops; letters before L go left of
+ * the title, after it right. Unknown letters and repeats are skipped.
+ * Without an L the title comes last. Openbox's default is NLIMC. */
 TitleLayout parse_title_layout(std::string_view layout);
 
 /* Which part of the frame is under a point — drives the cursor shape and what a

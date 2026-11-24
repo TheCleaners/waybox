@@ -46,6 +46,11 @@ def main():
     os.makedirs(os.path.join(data, "applications"))
     subprocess.run(["magick", "-size", "32x32", "xc:#ff0000",
                     os.path.join(themed, "wbtheme.png")], check=True)
+    # A hicolor index of its own: the test mustn't depend on the host's
+    # (CI containers may not have the hicolor theme installed).
+    with open(os.path.join(data, "icons", "hicolor", "index.theme"), "w") as f:
+        f.write("[Icon Theme]\nName=Hicolor\nDirectories=32x32/apps\n\n"
+                "[32x32/apps]\nSize=32\nContext=Applications\nType=Threshold\n")
     green = os.path.join(workdir, "green.png")
     subprocess.run(["magick", "-size", "32x32", "xc:#00ff00", green], check=True)
     with open(os.path.join(data, "applications", "wbdesk.desktop"), "w") as f:

@@ -417,6 +417,7 @@ void wb_send_to_desktop(struct wb_toplevel *toplevel, int index, bool follow) {
 	toplevel->omnipresent = false;
 	toplevel->desktop = index;
 	update_desktop_visibility(toplevel);
+	update_toplevel_decoration(toplevel);  /* the D button's look */
 	wlr_log(WLR_INFO, "wb-desktop send %s to %d", view_app_id(toplevel),
 			index + 1);
 	if (follow) {
@@ -437,6 +438,9 @@ void wb_toggle_omnipresent(struct wb_toplevel *toplevel) {
 		toplevel->omnipresent = true;
 	}
 	update_desktop_visibility(toplevel);
+	update_toplevel_decoration(toplevel);  /* the D button's look */
+	wlr_log(WLR_INFO, "wb-desktop omnipresent %s %s", view_app_id(toplevel),
+			toplevel->omnipresent ? "on" : "off");
 }
 
 void desktops_reconfigured(struct wb_server *server) {
