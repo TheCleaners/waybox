@@ -71,3 +71,23 @@ WB_TEST(cycle_without_current_starts_from_edge) {
 	WB_CHECK(cycle_next(3, pred(flags), std::nullopt, false) == std::optional<std::size_t>(1));
 	WB_CHECK(cycle_next(3, pred(flags), std::nullopt, true) == std::optional<std::size_t>(1));
 }
+
+WB_TEST(switcher_order_mru_stacking_spatial) {
+	using wb::SwitcherEntry;
+	using wb::SwitcherOrder;
+	using wb::switcher_order;
+	/* MRU order: focused (a), then b, c, d. Two monitors side by side. */
+	std::vector<SwitcherEntry> e = {
+		/* stack, output, position */
+		{0, 0, 0, 500, 100},    /* a: top, left monitor, right-ish */
+		{2, 1920, 0, 1950, 50}, /* b: right monitor */
+		{1, 0, 0, 100, 400},    /* c: left monitor, left */
+		{3, 0, 0, 100, 100},    /* d: left monitor, left, higher than c */
+	};
+	using V = std::vector<std::size_t>;
+	WB_CHECK(switcher_order(e, SwitcherOrder::MRU) == (V{0, 1, 2, 3}));
+	WB_CHECK(switcher_order(e, SwitcherOrder::Stacking) == (V{0, 2, 1, 3}));
+	/* Left monitor first: d (100,100), c (100,400), a (500,100); then b. */
+	WB_CHECK(switcher_order(e, SwitcherOrder::Spatial) == (V{3, 2, 0, 1}));
+	WB_CHECK(switcher_order({}, SwitcherOrder::Spatial).empty());
+}

@@ -114,6 +114,17 @@ MenuWidget::MenuWidget(struct wb_server *server, const MenuFile &menus,
 	icon_theme_ = detect_icon_theme();
 
 	tree_ = wlr_scene_tree_create(&server_->scene->tree);
+	hover_timer_ = wl_event_loop_add_timer(server_->wl_event_loop, [](void *data) {
+		auto *self = static_cast<MenuWidget *>(data);
+		size_t depth = self->hover_depth_;
+		int item = self->hover_item_;
+		self->hover_item_ = -1;
+		/* Still resting on it? Then open it. */
+		if (item >= 0 && depth < self->levels_.size() &&
+				self->levels_[depth].hovered == item)
+			self->open_submenu(depth, item);
+		return 0;
+	}, this);
 	wlr_scene_node_raise_to_top(&tree_->node);
 	session_lock_keep_on_top(server_);
 
@@ -124,6 +135,8 @@ MenuWidget::MenuWidget(struct wb_server *server, const MenuFile &menus,
 }
 
 MenuWidget::~MenuWidget() {
+	if (hover_timer_ != nullptr)
+		wl_event_source_remove(hover_timer_);
 	/* Stop running pipe-menu commands: nothing will read their output. */
 	while (!pipe_jobs_.empty())
 		stop_pipe(pipe_jobs_.begin()->second.get());
@@ -380,8 +393,11 @@ void MenuWidget::render_level(Level &level) {
 }
 
 void MenuWidget::close_below(size_t keep) {
-	while (levels_.size() > keep + 1)
+	while (levels_.size() > keep + 1) {
+		wlr_log(WLR_INFO, "wb-menu close %s",
+				levels_.back().menu ? levels_.back().menu->id.c_str() : "");
 		levels_.pop_back();
+	}
 }
 
 void MenuWidget::open_submenu(size_t level_index, int item_index) {
@@ -396,6 +412,7 @@ void MenuWidget::open_submenu(size_t level_index, int item_index) {
 			levels_[level_index + 1].parent_item == item_index)
 		return;
 	close_below(level_index);
+	wlr_log(WLR_INFO, "wb-menu open %s", item.submenu_id.c_str());
 
 	/* A pipe menu whose output isn't in yet: run it, show a placeholder. */
 	std::string pending;
@@ -570,6 +587,21 @@ void MenuWidget::refresh_pending(const std::string &id) {
 	}
 }
 
+/* Open the submenu of the entry the pointer rests on: after the hover
+ * delay, or at once without one. */
+void MenuWidget::hover_submenu(size_t depth, int item) {
+	bool open = levels_.size() > depth + 1 && levels_[depth + 1].parent_item == item;
+	if (open || (hover_item_ == item && hover_depth_ == depth))
+		return;  /* already open, or already waiting for it */
+	if (behavior_.submenu_delay_ms <= 0 || hover_timer_ == nullptr) {
+		open_submenu(depth, item);
+		return;
+	}
+	hover_depth_ = depth;
+	hover_item_ = item;
+	wl_event_source_timer_update(hover_timer_, behavior_.submenu_delay_ms);
+}
+
 void MenuWidget::on_motion(double lx, double ly) {
 	/* Topmost (deepest) level under the pointer wins. */
 	for (size_t depth = levels_.size(); depth-- > 0;) {
@@ -581,8 +613,11 @@ void MenuWidget::on_motion(double lx, double ly) {
 		int item = menu_item_at(*level.menu, level.layout,
 				static_cast<int>(lx) - r.x, static_cast<int>(ly) - r.y);
 
-		/* Pointer is back in a shallower menu: drop deeper submenus. */
-		close_below(depth);
+		/* On another entry than the one whose submenu is open: drop the
+		 * deeper menus. (Staying on that entry keeps its submenu open, rather
+		 * than closing and rebuilding it on every motion.) */
+		if (levels_.size() > depth + 1 && levels_[depth + 1].parent_item != item)
+			close_below(depth);
 
 		if (level.hovered != item) {
 			level.hovered = item;
@@ -591,7 +626,9 @@ void MenuWidget::on_motion(double lx, double ly) {
 		if (item >= 0 &&
 				level.menu->items[item].kind == MenuItem::Kind::Submenu &&
 				behavior_.submenu_open == SubmenuOpen::Hover)
-			open_submenu(depth, item);
+			hover_submenu(depth, item);
+		else if (hover_item_ >= 0 && depth <= hover_depth_)
+			hover_item_ = -1;  /* moved off before the delay was up */
 		return;
 	}
 	/* Pointer is over no panel: leave the menus open (a click outside

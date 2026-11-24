@@ -4,6 +4,9 @@
  */
 #include "waybox/window_cycle.hpp"
 
+#include <algorithm>
+#include <tuple>
+
 namespace wb {
 
 std::optional<std::size_t> cycle_next(
@@ -31,6 +34,32 @@ std::optional<std::size_t> cycle_next(
 			return idx;
 	}
 	return std::nullopt;
+}
+
+std::vector<std::size_t> switcher_order(const std::vector<SwitcherEntry> &entries,
+		SwitcherOrder order) {
+	std::vector<std::size_t> idx(entries.size());
+	for (std::size_t i = 0; i < idx.size(); ++i)
+		idx[i] = i;
+	auto by = [&entries](auto key) {
+		return [&entries, key](std::size_t a, std::size_t b) {
+			return key(entries[a]) < key(entries[b]);
+		};
+	};
+	switch (order) {
+	case SwitcherOrder::MRU:
+		break;
+	case SwitcherOrder::Stacking:
+		std::stable_sort(idx.begin(), idx.end(),
+				by([](const SwitcherEntry &e) { return e.stack; }));
+		break;
+	case SwitcherOrder::Spatial:
+		std::stable_sort(idx.begin(), idx.end(), by([](const SwitcherEntry &e) {
+			return std::tuple(e.output_x, e.output_y, e.x, e.y);
+		}));
+		break;
+	}
+	return idx;
 }
 
 }  // namespace wb

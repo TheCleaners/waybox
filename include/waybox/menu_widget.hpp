@@ -126,6 +126,13 @@ private:
 	 * and the placeholder shown meanwhile. */
 	std::map<std::string, std::unique_ptr<MenuFile>> pipe_results_;
 	std::map<std::string, std::unique_ptr<PipeJob>> pipe_jobs_;
+
+	/* Hover-to-open waits behavior_.submenu_delay_ms (<menu hoverDelay>):
+	 * the submenu item the pointer rests on, and the timer that opens it. */
+	struct wl_event_source *hover_timer_ = nullptr;
+	size_t hover_depth_ = 0;
+	int hover_item_ = -1;
+	void hover_submenu(size_t depth, int item);
 	Menu loading_menu_;
 	std::string root_id_;
 	int root_x_ = 0, root_y_ = 0;

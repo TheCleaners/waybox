@@ -217,8 +217,8 @@ and *?*; omitted attributes match anything.
 
 ```
 <waybox>
-  <menu source="builtin" submenuOpen="hover" wrap="yes" icons="yes"/>
-  <switcher osd="yes" wrap="yes"/>
+  <menu source="builtin" submenuOpen="hover" hoverDelay="100" wrap="yes" icons="yes"/>
+  <switcher order="mru" osd="yes" wrap="yes"/>
   <edgeTiling enabled="yes" range="10"/>
   <titlebar paddingY="2" buttonSize="0" resizeGrab="8"/>
   <virtualInput allow="unlocked"/>
@@ -234,13 +234,18 @@ and *?*; omitted attributes match anything.
 *<menu>*
 	*source* is *builtin* (the native menu, default) or a command to run
 	instead, such as *rofi -show drun*. *submenuOpen* is *hover* or
-	*click*. *wrap*: keyboard navigation wraps at the ends. *icons*: show
-	item icons from the icon theme.
+	*click*. *hoverDelay*: with *hover*, how long the pointer rests on a
+	submenu's entry before it opens, in milliseconds (default 100; *0*
+	opens it at once). *wrap*: keyboard navigation wraps at the ends.
+	*icons*: show item icons from the icon theme.
 
 *<switcher>*
-	The Alt+Tab switcher lists windows on the current desktop in
-	most-recently-used order. *osd*: show the list while the modifier is
-	held (otherwise, switch at once). *wrap*: cycling wraps at the ends.
+	The Alt+Tab switcher lists windows on the current desktop. *order*:
+	*mru* (most recently used first, the default), *stacking* (top to
+	bottom), or *spatial* (monitor by monitor, then by position, left to
+	right and top to bottom); Alt+Tab goes to the next window in that order.
+	*osd*: show the list while the modifier is held (otherwise, switch at
+	once). *wrap*: cycling wraps at the ends.
 
 *<edgeTiling>*
 	Dragging a window to a monitor edge tiles it: the left or right half,

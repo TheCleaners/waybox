@@ -145,13 +145,47 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 		return;
 	}
 
-	/* focus_order head is the current window; first Tab selects the next
-	 * most-recently-used one, first Shift+Tab the least. */
-	int sel = reverse ? static_cast<int>(wins.size()) - 1 : 1;
-
 	wb::SwitcherBehavior behavior = server->config
 			? server->config->switcher_behavior
 			: wb::SwitcherBehavior{};
+
+	/* List them in the configured order (<switcher order>): most recently
+	 * used, stacking (top to bottom) or spatial (by monitor and position). */
+	std::vector<wb::SwitcherEntry> entries;
+	entries.reserve(wins.size());
+	for (struct wb_toplevel *w : wins) {
+		wb::SwitcherEntry e;
+		int rank = 0;
+		struct wb_toplevel *s;
+		wl_list_for_each(s, &server->toplevels, link) {
+			if (s == w)
+				break;
+			++rank;
+		}
+		e.stack = rank;
+		if (struct wlr_output *o = get_active_output(w)) {
+			struct wlr_box box;
+			wlr_output_layout_get_box(server->output_layout, o, &box);
+			e.output_x = box.x;
+			e.output_y = box.y;
+		}
+		e.x = w->geometry.x;
+		e.y = w->geometry.y;
+		entries.push_back(e);
+	}
+	std::vector<std::size_t> order = wb::switcher_order(entries, behavior.order);
+	std::vector<struct wb_toplevel *> ordered;
+	ordered.reserve(wins.size());
+	for (std::size_t i : order)
+		ordered.push_back(wins[i]);
+	/* wins[0] (the head of the focus order) is the current window: the
+	 * first Tab selects the one after it in the list, Shift+Tab the one
+	 * before (with MRU, the next and the least recently used). */
+	int n = static_cast<int>(ordered.size());
+	int current = static_cast<int>(std::find(ordered.begin(), ordered.end(), wins[0]) -
+			ordered.begin());
+	int sel = reverse ? (current - 1 + n) % n : (current + 1) % n;
+	wins = std::move(ordered);
 	wb::SwitcherStyle style = server->config
 			? wb::switcher_style_from_theme(server->config->theme)
 			: wb::switcher_style_from_theme(wb::default_theme());
