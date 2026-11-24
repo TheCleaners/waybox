@@ -70,6 +70,7 @@ For background, see
 | Clipboard | `primary-selection`, `ext-data-control` |
 | Capture | `ext-image-copy-capture` (grim, screen recorders) |
 | X11 | Xwayland (lazy start, `DISPLAY` exported to the session) |
+| Graphics | `linux-dmabuf` v4, `linux-drm-syncobj` (explicit sync, on the DRM backend) |
 | Other | `presentation-time`, `viewporter`, `single-pixel-buffer`, `content-type`, `cursor-shape`, `idle-notify`, `idle-inhibit` |
 
 ### Robustness
@@ -138,6 +139,25 @@ Default bindings (from [`data/rc.xml`](data/rc.xml)):
 | <kbd>Print</kbd> | Screenshot (grim) |
 | <kbd>Super</kbd>+<kbd>C</kbd> | Reload configuration |
 | <kbd>Ctrl</kbd>+<kbd>Escape</kbd> | Exit Waybox |
+
+### Multiple GPUs
+
+Waybox draws the desktop on the first GPU it opens (the boot GPU, unless
+`WLR_DRM_DEVICES` lists another first) and drives displays on every GPU it
+opens. Programs can still render on any GPU. Tested on an AMD + NVIDIA
+machine with Waybox on the AMD card:
+
+| Program renders on NVIDIA through | Works? |
+|---|---|
+| Vulkan, Wayland or X11 (DXVK/Proton, `vkcube --gpu_number N`) | Yes |
+| OpenGL under X11 (`__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia`) | Yes |
+| OpenGL under Wayland (`__NV_PRIME_RENDER_OFFLOAD=1`, NVIDIA's egl-wayland2) | No: the driver cannot create the window surface; labwc fails the same way. Run such programs under X11 (e.g. `SDL_VIDEODRIVER=x11`). |
+
+Clients can hand over GPU fences with explicit sync (`linux-drm-syncobj-v1`),
+which NVIDIA's driver relies on. If outputs flicker once a second GPU is
+added, keep Waybox to the GPU your displays are on with
+`WLR_DRM_DEVICES=/dev/dri/cardN` (in `~/.config/waybox/environment`); programs
+can still render on the other GPU as above.
 
 ## Configuration
 
