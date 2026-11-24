@@ -175,7 +175,10 @@ void drop_window_capture(struct wb_toplevel *toplevel);
 void focus_toplevel(struct wb_toplevel *toplevel);
 void raise_toplevel(struct wb_toplevel *toplevel);
 void lower_toplevel(struct wb_toplevel *toplevel);
-void set_toplevel_maximized(struct wb_toplevel *toplevel, bool horz, bool vert);
+/* `raise`: a newly maximized window comes to the front; re-fitting one
+ * (arrange_toplevels) leaves the stacking alone. */
+void set_toplevel_maximized(struct wb_toplevel *toplevel, bool horz, bool vert,
+		bool raise = true);
 void set_toplevel_fullscreen(struct wb_toplevel *toplevel, bool fullscreen);
 void arrange_toplevels(struct wb_server *server);
 void constrain_toplevel_to_usable_area(struct wb_toplevel *toplevel);

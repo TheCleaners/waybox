@@ -191,6 +191,15 @@ static void handle_new_xdg_toplevel_decoration(struct wb_server *server, void *d
 
 	decoration->destroy.connect(&toplevel_decoration->events.destroy,
 			[decoration](void *data) {
+		/* A client may drop the decoration object (falling back to its own
+		 * decorations): the window must not keep pointing at it. */
+		struct wb_toplevel *t;
+		wl_list_for_each(t, &decoration->server->toplevels, link)
+			if (t->decoration == decoration->toplevel_decoration) {
+				t->decoration = nullptr;
+				if (t->mapped)
+					update_toplevel_decoration(t);
+			}
 		/* The Listener members disconnect themselves in their destructors. */
 		delete decoration;
 	});

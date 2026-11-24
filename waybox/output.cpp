@@ -9,6 +9,7 @@
 #include "waybox/wlroots.hpp"
 
 #include "waybox/output.h"
+#include "waybox/xdg_shell.h"
 #include "waybox/output_rules.hpp"
 #include "waybox/session_lock.h"
 
@@ -400,6 +401,25 @@ void handle_gamma_control_set_gamma(struct wb_server *server, void *data) {
 	wlr_output_schedule_frame(output->wlr_output);
 }
 
+/* Move toplevels out of `output`'s fullscreen layer before it is
+ * destroyed: fullscreen windows leave fullscreen, dialogs living in that
+ * layer go back to the window layer. */
+static void output_release_toplevels(struct wb_output *output) {
+	struct wb_server *server = output->server;
+	std::vector<struct wb_toplevel *> inside;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link)
+		if (t->scene_tree != nullptr &&
+				t->scene_tree->node.parent == output->layers.shell_fullscreen)
+			inside.push_back(t);
+	for (struct wb_toplevel *toplevel : inside) {
+		if (toplevel->fullscreen)
+			set_toplevel_fullscreen(toplevel, false);
+		if (toplevel->scene_tree->node.parent == output->layers.shell_fullscreen)
+			wlr_scene_node_reparent(&toplevel->scene_tree->node, server->toplevel_tree);
+	}
+}
+
 void new_output_notify(struct wb_server *server, void *data) {
 	struct wlr_output *wlr_output = static_cast<struct wlr_output *>(data);
 	wlr_log(WLR_INFO, "%s: %s", _("New output device detected"), wlr_output->name);
@@ -455,6 +475,9 @@ void new_output_notify(struct wb_server *server, void *data) {
 		 * free the layer scene-trees; the wb::Listener members disconnect
 		 * themselves when the output is deleted. */
 		layer_shell_output_destroy(output);
+		/* Windows (and their dialogs) in this output's fullscreen layer
+		 * would go with it: back to the ordinary window layer first. */
+		output_release_toplevels(output);
 		size_t num_layers =
 			sizeof(output->layers) / sizeof(struct wlr_scene_node *);
 		for (size_t i = 0; i < num_layers; i++) {

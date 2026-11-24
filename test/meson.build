@@ -334,6 +334,7 @@ if python.found() and not get_option('tests_only')
     ['placement', 'placement_test.py', [default_rc], 60],
     ['pointer_lock', 'pointer_lock_test.py', [constraint_client], 60],
     ['reconfigure', 'reconfigure_test.py', [], 60],
+    ['robustness', 'robustness_test.py', [layer_client], 90],
     ['sandbox', 'sandbox_test.py', [sandbox_client], 60],
     ['session_lock', 'session_lock_test.py', [lock_client], 60],
     ['session_lock_virtual_always', 'session_lock_test.py', [lock_client, 'always'], 60],
