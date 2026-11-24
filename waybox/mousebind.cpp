@@ -51,6 +51,10 @@ std::optional<uint32_t> button_from_token(std::string_view token) {
 		return MOUSE_BUTTON_RIGHT;
 	if (token == "Middle")
 		return MOUSE_BUTTON_MIDDLE;
+	if (token == "Up")
+		return MOUSE_BUTTON_UP;
+	if (token == "Down")
+		return MOUSE_BUTTON_DOWN;
 	return std::nullopt;
 }
 
@@ -123,10 +127,91 @@ std::optional<MouseButtonSpec> parse_mouse_button(std::string_view spec) {
 	return MouseButtonSpec{modifiers, *button};
 }
 
+bool mouse_context_matches(MouseContext binding, MouseContext actual) {
+	if (binding == actual)
+		return true;
+	auto is_desktop = [](MouseContext c) {
+		return c == MouseContext::Root || c == MouseContext::Desktop;
+	};
+	if (is_desktop(binding))
+		return is_desktop(actual);
+	if (binding == MouseContext::Frame)
+		return !is_desktop(actual);
+	return false;
+}
+
 bool mouse_binding_matches(const MouseBinding &binding, MouseContext context,
 		uint32_t button, uint32_t modifiers, MouseEvent event) {
-	return binding.context == context && binding.button == button &&
-			binding.modifiers == modifiers && binding.event == event;
+	constexpr uint32_t kLocks = kCaps | kMod2;
+	return mouse_context_matches(binding.context, context) &&
+			binding.button == button && binding.event == event &&
+			(binding.modifiers & ~kLocks) == (modifiers & ~kLocks);
+}
+
+int wheel_notches(int32_t *accum, int32_t value120, bool from_wheel, double delta) {
+	if (value120 != 0) {
+		if ((*accum < 0) != (value120 < 0))
+			*accum = 0;  /* changed direction: drop the old fraction */
+		*accum += value120;
+		int notches = *accum / 120;
+		*accum -= notches * 120;
+		return notches;
+	}
+	if (from_wheel && delta != 0)
+		return delta < 0 ? -1 : 1;
+	return 0;
+}
+
+std::vector<MouseEvent> ClickTracker::press(uint32_t button,
+		MouseContext context, uintptr_t target, uint32_t modifiers, double x,
+		double y, uint32_t time_ms) {
+	(void) time_ms;
+	pressed_ = Pressed{button, context, target, modifiers};
+	press_x_ = x;
+	press_y_ = y;
+	dragged_ = false;
+	return {MouseEvent::Press};
+}
+
+std::vector<MouseEvent> ClickTracker::motion(double x, double y) {
+	if (!pressed_ || dragged_)
+		return {};
+	double dx = x - press_x_, dy = y - press_y_;
+	if (dx * dx + dy * dy < kDragThreshold * kDragThreshold)
+		return {};
+	dragged_ = true;
+	last_click_.reset();  /* a drag breaks a double-click */
+	return {MouseEvent::Drag};
+}
+
+std::vector<MouseEvent> ClickTracker::release(uint32_t button, uint32_t time_ms) {
+	if (!pressed_ || pressed_->button != button)
+		return {};
+	Pressed p = *pressed_;
+	pressed_.reset();
+	std::vector<MouseEvent> events{MouseEvent::Release};
+	if (dragged_)
+		return events;
+	events.push_back(MouseEvent::Click);
+	bool doubled = last_click_ && last_click_->button == p.button &&
+			last_click_->target == p.target &&
+			last_click_->context == p.context &&
+			time_ms - last_click_ms_ <= kDoubleClickMs;
+	if (doubled) {
+		events.push_back(MouseEvent::DoubleClick);
+		last_click_.reset();  /* a third click starts over */
+	} else {
+		last_click_ = p;
+		last_click_ms_ = time_ms;
+	}
+	return events;
+}
+
+void ClickTracker::forget(uintptr_t target) {
+	if (pressed_ && pressed_->target == target)
+		pressed_.reset();
+	if (last_click_ && last_click_->target == target)
+		last_click_.reset();
 }
 
 }  // namespace wb
