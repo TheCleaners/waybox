@@ -227,6 +227,15 @@ static void sync_frame_active(struct wb_server *server) {
 /* Raise a toplevel to the top of the stacking order (z-order), without
  * touching focus. */
 static void raise_with_children(struct wb_toplevel *toplevel, int depth) {
+	/* A dialog lives in its window's layer (the fullscreen layer, for a
+	 * fullscreen window), so it is drawn above it. */
+	if (depth > 0 && !toplevel->fullscreen) {
+		struct wb_toplevel *parent = view_parent(toplevel);
+		if (parent != nullptr && toplevel->scene_tree->node.parent !=
+				parent->scene_tree->node.parent)
+			wlr_scene_node_reparent(&toplevel->scene_tree->node,
+					parent->scene_tree->node.parent);
+	}
 	wlr_scene_node_raise_to_top(&toplevel->scene_tree->node);
 	wl_list_remove(&toplevel->link);
 	wl_list_insert(&toplevel->server->toplevels, &toplevel->link);
@@ -279,6 +288,9 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	if (struct wb_toplevel *modal = view_modal_child(toplevel)) {
 		wlr_log(WLR_INFO, "wb-focus %s -> modal %s", view_app_id(toplevel),
 				view_app_id(modal));
+		/* The window comes up too (its dialogs with it), not just the
+		 * dialog over whatever covers the window. */
+		raise_toplevel(toplevel);
 		toplevel = modal;
 		if (!view_ready(toplevel))
 			return;
@@ -1026,9 +1038,9 @@ static void xdg_toplevel_set_title(struct wb_toplevel *toplevel, void *) {
 /* Log a toplevel's geometry on a state transition. Helps debugging window
  * placement, and lets the headless integration test verify restore geometry. */
 static void log_geometry(struct wb_toplevel *toplevel, const char *tag) {
-	wlr_log(WLR_INFO, "wb-geom %s %dx%d+%d+%d", tag,
+	wlr_log(WLR_INFO, "wb-geom %s %dx%d+%d+%d %s", tag,
 			toplevel->geometry.width, toplevel->geometry.height,
-			toplevel->geometry.x, toplevel->geometry.y);
+			toplevel->geometry.x, toplevel->geometry.y, view_app_id(toplevel));
 }
 
 /* Margin-inset usable area for `toplevel`, as a wb::Rect in layout coords.
@@ -1202,10 +1214,13 @@ void set_toplevel_fullscreen(struct wb_toplevel *toplevel, bool fullscreen) {
 		raise_toplevel(toplevel);
 	} else {
 		toplevel->geometry = toplevel->restore_fullscreen;
-		/* Return to the ordinary toplevel container (below the panel layers). */
-		if (toplevel->scene_tree != NULL)
+		/* Return to the ordinary toplevel container (below the panel layers),
+		 * its dialogs with it. */
+		if (toplevel->scene_tree != NULL) {
 			wlr_scene_node_reparent(&toplevel->scene_tree->node,
 					toplevel->server->toplevel_tree);
+			raise_toplevel(toplevel);
+		}
 	}
 
 	view_set_fullscreen(toplevel, fullscreen);

@@ -407,3 +407,16 @@ WB_TEST(switcher_icons_round_trip) {
 	WB_CHECK(RcDocument::from_string(out)->read().switcher_icons ==
 			std::optional<bool>(false));
 }
+
+WB_TEST(output_left_out_is_removed) {
+	/* What wbconf does for a monitor set back to Automatic: it isn't in
+	 * the settings any more. */
+	auto doc = RcDocument::from_string(kMoreRc);
+	WayboxSettings before = doc->read(), s = before;
+	s.outputs.erase(s.outputs.begin());  /* HDMI-A-1 */
+	doc->apply(s, before);
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("HDMI-A-1") == std::string::npos);
+	WB_CHECK(out.find("<output name=\"DP-4\" position=\"3840,0\"/>") != std::string::npos);
+	WB_CHECK(out.find("make=\"Dell Inc.\"") != std::string::npos);
+}

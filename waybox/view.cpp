@@ -218,7 +218,8 @@ struct wb_toplevel *view_modal_child(struct wb_toplevel *t) {
 		struct wb_toplevel *next = nullptr, *c;
 		wl_list_for_each(c, &t->server->toplevels, link)
 			if (c != t && c->mapped && !c->minimized && view_parent(c) == t &&
-					view_is_modal(c)) {
+					view_is_modal(c) &&
+					(c->omnipresent || t->omnipresent || c->desktop == t->desktop)) {
 				next = c;
 				break;
 			}

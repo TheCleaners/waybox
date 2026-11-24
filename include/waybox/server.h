@@ -77,6 +77,10 @@ struct wb_server {
 	std::unique_ptr<wb_seat> seat;
 
 	struct wb_toplevel *grabbed_toplevel;
+	/* While a mouse binding's actions run: the window it was bound to.
+	 * Actions act on it rather than on the focused window, which may be a
+	 * modal dialog in front of it. */
+	struct wb_toplevel *action_window = nullptr;
 	struct wlr_box grab_geo_box;
 	double grab_x, grab_y;
 	/* Where the pointer was when a move started (dragging a tiled window

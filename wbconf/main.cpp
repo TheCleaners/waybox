@@ -904,7 +904,9 @@ wb::WayboxSettings collect(Ui *ui) {
 			if (std::string("NLIMCSD").find(u) != std::string::npos)
 				layout += u;
 		}
-		s.title_layout = layout;
+		/* Nothing usable left: the default, rather than a titlebar with no
+		 * buttons at all. */
+		s.title_layout = layout.empty() ? std::string("NLIMC") : layout;
 	}
 
 	s.placement_policy = kPlacement[gtk_drop_down_get_selected(ui->placement)];

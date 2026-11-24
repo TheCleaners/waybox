@@ -462,8 +462,13 @@ static bool run_mouse_bindings(struct wb_server *server, wb::MouseContext contex
 			focus_toplevel(window);
 		/* Copy: an action may reconfigure, replacing the bindings. */
 		std::vector<wb::Action> actions = binding.actions;
-		for (const wb::Action &action : actions)
+		server->action_window = window;
+		for (const wb::Action &action : actions) {
+			if (window != nullptr && !toplevel_alive(server, window))
+				break;  /* closed by an earlier action */
 			wb::run_action(action, server);
+		}
+		server->action_window = nullptr;
 		handled = true;
 		if (server->config == nullptr)
 			break;
@@ -589,8 +594,11 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 				/* The icon, without a binding for it: the window menu, as
 				 * Openbox's default bindings do. */
 				if (event->button == wb::MOUSE_BUTTON_LEFT ||
-						event->button == wb::MOUSE_BUTTON_RIGHT)
+						event->button == wb::MOUSE_BUTTON_RIGHT) {
+					server->action_window = ft;  /* not a modal dialog of it */
 					wb_show_client_menu(server);
+					server->action_window = nullptr;
+				}
 			} else if (fh.part == wb::FramePart::Button) {
 				/* Show the pressed state now; the action runs on release. */
 				if (event->button == wb::MOUSE_BUTTON_LEFT && ft->frame) {

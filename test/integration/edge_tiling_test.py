@@ -213,10 +213,15 @@ def main():
             n_mapped = len(geoms("mapped"))
             send("window drag 400 300 0000ff")
             expect(wait_line("mapped drag") is not None, "X11 window never mapped")
-            for _ in range(30):
+            # Xwayland can be slow to hand the window over (software rendering
+            # on a busy CI runner): wait for Waybox to map it, and don't go on
+            # with another window's geometry if it never does.
+            for _ in range(100):
                 time.sleep(0.1)
                 if len(geoms("mapped")) > n_mapped:
                     break
+            if len(geoms("mapped")) <= n_mapped:
+                raise RuntimeError("Waybox never mapped the X11 window (Xwayland too slow?)")
             w, h, x, y = geoms("mapped")[-1]
             time.sleep(0.5)
 
