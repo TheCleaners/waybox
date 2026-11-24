@@ -308,4 +308,33 @@ std::vector<std::string> icon_search_paths(std::string_view name,
 	return paths;
 }
 
+std::string desktop_entry_icon(std::string_view contents) {
+	bool in_entry = false;
+	size_t pos = 0;
+	while (pos <= contents.size()) {
+		size_t nl = contents.find('\n', pos);
+		std::string_view line = contents.substr(pos, nl == std::string_view::npos
+				? std::string_view::npos : nl - pos);
+		pos = nl == std::string_view::npos ? contents.size() + 1 : nl + 1;
+		while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
+			line.remove_suffix(1);
+		if (!line.empty() && line.front() == '[') {
+			in_entry = line == "[Desktop Entry]";
+			continue;
+		}
+		if (!in_entry || line.substr(0, 4) != "Icon")
+			continue;
+		std::string_view rest = line.substr(4);
+		while (!rest.empty() && rest.front() == ' ')
+			rest.remove_prefix(1);
+		if (rest.empty() || rest.front() != '=')
+			continue;  /* Icon[xx]= and the like */
+		rest.remove_prefix(1);
+		while (!rest.empty() && rest.front() == ' ')
+			rest.remove_prefix(1);
+		return std::string(rest);
+	}
+	return {};
+}
+
 }  // namespace wb

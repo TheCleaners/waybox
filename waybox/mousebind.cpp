@@ -67,6 +67,8 @@ std::optional<MouseContext> mouse_context_from_name(std::string_view name) {
 		return MouseContext::Client;
 	if (name == "Titlebar")
 		return MouseContext::Titlebar;
+	if (name == "Icon")
+		return MouseContext::Icon;
 	if (name == "Frame")
 		return MouseContext::Frame;
 	if (name == "Desktop")

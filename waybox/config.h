@@ -82,6 +82,10 @@ struct wb_config {
 	 * HDR10 (BT.2020 primaries, PQ), when the output and renderer can. */
 	std::vector<std::string> hdr_outputs;
 
+	/* rc.xml <theme><titleLayout>: the titlebar's items (Openbox's; N icon,
+	 * L title, I iconify, M maximize, C close). */
+	std::string title_layout = "NLIMC";
+
 	/* rc.xml <waybox><outputs><output name=... mode=... scale=...
 	 * position=... transform=... enabled=... adaptiveSync=.../></outputs>:
 	 * per-output settings, matched by connector name or make/model/serial. */

@@ -24,6 +24,7 @@ enum class MouseContext {
 	Root,      /* the desktop background (no window under the pointer) */
 	Client,    /* a window's content area */
 	Titlebar,  /* a server-side titlebar (reachable once SSD lands) */
+	Icon,      /* the window icon in the titlebar (<titleLayout> N) */
 	Frame,     /* a window's frame/border */
 	Desktop,   /* the desktop, distinct from Root in Openbox */
 	Top,       /* resize edges */

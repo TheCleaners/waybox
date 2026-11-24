@@ -205,10 +205,11 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
  * over the window (a titlebar click), otherwise at the window's top-left
  * corner (from the keyboard). Always the native menu: an external launcher
  * can't act on a window. */
-static void show_client_menu(struct wb_server *server) {
+void wb_show_client_menu(struct wb_server *server) {
 	struct wb_toplevel *t = first_toplevel(server);
 	if (t == nullptr || !t->scene_tree->node.enabled)
 		return;
+	wlr_log(WLR_INFO, "wb-menu client-menu %s", view_app_id(t));
 	wb::ClientMenuState state;
 	for (int i = 0; i < desktop_count(server); i++)
 		state.desktop_names.push_back(
@@ -346,7 +347,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		if (server->config == nullptr)
 			break;
 		if (action.command == wb::kClientMenuId) {
-			show_client_menu(server);
+			wb_show_client_menu(server);
 			break;
 		}
 		/* Delegate to an external launcher when configured (built-in-or-delegate

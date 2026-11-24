@@ -17,11 +17,9 @@
 
 #include <cairo.h>
 
-#ifdef HAVE_RSVG
-#include <librsvg/rsvg.h>
-#endif
 
 #include "waybox/icon.hpp"
+#include "waybox/icon_loader.hpp"
 #include "waybox/render.hpp"
 #include "waybox/server.h"
 #include "waybox/session_lock.h"
@@ -33,45 +31,6 @@ namespace {
 /* Draw a small right-pointing triangle (the submenu arrow) centred in the
  * column reserved at the right of an item row. `w` is both the horizontal reach
  * and half the vertical extent, so the arrow stays visually balanced. */
-bool ends_with(const std::string &s, const char *suf) {
-	size_t n = std::char_traits<char>::length(suf);
-	return s.size() >= n && s.compare(s.size() - n, n, suf) == 0;
-}
-
-/* The user's selected icon theme: $WB_ICON_THEME, else the GTK setting
- * (gtk-icon-theme-name in gtk-4.0/gtk-3.0 settings.ini), else empty (the
- * resolver then uses hicolor). hicolor is always searched as the fallback. */
-std::string detect_icon_theme() {
-	if (const char *t = getenv("WB_ICON_THEME"); t && t[0] != '\0')
-		return t;
-	const char *home = getenv("HOME");
-	const char *xdg = getenv("XDG_CONFIG_HOME");
-	std::string cfg = (xdg && xdg[0]) ? std::string(xdg)
-			: (home ? std::string(home) + "/.config" : std::string());
-	if (cfg.empty())
-		return {};
-	for (const char *rel : {"/gtk-4.0/settings.ini", "/gtk-3.0/settings.ini"}) {
-		std::ifstream f(cfg + rel);
-		std::string line;
-		while (std::getline(f, line)) {
-			auto eq = line.find('=');
-			if (eq == std::string::npos)
-				continue;
-			std::string key = line.substr(0, eq);
-			while (!key.empty() && key.back() == ' ')
-				key.pop_back();
-			if (key == "gtk-icon-theme-name") {
-				std::string val = line.substr(eq + 1);
-				size_t a = val.find_first_not_of(" \t");
-				size_t b = val.find_last_not_of(" \t\r");
-				if (a != std::string::npos)
-					return val.substr(a, b - a + 1);
-			}
-		}
-	}
-	return {};
-}
-
 void paint_arrow(cairo_t *cr, double x, double y, double h, double w,
 		const Color &c) {
 	double cy = y + h / 2.0;
@@ -162,60 +121,6 @@ int MenuWidget::menu_icon_column(const Menu *menu) {
 	return 0;
 }
 
-namespace {
-
-#ifdef HAVE_RSVG
-/* Render an SVG file to a square ARGB surface of `size` px via librsvg. */
-cairo_surface_t *render_svg(const char *path, int size) {
-	GError *err = nullptr;
-	RsvgHandle *h = rsvg_handle_new_from_file(path, &err);
-	if (h == nullptr) {
-		if (err)
-			g_error_free(err);
-		return nullptr;
-	}
-	cairo_surface_t *s =
-			cairo_image_surface_create(CAIRO_FORMAT_ARGB32, size, size);
-	cairo_t *cr = cairo_create(s);
-	RsvgRectangle vp = {0.0, 0.0, static_cast<double>(size),
-			static_cast<double>(size)};
-	gboolean ok = rsvg_handle_render_document(h, cr, &vp, &err);
-	cairo_destroy(cr);
-	g_object_unref(h);
-	if (!ok) {
-		if (err)
-			g_error_free(err);
-		cairo_surface_destroy(s);
-		return nullptr;
-	}
-	cairo_surface_flush(s);
-	return s;
-}
-#endif
-
-}  // namespace
-
-/* A theme's parsed index.theme, read from the first base dir that has one
- * (null if none). Cached for the process: themes rarely change while running. */
-static const IconThemeIndex *theme_index(const std::vector<std::string> &bases,
-		std::string_view theme) {
-	static std::map<std::string, std::unique_ptr<IconThemeIndex>, std::less<>> cache;
-	if (auto it = cache.find(theme); it != cache.end())
-		return it->second.get();
-	std::unique_ptr<IconThemeIndex> index;
-	for (const std::string &base : bases) {
-		std::ifstream in(base + "/" + std::string(theme) + "/index.theme");
-		if (!in)
-			continue;
-		std::string contents((std::istreambuf_iterator<char>(in)),
-				std::istreambuf_iterator<char>());
-		index = std::make_unique<IconThemeIndex>(parse_icon_theme_index(contents));
-		break;
-	}
-	const IconThemeIndex *result = index.get();
-	cache.emplace(std::string(theme), std::move(index));
-	return result;
-}
 
 /* Resolve and load an icon once, caching the surface (or nullptr on miss, so we
  * never retry). PNG is loaded with Cairo; SVG with librsvg when built with it
@@ -225,39 +130,7 @@ cairo_surface_t *MenuWidget::icon_surface(const std::string &name) {
 		return nullptr;
 	if (auto it = icon_cache_.find(name); it != icon_cache_.end())
 		return it->second;
-
-	const char *home = getenv("HOME");
-	const char *xdh = getenv("XDG_DATA_HOME");
-	const char *xdd = getenv("XDG_DATA_DIRS");
-	std::vector<std::string> bases = icon_base_dirs(home ? home : "",
-			xdh ? xdh : "", xdd ? xdd : "");
-	cairo_surface_t *loaded = nullptr;
-	auto index_of = [&bases](std::string_view theme) {
-		return theme_index(bases, theme);
-	};
-	for (const std::string &path : icon_search_paths(name, icon_theme_,
-			icon_size_, bases, index_of)) {
-		/* Most candidates don't exist: check cheaply before loading. */
-		if (access(path.c_str(), R_OK) != 0)
-			continue;
-		if (ends_with(path, ".png")) {
-			cairo_surface_t *s =
-					cairo_image_surface_create_from_png(path.c_str());
-			if (cairo_surface_status(s) == CAIRO_STATUS_SUCCESS) {
-				loaded = s;
-				break;
-			}
-			cairo_surface_destroy(s);
-		}
-#ifdef HAVE_RSVG
-		else if (ends_with(path, ".svg")) {
-			if (cairo_surface_t *s = render_svg(path.c_str(), icon_size_)) {
-				loaded = s;
-				break;
-			}
-		}
-#endif
-	}
+	cairo_surface_t *loaded = load_themed_icon(name, icon_theme_, icon_size_);
 	icon_cache_[name] = loaded;
 	return loaded;
 }

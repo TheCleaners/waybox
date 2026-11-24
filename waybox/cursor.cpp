@@ -39,7 +39,14 @@ static void activate_frame_button(struct wb_toplevel *toplevel, int i) {
 	case wb::FrameButton::Close:
 		view_close(toplevel);
 		break;
+	case wb::FrameButton::Icon:
+		break;  /* acts on press (the window menu), not on release */
 	}
+}
+
+static bool is_icon_button(struct wb_toplevel *t, int i) {
+	return t->frame && i >= 0 && i < static_cast<int>(t->frame->buttons().size()) &&
+			t->frame->buttons()[i] == wb::FrameButton::Icon;
 }
 
 /* Hide the edge-tiling preview and forget the zone. */
@@ -411,7 +418,12 @@ static std::optional<wb::MouseContext> pointer_context(struct wb_server *server,
 		case wb::FramePart::BorderBottom: return wb::MouseContext::Bottom;
 		case wb::FramePart::BorderLeft:   return wb::MouseContext::Left;
 		case wb::FramePart::BorderRight:  return wb::MouseContext::Right;
-		case wb::FramePart::Button:       return std::nullopt;
+		case wb::FramePart::Button:
+			/* The icon is a binding context (Openbox's Icon); the other
+			 * buttons work on their own. */
+			if (is_icon_button(ft, fh.button))
+				return wb::MouseContext::Icon;
+			return std::nullopt;
 		default:                          return wb::MouseContext::Frame;
 		}
 	}
@@ -567,6 +579,12 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 			if (fh.part == wb::FramePart::Titlebar) {
 				if (event->button == wb::MOUSE_BUTTON_LEFT)
 					begin_interactive(ft, WB_CURSOR_MOVE, 0);
+			} else if (fh.part == wb::FramePart::Button && is_icon_button(ft, fh.button)) {
+				/* The icon, without a binding for it: the window menu, as
+				 * Openbox's default bindings do. */
+				if (event->button == wb::MOUSE_BUTTON_LEFT ||
+						event->button == wb::MOUSE_BUTTON_RIGHT)
+					wb_show_client_menu(server);
 			} else if (fh.part == wb::FramePart::Button) {
 				/* Show the pressed state now; the action runs on release. */
 				if (event->button == wb::MOUSE_BUTTON_LEFT && ft->frame) {

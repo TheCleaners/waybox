@@ -4,6 +4,8 @@
  */
 #include "waybox/frame_view.hpp"
 
+#include <algorithm>
+
 #include <cairo.h>
 
 #include "waybox/render.hpp"
@@ -50,16 +52,43 @@ void paint_button_glyph(cairo_t *cr, const Rect &r, FrameButton kind,
 		cairo_line_to(cr, cx - s, cy + s);
 		cairo_stroke(cr);
 		break;
+	case FrameButton::Icon: {
+		/* No icon: a small window (frame with a title strip). */
+		double e = r.width * 0.32;
+		cairo_rectangle(cr, cx - e, cy - e, 2 * e, 2 * e);
+		cairo_move_to(cr, cx - e, cy - e + 3);
+		cairo_line_to(cr, cx + e, cy - e + 3);
+		cairo_stroke(cr);
+		break;
 	}
+	}
+}
+
+/* Draw `icon` scaled to fit `r`, keeping its aspect ratio. */
+void paint_icon(cairo_t *cr, const Rect &r, cairo_surface_t *icon) {
+	int iw = cairo_image_surface_get_width(icon);
+	int ih = cairo_image_surface_get_height(icon);
+	if (iw <= 0 || ih <= 0)
+		return;
+	double scale = std::min(static_cast<double>(r.width) / iw,
+			static_cast<double>(r.height) / ih);
+	cairo_save(cr);
+	cairo_translate(cr, r.x + (r.width - iw * scale) / 2.0,
+			r.y + (r.height - ih * scale) / 2.0);
+	cairo_scale(cr, scale, scale);
+	cairo_set_source_surface(cr, icon, 0, 0);
+	cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
+	cairo_paint(cr);
+	cairo_restore(cr);
 }
 
 }  // namespace
 
 FrameView::FrameView(struct wlr_scene_tree *container, const FrameStyle &active,
 		const FrameStyle &inactive, const FrameMetrics &metrics,
-		std::vector<FrameButton> buttons)
+		std::vector<FrameButton> buttons, int left)
 	: active_(active), inactive_(inactive), metrics_(metrics),
-	  buttons_(std::move(buttons)) {
+	  buttons_(std::move(buttons)), left_(left) {
 	/* A fully transparent rect spanning the whole frame (including the invisible
 	 * resize-grab margin) so the margin is hit-testable for edge/corner resize
 	 * even though it paints nothing. It sits at the very bottom. */
@@ -85,7 +114,7 @@ FrameView::~FrameView() {
 }
 
 std::vector<Rect> FrameView::button_rects() const {
-	return wb::button_rects(outer_w_, metrics_, buttons_);
+	return wb::button_rects(outer_w_, metrics_, buttons_, left_);
 }
 
 void FrameView::set_client_size(int client_w, int client_h) {
@@ -116,6 +145,13 @@ void FrameView::set_maximized(bool maximized) {
 	if (maximized_ == maximized)
 		return;
 	maximized_ = maximized;
+	render_titlebar();
+}
+
+void FrameView::set_icon(cairo_surface_t *icon) {
+	if (icon_ == icon)
+		return;
+	icon_ = icon;
 	render_titlebar();
 }
 
@@ -171,26 +207,30 @@ void FrameView::render_titlebar() {
 
 	paint_fill(cr, 0, 0, w, h, s.title_bar.fill);
 
-	/* Buttons occupy the right; the label fills the space left of them. */
+	/* The label fills the space between the left and right button groups.
+	 * Button rects are frame-local; shift them into titlebar-local (the
+	 * titlebar canvas starts at the titlebar origin). */
 	std::vector<Rect> brects = button_rects();
 	int tb_x = titlebar_rect(outer_w_, metrics_).x;  /* = border */
+	int label_left = metrics_.title_pad;
 	int label_right = w;
-	if (!brects.empty()) {
-		/* button rects are in frame-local coords; shift into titlebar-local
-		 * (the titlebar canvas starts at the titlebar origin). */
-		label_right = brects.front().x - tb_x - metrics_.title_pad;
+	if (left_ > 0 && left_ <= static_cast<int>(brects.size())) {
+		const Rect &last = brects[left_ - 1];
+		label_left = last.x + last.width - tb_x + metrics_.title_pad;
 	}
+	if (left_ < static_cast<int>(brects.size()))
+		label_right = brects[left_].x - tb_x - metrics_.title_pad;
 
-	int label_x = metrics_.title_pad;
+	int label_x = label_left;
 	int text_h = measure_text(title_, s.label.font).height;
 	/* Round to the nearest pixel (bias down) so the label isn't a pixel high
 	 * when the leftover vertical space is odd. */
 	int text_y = (h - text_h + 1) / 2;
 	if (s.label.justify == Justify::Center) {
 		int tw = measure_text(title_, s.label.font).width;
-		label_x = (label_right - tw) / 2;
-		if (label_x < metrics_.title_pad)
-			label_x = metrics_.title_pad;
+		label_x = label_left + (label_right - label_left - tw) / 2;
+		if (label_x < label_left)
+			label_x = label_left;
 	}
 	paint_text(cr, label_x, text_y, title_, s.label.color, s.label.font);
 
@@ -199,6 +239,15 @@ void FrameView::render_titlebar() {
 		Rect r = brects[i];
 		r.x -= tb_x;
 		r.y -= titlebar_rect(outer_w_, metrics_).y;
+		if (buttons_[i] == FrameButton::Icon) {
+			/* Not a push button: no hover or pressed look. */
+			if (icon_ != nullptr)
+				paint_icon(cr, r, icon_);
+			else
+				paint_button_glyph(cr, r, buttons_[i], maximized_,
+						s.button.for_state(WidgetState::Normal).fg);
+			continue;
+		}
 		WidgetState ws = WidgetState::Normal;
 		if (static_cast<int>(i) == pressed_button_)
 			ws = WidgetState::Pressed;

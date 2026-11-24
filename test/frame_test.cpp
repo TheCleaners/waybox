@@ -156,3 +156,48 @@ WB_TEST(resize_edges_match_wlr_bits) {
 	WB_CHECK(wb::frame_part_resize_edges(FramePart::Titlebar) == 0);
 	WB_CHECK(wb::frame_part_resize_edges(FramePart::Client) == 0);
 }
+
+WB_TEST(title_layout_parsing) {
+	using wb::FrameButton;
+	using B = std::vector<FrameButton>;
+	auto l = wb::parse_title_layout("NLIMC");  /* Openbox's default */
+	WB_CHECK(l.buttons == (B{FrameButton::Icon, FrameButton::Iconify,
+			FrameButton::Maximize, FrameButton::Close}));
+	WB_CHECK(l.left == 1);
+	l = wb::parse_title_layout("CMLNI");
+	WB_CHECK(l.buttons == (B{FrameButton::Close, FrameButton::Maximize,
+			FrameButton::Icon, FrameButton::Iconify}));
+	WB_CHECK(l.left == 2);
+	l = wb::parse_title_layout("LIMC");          /* no icon */
+	WB_CHECK(l.left == 0 && l.buttons.size() == 3);
+	l = wb::parse_title_layout("NDSLIIMC");      /* D, S skipped; I once */
+	WB_CHECK(l.left == 1 && l.buttons.size() == 4);
+	l = wb::parse_title_layout("NIMC");          /* no L: title last */
+	WB_CHECK(l.left == 4);
+	l = wb::parse_title_layout("");
+	WB_CHECK(l.buttons.empty() && l.left == 0);
+}
+
+WB_TEST(left_and_right_button_groups) {
+	wb::FrameMetrics m;
+	m.border = 1;
+	m.titlebar = 24;
+	m.button = 18;
+	m.button_spacing = 2;
+	m.title_pad = 4;
+	const int w = 400;
+	std::vector<wb::FrameButton> buttons = {wb::FrameButton::Icon,
+		wb::FrameButton::Iconify, wb::FrameButton::Close};
+	auto rects = wb::button_rects(w, m, buttons, 1);
+	WB_CHECK(rects.size() == 3);
+	WB_CHECK(rects[0].x == 1 + 4);                 /* icon: left edge + pad */
+	WB_CHECK(rects[2].x + rects[2].width == w - 1 - 4);  /* close: right */
+	WB_CHECK(rects[1].x + rects[1].width + 2 == rects[2].x);
+	/* The icon hit-tests as button 0. */
+	wb::FrameHit hit = wb::frame_part_at(rects[0].x + 9, rects[0].y + 9, w, 300, m,
+			buttons, 1);
+	WB_CHECK(hit.part == wb::FramePart::Button && hit.button == 0);
+	/* Without a left group, all are right-aligned, as before. */
+	auto right = wb::button_rects(w, m, buttons);
+	WB_CHECK(right[0].x > w / 2);
+}

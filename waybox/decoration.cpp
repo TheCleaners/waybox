@@ -1,4 +1,5 @@
 #include "decoration.h"
+#include "waybox/window_icon.h"
 #include "waybox/xdg_shell.h"
 
 #include <algorithm>
@@ -91,10 +92,12 @@ void update_toplevel_decoration(struct wb_toplevel *toplevel) {
 		wb::FrameStyle active = wb::frame_style_from_theme(theme, true);
 		wb::FrameStyle inactive = wb::frame_style_from_theme(theme, false);
 		wb::FrameMetrics m = frame_metrics(theme, active, server->config);
-		std::vector<wb::FrameButton> buttons = {wb::FrameButton::Iconify,
-				wb::FrameButton::Maximize, wb::FrameButton::Close};
+		wb::TitleLayout layout = wb::parse_title_layout(
+				server->config != nullptr ? server->config->title_layout : "NLIMC");
 		toplevel->frame = std::make_unique<wb::FrameView>(
-				toplevel->scene_tree, active, inactive, m, std::move(buttons));
+				toplevel->scene_tree, active, inactive, m,
+				std::move(layout.buttons), layout.left);
+		toplevel_update_icon(toplevel);
 	} else if (!want && toplevel->frame) {
 		/* No titlebar any more: a rolled-up window comes back down. */
 		if (toplevel->shaded) {

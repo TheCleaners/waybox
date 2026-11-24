@@ -36,6 +36,7 @@ The root element is *<openbox_config xmlns="http://openbox.org/3.4/rc">*.
 ```
 <theme>
   <name>Onyx-Citrus</name>
+  <titleLayout>NLIMC</titleLayout>
   <font place="ActiveWindow">
     <name>Sans</name><size>10</size><weight>bold</weight>
   </font>
@@ -46,6 +47,11 @@ The root element is *<openbox_config xmlns="http://openbox.org/3.4/rc">*.
 _place_: *ActiveWindow*, *InactiveWindow*, *MenuHeader*, *MenuItem* or
 *ActiveOnScreenDisplay* (the window switcher). *<weight>* is *bold* or
 *normal*.
+
+*<titleLayout>* lays out the titlebar, as in Openbox: *N* the window's icon,
+*L* the title, *I* iconify, *M* maximize, *C* close; letters before *L* go
+to its left, the rest to its right (default *NLIMC*). The icon is the one
+the program sets, else its desktop file's, else its app ID as an icon name.
 
 ## Desktops
 
@@ -149,10 +155,12 @@ A scroll-wheel notch is a *Press* and a *Click* of *Up* or *Down*. Touchpad
 scrolling is not.
 
 The contexts are *Root* or *Desktop* (the empty desktop), *Client* (inside
-a window), *Titlebar*, *Top*, *Bottom*, *Left* and *Right* (the borders of a
-window with a server-side frame), and *Frame* (anywhere on a window). For a
-window context, the window is focused before the actions run. Clicks on
-panels go to the panel, and the titlebar buttons work on their own.
+a window), *Titlebar*, *Icon* (the window icon in the titlebar), *Top*,
+*Bottom*, *Left* and *Right* (the borders of a window with a server-side
+frame), and *Frame* (anywhere on a window). For a window context, the window
+is focused before the actions run. Clicks on panels go to the panel, and the
+titlebar buttons work on their own; without an *Icon* binding, clicking the
+icon opens the window menu.
 
 Without any binding, dragging a titlebar or border moves or resizes the
 window, and so do Alt+left-drag and Alt+right-drag anywhere on a window. A
