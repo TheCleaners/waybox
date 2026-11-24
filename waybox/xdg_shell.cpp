@@ -841,6 +841,7 @@ static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 }
 
 void destroy_toplevel(struct wb_toplevel *toplevel) {
+	toplevel->server->click_tracker.forget(reinterpret_cast<uintptr_t>(toplevel));
 	wlr_ext_foreign_toplevel_handle_v1_destroy(toplevel->foreign_toplevel_handle);
 	destroy_foreign_handle(toplevel);  /* no-op if already gone via unmap */
 
@@ -1138,6 +1139,24 @@ void set_toplevel_minimized(struct wb_toplevel *toplevel, bool minimize_requeste
 	if (toplevel->wlr_foreign_handle != NULL)
 		wlr_foreign_toplevel_handle_v1_set_minimized(
 				toplevel->wlr_foreign_handle, minimize_requested);
+}
+
+uint32_t nearest_resize_edges(struct wb_toplevel *toplevel, double x, double y) {
+	uint32_t edges = 0;
+	edges |= (x < toplevel->geometry.x + toplevel->geometry.width / 2.0)
+			? WLR_EDGE_LEFT : WLR_EDGE_RIGHT;
+	edges |= (y < toplevel->geometry.y + toplevel->geometry.height / 2.0)
+			? WLR_EDGE_TOP : WLR_EDGE_BOTTOM;
+	return edges;
+}
+
+bool toplevel_alive(struct wb_server *server, struct wb_toplevel *toplevel) {
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link) {
+		if (t == toplevel)
+			return true;
+	}
+	return false;
 }
 
 void begin_interactive(struct wb_toplevel *toplevel,
