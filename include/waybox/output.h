@@ -22,6 +22,10 @@ struct wb_output {
 	/* An output-management client (kanshi, wlr-randr) configured it this
 	 * session: Reconfigure then leaves it alone rather than reapply rc.xml. */
 	bool client_configured = false;
+	/* Switched off by a power-management client (swayidle + wlopm): the
+	 * output stays in the layout, with its windows, and is still reported
+	 * as enabled to output-management clients. */
+	bool powered_off = false;
 	struct wlr_box geometry = {};
 	struct wlr_box usable_area = {};
 

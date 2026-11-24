@@ -226,6 +226,9 @@ static void output_manager_update_config(struct wb_server *server) {
 	wl_list_for_each(output, &server->outputs, link) {
 		struct wlr_output_configuration_head_v1 *head =
 			wlr_output_configuration_head_v1_create(config, output->wlr_output);
+		/* Off for power saving is still on in the configuration. */
+		if (output->powered_off)
+			head->state.enabled = true;
 		struct wlr_box box;
 		wlr_output_layout_get_box(server->output_layout, output->wlr_output, &box);
 		if (!wlr_box_empty(&box)) {
@@ -241,7 +244,9 @@ static void output_manager_update_config(struct wb_server *server) {
 static bool head_changes_output(struct wb_server *server,
 		const struct wlr_output_head_v1_state &head) {
 	struct wlr_output *o = head.output;
-	if (head.enabled != o->enabled)
+	auto *wo = static_cast<wb_output *>(o->data);
+	bool enabled = o->enabled || (wo != nullptr && wo->powered_off);
+	if (head.enabled != enabled)
 		return true;
 	if (!head.enabled)
 		return false;
@@ -305,8 +310,10 @@ static bool apply_output_config(struct wb_server *server,
 		struct wlr_output *wlr_output = head->state.output;
 		auto *output = static_cast<wb_output *>(wlr_output->data);
 		if (output != nullptr && std::find(changed.begin(), changed.end(), wlr_output) !=
-				changed.end())
+				changed.end()) {
 			output->client_configured = true;
+			output->powered_off = false;  /* committed on or off just now */
+		}
 		if (head->state.enabled) {
 			place_output(server, wlr_output, head->state.x, head->state.y);
 			reconfigure_output(output);
@@ -477,11 +484,45 @@ void new_output_notify(struct wb_server *server, void *data) {
 		reconfigure_output(output);
 }
 
+static void output_power_set_mode(struct wb_server *server, void *data) {
+	auto *event = static_cast<struct wlr_output_power_v1_set_mode_event *>(data);
+	auto *output = static_cast<wb_output *>(event->output->data);
+	if (output == nullptr)
+		return;
+	bool on = event->mode == ZWLR_OUTPUT_POWER_V1_MODE_ON;
+	/* Only screens that are on (or off for power saving): one disabled
+	 * in the settings stays disabled. */
+	if (on ? !output->powered_off : !event->output->enabled)
+		return;
+	struct wlr_output_state state;
+	wlr_output_state_init(&state);
+	wlr_output_state_set_enabled(&state, on);
+	bool ok = wlr_output_commit_state(event->output, &state);
+	wlr_output_state_finish(&state);
+	if (!ok) {
+		wlr_log(WLR_ERROR, "Couldn't switch %s %s", event->output->name, on ? "on" : "off");
+		return;
+	}
+	output->powered_off = !on;
+	wlr_log(WLR_INFO, "wb-output-power %s %s", event->output->name, on ? "on" : "off");
+	if (on) {
+		/* Some outputs come back at a different refresh rate, and
+		 * clients need a frame to repaint. */
+		wlr_output_schedule_frame(event->output);
+	} else {
+		/* Don't wait for its frame before telling a locker it's locked. */
+		session_lock_output_gone(server, event->output);
+	}
+	output_manager_update_config(server);
+}
+
 void apply_output_rules(struct wb_server *server) {
 	struct wb_output *output;
 	wl_list_for_each(output, &server->outputs, link) {
 		const wb::OutputRule *rule = output_rule(server, output->wlr_output);
-		if (rule == nullptr || output->client_configured)
+		/* A screen switched off for power saving stays off: Reconfigure
+		 * mustn't wake it (the rule applies when it's switched back on). */
+		if (rule == nullptr || output->client_configured || output->powered_off)
 			continue;
 		if (configure_output(server, output->wlr_output, rule)) {
 			if (place_output(server, output->wlr_output, rule->x, rule->y))
@@ -508,6 +549,11 @@ void init_output(struct wb_server *server) {
 		wl_list_for_each(output, &server->outputs, link)
 			arrange_layers(output);
 	});
+
+	/* Screens off and on for power saving (swayidle with wlopm). */
+	server->output_power_manager = wlr_output_power_manager_v1_create(server->wl_display);
+	server->output_power_set_mode.connect(&server->output_power_manager->events.set_mode,
+			[server](void *data) { output_power_set_mode(server, data); });
 
 	server->wlr_output_manager = wlr_output_manager_v1_create(server->wl_display);
 	server->output_configuration_applied.connect(&server->wlr_output_manager->events.apply,
