@@ -373,6 +373,18 @@ WayboxSettings RcDocument::read() const {
 			s.outputs.push_back(out);
 		}
 	}
+	s.hdr_outputs = attr_value(find_path(root, {"waybox", "hdr"}), "outputs");
+
+	auto read_children = [](xmlNode *parent, std::map<std::string, std::string> &into) {
+		for (xmlNode *c = parent ? parent->children : nullptr; c != nullptr; c = c->next)
+			if (c->type == XML_ELEMENT_NODE)
+				into[reinterpret_cast<const char *>(c->name)] = node_text(c).value_or("");
+	};
+	read_children(find_path(root, {"keyboard", "xkb"}), s.xkb);
+	read_children(find_path(root, {"mouse", "libinput"}), s.libinput);
+
+	s.xwayland = to_bool(attr_value(find_path(root, {"waybox", "xwayland"}), "enabled"));
+	s.virtual_input = attr_value(find_path(root, {"waybox", "virtualInput"}), "allow");
 	return s;
 }
 
@@ -578,6 +590,41 @@ void apply_fields(xmlNode *root, const WayboxSettings &s, const WayboxSettings *
 		put_attr(root, {"waybox", "edgeTiling"}, "enabled", bool_opt_str(s.edge_tiling));
 	if (WB_CHANGED(edge_tiling_range))
 		put_attr(root, {"waybox", "edgeTiling"}, "range", int_str(s.edge_tiling_range));
+
+	if (WB_CHANGED(hdr_outputs))
+		put_attr(root, {"waybox", "hdr"}, "outputs", s.hdr_outputs);
+	if (WB_CHANGED(xwayland))
+		put_attr(root, {"waybox", "xwayland"}, "enabled", bool_opt_str(s.xwayland));
+	if (WB_CHANGED(virtual_input))
+		put_attr(root, {"waybox", "virtualInput"}, "allow", s.virtual_input);
+	/* <keyboard><xkb> and <mouse><libinput>: one element per setting. */
+	auto put_children = [&](const char *a, const char *b,
+			const std::map<std::string, std::string> &now,
+			const std::map<std::string, std::string> &was) {
+		for (const auto &[key, value] : now) {
+			auto it = was.find(key);
+			if (base == nullptr || it == was.end() || it->second != value)
+				put_text(root, {a, b, key.c_str()}, value);
+		}
+		for (const auto &[key, value] : was)
+			if (now.count(key) == 0)
+				put_text(root, {a, b, key.c_str()}, std::nullopt);
+		/* Drop the block once it is empty. */
+		xmlNode *block = find_path(root, {a, b});
+		bool empty = block != nullptr;
+		for (xmlNode *c = block ? block->children : nullptr; c != nullptr; c = c->next)
+			if (c->type == XML_ELEMENT_NODE)
+				empty = false;
+		if (empty && (base == nullptr || !was.empty())) {
+			xmlUnlinkNode(block);
+			xmlFreeNode(block);
+		}
+	};
+	static const std::map<std::string, std::string> none;
+	if (WB_CHANGED(xkb))
+		put_children("keyboard", "xkb", s.xkb, base ? base->xkb : none);
+	if (WB_CHANGED(libinput))
+		put_children("mouse", "libinput", s.libinput, base ? base->libinput : none);
 
 	for (const OutputSetting &out : s.outputs) {
 		const OutputSetting *was = nullptr;

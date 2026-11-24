@@ -325,3 +325,61 @@ WB_TEST(writes_only_the_output_setting_that_changed) {
 			r.outputs[1].name == "DP-1");
 	WB_CHECK(r.desktop_names && r.desktop_names->size() == 3);
 }
+
+/* ---- Keyboard, mouse, HDR and advanced settings ---- */
+
+static const char *kInputRc =
+		"<?xml version=\"1.0\"?>\n"
+		"<openbox_config xmlns=\"http://openbox.org/3.4/rc\">\n"
+		"  <keyboard>\n"
+		"    <xkb><layout>us,de</layout><options>grp:alt_shift_toggle</options></xkb>\n"
+		"    <keybind key=\"W-x\"><action name=\"Close\"/></keybind>\n"
+		"  </keyboard>\n"
+		"  <mouse>\n"
+		"    <libinput><naturalScroll>enabled</naturalScroll><accelSpeed>0.3</accelSpeed></libinput>\n"
+		"    <context name=\"Root\"/>\n"
+		"  </mouse>\n"
+		"  <waybox><hdr outputs=\"HDMI-A-1\"/><xwayland enabled=\"no\"/></waybox>\n"
+		"</openbox_config>\n";
+
+WB_TEST(reads_keyboard_mouse_hdr_advanced) {
+	auto doc = RcDocument::from_string(kInputRc);
+	WayboxSettings s = doc->read();
+	WB_CHECK(s.xkb.size() == 2 && s.xkb.at("layout") == "us,de" &&
+			s.xkb.at("options") == "grp:alt_shift_toggle");
+	WB_CHECK(s.libinput.size() == 2 && s.libinput.at("naturalScroll") == "enabled" &&
+			s.libinput.at("accelSpeed") == "0.3");
+	WB_CHECK(s.hdr_outputs == std::optional<std::string>("HDMI-A-1"));
+	WB_CHECK(s.xwayland == std::optional<bool>(false));
+	WB_CHECK(!s.virtual_input.has_value());
+}
+
+WB_TEST(writes_only_changed_input_settings) {
+	auto doc = RcDocument::from_string(kInputRc);
+	WayboxSettings before = doc->read(), s = before;
+	s.xkb.erase("options");                     /* back to the default */
+	s.libinput["tap"] = "enabled";              /* a new one */
+	s.libinput["accelSpeed"] = "-0.2";          /* a changed one */
+	s.virtual_input = "never";
+	doc->apply(s, before);
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("grp:alt_shift_toggle") == std::string::npos);
+	WB_CHECK(out.find("<layout>us,de</layout>") != std::string::npos);
+	WB_CHECK(out.find("<accelSpeed>-0.2</accelSpeed>") != std::string::npos);
+	WB_CHECK(out.find("<tap>enabled</tap>") != std::string::npos);
+	WB_CHECK(out.find("<naturalScroll>enabled</naturalScroll>") != std::string::npos);
+	WB_CHECK(out.find("virtualInput allow=\"never\"") != std::string::npos);
+	/* Bindings next to them are untouched. */
+	WB_CHECK(out.find("<keybind key=\"W-x\">") != std::string::npos);
+	WB_CHECK(out.find("<context name=\"Root\"/>") != std::string::npos);
+
+	/* Everything back to defaults: the <xkb> and <libinput> blocks go. */
+	WayboxSettings b2 = s, s2 = s;
+	s2.xkb.clear();
+	s2.libinput.clear();
+	doc->apply(s2, b2);
+	out = doc->to_string();
+	WB_CHECK(out.find("<xkb") == std::string::npos);
+	WB_CHECK(out.find("<libinput") == std::string::npos);
+	WB_CHECK(out.find("<keybind key=\"W-x\">") != std::string::npos);
+}

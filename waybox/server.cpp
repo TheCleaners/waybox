@@ -81,6 +81,7 @@ void wb_reconfigure(struct wb_server *server) {
 
 	deinit_config(server->config);
 	server->config = fresh;
+	seat_reconfigure_input(server);  /* keymap, <libinput> */
 
 	/* Existing frames were styled from the old theme: rebuild them from the
 	 * new one, then re-fit windows (titlebar height may have changed). */

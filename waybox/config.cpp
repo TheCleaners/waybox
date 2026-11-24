@@ -123,22 +123,27 @@ static unsigned long strtoulong(char *s) {
 	return value;
 }
 
+/* The text of the first node `expr` matches (to be free()d), or NULL. */
 static char *parse_xpath_expr(const char *expr, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression((const xmlChar *) expr, ctxt);
 	if (object == NULL) {
 		wlr_log(WLR_INFO, "%s: %s", _("Unable to evaluate expression"), expr);
-		xmlXPathFreeContext(ctxt);
-		return(NULL);
-	}
-	if (!object->nodesetval) {
-		wlr_log(WLR_INFO, "%s", _("No nodesetval"));
 		return NULL;
 	}
 	xmlChar *ret = NULL;
-	if (object->nodesetval->nodeNr > 0)
+	if (object->nodesetval != NULL && object->nodesetval->nodeNr > 0)
 		ret = xmlNodeGetContent(object->nodesetval->nodeTab[0]);
 	xmlXPathFreeObject(object);
 	return (char *) ret;
+}
+
+/* Whether `expr` matches anything. */
+static bool xpath_exists(const char *expr, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression((const xmlChar *) expr, ctxt);
+	bool found = object != NULL && object->nodesetval != NULL &&
+			object->nodesetval->nodeNr > 0;
+	xmlXPathFreeObject(object);
+	return found;
 }
 
 static xmlChar *get_attribute(xmlNode *node, const char *attr_name) {
@@ -690,7 +695,7 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 		wlr_log(WLR_INFO, "%s", _("Couldn't register the namespace"));
 	}
 
-	config->keyboard_layout.use_config = parse_xpath_expr("//ob:keyboard//ob:xkb", ctxt) != NULL;
+	config->keyboard_layout.use_config = xpath_exists("//ob:keyboard//ob:xkb", ctxt);
 	if (config->keyboard_layout.use_config) {
 		config->keyboard_layout.layout = parse_xpath_expr("//ob:keyboard//ob:xkb//ob:layout", ctxt);
 		config->keyboard_layout.model = parse_xpath_expr("//ob:keyboard//ob:xkb//ob:model", ctxt);
@@ -699,7 +704,7 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 		config->keyboard_layout.variant = parse_xpath_expr("//ob:keyboard//ob:xkb//ob:variant", ctxt);
 	}
 
-	config->libinput_config.use_config = parse_xpath_expr("//ob:mouse//ob:libinput", ctxt) != NULL;
+	config->libinput_config.use_config = xpath_exists("//ob:mouse//ob:libinput", ctxt);
 	if (config->libinput_config.use_config) {
 		config->libinput_config.accel_profile = parse_xpath_expr("//ob:mouse//ob:libinput/ob:accelProfile", ctxt);
 		config->libinput_config.accel_speed = parse_xpath_expr("//ob:mouse//ob:libinput/ob:accelSpeed", ctxt);

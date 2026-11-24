@@ -26,7 +26,7 @@ struct wb_config {
 
 		bool use_config;
 	} keyboard_layout;
-	struct {
+	struct libinput_config_t {
 		char *accel_profile;
 		char *accel_speed;
 		char *calibration_matrix;

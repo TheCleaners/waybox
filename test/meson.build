@@ -306,6 +306,7 @@ if python.found() and not get_option('tests_only')
     ['input_focus', 'input_focus_test.py', [], 60],
     ['input_method', 'input_method_test.py', [ime_client, text_input_client], 90],
     ['key_chain', 'key_chain_test.py', [], 60],
+    ['keymap_reconfigure', 'keymap_reconfigure_test.py', [], 60],
     ['menu', 'menu_test.py', [], 60],
     ['menu_hover_delay', 'menu_hover_delay_test.py', [], 60],
     ['mouse_binding', 'mouse_binding_test.py', [], 60],

@@ -318,6 +318,28 @@ struct Ui {
 	/* Rules for monitors that aren't connected now: passed through as is. */
 	std::vector<wb::OutputSetting> other_outputs;
 
+	/* Keyboard: <xkb> fields */
+	std::map<std::string, GtkEntry *> xkb;
+
+	/* Mouse and touchpad: one dropdown per <libinput> setting, with its
+	 * values ("" = the device's default, not written). */
+	struct Choice {
+		GtkDropDown *dd = nullptr;
+		std::vector<std::string> values;
+	};
+	std::map<std::string, Choice> libinput;
+
+	/* Advanced */
+	GtkSwitch *xwayland = nullptr;
+	Choice virtual_input;
+
+	/* HDR: per-monitor checks; names in <hdr outputs> for monitors that
+	 * aren't connected; and the attribute as loaded (kept as written when
+	 * the set of names doesn't change). */
+	std::map<std::string, GtkCheckButton *> hdr;
+	std::vector<std::string> hdr_others;
+	std::optional<std::string> hdr_loaded;
+
 	/* Live theme preview (redrawn when the theme/fonts change). */
 	GtkWidget *preview = nullptr;
 	GtkNotebook *notebook = nullptr;  /* for "reset this page" */
@@ -669,6 +691,33 @@ GtkDropDown *values_dropdown(const std::vector<std::string> &values) {
 	return GTK_DROP_DOWN(gtk_drop_down_new(G_LIST_MODEL(model), nullptr));
 }
 
+/* A dropdown over values with their own labels. */
+GtkDropDown *choice_dropdown(const std::vector<std::pair<std::string, std::string>> &items,
+		std::vector<std::string> &values) {
+	GtkStringList *model = gtk_string_list_new(nullptr);
+	values.clear();
+	for (const auto &[value, label] : items) {
+		gtk_string_list_append(model, label.c_str());
+		values.push_back(value);
+	}
+	return GTK_DROP_DOWN(gtk_drop_down_new(G_LIST_MODEL(model), nullptr));
+}
+
+std::vector<std::string> split_names(const std::string &list) {
+	std::vector<std::string> out;
+	std::string cur;
+	for (char c : list + " ") {
+		if (c == ' ' || c == ',' || c == '\t') {
+			if (!cur.empty())
+				out.push_back(cur);
+			cur.clear();
+		} else {
+			cur += c;
+		}
+	}
+	return out;
+}
+
 /* Select `value` in a values dropdown, adding it if it isn't listed (so a
  * value written by hand stays exactly as written). */
 void select_value(GtkDropDown *dd, std::vector<std::string> &values,
@@ -804,6 +853,28 @@ void populate(Ui *ui, const wb::WayboxSettings &s) {
 
 	populate_monitors(ui, s.outputs);
 
+	ui->hdr_loaded = s.hdr_outputs;
+	ui->hdr_others.clear();
+	std::vector<std::string> hdr = split_names(s.hdr_outputs.value_or(""));
+	for (const std::string &n : hdr)
+		if (ui->hdr.count(n) == 0)
+			ui->hdr_others.push_back(n);
+	for (auto &[name, check] : ui->hdr)
+		gtk_check_button_set_active(check,
+				std::find(hdr.begin(), hdr.end(), name) != hdr.end());
+
+	for (auto &[key, entry] : ui->xkb) {
+		auto it = s.xkb.find(key);
+		gtk_editable_set_text(GTK_EDITABLE(entry), it == s.xkb.end() ? "" : it->second.c_str());
+	}
+	for (auto &[key, choice] : ui->libinput) {
+		auto it = s.libinput.find(key);
+		select_value(choice.dd, choice.values, it == s.libinput.end() ? "" : it->second);
+	}
+	gtk_switch_set_active(ui->xwayland, s.xwayland.value_or(true));
+	select_value(ui->virtual_input.dd, ui->virtual_input.values,
+			s.virtual_input.value_or("unlocked"));
+
 	ui->shown = collect(ui);
 	preview_refresh(ui);
 }
@@ -880,6 +951,38 @@ wb::WayboxSettings collect(Ui *ui) {
 	}
 	for (const wb::OutputSetting &o : ui->other_outputs)
 		s.outputs.push_back(o);
+
+	std::vector<std::string> hdr;
+	for (const Ui::Monitor &m : ui->monitors)
+		if (ui->hdr.count(m.name) && gtk_check_button_get_active(ui->hdr.at(m.name)))
+			hdr.push_back(m.name);
+	for (const std::string &n : ui->hdr_others)
+		hdr.push_back(n);
+	std::vector<std::string> loaded = split_names(ui->hdr_loaded.value_or(""));
+	std::vector<std::string> a = hdr, b = loaded;
+	std::sort(a.begin(), a.end());
+	std::sort(b.begin(), b.end());
+	if (a == b) {
+		s.hdr_outputs = ui->hdr_loaded;  /* unchanged: as written */
+	} else if (!hdr.empty()) {
+		std::string joined;
+		for (const std::string &n : hdr)
+			joined += (joined.empty() ? "" : " ") + n;
+		s.hdr_outputs = joined;
+	}
+
+	for (auto &[key, entry] : ui->xkb) {
+		std::string v = gtk_editable_get_text(GTK_EDITABLE(entry));
+		if (!v.empty())
+			s.xkb[key] = v;
+	}
+	for (auto &[key, choice] : ui->libinput) {
+		std::string v = selected_value(choice.dd, choice.values);
+		if (!v.empty())
+			s.libinput[key] = v;
+	}
+	s.xwayland = gtk_switch_get_active(ui->xwayland);
+	s.virtual_input = selected_value(ui->virtual_input.dd, ui->virtual_input.values);
 	return s;
 }
 
@@ -931,7 +1034,8 @@ void on_close(GtkButton *, gpointer data) {
 
 /* The default values for one notebook page, set straight onto its widgets.
  * Page order matches build_window: 0 Theme, 1 Appearance, 2 Fonts, 3 Windows,
- * 4 Margins, 5 Menu, 6 Switcher, 7 Desktops, 8 Monitors. */
+ * 4 Margins, 5 Menu, 6 Switcher, 7 Desktops, 8 Monitors, 9 Keyboard,
+ * 10 Mouse and touchpad, 11 Advanced. */
 void reset_page_widgets(Ui *ui, int page) {
 	switch (page) {
 	case 0:  /* Theme: clear the selection (built-in default theme). */
@@ -977,7 +1081,21 @@ void reset_page_widgets(Ui *ui, int page) {
 		gtk_text_buffer_set_text(gtk_text_view_get_buffer(ui->desktop_names), "", -1);
 		gtk_spin_button_set_value(ui->popup_time, 875);
 		break;
-	case 8:  /* Monitors: everything automatic */
+	case 9:  /* Keyboard */
+		for (auto &[key, entry] : ui->xkb)
+			gtk_editable_set_text(GTK_EDITABLE(entry), "");
+		break;
+	case 10:  /* Mouse and touchpad */
+		for (auto &[key, choice] : ui->libinput)
+			gtk_drop_down_set_selected(choice.dd, 0);
+		break;
+	case 11:  /* Advanced */
+		gtk_switch_set_active(ui->xwayland, TRUE);
+		gtk_drop_down_set_selected(ui->virtual_input.dd, 0);
+		break;
+	case 8:  /* Monitors: everything automatic, no HDR */
+		for (auto &[name, check] : ui->hdr)
+			gtk_check_button_set_active(check, FALSE);
 		for (Ui::Monitor &m : ui->monitors) {
 			gtk_switch_set_active(m.enabled, TRUE);
 			gtk_drop_down_set_selected(m.mode, 0);
@@ -1168,6 +1286,10 @@ GtkWidget *build_monitors_page(Ui *ui) {
 		grid_label(grid, 4, _("Rotation:"));
 		m.transform = values_dropdown(kTransforms);
 		grid_control(grid, 4, GTK_WIDGET(m.transform));
+		GtkWidget *hdr = gtk_check_button_new_with_label(
+				_("HDR10 (Vulkan renderer and an HDR monitor)"));
+		grid_control(grid, 5, hdr);
+		ui->hdr[info.name] = GTK_CHECK_BUTTON(hdr);
 		ui->monitors.push_back(std::move(m));
 	}
 	return page;
@@ -1207,6 +1329,108 @@ GtkWidget *build_switcher_page(Ui *ui) {
 	return page;
 }
 
+GtkWidget *build_keyboard_page(Ui *ui) {
+	GtkWidget *page = make_page();
+	GtkWidget *grid = section_grid(section(page, _("Keyboard Layout")));
+	struct Field { const char *key, *label, *hint; };
+	const Field fields[] = {
+		{"layout", _("Layouts:"), _("us  (several: us,de)")},
+		{"variant", _("Variants:"), _("e.g. dvorak  (one per layout)")},
+		{"options", _("Options:"), _("e.g. grp:alt_shift_toggle,caps:escape")},
+		{"model", _("Model:"), _("e.g. pc105")},
+	};
+	int row = 0;
+	for (const Field &f : fields) {
+		grid_label(grid, row, f.label);
+		GtkWidget *entry = gtk_entry_new();
+		gtk_entry_set_placeholder_text(GTK_ENTRY(entry), f.hint);
+		gtk_widget_set_size_request(entry, 280, -1);
+		grid_control(grid, row++, entry);
+		ui->xkb[f.key] = GTK_ENTRY(entry);
+	}
+	GtkWidget *note = gtk_label_new(_("Empty fields use the system default. "
+			"Options and layouts are XKB names, as listed in xkeyboard-config(7)."));
+	gtk_label_set_wrap(GTK_LABEL(note), TRUE);
+	gtk_label_set_xalign(GTK_LABEL(note), 0);
+	gtk_widget_add_css_class(note, "dim-label");
+	gtk_box_append(GTK_BOX(page), note);
+	return page;
+}
+
+GtkWidget *build_mouse_page(Ui *ui) {
+	GtkWidget *page = make_page();
+	const std::vector<std::pair<std::string, std::string>> onoff = {
+		{"", _("Default")}, {"enabled", _("On")}, {"disabled", _("Off")}};
+	auto add = [ui](GtkWidget *grid, int row, const char *key, const char *label,
+			const std::vector<std::pair<std::string, std::string>> &items) {
+		grid_label(grid, row, label);
+		Ui::Choice c;
+		c.dd = choice_dropdown(items, c.values);
+		grid_control(grid, row, GTK_WIDGET(c.dd));
+		ui->libinput[key] = c;
+	};
+	std::vector<std::pair<std::string, std::string>> speeds = {{"", _("Default")}};
+	for (int i = -4; i <= 4; i++) {
+		char v[16];
+		snprintf(v, sizeof(v), "%g", i / 4.0);
+		speeds.push_back({v, i == 0 ? std::string("0") : std::string(v)});
+	}
+
+	GtkWidget *pointer = section_grid(section(page, _("Mouse and Touchpad")));
+	add(pointer, 0, "accelProfile", _("Acceleration:"),
+			{{"", _("Default")}, {"adaptive", _("Adaptive")}, {"flat", _("Flat")}});
+	add(pointer, 1, "accelSpeed", _("Speed (-1 slow to 1 fast):"), speeds);
+	add(pointer, 2, "naturalScroll", _("Natural scrolling:"), onoff);
+	add(pointer, 3, "leftHanded", _("Left-handed:"), onoff);
+	add(pointer, 4, "middleEmulation", _("Middle click by pressing both buttons:"), onoff);
+
+	GtkWidget *touch = section_grid(section(page, _("Touchpad")));
+	add(touch, 0, "tap", _("Tap to click:"), onoff);
+	add(touch, 1, "tapDrag", _("Tap and drag:"), onoff);
+	add(touch, 2, "tapDragLock", _("Drag lock:"), onoff);
+	add(touch, 3, "disableWhileTyping", _("Disable while typing:"), onoff);
+	add(touch, 4, "scrollMethod", _("Scrolling:"),
+			{{"", _("Default")}, {"twofinger", _("Two fingers")}, {"edge", _("Edge")},
+			 {"button", _("Holding a button")}, {"none", _("None")}});
+	add(touch, 5, "clickMethod", _("Clicking:"),
+			{{"", _("Default")}, {"buttonAreas", _("Button areas")},
+			 {"clickfinger", _("Number of fingers")}, {"none", _("None")}});
+
+	GtkWidget *note = gtk_label_new(_("Applied to every mouse and touchpad; a "
+			"device ignores what it doesn't support. Default is the device's own."));
+	gtk_label_set_wrap(GTK_LABEL(note), TRUE);
+	gtk_label_set_xalign(GTK_LABEL(note), 0);
+	gtk_widget_add_css_class(note, "dim-label");
+	gtk_box_append(GTK_BOX(page), note);
+
+	GtkWidget *scroller = gtk_scrolled_window_new();
+	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER,
+			GTK_POLICY_AUTOMATIC);
+	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), page);
+	gtk_widget_set_vexpand(scroller, TRUE);
+	return scroller;
+}
+
+GtkWidget *build_advanced_page(Ui *ui) {
+	GtkWidget *page = make_page();
+	GtkWidget *grid = section_grid(section(page, _("X11 Programs")));
+	ui->xwayland = add_switch(grid, 0, _("Run X11 programs (Xwayland):"));
+	GtkWidget *vgrid = section_grid(section(page, _("Virtual Keyboards and Pointers")));
+	grid_label(vgrid, 0, _("Accept their input:"));
+	ui->virtual_input.dd = choice_dropdown(
+			{{"unlocked", _("Unless the screen is locked (default)")},
+			 {"always", _("Always")}, {"never", _("Never")}},
+			ui->virtual_input.values);
+	grid_control(vgrid, 0, GTK_WIDGET(ui->virtual_input.dd));
+	GtkWidget *note = gtk_label_new(_("Virtual input comes from tools such as wtype, "
+			"on-screen keyboards and remote-desktop programs."));
+	gtk_label_set_wrap(GTK_LABEL(note), TRUE);
+	gtk_label_set_xalign(GTK_LABEL(note), 0);
+	gtk_widget_add_css_class(note, "dim-label");
+	gtk_box_append(GTK_BOX(page), note);
+	return page;
+}
+
 void add_tab(GtkWidget *notebook, GtkWidget *page, const char *label) {
 	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), page, gtk_label_new(label));
 }
@@ -1214,7 +1438,7 @@ void add_tab(GtkWidget *notebook, GtkWidget *page, const char *label) {
 void build_window(GtkApplication *app, Ui *ui) {
 	ui->window = GTK_WINDOW(gtk_application_window_new(app));
 	gtk_window_set_title(ui->window, _("Waybox Configuration Manager"));
-	gtk_window_set_default_size(ui->window, 500, 460);
+	gtk_window_set_default_size(ui->window, 640, 560);
 
 	/* An explicit header bar: GTK then owns a proper, draggable client-side
 	 * titlebar (a GtkWindowHandle) that drives compositor move/maximize
@@ -1230,6 +1454,8 @@ void build_window(GtkApplication *app, Ui *ui) {
 
 	GtkWidget *notebook = gtk_notebook_new();
 	gtk_widget_set_vexpand(notebook, TRUE);
+	/* A sidebar: twelve pages don't fit side by side. */
+	gtk_notebook_set_tab_pos(GTK_NOTEBOOK(notebook), GTK_POS_LEFT);
 	gtk_box_append(GTK_BOX(vbox), notebook);
 	ui->notebook = GTK_NOTEBOOK(notebook);
 
@@ -1242,6 +1468,9 @@ void build_window(GtkApplication *app, Ui *ui) {
 	add_tab(notebook, build_switcher_page(ui), _("Switcher"));
 	add_tab(notebook, build_desktops_page(ui), _("Desktops"));
 	add_tab(notebook, build_monitors_page(ui), _("Monitors"));
+	add_tab(notebook, build_keyboard_page(ui), _("Keyboard"));
+	add_tab(notebook, build_mouse_page(ui), _("Mouse"));
+	add_tab(notebook, build_advanced_page(ui), _("Advanced"));
 
 	/* Action row + status line. */
 	GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);

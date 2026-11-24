@@ -75,6 +75,16 @@ struct WayboxSettings {
 
 	/* Monitors: name-matched <waybox><outputs><output> rules */
 	std::vector<OutputSetting> outputs;
+	std::optional<std::string> hdr_outputs;          /* waybox/hdr@outputs */
+
+	/* Keyboard: <keyboard><xkb><layout|variant|model|options> */
+	std::map<std::string, std::string> xkb;
+	/* Mouse and touchpad: <mouse><libinput><accelProfile|...>, as written */
+	std::map<std::string, std::string> libinput;
+
+	/* Advanced */
+	std::optional<bool> xwayland;                    /* waybox/xwayland@enabled */
+	std::optional<std::string> virtual_input;        /* waybox/virtualInput@allow */
 
 	bool operator==(const WayboxSettings &) const = default;
 };
