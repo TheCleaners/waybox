@@ -58,6 +58,8 @@ extern "C" {
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_linux_drm_syncobj_v1.h>
 #include <wlr/types/wlr_output_layout.h>
+#include <wlr/types/wlr_pointer_constraints_v1.h>
+#include <wlr/types/wlr_relative_pointer_v1.h>
 #include <wlr/types/wlr_output_management_v1.h>
 #include <wlr/types/wlr_presentation_time.h>
 #include <wlr/types/wlr_primary_selection.h>
@@ -77,6 +79,7 @@ extern "C" {
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/types/wlr_xdg_toplevel_icon_v1.h>
 #include <wlr/util/box.h>
+#include <wlr/util/region.h>
 #if WLR_HAS_XWAYLAND
 #include <wlr/xwayland.h>
 #endif

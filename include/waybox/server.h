@@ -131,6 +131,14 @@ struct wb_server {
 	/* ext-session-lock-v1 state (see session_lock.h), or null. */
 	struct wb_session_lock_state *session_lock = nullptr;
 
+	/* Pointer constraints and relative motion (see pointer_constraints.h). */
+	struct wlr_pointer_constraints_v1 *pointer_constraints = nullptr;
+	struct wlr_relative_pointer_manager_v1 *relative_pointer_manager = nullptr;
+	struct wlr_pointer_constraint_v1 *active_constraint = nullptr;
+	wb::Listener new_pointer_constraint;
+	wb::Listener constraint_keyboard_focus;
+	wb::Listener constraint_pointer_focus;
+
 	/* Xwayland (see xwayland.h), or null when off or unavailable. */
 	struct wlr_xwayland *xwayland = nullptr;
 	wb::Listener new_xwayland_surface;
