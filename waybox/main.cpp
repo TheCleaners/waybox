@@ -23,21 +23,25 @@ bool show_help(char *name) {
 }
 
 struct wb_server server = {};
-void signal_handler(int sig) {
+/* Signals are delivered through the Wayland event loop (signalfd), so the
+ * handlers run between events rather than interrupting arbitrary code: a
+ * reconfigure frees and rebuilds the config, which is not safe mid-render. */
+static int handle_signal(int sig, void *data) {
+	auto *srv = static_cast<struct wb_server *>(data);
 	switch (sig) {
 		case SIGINT:
 		case SIGTERM:
-			wl_display_terminate(server.wl_display);
+			wl_display_terminate(srv->wl_display);
 			break;
 		case SIGUSR1:
-			/* Openbox uses SIGUSR1 to restart and SIGUSR2 to reconfigure.
-			 * What's the difference?
-			 */
+			/* Openbox uses SIGUSR1 to restart and SIGUSR2 to reconfigure;
+			 * a Wayland compositor cannot restart under its clients, so both
+			 * reconfigure. */
 		case SIGUSR2:
-			deinit_config(server.config);
-			init_config(&server);
+			wb_reconfigure(srv);
 			break;
 	}
+	return 0;
 }
 
 int main(int argc, char **argv) {
@@ -101,18 +105,14 @@ int main(int argc, char **argv) {
 		exit(EXIT_FAILURE);
 	}
 
+	for (int sig : {SIGINT, SIGTERM, SIGUSR1, SIGUSR2}) {
+		wl_event_loop_add_signal(server.wl_event_loop, sig, handle_signal,
+				&server);
+	}
+
 	if (startup_cmd) {
 		wb_spawn(startup_cmd);
 	}
-
-	struct sigaction sa;
-	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = SA_RESTART;
-	sa.sa_handler = signal_handler;
-	sigaction(SIGINT, &sa, NULL);
-	sigaction(SIGTERM, &sa, NULL);
-	sigaction(SIGUSR1, &sa, NULL);
-	sigaction(SIGUSR2, &sa, NULL);
 
 	wl_display_run(server.wl_display);
 

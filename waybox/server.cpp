@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
@@ -12,6 +13,7 @@
 #include "idle.h"
 #include "waybox/server.h"
 #include "waybox/session_lock.h"
+#include "waybox/frame_view.hpp"
 #include "waybox/menu_widget.hpp"
 #include "waybox/switcher_widget.hpp"
 #include "waybox/xdg_shell.h"
@@ -35,6 +37,12 @@ void wb_spawn(const char *cmd) {
 			_exit(EXIT_FAILURE);
 		}
 		if (grandchild == 0) {
+			/* The compositor blocks the signals it handles on its event loop
+			 * (wl_event_loop_add_signal); don't pass that mask on, or the
+			 * program could not be interrupted or terminated normally. */
+			sigset_t none;
+			sigemptyset(&none);
+			sigprocmask(SIG_SETMASK, &none, NULL);
 			execl("/bin/sh", "/bin/sh", "-c", cmd, (char *) NULL);
 			/* Only reached if exec fails. */
 			_exit(EXIT_FAILURE);
@@ -43,6 +51,32 @@ void wb_spawn(const char *cmd) {
 	}
 	/* Reap the intermediate child so it does not linger as a zombie. */
 	waitpid(pid, NULL, 0);
+}
+
+void wb_reconfigure(struct wb_server *server) {
+	/* Drop anything that points into the old config (menu model, key-binding
+	 * tree, switcher list) before it is freed. */
+	server->menu.reset();
+	server->switcher.reset();
+	server->switcher_windows.clear();
+	server->switcher_mods = 0;
+	server->active_keychain = nullptr;
+
+	deinit_config(server->config);
+	init_config(server);
+
+	/* Existing frames were styled from the old theme: rebuild them from the
+	 * new one, then re-fit windows (titlebar height may have changed). */
+	struct wb_toplevel *toplevel;
+	wl_list_for_each(toplevel, &server->toplevels, link) {
+		if (toplevel->frame) {
+			server->frame_pressed = nullptr;
+			toplevel->frame.reset();
+			update_toplevel_decoration(toplevel);
+		}
+	}
+	arrange_toplevels(server);
+	wlr_log(WLR_INFO, "%s", _("Reconfigured"));
 }
 
 bool wb_create_backend(struct wb_server* server) {

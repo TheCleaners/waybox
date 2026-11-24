@@ -159,6 +159,11 @@ python = find_program('python3', required: false)
 # render test does) for every integration test.
 integration_env = {
   'LSAN_OPTIONS': 'suppressions=' + meson.current_source_dir() / 'lsan.supp',
+  # When the tests run inside a Waybox session, the session script's exported
+  # config paths would override each test's own rc.xml/menu.xml (waybox
+  # ignores them when empty).
+  'WB_RC_XML': '',
+  'WB_MENU_XML': '',
 }
 if python.found() and not get_option('tests_only')
   test(
@@ -222,6 +227,16 @@ if python.found() and not get_option('tests_only')
       waybox_exe,
       lock_client,
       'always',
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
+  test(
+    'integration_reconfigure',
+    python,
+    args: [
+      files('integration' / 'reconfigure_test.py'),
+      waybox_exe,
     ],
     timeout: 60,
     env: integration_env,
