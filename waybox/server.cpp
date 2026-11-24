@@ -11,6 +11,7 @@
 
 #include "idle.h"
 #include "waybox/server.h"
+#include "waybox/session_lock.h"
 #include "waybox/menu_widget.hpp"
 #include "waybox/switcher_widget.hpp"
 #include "waybox/xdg_shell.h"
@@ -191,6 +192,7 @@ bool wb_start_server(struct wb_server* server) {
 
 	init_xdg_decoration(server);
 	init_layer_shell(server);
+	init_session_lock(server);
 
 	/* Set up the xdg-shell. The xdg-shell is a Wayland protocol which is used
 	 * for application windows. For more detail on shells, refer to
@@ -223,6 +225,7 @@ bool wb_terminate(struct wb_server* server) {
 	 * reference server->cursor, server->seat and server->config) run while
 	 * those objects are still alive. */
 	wl_display_destroy_clients(server->wl_display);
+	finish_session_lock(server);
 
 	server->cursor.reset();
 	server->new_xdg_decoration.disconnect(); /* wb_decoration_destroy */

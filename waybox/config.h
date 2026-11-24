@@ -62,6 +62,15 @@ struct wb_config {
 	wb::MenuBehavior menu_behavior;  /* rc.xml <waybox><menu ...> extensions */
 	wb::SwitcherBehavior switcher_behavior;  /* rc.xml <waybox><switcher ...> */
 
+	/* rc.xml <waybox><virtualInput allow="unlocked|always|never"/>: when input
+	 * from virtual keyboards/pointers (wtype, wlrctl, on-screen keyboards,
+	 * remote-desktop tools) is accepted. "unlocked" (default) drops it while
+	 * the session is locked, so a client cannot type into the locker;
+	 * "always" allows it (e.g. an on-screen keyboard for the lock screen);
+	 * "never" ignores virtual devices entirely. */
+	enum class VirtualInput { Unlocked, Always, Never };
+	VirtualInput virtual_input = VirtualInput::Unlocked;
+
 	/* rc.xml <waybox><titlebar ...> server-side-decoration tuning. A value of
 	 * -1 means "unset" (fall back to a sensible default derived from the
 	 * theme/font); see frame_metrics() in decoration.cpp. */

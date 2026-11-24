@@ -9,6 +9,7 @@
 #include "waybox/xdg_shell.h"
 #include "waybox/menu_widget.hpp"
 #include "waybox/frame_view.hpp"
+#include "waybox/session_lock.h"
 
 /* How close (in layout pixels) a dragged window's edge must come to a usable-
  * area or window edge before it snaps. */
@@ -139,6 +140,24 @@ static void process_cursor_resize(struct wb_server *server) {
 }
 
 static void process_cursor_motion(struct wb_server *server, uint32_t time) {
+	/* Locked: pointer input only reaches the locker's surfaces. */
+	if (session_locked(server)) {
+		double sx, sy;
+		struct wlr_seat *seat = server->seat->seat;
+		struct wlr_surface *surface = session_lock_surface_at(server,
+				server->cursor->cursor->x, server->cursor->cursor->y, &sx, &sy);
+		if (surface != nullptr) {
+			wlr_seat_pointer_notify_enter(seat, surface, sx, sy);
+			wlr_seat_pointer_notify_motion(seat, time, sx, sy);
+		} else {
+			wlr_seat_pointer_clear_focus(seat);
+			wlr_cursor_set_xcursor(server->cursor->cursor,
+					server->cursor->xcursor_manager, "default");
+		}
+		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		return;
+	}
+
 	/* An open menu grabs the pointer: update its hover/submenu state and keep
 	 * the default cursor; do not forward motion to clients. */
 	if (server->menu != nullptr) {
@@ -230,12 +249,16 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 
 void wb_cursor::on_motion(void *data) {
 	auto *event = static_cast<struct wlr_pointer_motion_event *>(data);
+	if (wb_input_blocked(server, &event->pointer->base))
+		return;
 	wlr_cursor_move(cursor, &event->pointer->base, event->delta_x, event->delta_y);
 	process_cursor_motion(server, event->time_msec);
 }
 
 void wb_cursor::on_motion_absolute(void *data) {
 	auto *event = static_cast<struct wlr_pointer_motion_absolute_event *>(data);
+	if (wb_input_blocked(server, &event->pointer->base))
+		return;
 	wlr_cursor_warp_absolute(cursor, &event->pointer->base, event->x, event->y);
 	process_cursor_motion(server, event->time_msec);
 }
@@ -251,7 +274,26 @@ void wb_cursor::on_pointer_focus_change(void *data) {
 
 void wb_cursor::on_button(void *data) {
 	auto *event = static_cast<struct wlr_pointer_button_event *>(data);
+	if (wb_input_blocked(server, &event->pointer->base))
+		return;
 	struct wlr_seat *seat = server->seat->seat;
+
+	/* Locked: no bindings, frames or menus. The button goes to the pointer
+	 * focus (only ever a lock surface), and a press on a lock surface gives it
+	 * keyboard focus (e.g. the locker on another monitor). */
+	if (session_locked(server)) {
+		double sx, sy;
+		struct wlr_surface *surface = session_lock_surface_at(server,
+				cursor->x, cursor->y, &sx, &sy);
+		if (surface != nullptr &&
+				event->state == WL_POINTER_BUTTON_STATE_PRESSED)
+			seat_focus_surface(server->seat.get(),
+					wlr_surface_get_root_surface(surface));
+		wlr_seat_pointer_notify_button(seat, event->time_msec, event->button,
+				event->state);
+		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		return;
+	}
 
 	/* An open menu grabs the pointer: route the button to it and consume the
 	 * event. Selecting an entry dismisses the menu and yields its actions, run
@@ -389,6 +431,8 @@ void wb_cursor::on_button(void *data) {
 
 void wb_cursor::on_axis(void *data) {
 	auto *event = static_cast<struct wlr_pointer_axis_event *>(data);
+	if (wb_input_blocked(server, &event->pointer->base))
+		return;
 	wlr_seat_pointer_notify_axis(server->seat->seat, event->time_msec,
 			event->orientation, event->delta, event->delta_discrete,
 			event->source, event->relative_direction);

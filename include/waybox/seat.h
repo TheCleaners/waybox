@@ -9,6 +9,7 @@ struct wb_server;
 
 struct wb_seat {
 	struct wlr_seat *seat = nullptr;
+	struct wb_server *server = nullptr;
 
 	struct wlr_layer_surface_v1 *focused_layer = nullptr;
 
@@ -34,6 +35,13 @@ struct wb_keyboard {
 };
 
 struct wb_seat *wb_seat_create(struct wb_server *server);
+
+/* True for devices created through virtual-keyboard/-pointer (wtype, wlrctl,
+ * on-screen keyboards, remote-desktop tools). */
+bool wb_input_is_virtual(struct wlr_input_device *device);
+/* True if input from `device` must be dropped under the <virtualInput>
+ * policy (see config.h). */
+bool wb_input_blocked(struct wb_server *server, struct wlr_input_device *device);
 void seat_focus_surface(struct wb_seat *seat, struct wlr_surface *surface);
 void seat_set_focus_layer(struct wb_seat *seat, struct wlr_layer_surface_v1 *layer);
 

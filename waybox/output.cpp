@@ -3,6 +3,7 @@
 #include "waybox/wlroots.hpp"
 
 #include "waybox/output.h"
+#include "waybox/session_lock.h"
 
 /* Pick a sensible default scale for a freshly connected output based on its
  * pixel density. 96 dpi maps to 1.0; the result is rounded to the nearest
@@ -47,6 +48,7 @@ static void reconfigure_output(struct wb_output *output) {
 			output->wlr_output, &output->geometry);
 	arrange_layers(output);
 	arrange_toplevels(output->server);
+	session_lock_arrange(output->server);
 }
 
 /* Advertise the current output configuration to output-management clients. */
@@ -152,7 +154,8 @@ void wb_output::on_frame(void *data) {
 	}
 
 	/* Render the scene if needed and commit the output */
-	wlr_scene_output_commit(scene_output, NULL);
+	if (wlr_scene_output_commit(scene_output, NULL))
+		session_lock_output_frame(output);
 
 	/* This lets the client know that we've displayed that frame and it can
 	 * prepare another one now if it likes. */
@@ -248,6 +251,8 @@ void new_output_notify(struct wb_server *server, void *data) {
 			&output->layers.shell_fullscreen->node);
 
 	wl_list_insert(&server->outputs, &output->link);
+	/* The new output's layer trees were created on top of the scene. */
+	session_lock_keep_on_top(server);
 
 	/* Initialise the usable area to the full output; arrange_layers() will
 	 * shrink it once layer-shell clients (panels) reserve exclusive zones. */
@@ -268,7 +273,9 @@ void new_output_notify(struct wb_server *server, void *data) {
 					((struct wlr_scene_node **) &output->layers)[i]);
 		}
 		wl_list_remove(&output->link);
+		struct wb_server *server = output->server;
 		delete output;
+		session_lock_arrange(server);
 	});
 
 	/* Adds this to the output layout. The add_auto function arranges outputs

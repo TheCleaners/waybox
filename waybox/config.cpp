@@ -429,6 +429,28 @@ static void parse_switcher_behavior(struct wb_config *config,
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><virtualInput allow="unlocked|always|never"/></waybox>. */
+static void parse_virtual_input(struct wb_config *config,
+		xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:virtualInput", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *node = object->nodesetval->nodeTab[0];
+		const char *v = node ? (const char *) get_attribute(node, "allow") : nullptr;
+		if (v == nullptr || strcmp(v, "unlocked") == 0)
+			config->virtual_input = wb_config::VirtualInput::Unlocked;
+		else if (strcmp(v, "always") == 0)
+			config->virtual_input = wb_config::VirtualInput::Always;
+		else if (strcmp(v, "never") == 0)
+			config->virtual_input = wb_config::VirtualInput::Never;
+		else
+			wlr_log(WLR_ERROR, "%s: %s", _("Unknown virtualInput allow value"), v);
+	}
+	xmlXPathFreeObject(object);
+}
+
 /* Parse <waybox><titlebar paddingY="N" buttonSize="N" resizeGrab="N"/></waybox>:
  * server-side-decoration sizing. Each attribute is optional; an absent value
  * leaves the field at -1 ("unset"), and frame_metrics() picks a default. */
@@ -622,6 +644,7 @@ bool init_config(struct wb_server *server) {
 	 * wrap="yes|no". */
 	parse_menu_behavior(config, ctxt);
 	parse_switcher_behavior(config, ctxt);
+	parse_virtual_input(config, ctxt);
 	parse_titlebar(config, ctxt);
 
 	server->config = config;
