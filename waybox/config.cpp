@@ -488,6 +488,58 @@ static void parse_hdr(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><outputs><output .../>...</outputs>. Bad values are logged
+ * and ignored; the rest of the rule still applies. */
+static void parse_outputs(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:outputs/ob:output", ctxt);
+	if (object == NULL)
+		return;
+	for (int i = 0; object->nodesetval && i < object->nodesetval->nodeNr; i++) {
+		xmlNode *node = object->nodesetval->nodeTab[i];
+		auto attr = [node](const char *name) -> std::string {
+			xmlChar *v = xmlGetProp(node, (const xmlChar *) name);
+			std::string s = v ? (const char *) v : "";
+			xmlFree(v);
+			return s;
+		};
+		auto bad = [](const char *what, const std::string &value) {
+			wlr_log(WLR_ERROR, "%s %s=\"%s\"", _("Ignoring the output setting"),
+					what, value.c_str());
+		};
+		wb::OutputRule rule;
+		rule.match = {attr("name"), attr("make"), attr("model"), attr("serial")};
+		if (std::string v = attr("enabled"); !v.empty()) {
+			if (auto b = parse_bool(v.c_str())) rule.enabled = *b; else bad("enabled", v);
+		}
+		if (std::string v = attr("mode"); !v.empty() &&
+				!wb::parse_mode(v, rule.width, rule.height, rule.refresh))
+			bad("mode", v);
+		if (std::string v = attr("scale"); !v.empty()) {
+			char *end = nullptr;
+			double s = strtod(v.c_str(), &end);
+			if (end != v.c_str() + v.size() || !(s >= 0.25 && s <= 10)) bad("scale", v);
+			else rule.scale = s;
+		}
+		if (std::string v = attr("position"); !v.empty()) {
+			int x, y;
+			if (wb::parse_position(v, x, y)) { rule.x = x; rule.y = y; } else bad("position", v);
+		}
+		if (std::string v = attr("transform"); !v.empty()) {
+			if (auto t = wb::parse_transform(v)) rule.transform = *t; else bad("transform", v);
+		}
+		if (std::string v = attr("adaptiveSync"); !v.empty()) {
+			if (auto b = parse_bool(v.c_str())) rule.adaptive_sync = *b; else bad("adaptiveSync", v);
+		}
+		const wb::OutputIdentity &m = rule.match;
+		if (m.name.empty() && m.make.empty() && m.model.empty() && m.serial.empty())
+			wlr_log(WLR_ERROR, "%s", _("An <output> needs name, make, model or serial; ignored"));
+		else
+			config->output_rules.push_back(rule);
+	}
+	xmlXPathFreeObject(object);
+}
+
 /* Parse <waybox><edgeTiling enabled="yes|no" range="N"/>. */
 static void parse_edge_tiling(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
@@ -707,6 +759,7 @@ bool init_config(struct wb_server *server) {
 	parse_xwayland(config, ctxt);
 	parse_edge_tiling(config, ctxt);
 	parse_hdr(config, ctxt);
+	parse_outputs(config, ctxt);
 	parse_titlebar(config, ctxt);
 
 	server->config = config;

@@ -21,6 +21,9 @@ struct wb_output {
 	} layers;
 
 	bool gamma_lut_changed = false;
+	/* An output-management client (kanshi, wlr-randr) configured it this
+	 * session: Reconfigure then leaves it alone rather than reapply rc.xml. */
+	bool client_configured = false;
 	struct wlr_box geometry = {};
 	struct wlr_box usable_area = {};
 
@@ -37,6 +40,9 @@ struct wb_output {
 void handle_gamma_control_set_gamma(struct wb_server *server, void *data);
 void init_output(struct wb_server *server);
 /* Set HDR (or SDR) colour state on an output state before committing it. */
+/* Apply rc.xml's <outputs> rule for every output that has one and that no
+ * output-management client has configured (on Reconfigure). */
+void apply_output_rules(struct wb_server *server);
 void apply_output_color(struct wb_server *server, struct wlr_output *output,
 		struct wlr_output_state *state);
 

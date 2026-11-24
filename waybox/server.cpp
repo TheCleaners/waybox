@@ -86,7 +86,8 @@ void wb_reconfigure(struct wb_server *server) {
 		}
 	}
 	desktops_reconfigured(server);
-	/* <hdr outputs=...> may have changed. */
+	/* <outputs> rules (outputs a client configured keep that), then <hdr>. */
+	apply_output_rules(server);
 	struct wb_output *output;
 	wl_list_for_each(output, &server->outputs, link) {
 		struct wlr_output_state state;

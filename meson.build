@@ -87,6 +87,7 @@ desktops_src = files('waybox/desktops.cpp')
 edge_tiling_src = files('waybox/edge_tiling.cpp')
 client_menu_src = files('waybox/client_menu.cpp')
 security_src = files('waybox/security.cpp')
+output_rules_src = files('waybox/output_rules.cpp')
 
 # tests_only builds just the dependency-free unit tests (no wlroots, no
 # compositor), so they can run sanitized in CI on a stock distro that lacks a

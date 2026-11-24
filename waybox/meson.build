@@ -18,6 +18,7 @@ wb_src = [
   edge_tiling_src,
   client_menu_src,
   security_src,
+  output_rules_src,
   render_src,
   files(
     'action_xml.cpp',

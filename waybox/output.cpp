@@ -1,9 +1,15 @@
 #include <drm_fourcc.h>
 #include <math.h>
 
+#include <algorithm>
+#include <cmath>
+#include <optional>
+#include <vector>
+
 #include "waybox/wlroots.hpp"
 
 #include "waybox/output.h"
+#include "waybox/output_rules.hpp"
 #include "waybox/session_lock.h"
 
 /* Pick a sensible default scale for a freshly connected output based on its
@@ -85,6 +91,119 @@ void apply_output_color(struct wb_server *server, struct wlr_output *output,
  * cached layout geometry, re-arrange layer surfaces (which updates the usable
  * area) and reflow toplevels so maximized/fullscreen windows track the new
  * size and floating windows stay reachable. */
+/* Put `wlr_output` in the layout (at x,y, or automatically) and make sure
+ * it has a scene output linked to its layout entry: one leaving the layout
+ * loses that link, so it is made again when it comes back. */
+static bool place_output(struct wb_server *server, struct wlr_output *wlr_output,
+		std::optional<int> x, std::optional<int> y) {
+	bool was_in_layout = wlr_output_layout_get(server->output_layout, wlr_output) != nullptr;
+	struct wlr_output_layout_output *l_output = (x && y)
+		? wlr_output_layout_add(server->output_layout, wlr_output, *x, *y)
+		: (was_in_layout ? wlr_output_layout_get(server->output_layout, wlr_output)
+				: wlr_output_layout_add_auto(server->output_layout, wlr_output));
+	if (l_output == nullptr) {
+		wlr_log(WLR_ERROR, "%s", _("Could not add an output layout."));
+		return false;
+	}
+	if (!was_in_layout) {
+		struct wlr_scene_output *scene_output =
+				wlr_scene_get_scene_output(server->scene, wlr_output);
+		if (scene_output == nullptr)
+			scene_output = wlr_scene_output_create(server->scene, wlr_output);
+		wlr_scene_output_layout_add_output(server->scene_layout, l_output, scene_output);
+	}
+	return true;
+}
+
+static wb::OutputIdentity output_identity(struct wlr_output *o) {
+	return {o->name ? o->name : "", o->make ? o->make : "", o->model ? o->model : "",
+			o->serial ? o->serial : ""};
+}
+
+static const wb::OutputRule *output_rule(struct wb_server *server, struct wlr_output *o) {
+	if (server->config == nullptr)
+		return nullptr;
+	return wb::match_output(server->config->output_rules, output_identity(o));
+}
+
+/* Set up `wlr_output` from its rc.xml rule, or Waybox's defaults (the
+ * preferred resolution at its highest refresh rate, a scale for its pixel
+ * density). The state is tested first; a mode the output refuses falls back
+ * to its preferred mode, so a bad rule can't leave it dark. Returns whether
+ * the output is enabled. */
+static bool configure_output(struct wb_server *server, struct wlr_output *wlr_output,
+		const wb::OutputRule *rule) {
+	struct wlr_output_state state;
+	wlr_output_state_init(&state);
+	if (rule != nullptr && rule->enabled == false) {
+		wlr_output_state_set_enabled(&state, false);
+		wlr_output_commit_state(wlr_output, &state);
+		wlr_output_state_finish(&state);
+		wlr_log(WLR_INFO, "%s: %s", wlr_output->name, _("disabled in rc.xml"));
+		return false;
+	}
+	wlr_output_state_set_enabled(&state, true);
+
+	std::vector<struct wlr_output_mode *> modes;
+	std::vector<wb::ModeInfo> infos;
+	struct wlr_output_mode *m;
+	wl_list_for_each(m, &wlr_output->modes, link) {
+		modes.push_back(m);
+		infos.push_back({m->width, m->height, m->refresh, m->preferred});
+	}
+	struct wlr_output_mode *mode = nullptr;
+	if (rule != nullptr && rule->width > 0) {
+		int i = wb::pick_mode(infos, rule->width, rule->height, rule->refresh);
+		if (i >= 0) {
+			mode = modes[i];
+			if (rule->refresh > 0 && std::fabs(mode->refresh / 1000.0 - rule->refresh) > 0.5)
+				wlr_log(WLR_INFO, "%s: %s %dx%d@%.3f", wlr_output->name,
+						_("no mode at the refresh rate asked for; using"),
+						mode->width, mode->height, mode->refresh / 1000.0);
+		} else if (modes.empty()) {
+			/* Nested and headless outputs take any size. */
+			wlr_output_state_set_custom_mode(&state, rule->width, rule->height,
+					(int32_t) (rule->refresh * 1000));
+		} else {
+			wlr_log(WLR_ERROR, "%s: %s %dx%d", wlr_output->name,
+					_("has no mode"), rule->width, rule->height);
+		}
+	}
+	if (mode == nullptr && !modes.empty()) {
+		int i = wb::default_mode(infos);
+		mode = i >= 0 ? modes[i] : nullptr;
+	}
+	if (mode != nullptr)
+		wlr_output_state_set_mode(&state, mode);
+
+	double scale = (rule != nullptr && rule->scale) ? *rule->scale
+			: compute_default_scale(wlr_output, mode);
+	wlr_output_state_set_scale(&state, (float) scale);
+	if (rule != nullptr && rule->transform)
+		wlr_output_state_set_transform(&state,
+				static_cast<enum wl_output_transform>(*rule->transform));
+	if (rule != nullptr && rule->adaptive_sync)
+		wlr_output_state_set_adaptive_sync_enabled(&state, *rule->adaptive_sync);
+	apply_output_color(server, wlr_output, &state);
+
+	if (!wlr_output_test_state(wlr_output, &state)) {
+		struct wlr_output_mode *preferred = wlr_output_preferred_mode(wlr_output);
+		if (preferred != nullptr && preferred != mode) {
+			wlr_log(WLR_ERROR, "%s: %s", wlr_output->name,
+					_("the output refused that mode; using its preferred mode"));
+			wlr_output_state_set_mode(&state, preferred);
+			mode = preferred;
+		}
+	}
+	if (!wlr_output_commit_state(wlr_output, &state))
+		wlr_log(WLR_ERROR, "%s: %s", wlr_output->name, _("could not set up the output"));
+	else if (mode != nullptr)
+		wlr_log(WLR_INFO, "%s: %dx%d@%.3f %s %.2f", wlr_output->name, mode->width,
+				mode->height, mode->refresh / 1000.0, _("scale"), scale);
+	wlr_output_state_finish(&state);
+	return true;
+}
+
 static void reconfigure_output(struct wb_output *output) {
 	if (output == NULL) {
 		return;
@@ -114,12 +233,38 @@ static void output_manager_update_config(struct wb_server *server) {
 	wlr_output_manager_v1_set_configuration(server->wlr_output_manager, config);
 }
 
+/* Whether a client's configuration `head` changes its output. Clients such
+ * as wlr-randr send every output when they change one. */
+static bool head_changes_output(struct wb_server *server,
+		const struct wlr_output_head_v1_state &head) {
+	struct wlr_output *o = head.output;
+	if (head.enabled != o->enabled)
+		return true;
+	if (!head.enabled)
+		return false;
+	bool mode_differs = head.mode != nullptr ? head.mode != o->current_mode
+		: (head.custom_mode.width != o->width || head.custom_mode.height != o->height ||
+				(head.custom_mode.refresh != 0 && head.custom_mode.refresh != o->refresh));
+	struct wlr_box box = {};
+	wlr_output_layout_get_box(server->output_layout, o, &box);
+	return mode_differs || head.scale != o->scale || head.transform != o->transform ||
+			head.adaptive_sync_enabled != (o->adaptive_sync_status ==
+					WLR_OUTPUT_ADAPTIVE_SYNC_ENABLED) ||
+			wlr_box_empty(&box) || head.x != box.x || head.y != box.y;
+}
+
 /* Apply (or test) an output configuration requested through the
  * output-management protocol. */
 static bool apply_output_config(struct wb_server *server,
 		struct wlr_output_configuration_v1 *config, bool test_only) {
 	bool ok = true;
 	struct wlr_output_configuration_head_v1 *head;
+	/* Which outputs this changes, judged before anything is committed. */
+	std::vector<struct wlr_output *> changed;
+	if (!test_only)
+		wl_list_for_each(head, &config->heads, link)
+			if (head_changes_output(server, head->state))
+				changed.push_back(head->state.output);
 	wl_list_for_each(head, &config->heads, link) {
 		struct wlr_output *wlr_output = head->state.output;
 		struct wlr_output_state state;
@@ -151,13 +296,17 @@ static bool apply_output_config(struct wb_server *server,
 	if (test_only || !ok) {
 		return ok;
 	}
+	/* Clients get the new configuration (positions) back. */
 
 	wl_list_for_each(head, &config->heads, link) {
 		struct wlr_output *wlr_output = head->state.output;
+		auto *output = static_cast<wb_output *>(wlr_output->data);
+		if (output != nullptr && std::find(changed.begin(), changed.end(), wlr_output) !=
+				changed.end())
+			output->client_configured = true;
 		if (head->state.enabled) {
-			wlr_output_layout_add(server->output_layout, wlr_output,
-					head->state.x, head->state.y);
-			reconfigure_output(static_cast<wb_output *>(wlr_output->data));
+			place_output(server, wlr_output, head->state.x, head->state.y);
+			reconfigure_output(output);
 		} else {
 			wlr_output_layout_remove(server->output_layout, wlr_output);
 		}
@@ -172,6 +321,8 @@ void wb_output::on_frame(void *data) {
 	struct wlr_scene *scene = output->server->scene;
 	struct wlr_scene_output *scene_output =
 		wlr_scene_get_scene_output(scene, output->wlr_output);
+	if (scene_output == nullptr)
+		return;  /* not in the layout */
 
 	wlr_output_layout_get_box(output->server->output_layout,
 			output->wlr_output, &output->geometry);
@@ -255,21 +406,8 @@ void new_output_notify(struct wb_server *server, void *data) {
          * and our renderer */
 	wlr_output_init_render(wlr_output, server->allocator, server->renderer);
 
-	struct wlr_output_mode *mode = wlr_output_preferred_mode(wlr_output);
-	struct wlr_output_state state;
-	wlr_output_state_init(&state);
-	wlr_output_state_set_enabled(&state, true);
-
-	if (mode != NULL) {
-		wlr_output_state_set_mode(&state, mode);
-	}
-
-	/* Choose an initial scale based on the display's pixel density. */
-	wlr_output_state_set_scale(&state, compute_default_scale(wlr_output, mode));
-	apply_output_color(server, wlr_output, &state);
-
-	wlr_output_commit_state(wlr_output, &state);
-	wlr_output_state_finish(&state);
+	const wb::OutputRule *rule = output_rule(server, wlr_output);
+	bool enabled = configure_output(server, wlr_output, rule);
 
 	auto *output = new wb_output{};
 	output->server = server;
@@ -327,29 +465,34 @@ void new_output_notify(struct wb_server *server, void *data) {
 		session_lock_arrange(server);
 	});
 
-	/* Adds this to the output layout. The add_auto function arranges outputs
-	 * from left-to-right in the order they appear. A more sophisticated
-	 * compositor would let the user configure the arrangement of outputs in the
-	 * layout.
-	 *
-	 * The output layout utility automatically adds a wl_output global to the
-	 * display, which Wayland clients can see to find out information about the
-	 * output (such as DPI, scale factor, manufacturer, etc).
-	 */
-	struct wlr_output_layout_output *l_output =
-		wlr_output_layout_add_auto(server->output_layout, wlr_output);
-	if (!l_output) {
-		wlr_log(WLR_ERROR, "%s", _("Could not add an output layout."));
+	/* Add it to the output layout, where rc.xml puts it or else to the right
+	 * of the others. The layout adds a wl_output global for clients. A
+	 * disabled output joins the layout when a client enables it. */
+	if (enabled && !place_output(server, wlr_output,
+			rule ? rule->x : std::nullopt, rule ? rule->y : std::nullopt))
 		return;
-	}
-
-	struct wlr_scene_output *scene_output = wlr_scene_output_create(server->scene, wlr_output);
-	wlr_scene_output_layout_add_output(server->scene_layout, l_output, scene_output);
 
 	/* Publish the configuration and compute the usable area now that the
 	 * output is in the layout. */
 	output_manager_update_config(server);
-	reconfigure_output(output);
+	if (enabled)
+		reconfigure_output(output);
+}
+
+void apply_output_rules(struct wb_server *server) {
+	struct wb_output *output;
+	wl_list_for_each(output, &server->outputs, link) {
+		const wb::OutputRule *rule = output_rule(server, output->wlr_output);
+		if (rule == nullptr || output->client_configured)
+			continue;
+		if (configure_output(server, output->wlr_output, rule)) {
+			if (place_output(server, output->wlr_output, rule->x, rule->y))
+				reconfigure_output(output);
+		} else {
+			wlr_output_layout_remove(server->output_layout, output->wlr_output);
+		}
+	}
+	output_manager_update_config(server);
 }
 
 void init_output(struct wb_server *server) {

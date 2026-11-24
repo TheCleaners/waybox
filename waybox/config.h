@@ -9,6 +9,7 @@
 #include "waybox/keychain.hpp"
 #include "waybox/menu.hpp"
 #include "waybox/mousebind.hpp"
+#include "waybox/output_rules.hpp"
 #include "waybox/placement.hpp"
 #include "waybox/style.hpp"
 #include "waybox/theme.hpp"
@@ -80,6 +81,11 @@ struct wb_config {
 	/* rc.xml <waybox><hdr outputs="HDMI-A-1 DP-1"/>: outputs to drive in
 	 * HDR10 (BT.2020 primaries, PQ), when the output and renderer can. */
 	std::vector<std::string> hdr_outputs;
+
+	/* rc.xml <waybox><outputs><output name=... mode=... scale=...
+	 * position=... transform=... enabled=... adaptiveSync=.../></outputs>:
+	 * per-output settings, matched by connector name or make/model/serial. */
+	std::vector<wb::OutputRule> output_rules;
 
 	/* rc.xml <waybox><edgeTiling enabled="yes|no" range="N"/>: drag a window
 	 * to a monitor edge to tile it (halves, corner quarters, maximize at the

@@ -136,6 +136,13 @@ security_test = executable(
   )
 test('security', security_test)
 
+output_rules_test = executable(
+  'output_rules_test',
+  ['output_rules_test.cpp', 'wb_test_main.cpp', output_rules_src],
+  include_directories: [inc_dir],
+  )
+test('output_rules', output_rules_test)
+
 # Pixel test for the Cairo/Pango painting primitives. Needs cairo/pango, so it
 # is only built in the full build (not tests_only); it links no wlroots.
 if not get_option('tests_only')
@@ -411,6 +418,17 @@ if python.found() and not get_option('tests_only')
       text_input_client,
     ],
     timeout: 90,
+    env: integration_env,
+    )
+
+  test(
+    'integration_output_rules',
+    python,
+    args: [
+      files('integration' / 'output_rules_test.py'),
+      waybox_exe,
+    ],
+    timeout: 60,
     env: integration_env,
     )
 
