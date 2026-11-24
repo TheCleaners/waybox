@@ -7,6 +7,8 @@
    it: no use of the freed old bindings (checked under ASan).
 3. With no settings loaded (an empty rc.xml), clicking a titlebar icon
    (the window menu) doesn't crash.
+4. A failed start (no usable runtime directory) exits cleanly instead of
+   freeing the backend and display twice.
 
 Skips (exit 77) without foot or wlrctl, or a headless display.
 
@@ -164,6 +166,22 @@ def main():
         time.sleep(0.5)
     os.makedirs(os.path.join(workdir, "empty"), exist_ok=True)
     session("nosettings", "", icon_without_settings)
+
+    # 4. Startup failure (no usable runtime directory, so no socket): a
+    # clean exit, not a double free of the backend and display.
+    bad_runtime = os.path.join(workdir, "not-a-dir")
+    open(bad_runtime, "w").close()
+    start_log = os.path.join(workdir, "waybox-start.log")
+    logs.append(start_log)
+    with open(start_log, "w") as f:
+        r = subprocess.run([waybox, "--debug"], stdout=f, stderr=subprocess.STDOUT,
+                           timeout=30, env=dict(os.environ, WLR_BACKENDS="headless",
+                                                WLR_RENDERER="pixman",
+                                                XDG_RUNTIME_DIR=bad_runtime,
+                                                WB_RC_XML="/dev/null", WB_MENU_XML="",
+                                                ASAN_OPTIONS="detect_leaks=1:exitcode=99"))
+    if r.returncode < 0 or r.returncode == 99:
+        failures.append(f"a failed start crashed (status {r.returncode})")
 
     contents = "".join(open(p).read() for p in logs)
     if any(s in contents for s in ("Sanitizer", "Assertion", "runtime error",

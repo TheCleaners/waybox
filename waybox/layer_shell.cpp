@@ -37,7 +37,10 @@ static void arrange_surface(struct wb_output *output, struct wlr_box *full_area,
 
 		if (desc->type == WB_SCENE_DESC_LAYER_SHELL) {
 			struct wb_layer_surface *surface = static_cast<struct wb_layer_surface *>(desc->data);
-			surface->scene->layer_surface->initialized = true;
+			/* Configure only after the client's initial commit (the
+			 * protocol's order); that commit arranges it. */
+			if (!surface->scene->layer_surface->initialized)
+				continue;
 			wlr_scene_layer_surface_v1_configure(surface->scene,
 					full_area, usable_area);
 		}
@@ -158,7 +161,7 @@ static void handle_map(struct wb_layer_surface *surface, void *data) {
 		struct wb_seat *seat = surface->server->seat.get();
 		/* but only if the currently focused layer has a lower precedence */
 		if (!seat->focused_layer ||
-				seat->focused_layer->current.layer >= layer_surface->current.layer) {
+				seat->focused_layer->current.layer <= layer_surface->current.layer) {
 			seat_set_focus_layer(seat, layer_surface);
 		}
 		if (surface->output) {
@@ -173,7 +176,11 @@ static void handle_unmap(struct wb_layer_surface *surface, void *data) {
 		seat_set_focus_layer(seat, NULL);
 	}
 
-	if (!wl_list_empty(&surface->server->focus_order)) {
+	/* Give the keyboard back to a window only if this surface had it (a
+	 * notification closing mustn't take it from an open launcher). */
+	struct wlr_surface *focused = surface->server->seat->seat->keyboard_state.focused_surface;
+	if (focused == surface->scene->layer_surface->surface &&
+			!wl_list_empty(&surface->server->focus_order)) {
 		struct wb_toplevel *toplevel = first_toplevel(surface->server);
 		if (toplevel && toplevel->scene_tree && toplevel->scene_tree->node.enabled) {
 			focus_toplevel(toplevel);
@@ -262,14 +269,14 @@ static void popup_unconstrain(struct wb_layer_popup *popup) {
 		return;
 	}
 
+	/* The output box in the coordinates of the layer surface the popup
+	 * belongs to (what wlroots unconstrains against): the output's layout
+	 * box minus the surface's layout position. */
 	int lx, ly;
-	wlr_scene_node_coords(&popup->scene->node, &lx, &ly);
-
-	/* The output box expressed in the coordinate system of the toplevel
-	 * parent of the popup. */
+	wlr_scene_node_coords(&surface->scene->tree->node, &lx, &ly);
 	struct wlr_box output_toplevel_sx_box = {
-		.x = output->geometry.x - MIN(lx, 0),
-		.y = output->geometry.y - MAX(ly, 0),
+		.x = output->geometry.x - lx,
+		.y = output->geometry.y - ly,
 		.width = output->geometry.width,
 		.height = output->geometry.height,
 	};
@@ -387,12 +394,6 @@ void handle_layer_shell_surface(struct wb_server *server, void *data) {
 	surface->new_popup.connect(&layer_surface->events.new_popup,
 			[surface](void *data) { handle_new_popup(surface, data); });
 
-	/* Temporarily set the layer's current state to pending
-	 * So that we can easily arrange it */
-	struct wlr_layer_surface_v1_state old_state = layer_surface->current;
-	layer_surface->current = layer_surface->pending;
-	arrange_layers(output);
-	layer_surface->current = old_state;
 }
 
 void init_layer_shell(struct wb_server *server) {

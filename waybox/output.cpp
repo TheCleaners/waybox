@@ -312,6 +312,7 @@ static bool apply_output_config(struct wb_server *server,
 			reconfigure_output(output);
 		} else {
 			wlr_output_layout_remove(server->output_layout, wlr_output);
+			session_lock_output_gone(server, wlr_output);
 		}
 	}
 	return ok;
@@ -329,29 +330,6 @@ void wb_output::on_frame(void *data) {
 
 	wlr_output_layout_get_box(output->server->output_layout,
 			output->wlr_output, &output->geometry);
-
-	if (output->gamma_lut_changed) {
-		output->gamma_lut_changed = false;
-		struct wlr_gamma_control_v1 *gamma_control =
-			wlr_gamma_control_manager_v1_get_control(output->server->gamma_control_manager,
-					output->wlr_output);
-		struct wlr_output_state pending;
-		if (!wlr_scene_output_build_state(scene_output, &pending, NULL))
-			return;
-
-		if (!wlr_gamma_control_v1_apply(gamma_control, &pending)) {
-			wlr_output_state_finish(&pending);
-			return;
-		}
-
-		if (!wlr_output_test_state(output->wlr_output, &pending)) {
-			wlr_gamma_control_v1_send_failed_and_destroy(gamma_control);
-			wlr_output_state_finish(&pending);
-			return;
-		}
-
-		wlr_output_state_finish(&pending);
-	}
 
 	/* Render the scene if needed and commit the output */
 	if (wlr_scene_output_commit(scene_output, NULL))
@@ -394,12 +372,6 @@ void wb_output::on_request_state(void *data) {
 	}
 }
 
-void handle_gamma_control_set_gamma(struct wb_server *server, void *data) {
-	const struct wlr_gamma_control_manager_v1_set_gamma_event *event = static_cast<const struct wlr_gamma_control_manager_v1_set_gamma_event *>(data);
-	struct wb_output *output = static_cast<struct wb_output *>(event->output->data);
-	output->gamma_lut_changed = true;
-	wlr_output_schedule_frame(output->wlr_output);
-}
 
 /* Move toplevels out of `output`'s fullscreen layer before it is
  * destroyed: fullscreen windows leave fullscreen, dialogs living in that
@@ -475,6 +447,7 @@ void new_output_notify(struct wb_server *server, void *data) {
 		 * free the layer scene-trees; the wb::Listener members disconnect
 		 * themselves when the output is deleted. */
 		layer_shell_output_destroy(output);
+		session_lock_output_gone(output->server, output->wlr_output);
 		/* Windows (and their dialogs) in this output's fullscreen layer
 		 * would go with it: back to the ordinary window layer first. */
 		output_release_toplevels(output);

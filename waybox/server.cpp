@@ -278,15 +278,13 @@ bool wb_start_server(struct wb_server* server) {
 	server->unmanaged_tree = wlr_scene_tree_create(&server->scene->tree);
 
 	const char *socket = wl_display_add_socket_auto(server->wl_display);
-	if (!socket) {
-		wlr_backend_destroy(server->backend);
+	/* On failure the caller runs wb_terminate(), which frees the backend
+	 * and the display: freeing them here too was a double free. */
+	if (!socket)
 		return false;
-	}
 
 	if (!wlr_backend_start(server->backend)) {
 		wlr_log(WLR_ERROR, "%s", _("Failed to start backend"));
-		wlr_backend_destroy(server->backend);
-		wl_display_destroy(server->wl_display);
 		return false;
 	}
 
@@ -309,6 +307,14 @@ bool wb_start_server(struct wb_server* server) {
 			[](void *data) {
 		auto *event =
 			static_cast<struct wlr_xdg_activation_v1_request_activate_event *>(data);
+		/* Only on behalf of the user: a token made from an input event (it
+		 * has a seat, and wlroots checked its serial), as when you click a
+		 * link or launch something. A program can't take the keyboard
+		 * (and switch desktops) on its own. */
+		if (event->token == nullptr || event->token->seat == nullptr) {
+			wlr_log(WLR_INFO, "%s", _("Ignoring an activation request not made from user input"));
+			return;
+		}
 		struct wlr_xdg_surface *xdg_surface =
 			wlr_xdg_surface_try_from_wlr_surface(event->surface);
 		if (xdg_surface == NULL ||
@@ -324,8 +330,9 @@ bool wb_start_server(struct wb_server* server) {
 
 	server->gamma_control_manager =
 		wlr_gamma_control_manager_v1_create(server->wl_display);
-	server->gamma_control_set_gamma.connect(&server->gamma_control_manager->events.set_gamma,
-			[server](void *data) { handle_gamma_control_set_gamma(server, data); });
+	/* The scene applies gamma (night light: wlsunset, gammastep) on each
+	 * output's commit. */
+	wlr_scene_set_gamma_control_manager_v1(server->scene, server->gamma_control_manager);
 
 	wlr_ext_image_copy_capture_manager_v1_create(server->wl_display, 1);
 	wlr_ext_output_image_capture_source_manager_v1_create(server->wl_display, 1);
@@ -399,9 +406,9 @@ bool wb_terminate(struct wb_server* server) {
 	server->output_configuration_applied.disconnect();
 	server->output_configuration_tested.disconnect();
 	server->new_inhibitor.disconnect();
-	wl_list_remove(&server->inhibitors);
+	if (server->inhibitors.next != nullptr)  /* set up only if startup got that far */
+		wl_list_remove(&server->inhibitors);
 	server->destroy_inhibit_manager.disconnect();
-	server->gamma_control_set_gamma.disconnect();
 	server->new_layer_surface.disconnect();
 
 	server->new_xdg_toplevel.disconnect();

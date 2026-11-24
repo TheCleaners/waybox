@@ -19,8 +19,6 @@ struct wb_output {
 		struct wlr_scene_tree *shell_overlay;
 		struct wlr_scene_tree *shell_top;
 	} layers;
-
-	bool gamma_lut_changed = false;
 	/* An output-management client (kanshi, wlr-randr) configured it this
 	 * session: Reconfigure then leaves it alone rather than reapply rc.xml. */
 	bool client_configured = false;
@@ -37,7 +35,6 @@ struct wb_output {
 	void on_request_state(void *data);
 };
 
-void handle_gamma_control_set_gamma(struct wb_server *server, void *data);
 void init_output(struct wb_server *server);
 /* Set HDR (or SDR) colour state on an output state before committing it. */
 /* Apply rc.xml's <outputs> rule for every output that has one and that no

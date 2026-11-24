@@ -189,6 +189,13 @@ static void begin_lock(struct wb_session_lock_state *st) {
 	server->active_keychain = nullptr;
 	server->frame_pressed = nullptr;
 	reset_cursor_mode(server);
+	/* End any client grab first (an open popup menu holds the keyboard
+	 * through it): otherwise keys typed at the lock screen, the password,
+	 * would still go to that program. Ending xdg-popup grabs dismisses
+	 * the popups. */
+	wlr_seat_keyboard_end_grab(server->seat->seat);
+	wlr_seat_pointer_end_grab(server->seat->seat);
+	wlr_seat_touch_end_grab(server->seat->seat);
 	wlr_seat_keyboard_notify_clear_focus(server->seat->seat);
 	wlr_seat_pointer_clear_focus(server->seat->seat);
 
@@ -295,7 +302,9 @@ static void handle_new_lock(struct wb_session_lock_state *st,
 	 * the blanking rects. */
 	struct wb_output *output;
 	wl_list_for_each(output, &st->server->outputs, link) {
-		if (output->wlr_output->enabled)
+		/* Only outputs that draw frames (enabled, in the layout). */
+		if (output->wlr_output->enabled &&
+				wlr_scene_get_scene_output(st->server->scene, output->wlr_output))
 			st->awaiting_frame.insert(output->wlr_output);
 	}
 	maybe_send_locked(st);
@@ -330,4 +339,14 @@ void finish_session_lock(struct wb_server *server) {
 		s->tree = nullptr;
 	delete st;
 	server->session_lock = nullptr;
+}
+
+void session_lock_output_gone(struct wb_server *server, struct wlr_output *output) {
+	struct wb_session_lock_state *st = state_of(server);
+	if (st == nullptr)
+		return;
+	/* An output unplugged or turned off before its first locked frame must
+	 * not hold back "locked" for ever. */
+	st->awaiting_frame.erase(output);
+	maybe_send_locked(st);
 }

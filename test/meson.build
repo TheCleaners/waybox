@@ -277,6 +277,17 @@ if python.found() and not get_option('tests_only')
     dependencies: [dependency('wayland-client')],
     )
 
+  # A program with a popup grab, for the lock-screen test.
+  popup_client = executable(
+    'popup_client',
+    [
+      'integration' / 'popup_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # A security-context-v1 "sandbox engine" for the sandbox test.
   security_context_xml = wl_protocol_dir / 'staging/security-context/security-context-v1.xml'
   sandbox_client = executable(
@@ -321,6 +332,7 @@ if python.found() and not get_option('tests_only')
     ['input_focus', 'input_focus_test.py', [], 60],
     ['input_method', 'input_method_test.py', [ime_client, text_input_client], 90],
     ['key_chain', 'key_chain_test.py', [], 60],
+    ['lock_popup', 'lock_popup_test.py', [popup_client, lock_client], 60],
     ['keymap_reconfigure', 'keymap_reconfigure_test.py', [], 60],
     ['menu', 'menu_test.py', [], 60],
     ['menu_hover_delay', 'menu_hover_delay_test.py', [], 60],
