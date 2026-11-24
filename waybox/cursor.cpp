@@ -453,7 +453,9 @@ static bool run_mouse_bindings(struct wb_server *server, wb::MouseContext contex
 	if (server->config == nullptr)
 		return false;
 	bool handled = false;
-	for (const wb::MouseBinding &binding : server->config->mouse_bindings) {
+	/* An action may Reconfigure, freeing these bindings: stop then. */
+	const struct wb_config *config = server->config;
+	for (const wb::MouseBinding &binding : config->mouse_bindings) {
 		if (!wb::mouse_binding_matches(binding, context, button, modifiers, event))
 			continue;
 		if (window != nullptr && !toplevel_alive(server, window))
@@ -467,10 +469,12 @@ static bool run_mouse_bindings(struct wb_server *server, wb::MouseContext contex
 			if (window != nullptr && !toplevel_alive(server, window))
 				break;  /* closed by an earlier action */
 			wb::run_action(action, server);
+			if (server->config != config)
+				break;  /* reconfigured: the rest belongs to the old config */
 		}
 		server->action_window = nullptr;
 		handled = true;
-		if (server->config == nullptr)
+		if (server->config != config)
 			break;
 	}
 	return handled;
@@ -573,7 +577,11 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 					reinterpret_cast<uintptr_t>(bound_window), mods,
 					cursor->x, cursor->y, event->time_msec);
 			if (run_mouse_bindings(server, *context, bound_window,
-					event->button, mods, wb::MouseEvent::Press)) {
+					event->button, mods, wb::MouseEvent::Press) &&
+					*context != wb::MouseContext::Client) {
+				/* A binding took the press over. In a window (the Client
+				 * context) the click still reaches the program, as in
+				 * Openbox ("Focus, Raise" on a click must not eat it). */
 				wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
 				return;
 			}

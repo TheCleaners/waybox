@@ -215,6 +215,8 @@ static struct wb_toplevel *action_target(struct wb_server *server) {
 }
 
 void wb_show_client_menu(struct wb_server *server) {
+	if (server->config == nullptr)
+		return;  /* no rc.xml loaded: nothing to build the menu from */
 	struct wb_toplevel *t = action_target(server);
 	if (t == nullptr || !t->scene_tree->node.enabled)
 		return;

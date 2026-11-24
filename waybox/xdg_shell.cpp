@@ -206,10 +206,16 @@ struct wb_toplevel *first_toplevel(struct wb_server *server) {
 	if (wl_list_empty(&server->focus_order)) {
 		return NULL;
 	}
-	struct wb_toplevel *toplevel =
-		wl_container_of(server->focus_order.next, toplevel, focus_link);
+	/* The most recently focused window that is shown: new windows join
+	 * the focus order before they map. */
+	struct wb_toplevel *toplevel = nullptr, *t;
+	wl_list_for_each(t, &server->focus_order, focus_link)
+		if (t->mapped) {
+			toplevel = t;
+			break;
+		}
 	/* The last window focused on another desktop is not the active one. */
-	if (!toplevel_on_current_desktop(toplevel))
+	if (toplevel == nullptr || !toplevel_on_current_desktop(toplevel))
 		return NULL;
 	return toplevel;
 }
@@ -511,11 +517,14 @@ static void focus_next_after(struct wb_server *server, struct wb_toplevel *excep
 	wl_list_for_each(toplevel, &server->focus_order, focus_link) {
 		if (toplevel == except)
 			continue;
-		if (toplevel->mapped && toplevel_on_current_desktop(toplevel)) {
+		if (toplevel->mapped && !toplevel->minimized &&
+				toplevel_on_current_desktop(toplevel)) {
 			focus_toplevel(toplevel);
 			return;
 		}
 	}
+	/* Nothing to focus: not even the window that is going away. */
+	clear_toplevel_focus(server);
 }
 
 /* The usable area (output minus panel reservations) of the output the
@@ -546,8 +555,14 @@ static struct wlr_box get_usable_area(struct wb_toplevel *toplevel) {
  * fullscreen windows are resized to match, and floating windows are clamped
  * so they remain reachable. */
 void arrange_toplevels(struct wb_server *server) {
-	struct wb_toplevel *toplevel;
-	wl_list_for_each(toplevel, &server->toplevels, link) {
+	/* Over a copy: re-fitting may restack windows, which reorders the list
+	 * (walking it while it changed looped forever with two maximized
+	 * windows). */
+	std::vector<struct wb_toplevel *> toplevels;
+	struct wb_toplevel *each;
+	wl_list_for_each(each, &server->toplevels, link)
+		toplevels.push_back(each);
+	for (struct wb_toplevel *toplevel : toplevels) {
 		if (toplevel->scene_tree == NULL || !view_ready(toplevel))
 			continue;
 
@@ -575,7 +590,7 @@ void arrange_toplevels(struct wb_server *server) {
 			/* Re-apply the (possibly partial) maximized geometry against the
 			 * new usable area; this does not re-snapshot the restore rect. */
 			set_toplevel_maximized(toplevel, toplevel->max_horz,
-					toplevel->max_vert);
+					toplevel->max_vert, /*raise=*/false);
 			continue;
 		}
 
@@ -863,7 +878,8 @@ static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
 
 void unmap_toplevel(struct wb_toplevel *toplevel) {
 	toplevel->mapped = false;
-	reset_cursor_mode(toplevel->server);
+	if (toplevel->server->grabbed_toplevel == toplevel)
+		reset_cursor_mode(toplevel->server);  /* only a drag of this window */
 	destroy_foreign_handle(toplevel);
 	cancel_switcher_for(toplevel);
 
@@ -1000,6 +1016,10 @@ void destroy_toplevel(struct wb_toplevel *toplevel) {
 	 * its window list never dereferences a freed toplevel. */
 	cancel_switcher_for(toplevel);
 
+	if (toplevel->server->grabbed_toplevel == toplevel)
+		reset_cursor_mode(toplevel->server);  /* never keep a grab on it */
+	if (toplevel->server->action_window == toplevel)
+		toplevel->server->action_window = nullptr;
 	wl_list_remove(&toplevel->link);
 	wl_list_remove(&toplevel->focus_link);
 	toplevel_free_icon(toplevel);
@@ -1152,7 +1172,8 @@ void untile_toplevel(struct wb_toplevel *toplevel, bool restore_position) {
 	log_geometry(toplevel, "untile");
 }
 
-void set_toplevel_maximized(struct wb_toplevel *toplevel, bool horz, bool vert) {
+void set_toplevel_maximized(struct wb_toplevel *toplevel, bool horz, bool vert,
+		bool raise) {
 	if (!view_ready(toplevel))
 		return;
 	if (horz || vert)
@@ -1172,7 +1193,7 @@ void set_toplevel_maximized(struct wb_toplevel *toplevel, bool horz, bool vert) 
 	wb::Rect g = wb::maximize_within(restore, maximize_area(toplevel), horz, vert);
 	toplevel->geometry = {g.x, g.y, g.width, g.height};
 
-	if (now_any)
+	if (now_any && raise)
 		raise_toplevel(toplevel);
 
 	/* The xdg protocol only has a single "maximized" state, so only claim it
@@ -1355,11 +1376,22 @@ void begin_interactive(struct wb_toplevel *toplevel,
 	}
 }
 
+/* A client's move/resize request is honoured only for a mapped, non-
+ * fullscreen window, during a real button press it got (its serial). */
+static bool grab_request_valid(struct wb_toplevel *toplevel, uint32_t serial) {
+	return toplevel->mapped && !toplevel->fullscreen &&
+			wlr_seat_validate_pointer_grab_serial(toplevel->server->seat->seat,
+					toplevel->xdg_toplevel->base->surface, serial);
+}
+
 static void xdg_toplevel_request_move(
 		struct wb_toplevel *toplevel, void *data) {
 	/* This event is raised when a client would like to begin an interactive
 	 * move, typically because the user clicked on their client-side
 	 * decorations. */
+	auto *event = static_cast<struct wlr_xdg_toplevel_move_event *>(data);
+	if (!grab_request_valid(toplevel, event->serial))
+		return;
 	begin_interactive(toplevel, WB_CURSOR_MOVE, 0);
 }
 
@@ -1369,6 +1401,8 @@ static void xdg_toplevel_request_resize(
 	 * resize, typically because the user clicked on their client-side
 	 * decorations. */
 	struct wlr_xdg_toplevel_resize_event *event = static_cast<struct wlr_xdg_toplevel_resize_event *>(data);
+	if (!grab_request_valid(toplevel, event->serial))
+		return;
 	begin_interactive(toplevel, WB_CURSOR_RESIZE, event->edges);
 }
 
