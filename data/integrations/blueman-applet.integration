@@ -1,0 +1,5 @@
+[Integration]
+Name=Blueman applet
+Category=Tray
+Comment=Bluetooth menu in the panel's tray
+Exec=blueman-applet

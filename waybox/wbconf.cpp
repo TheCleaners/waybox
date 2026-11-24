@@ -6,6 +6,7 @@
  * in-memory round-trips (test/wbconf_test.cpp).
  */
 #include "waybox/wbconf.hpp"
+#include "waybox/startup.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -100,6 +101,13 @@ xmlNode *find_path(xmlNode *root, const std::vector<const char *> &path) {
 			return nullptr;
 	}
 	return node;
+}
+
+std::string trimmed(const std::string &s) {
+	size_t b = s.find_first_not_of(" \t\r\n");
+	if (b == std::string::npos)
+		return {};
+	return s.substr(b, s.find_last_not_of(" \t\r\n") - b + 1);
 }
 
 std::optional<std::string> node_text(xmlNode *node) {
@@ -387,6 +395,22 @@ WayboxSettings RcDocument::read() const {
 	read_children(find_path(root, {"keyboard", "xkb"}), s.xkb);
 	read_children(find_path(root, {"mouse", "libinput"}), s.libinput);
 
+	if (xmlNode *st = find_path(root, {"waybox", "startup"})) {
+		for (xmlNode *c = st->children; c != nullptr; c = c->next) {
+			if (!is_element(c, "program"))
+				continue;
+			StartupSetting p;
+			p.command = trimmed(node_text(c).value_or(""));
+			for (xmlAttr *a = c->properties; a != nullptr; a = a->next) {
+				std::string key = reinterpret_cast<const char *>(a->name);
+				p.attrs[key] = attr_value(c, key.c_str()).value_or("");
+			}
+			p.name = startup_name(p.attrs.count("name") ? p.attrs["name"] : "", p.command);
+			s.startup.push_back(std::move(p));
+		}
+	}
+	s.idle_screen_off = to_int(attr_value(find_path(root, {"waybox", "idle"}), "screenOff"));
+
 	s.xwayland = to_bool(attr_value(find_path(root, {"waybox", "xwayland"}), "enabled"));
 	s.virtual_input = attr_value(find_path(root, {"waybox", "virtualInput"}), "allow");
 	return s;
@@ -444,6 +468,81 @@ void put_names(xmlNode *root, const std::optional<std::vector<std::string>> &nam
 		xmlNode *name = xmlNewNode(list->ns, xc("name"));
 		xmlNodeSetContent(name, xc(n.c_str()));
 		xmlAddChild(list, name);
+	}
+}
+
+/* The <waybox><startup><program> known as `name`, or nullptr. */
+xmlNode *find_program(xmlNode *root, const std::string &name) {
+	xmlNode *st = find_path(root, {"waybox", "startup"});
+	for (xmlNode *c = st ? st->children : nullptr; c != nullptr; c = c->next) {
+		if (!is_element(c, "program"))
+			continue;
+		auto n = attr_value(c, "name");
+		if (startup_name(n.value_or(""), trimmed(node_text(c).value_or(""))) == name)
+			return c;
+	}
+	return nullptr;
+}
+
+/* Remove an element and the whitespace that indented it. */
+void unlink_element(xmlNode *node) {
+	xmlNode *prev = node->prev;
+	if (prev != nullptr && xmlIsBlankNode(prev)) {
+		xmlUnlinkNode(prev);
+		xmlFreeNode(prev);
+	}
+	xmlUnlinkNode(node);
+	xmlFreeNode(node);
+}
+
+/* Write <startup> program by program: a program that didn't change keeps
+ * its element (and comments around it) untouched. */
+void put_startup(xmlNode *root, const std::vector<StartupSetting> &now,
+		const std::vector<StartupSetting> *was) {
+	for (const StartupSetting &p : now) {
+		const StartupSetting *old = nullptr;
+		if (was != nullptr)
+			for (const StartupSetting &w : *was)
+				if (w.name == p.name)
+					old = &w;
+		if (old != nullptr && *old == p)
+			continue;
+		xmlNode *node = find_program(root, old != nullptr ? old->name : p.name);
+		if (node == nullptr)
+			node = new_child(ensure_path(root, {"waybox", "startup"}), "program");
+		if (node == nullptr)
+			continue;
+		xmlNodeSetContent(node, nullptr);
+		xmlNodeAddContent(node, xc(p.command.c_str()));  /* escapes & < > */
+		std::vector<std::string> drop;
+		for (xmlAttr *a = node->properties; a != nullptr; a = a->next) {
+			std::string key = reinterpret_cast<const char *>(a->name);
+			if (p.attrs.count(key) == 0)
+				drop.push_back(key);
+		}
+		for (const std::string &key : drop)
+			xmlUnsetProp(node, xc(key.c_str()));
+		for (const auto &[key, value] : p.attrs)
+			xmlSetProp(node, xc(key.c_str()), xc(value.c_str()));
+	}
+	/* Programs no longer listed go. */
+	if (was != nullptr)
+		for (const StartupSetting &w : *was) {
+			bool kept = false;
+			for (const StartupSetting &p : now)
+				kept = kept || p.name == w.name;
+			if (!kept)
+				if (xmlNode *node = find_program(root, w.name))
+					unlink_element(node);
+		}
+	/* And an empty <startup> with them. */
+	if (xmlNode *st = find_path(root, {"waybox", "startup"})) {
+		bool empty = true;
+		for (xmlNode *c = st->children; c != nullptr; c = c->next)
+			if (c->type == XML_ELEMENT_NODE || c->type == XML_COMMENT_NODE)
+				empty = false;
+		if (empty)
+			unlink_element(st);
 	}
 }
 
@@ -603,6 +702,10 @@ void apply_fields(xmlNode *root, const WayboxSettings &s, const WayboxSettings *
 		put_attr(root, {"waybox", "hdr"}, "outputs", s.hdr_outputs);
 	if (WB_CHANGED(xwayland))
 		put_attr(root, {"waybox", "xwayland"}, "enabled", bool_opt_str(s.xwayland));
+	if (WB_CHANGED(idle_screen_off))
+		put_attr(root, {"waybox", "idle"}, "screenOff", int_str(s.idle_screen_off));
+	if (WB_CHANGED(startup))
+		put_startup(root, s.startup, base ? &base->startup : nullptr);
 	if (WB_CHANGED(virtual_input))
 		put_attr(root, {"waybox", "virtualInput"}, "allow", s.virtual_input);
 	/* <keyboard><xkb> and <mouse><libinput>: one element per setting. */

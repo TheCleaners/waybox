@@ -1,0 +1,25 @@
+[Integration]
+Name=wlsunset
+Category=NightLight
+Comment=Warmer screen colours after sunset
+Exec=wlsunset -l 51.5 -L -0.1
+
+[Option latitude]
+Label=Latitude
+Flag=-l
+Hint=51.5
+
+[Option longitude]
+Label=Longitude
+Flag=-L
+Hint=-0.1
+
+[Option night]
+Label=Night temperature (K)
+Flag=-t
+Hint=4000
+
+[Option day]
+Label=Day temperature (K)
+Flag=-T
+Hint=6500

@@ -150,6 +150,13 @@ startup_test = executable(
   )
 test('startup', startup_test)
 
+integrations_test = executable(
+  'integrations_test',
+  ['integrations_test.cpp', 'wb_test_main.cpp', integrations_src, startup_src],
+  include_directories: [inc_dir],
+  )
+test('integrations', integrations_test)
+
 # Pixel test for the Cairo/Pango painting primitives. Needs cairo/pango, so it
 # is only built in the full build (not tests_only); it links no wlroots.
 if not get_option('tests_only')
@@ -182,7 +189,7 @@ endif
 if not get_option('tests_only')
   wbconf_test = executable(
     'wbconf_test',
-    ['wbconf_test.cpp', 'wb_test_main.cpp', files('../waybox/wbconf.cpp'),
+    ['wbconf_test.cpp', 'wb_test_main.cpp', files('../waybox/wbconf.cpp'), startup_src,
      xml_strict_src,
      theme_src],
     include_directories: [inc_dir],

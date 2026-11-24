@@ -420,3 +420,60 @@ WB_TEST(output_left_out_is_removed) {
 	WB_CHECK(out.find("<output name=\"DP-4\" position=\"3840,0\"/>") != std::string::npos);
 	WB_CHECK(out.find("make=\"Dell Inc.\"") != std::string::npos);
 }
+
+WB_TEST(startup_programs_read_and_written_in_place) {
+	auto doc = RcDocument::from_string(
+			"<?xml version=\"1.0\"?>\n"
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\">\n"
+			"  <waybox>\n"
+			"    <startup>\n"
+			"      <!-- my panel -->\n"
+			"      <program name=\"panel\" restart=\"no\">waybar</program>\n"
+			"      <program>/usr/bin/mako</program>\n"
+			"      <program enabled=\"no\">wlsunset -l 1 -L 2</program>\n"
+			"    </startup>\n"
+			"    <idle screenOff=\"600\"/>\n"
+			"  </waybox>\n"
+			"</openbox_config>\n");
+	WayboxSettings before = doc->read(), s = before;
+	WB_CHECK(s.startup.size() == 3);
+	WB_CHECK(s.startup[0].name == "panel" && s.startup[0].attrs.at("restart") == "no");
+	WB_CHECK(s.startup[1].name == "mako" && s.startup[1].command == "/usr/bin/mako");
+	WB_CHECK(s.startup[2].attrs.at("enabled") == "no");
+	WB_CHECK(s.idle_screen_off == std::optional<int>(600));
+
+	/* Turn wlsunset on with a new location, drop mako, add swaybg. */
+	s.startup[2].attrs.erase("enabled");
+	s.startup[2].command = "wlsunset -l 48.8 -L 2.3";
+	s.startup.erase(s.startup.begin() + 1);
+	s.startup.push_back({"wall", "swaybg -c '#333' & echo <x>", {{"name", "wall"}}});
+	s.idle_screen_off.reset();
+	doc->apply(s, before);
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("<!-- my panel -->") != std::string::npos);  /* untouched */
+	WB_CHECK(out.find("<program name=\"panel\" restart=\"no\">waybar</program>") !=
+			std::string::npos);
+	WB_CHECK(out.find("mako") == std::string::npos);
+	WB_CHECK(out.find("<program>wlsunset -l 48.8 -L 2.3</program>") != std::string::npos);
+	WB_CHECK(out.find("swaybg -c '#333' &amp; echo &lt;x&gt;") != std::string::npos);
+	WB_CHECK(out.find("screenOff") == std::string::npos);
+	WayboxSettings again = RcDocument::from_string(out)->read();
+	WB_CHECK(again.startup == s.startup);
+}
+
+WB_TEST(startup_emptied_is_removed) {
+	auto doc = RcDocument::from_string(
+			"<?xml version=\"1.0\"?>\n"
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\">\n"
+			"  <waybox><startup><program>waybar</program></startup></waybox>\n"
+			"</openbox_config>\n");
+	WayboxSettings before = doc->read(), s = before;
+	s.startup.clear();
+	doc->apply(s, before);
+	WB_CHECK(doc->to_string().find("startup") == std::string::npos);
+	/* And nothing written when untouched. */
+	auto doc2 = RcDocument::from_string(kMinimalRc);
+	WayboxSettings b2 = doc2->read();
+	doc2->apply(b2, b2);
+	WB_CHECK(doc2->to_string().find("waybox") == std::string::npos);
+}
