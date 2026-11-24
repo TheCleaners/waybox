@@ -105,6 +105,19 @@ struct WayboxSettings {
 	bool operator==(const WayboxSettings &) const = default;
 };
 
+/* Where one setting lives in rc.xml: an element's text (`path`), one of its
+ * attributes (`attr`), a <theme><font place="..."> (`font`: its value is
+ * "Family [Bold] Size"), or a list of child elements (`item`: the value
+ * has one per line). Paths are element names from the root, as
+ * "waybox/switcher". */
+struct RcLocation {
+	std::string path;
+	std::string attr;
+	std::string font;
+	std::string item;
+	bool operator==(const RcLocation &) const = default;
+};
+
 /* Why rc.xml couldn't be loaded: libxml2's message and the line it's on. */
 struct LoadError {
 	std::string message;
@@ -143,6 +156,11 @@ public:
 	 * the editor started from): settings the user didn't touch are left as
 	 * the file has them, absent ones stay absent. */
 	void apply(const WayboxSettings &settings, const WayboxSettings &unchanged);
+
+	/* One setting, by where it lives: its value as written, or nullopt when
+	 * absent. set() with nullopt removes it (and an element left empty). */
+	std::optional<std::string> get(const RcLocation &at) const;
+	void set(const RcLocation &at, const std::optional<std::string> &value);
 
 	/* Serialise the whole document back to XML / to a file. */
 	std::string to_string() const;

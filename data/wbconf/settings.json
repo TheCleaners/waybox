@@ -1,0 +1,221 @@
+{
+  "categories": [
+    {
+      "id": "appearance",
+      "title": "Appearance",
+      "settings": [
+        { "id": "theme.name", "section": "Theme", "title": "Theme", "type": "custom", "widget": "theme",
+          "description": "The Openbox theme for window frames, menus and on-screen displays.",
+          "keywords": "colours colors openbox preview", "rc": { "path": "theme/name" } },
+        { "id": "theme.font.activeWindow", "section": "Fonts", "title": "Active window title", "type": "font",
+          "default": "Sans 10", "rc": { "font": "ActiveWindow" } },
+        { "id": "theme.font.inactiveWindow", "section": "Fonts", "title": "Inactive window title", "type": "font",
+          "default": "Sans 10", "rc": { "font": "InactiveWindow" } },
+        { "id": "theme.font.menuHeader", "section": "Fonts", "title": "Menu header", "type": "font",
+          "default": "Sans 10", "rc": { "font": "MenuHeader" } },
+        { "id": "theme.font.menuItem", "section": "Fonts", "title": "Menu item", "type": "font",
+          "default": "Sans 10", "rc": { "font": "MenuItem" } },
+        { "id": "theme.font.osd", "section": "Fonts", "title": "On-screen display", "type": "font",
+          "description": "The task switcher and the desktop name shown when switching.",
+          "default": "Sans 10", "rc": { "font": "ActiveOnScreenDisplay" } },
+        { "id": "theme.titleLayout", "section": "Titlebar", "title": "Button order", "type": "string",
+          "description": "The titlebar's items, left to right. N: window icon, L: title, I: iconify, M: maximize, C: close, S: shade (roll up), D: on all desktops.",
+          "default": "NLIMC", "rc": { "path": "theme/titleLayout" } },
+        { "id": "waybox.titlebar.paddingY", "section": "Titlebar", "title": "Padding", "type": "int",
+          "description": "Space above and below the title.", "min": 0, "max": 16, "unit": "px",
+          "default": "2", "rc": { "path": "waybox/titlebar", "attr": "paddingY" } },
+        { "id": "waybox.titlebar.buttonSize", "section": "Titlebar", "title": "Button size", "type": "int",
+          "description": "0 sizes the buttons to the title's font.", "min": 0, "max": 64, "unit": "px",
+          "default": "0", "rc": { "path": "waybox/titlebar", "attr": "buttonSize" } },
+        { "id": "waybox.titlebar.resizeGrab", "section": "Titlebar", "title": "Resize grab margin", "type": "int",
+          "description": "How far outside a window's border the pointer can grab it to resize.", "min": 0, "max": 32,
+          "unit": "px", "default": "8", "rc": { "path": "waybox/titlebar", "attr": "resizeGrab" } }
+      ]
+    },
+    {
+      "id": "windows",
+      "title": "Windows",
+      "settings": [
+        { "id": "placement.policy", "section": "Placement", "title": "Place new windows", "type": "enum",
+          "default": "Smart", "rc": { "path": "placement/policy" },
+          "choices": [ { "value": "Smart", "label": "Where there's most room" },
+                       { "value": "Center", "label": "Centred" },
+                       { "value": "UnderMouse", "label": "Under the pointer" } ] },
+        { "id": "waybox.edgeTiling.enabled", "section": "Edge Tiling", "title": "Tile windows dragged to a screen edge", "type": "bool",
+          "description": "Left or right half, a corner quarter, or maximized at the top.",
+          "default": "yes", "rc": { "path": "waybox/edgeTiling", "attr": "enabled" } },
+        { "id": "waybox.edgeTiling.range", "section": "Edge Tiling", "title": "Distance from the edge", "type": "int",
+          "description": "How close to the edge the pointer must be.", "min": 1, "max": 100, "unit": "px",
+          "default": "10", "rc": { "path": "waybox/edgeTiling", "attr": "range" } }
+      ]
+    },
+    {
+      "id": "desktops",
+      "title": "Desktops",
+      "settings": [
+        { "id": "desktops.number", "title": "Number of desktops", "type": "int", "min": 1, "max": 64,
+          "default": "4", "rc": { "path": "desktops/number" } },
+        { "id": "desktops.names", "title": "Names", "type": "lines",
+          "description": "One per line; desktops without a name are numbered.",
+          "rc": { "path": "desktops/names", "item": "name" } },
+        { "id": "desktops.popupTime", "title": "Show the name after switching", "type": "int",
+          "description": "How long the desktop's name stays on screen; 0 turns it off.", "min": 0, "max": 10000,
+          "unit": "ms", "default": "875", "rc": { "path": "desktops/popupTime" } }
+      ]
+    },
+    {
+      "id": "monitors",
+      "title": "Monitors",
+      "settings": [
+        { "id": "waybox.outputs", "title": "Monitors", "type": "custom", "widget": "monitors",
+          "description": "Mode, scale, position and rotation of each connected monitor, and HDR. Applied when a monitor is connected and on reload; while kanshi or another output manager runs, its profiles win.",
+          "keywords": "display screen resolution refresh scale rotate hdr output" },
+        { "id": "margins.top", "section": "Reserved Margins", "title": "Top", "type": "int", "min": 0, "max": 1024,
+          "unit": "px", "default": "0", "description": "Space windows are kept out of, as a panel would reserve.",
+          "rc": { "path": "margins/top" } },
+        { "id": "margins.bottom", "section": "Reserved Margins", "title": "Bottom", "type": "int", "min": 0, "max": 1024,
+          "unit": "px", "default": "0", "rc": { "path": "margins/bottom" } },
+        { "id": "margins.left", "section": "Reserved Margins", "title": "Left", "type": "int", "min": 0, "max": 1024,
+          "unit": "px", "default": "0", "rc": { "path": "margins/left" } },
+        { "id": "margins.right", "section": "Reserved Margins", "title": "Right", "type": "int", "min": 0, "max": 1024,
+          "unit": "px", "default": "0", "rc": { "path": "margins/right" } }
+      ]
+    },
+    {
+      "id": "menu",
+      "title": "Menu",
+      "settings": [
+        { "id": "waybox.menu.source", "title": "Menu", "type": "string",
+          "description": "\"builtin\" for Waybox's own menu (menu.xml), or a command to run instead, such as a launcher.",
+          "default": "builtin", "rc": { "path": "waybox/menu", "attr": "source" } },
+        { "id": "waybox.menu.submenuOpen", "title": "Open submenus on", "type": "enum", "default": "hover",
+          "rc": { "path": "waybox/menu", "attr": "submenuOpen" },
+          "choices": [ { "value": "hover", "label": "Hover" }, { "value": "click", "label": "Click" } ] },
+        { "id": "waybox.menu.hoverDelay", "title": "Submenu hover delay", "type": "int", "min": 0, "max": 2000,
+          "unit": "ms", "default": "100", "rc": { "path": "waybox/menu", "attr": "hoverDelay" } },
+        { "id": "waybox.menu.wrap", "title": "Wrap the selection", "type": "bool",
+          "description": "Moving past the last item selects the first.",
+          "default": "yes", "rc": { "path": "waybox/menu", "attr": "wrap" } },
+        { "id": "waybox.menu.icons", "title": "Show icons", "type": "bool", "default": "yes",
+          "rc": { "path": "waybox/menu", "attr": "icons" } }
+      ]
+    },
+    {
+      "id": "switcher",
+      "title": "Window Switcher",
+      "settings": [
+        { "id": "waybox.switcher.order", "title": "Order", "type": "enum", "default": "mru",
+          "description": "The order Alt+Tab goes through windows.",
+          "rc": { "path": "waybox/switcher", "attr": "order" },
+          "choices": [ { "value": "mru", "label": "Most recently used" },
+                       { "value": "stacking", "label": "Stacking (top to bottom)" },
+                       { "value": "spatial", "label": "Position on screen" } ] },
+        { "id": "waybox.switcher.osd", "title": "Show the switcher on screen", "type": "bool", "default": "yes",
+          "keywords": "alt tab osd", "rc": { "path": "waybox/switcher", "attr": "osd" } },
+        { "id": "waybox.switcher.wrap", "title": "Wrap the selection", "type": "bool", "default": "yes",
+          "rc": { "path": "waybox/switcher", "attr": "wrap" } },
+        { "id": "waybox.switcher.icons", "title": "Show window icons", "type": "bool", "default": "yes",
+          "rc": { "path": "waybox/switcher", "attr": "icons" } }
+      ]
+    },
+    {
+      "id": "keyboard",
+      "title": "Keyboard",
+      "settings": [
+        { "id": "keyboard.xkb.layout", "title": "Layouts", "type": "string", "hint": "us  (several: us,de)",
+          "description": "Empty uses the system default. Several layouts are separated by commas.",
+          "rc": { "path": "keyboard/xkb/layout" } },
+        { "id": "keyboard.xkb.variant", "title": "Variants", "type": "string", "hint": "e.g. dvorak  (one per layout)",
+          "rc": { "path": "keyboard/xkb/variant" } },
+        { "id": "keyboard.xkb.options", "title": "Options", "type": "string",
+          "hint": "e.g. grp:alt_shift_toggle,caps:escape", "keywords": "xkb caps compose switch layout",
+          "rc": { "path": "keyboard/xkb/options" } },
+        { "id": "keyboard.xkb.model", "title": "Model", "type": "string", "hint": "e.g. pc105",
+          "rc": { "path": "keyboard/xkb/model" } }
+      ]
+    },
+    {
+      "id": "mouse",
+      "title": "Mouse and Touchpad",
+      "settings": [
+        { "id": "mouse.libinput.accelProfile", "section": "Pointer", "title": "Acceleration", "type": "enum",
+          "description": "Applied to every mouse and touchpad; Default keeps each device's own.",
+          "rc": { "path": "mouse/libinput/accelProfile" },
+          "choices": [ { "value": "", "label": "Default" }, { "value": "adaptive", "label": "Adaptive" },
+                       { "value": "flat", "label": "Flat" } ] },
+        { "id": "mouse.libinput.accelSpeed", "section": "Pointer", "title": "Speed", "type": "enum",
+          "description": "From -1 (slow) to 1 (fast).", "rc": { "path": "mouse/libinput/accelSpeed" },
+          "choices": [ { "value": "", "label": "Default" }, { "value": "-1", "label": "-1" },
+                       { "value": "-0.75", "label": "-0.75" }, { "value": "-0.5", "label": "-0.5" },
+                       { "value": "-0.25", "label": "-0.25" }, { "value": "0", "label": "0" },
+                       { "value": "0.25", "label": "0.25" }, { "value": "0.5", "label": "0.5" },
+                       { "value": "0.75", "label": "0.75" }, { "value": "1", "label": "1" } ] },
+        { "id": "mouse.libinput.naturalScroll", "section": "Pointer", "title": "Natural scrolling", "type": "enum",
+          "rc": { "path": "mouse/libinput/naturalScroll" },
+          "choices": [ { "value": "", "label": "Default" }, { "value": "enabled", "label": "On" },
+                       { "value": "disabled", "label": "Off" } ] },
+        { "id": "mouse.libinput.leftHanded", "section": "Pointer", "title": "Left-handed", "type": "enum",
+          "rc": { "path": "mouse/libinput/leftHanded" },
+          "choices": [ { "value": "", "label": "Default" }, { "value": "enabled", "label": "On" },
+                       { "value": "disabled", "label": "Off" } ] },
+        { "id": "mouse.libinput.middleEmulation", "section": "Pointer", "title": "Middle click by pressing both buttons",
+          "type": "enum", "rc": { "path": "mouse/libinput/middleEmulation" },
+          "choices": [ { "value": "", "label": "Default" }, { "value": "enabled", "label": "On" },
+                       { "value": "disabled", "label": "Off" } ] },
+        { "id": "mouse.libinput.tap", "section": "Touchpad", "title": "Tap to click", "type": "enum",
+          "rc": { "path": "mouse/libinput/tap" },
+          "choices": [ { "value": "", "label": "Default" }, { "value": "enabled", "label": "On" },
+                       { "value": "disabled", "label": "Off" } ] },
+        { "id": "mouse.libinput.tapDrag", "section": "Touchpad", "title": "Tap and drag", "type": "enum",
+          "rc": { "path": "mouse/libinput/tapDrag" },
+          "choices": [ { "value": "", "label": "Default" }, { "value": "enabled", "label": "On" },
+                       { "value": "disabled", "label": "Off" } ] },
+        { "id": "mouse.libinput.tapDragLock", "section": "Touchpad", "title": "Drag lock", "type": "enum",
+          "description": "Lifting the finger briefly doesn't end a tap-and-drag.",
+          "rc": { "path": "mouse/libinput/tapDragLock" },
+          "choices": [ { "value": "", "label": "Default" }, { "value": "enabled", "label": "On" },
+                       { "value": "disabled", "label": "Off" } ] },
+        { "id": "mouse.libinput.disableWhileTyping", "section": "Touchpad", "title": "Disable while typing", "type": "enum",
+          "rc": { "path": "mouse/libinput/disableWhileTyping" },
+          "choices": [ { "value": "", "label": "Default" }, { "value": "enabled", "label": "On" },
+                       { "value": "disabled", "label": "Off" } ] },
+        { "id": "mouse.libinput.scrollMethod", "section": "Touchpad", "title": "Scrolling", "type": "enum",
+          "rc": { "path": "mouse/libinput/scrollMethod" },
+          "choices": [ { "value": "", "label": "Default" }, { "value": "twofinger", "label": "Two fingers" },
+                       { "value": "edge", "label": "Edge" }, { "value": "button", "label": "Holding a button" },
+                       { "value": "none", "label": "None" } ] },
+        { "id": "mouse.libinput.clickMethod", "section": "Touchpad", "title": "Clicking", "type": "enum",
+          "rc": { "path": "mouse/libinput/clickMethod" },
+          "choices": [ { "value": "", "label": "Default" }, { "value": "buttonAreas", "label": "Button areas" },
+                       { "value": "clickfinger", "label": "Number of fingers" }, { "value": "none", "label": "None" } ] }
+      ]
+    },
+    {
+      "id": "integrations",
+      "title": "Integrations",
+      "settings": [
+        { "id": "waybox.startup", "title": "Programs", "type": "custom", "widget": "integrations",
+          "description": "Programs Waybox starts with the session, and starts again if they crash. Nothing is started unless you turn it on here (or list it in rc.xml).",
+          "keywords": "autostart startup panel waybar notifications mako wallpaper night light wlsunset tray clipboard" },
+        { "id": "waybox.idle.screenOff", "section": "Screens", "title": "Switch the screens off after", "type": "int",
+          "description": "Minutes without input; 0 never. A video or game playing keeps them on.",
+          "min": 0, "max": 240, "scale": 60, "unit": "min", "default": "0", "keywords": "idle dpms blank power",
+          "rc": { "path": "waybox/idle", "attr": "screenOff" } }
+      ]
+    },
+    {
+      "id": "advanced",
+      "title": "Advanced",
+      "settings": [
+        { "id": "waybox.xwayland.enabled", "title": "Run X11 programs (Xwayland)", "type": "bool", "default": "yes",
+          "description": "Started the first time an X11 program opens.",
+          "rc": { "path": "waybox/xwayland", "attr": "enabled" } },
+        { "id": "waybox.virtualInput.allow", "title": "Accept input from virtual keyboards and pointers", "type": "enum",
+          "description": "From tools such as wtype, on-screen keyboards and remote-desktop programs.",
+          "default": "unlocked", "rc": { "path": "waybox/virtualInput", "attr": "allow" },
+          "choices": [ { "value": "unlocked", "label": "Unless the screen is locked" },
+                       { "value": "always", "label": "Always" }, { "value": "never", "label": "Never" } ] }
+      ]
+    }
+  ]
+}

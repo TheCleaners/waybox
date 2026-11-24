@@ -32,6 +32,7 @@
 #include <unistd.h>
 
 #include "waybox/wbconf.hpp"
+#include "waybox/settings_schema.hpp"
 #include "waybox/integrations.hpp"
 #include "waybox/startup.hpp"
 #include "waybox/theme.hpp"
@@ -71,55 +72,9 @@ struct Ui {
 	GtkWindow *window = nullptr;
 	GtkLabel *status = nullptr;
 
-	/* Appearance */
-	GtkListBox *theme_list = nullptr;        /* obconf-style scrolling list */
+	/* Theme (its own editor: a list with a live preview) */
+	GtkListBox *theme_list = nullptr;
 	std::vector<std::string> theme_names;    /* parallel to the list rows */
-	GtkSpinButton *pad_y = nullptr;
-	GtkSpinButton *button_size = nullptr;
-	GtkSpinButton *resize_grab = nullptr;
-	GtkEntry *title_layout = nullptr;
-
-	/* Windows */
-	GtkDropDown *placement = nullptr;  /* Smart / Center / UnderMouse */
-
-	/* Margins */
-	GtkSpinButton *margin_top = nullptr;
-	GtkSpinButton *margin_bottom = nullptr;
-	GtkSpinButton *margin_left = nullptr;
-	GtkSpinButton *margin_right = nullptr;
-
-	/* Menu */
-	GtkEntry *menu_source = nullptr;
-	GtkDropDown *submenu_open = nullptr;  /* hover / click */
-	GtkSpinButton *hover_delay = nullptr;
-	GtkSwitch *menu_wrap = nullptr;
-	GtkSwitch *menu_icons = nullptr;
-
-	/* Switcher */
-	GtkDropDown *switcher_order = nullptr;  /* mru / stacking / spatial */
-	GtkSwitch *switcher_osd = nullptr;
-	GtkSwitch *switcher_wrap = nullptr;
-	GtkSwitch *switcher_icons = nullptr;
-
-	/* Fonts: a lightweight custom picker per place (family dropdown + size spin
-	 * + bold toggle). We avoid GtkFontDialogButton because GTK's font chooser
-	 * loads its list asynchronously and only highlights/scrolls to the current
-	 * font after a multi-second delay; the custom picker is instant and always
-	 * shows the current selection. */
-	FontPicker font_active;
-	FontPicker font_inactive;
-	FontPicker font_menu_header;
-	FontPicker font_menu_item;
-	FontPicker font_osd;
-
-	/* Desktops */
-	GtkSpinButton *desktops_number = nullptr;
-	GtkTextView *desktop_names = nullptr;
-	GtkSpinButton *popup_time = nullptr;
-
-	/* Edge tiling (on the Windows page) */
-	GtkSwitch *edge_tiling = nullptr;
-	GtkSpinButton *edge_range = nullptr;
 
 	/* Monitors: one block per connected monitor. Each dropdown's values are
 	 * kept beside it; "" (the first) is Automatic. */
@@ -137,21 +92,6 @@ struct Ui {
 	std::vector<Monitor> monitors;
 	/* Rules for monitors that aren't connected now: passed through as is. */
 	std::vector<wb::OutputSetting> other_outputs;
-
-	/* Keyboard: <xkb> fields */
-	std::map<std::string, GtkEntry *> xkb;
-
-	/* Mouse and touchpad: one dropdown per <libinput> setting, with its
-	 * values ("" = the device's default, not written). */
-	struct Choice {
-		GtkDropDown *dd = nullptr;
-		std::vector<std::string> values;
-	};
-	std::map<std::string, Choice> libinput;
-
-	/* Advanced */
-	GtkSwitch *xwayland = nullptr;
-	Choice virtual_input;
 
 	/* HDR: per-monitor checks; names in <hdr outputs> for monitors that
 	 * aren't connected; and the attribute as loaded (kept as written when
@@ -182,23 +122,51 @@ struct Ui {
 	GtkWidget *custom_box = nullptr;
 	std::vector<std::string> in_autostart;  /* programs the autostart script runs */
 	std::set<std::string> running;          /* process names running now */
-	GtkSpinButton *screen_off = nullptr;    /* minutes; 0 never */
 
 	/* Live theme preview (redrawn when the theme/fonts change). */
 	GtkWidget *preview = nullptr;
-	GtkNotebook *notebook = nullptr;  /* for "reset this page" */
 
-	/* What the widgets showed after loading (or the last save): Save writes
-	 * only what differs from it, so untouched settings, including the
-	 * defaults the widgets display for absent ones, aren't written. */
+	/* The settings from the schema, one row each (see settings_view.cpp). */
+	struct SettingRow {
+		const wb::SettingDef *def = nullptr;
+		std::string category;                 /* its category's title */
+		std::optional<std::string> value;     /* now; nullopt: not set */
+		std::optional<std::string> saved;     /* as rc.xml has it */
+		GtkWidget *row = nullptr;             /* the whole row (search hides it) */
+		GtkWidget *bar = nullptr;             /* the "modified" bar */
+		GtkCheckButton *check = nullptr;
+		GtkSpinButton *spin = nullptr;
+		GtkDropDown *dropdown = nullptr;
+		GtkEntry *entry = nullptr;
+		GtkTextView *text = nullptr;
+		FontPicker font;
+		bool updating = false;                /* setting the control from code */
+	};
+	std::vector<wb::SettingCategory> schema;
+	std::vector<std::unique_ptr<SettingRow>> rows;
+	/* Each category's heading in the list and its table-of-contents row;
+	 * section headings, hidden with their settings while searching. */
+	struct CategoryView {
+		std::string id;
+		GtkWidget *heading = nullptr;
+		GtkWidget *toc = nullptr;
+		std::vector<std::pair<GtkWidget *, std::vector<GtkWidget *>>> sections;
+	};
+	std::vector<CategoryView> categories;
+	GtkSearchEntry *search = nullptr;
+	GtkListBox *toc = nullptr;
+	GtkScrolledWindow *scroller = nullptr;
+	GtkWidget *list = nullptr;
+	GtkLabel *no_results = nullptr;
+	bool scrolling_to = false;            /* ToC click: don't re-select on scroll */
+
+	/* What the custom editors (theme, monitors, programs) showed after
+	 * loading or the last save: Save writes only what differs. */
 	wb::WayboxSettings shown;
 	GtkWidget *save = nullptr;
 	bool loaded = false;  /* false: rc.xml has an error; nothing is saved */
 };
 
-inline const char *const kPlacement[] = {"Smart", "Center", "UnderMouse", nullptr};
-inline const char *const kSubmenu[] = {"hover", "click", nullptr};
-inline const char *const kOrder[] = {"mru", "stacking", "spatial", nullptr};
 inline std::vector<std::string> kTransforms = {"", "normal", "90", "180", "270", "flipped",
 		"flipped-90", "flipped-180", "flipped-270"};
 
@@ -212,7 +180,6 @@ int signal_waybox_reload();
 std::string format_hz(double hz);
 std::optional<std::vector<MonitorInfo>> query_monitors(std::string *why);
 void populate_monitors(Ui *ui, const std::vector<wb::OutputSetting> &outputs);
-GtkWidget *build_monitors_page(Ui *ui);
 int index_of(const char *const *list, const std::string &value, int fallback);
 GtkWidget *make_page();
 GtkWidget *section(GtkWidget *page, const char *title);
@@ -231,8 +198,6 @@ std::vector<std::string> split_names(const std::string &list);
 void select_value(GtkDropDown *dd, std::vector<std::string> &values,
 		const std::string &value);
 std::string selected_value(GtkDropDown *dd, const std::vector<std::string> &values);
-void add_font(GtkWidget *grid, int row, const char *label, FontPicker *out,
-		GCallback on_change, gpointer user);
 std::optional<std::string> font_value(const FontPicker *p);
 void font_set(FontPicker *p, const std::optional<std::string> &v);
 void to_cairo(cairo_t *cr, const wb::Color &c);
@@ -243,7 +208,6 @@ int preview_titlebar(cairo_t *cr, const wb::Theme &theme, bool active,
 void preview_draw(GtkDrawingArea *, cairo_t *cr, int width, int height,
 		gpointer data);
 void preview_refresh(Ui *ui);
-GtkWidget *build_theme_page(Ui *ui);
 std::set<std::string> running_processes();
 bool is_running(Ui *ui, const std::string &binary);
 bool installed(const std::string &binary);
@@ -258,29 +222,31 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 void on_add_program(GtkButton *, gpointer data);
 void populate_programs(Ui *ui, const std::vector<wb::StartupSetting> &startup);
 std::vector<wb::StartupSetting> collect_programs(Ui *ui);
-GtkWidget *build_integrations_page(Ui *ui);
-GtkWidget *build_fonts_page(Ui *ui);
-GtkWidget *build_appearance_page(Ui *ui);
-GtkWidget *build_windows_page(Ui *ui);
-GtkWidget *build_desktops_page(Ui *ui);
-GtkWidget *build_margins_page(Ui *ui);
-GtkWidget *build_menu_page(Ui *ui);
-GtkWidget *build_switcher_page(Ui *ui);
-GtkWidget *build_keyboard_page(Ui *ui);
-GtkWidget *build_mouse_page(Ui *ui);
-GtkWidget *build_advanced_page(Ui *ui);
-void populate(Ui *ui, const wb::WayboxSettings &s);
 wb::WayboxSettings collect(Ui *ui);
-void reset_page_widgets(Ui *ui, int page);
 void set_status(Ui *ui, const std::string &text);
 void on_save(GtkButton *, gpointer data);
 void on_close(GtkButton *, gpointer data);
-void on_reset_page(GtkButton *, gpointer data);
 void on_reset_all(GtkButton *, gpointer data);
 gboolean on_close_request(GtkWindow *window, gpointer data);
-void add_tab(GtkWidget *notebook, GtkWidget *page, const char *label);
 void build_window(GtkApplication *app, Ui *ui);
 void on_activate(GtkApplication *app, gpointer data);
+
+/* The custom editors, each a block placed in its setting's row. */
+GtkWidget *build_theme_block(Ui *ui);
+GtkWidget *build_monitors_block(Ui *ui);
+GtkWidget *build_integrations_block(Ui *ui);
+GtkWidget *make_font_picker(FontPicker *out, GCallback on_change, gpointer user);
+
+/* settings_view.cpp: the searchable list of every setting */
+GtkWidget *build_settings_view(Ui *ui);
+void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc);
+void populate_rows(Ui *ui, const wb::RcDocument *doc);
+void rows_saved(Ui *ui);
+bool rows_unsaved(Ui *ui);
+void reset_all_rows(Ui *ui);
+/* A setting's value now (or its default), by id. */
+std::string setting_value(Ui *ui, const std::string &id);
+void focus_category(Ui *ui, const std::string &category_id);
 
 }  // namespace wbconf
 

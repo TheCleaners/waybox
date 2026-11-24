@@ -28,13 +28,10 @@ const std::vector<std::string> &font_families() {
 }
 
 /* A custom, instant font picker: a family dropdown, a size spin button and a
- * bold toggle, laid out in one row. Stored in `out`. */
-void add_font(GtkWidget *grid, int row, const char *label, FontPicker *out,
-		GCallback on_change, gpointer user) {
-	grid_label(grid, row, label);
-
+ * bold toggle, in one row. (GtkFontDialogButton loads its list
+ * asynchronously and only shows the current font after a delay.) */
+GtkWidget *make_font_picker(FontPicker *out, GCallback on_change, gpointer user) {
 	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-	gtk_widget_set_hexpand(box, TRUE);
 
 	out->families = font_families();
 	std::vector<const char *> items;
@@ -43,7 +40,7 @@ void add_font(GtkWidget *grid, int row, const char *label, FontPicker *out,
 		items.push_back(f.c_str());
 	items.push_back(nullptr);
 	GtkWidget *fam = gtk_drop_down_new_from_strings(items.data());
-	gtk_widget_set_hexpand(fam, TRUE);
+	gtk_widget_set_size_request(fam, 220, -1);
 	/* Make the long list searchable by typing. The search needs an
 	 * expression naming the text to match (the GtkStringObject's "string");
 	 * without one it matches nothing and the list never filters. Match
@@ -68,13 +65,12 @@ void add_font(GtkWidget *grid, int row, const char *label, FontPicker *out,
 	out->bold = GTK_TOGGLE_BUTTON(bold);
 	gtk_box_append(GTK_BOX(box), bold);
 
-	gtk_grid_attach(GTK_GRID(grid), box, 1, row, 1, 1);
-
 	if (on_change != nullptr) {
 		g_signal_connect_swapped(fam, "notify::selected", on_change, user);
 		g_signal_connect_swapped(size, "value-changed", on_change, user);
 		g_signal_connect_swapped(bold, "toggled", on_change, user);
 	}
+	return box;
 }
 
 /* Read a picker as a Pango-style "Family [Bold] Size" string. */
