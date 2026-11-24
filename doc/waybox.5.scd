@@ -103,17 +103,48 @@ the outer key, then one of the inner ones. Any other key cancels the chain.
       <action name="ShowMenu"><menu>root-menu</menu></action>
     </mousebind>
   </context>
+  <context name="Titlebar">
+    <mousebind button="Left" action="DoubleClick">
+      <action name="ToggleMaximize"/>
+    </mousebind>
+  </context>
 </mouse>
 ```
 
-*<mousebind>* runs actions when a mouse button is pressed. *button* is
-*Left*, *Middle* or *Right*, optionally with modifiers as for keys (e.g.
-*A-Left*); *action* is *Press*. The *<context>* is *Root* (the empty desktop)
-or *Client* (inside a window; the window is focused first). Clicks on panels
-go to the panel.
+*<mousebind>* runs actions on a mouse event, in a *<context>*: where the
+pointer is.
 
-Alt+left-drag moves a window and Alt+right-drag resizes it, without a
-binding.
+*button* is *Left*, *Middle*, *Right*, or *Up* and *Down* for the scroll
+wheel, optionally with modifiers as for keys (e.g. *A-Left*). Caps Lock and
+Num Lock don't matter.
+
+*action* is the event:
+
+[[ *Event*
+:[ *When*
+|  *Press*
+:[ the button is pressed
+|  *Release*
+:[ the button is released
+|  *Click*
+:[ released without dragging
+|  *DoubleClick*
+:[ a second click within half a second, on the same window
+|  *Drag*
+:[ moved 8 pixels with the button held
+
+A scroll-wheel notch is a *Press* and a *Click* of *Up* or *Down*. Touchpad
+scrolling is not.
+
+The contexts are *Root* or *Desktop* (the empty desktop), *Client* (inside
+a window), *Titlebar*, *Top*, *Bottom*, *Left* and *Right* (the borders of a
+window with a server-side frame), and *Frame* (anywhere on a window). For a
+window context, the window is focused before the actions run. Clicks on
+panels go to the panel, and the titlebar buttons work on their own.
+
+Without any binding, dragging a titlebar or border moves or resizes the
+window, and so do Alt+left-drag and Alt+right-drag anywhere on a window. A
+*Press* binding takes the press over from these; other events add to them.
 
 *<libinput>* inside *<mouse>* configures pointing devices:
 
@@ -242,6 +273,11 @@ act on a window use the focused one.
 
 *Shade*, *Unshade*
 	Roll the window up to its titlebar, and back.
+
+*Move*, *Resize*
+	Start moving or resizing the window with the pointer (resizing from
+	the nearest corner), as dragging its titlebar or border does. For
+	*Drag* mouse bindings.
 
 *ToggleDecorations*
 	Turn server-side decorations on or off.
