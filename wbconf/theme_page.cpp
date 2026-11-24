@@ -63,7 +63,7 @@ int preview_titlebar(cairo_t *cr, const wb::Theme &theme, bool active,
 void preview_draw(GtkDrawingArea *, cairo_t *cr, int width, int height,
 		gpointer data) {
 	Ui *ui = static_cast<Ui *>(data);
-	wb::WayboxSettings s = collect(ui);
+	wb::WayboxSettings s = collect(ui);  /* the theme selected now */
 
 	/* Resolve the theme being previewed (the live selection), with the live
 	 * font overrides applied on top. */
@@ -83,10 +83,11 @@ void preview_draw(GtkDrawingArea *, cairo_t *cr, int width, int height,
 		f.bold = pango_font_description_get_weight(d) >= PANGO_WEIGHT_BOLD;
 		pango_font_description_free(d);
 	};
-	apply_font(s.font_active_window, theme.font_active_title);
-	apply_font(s.font_inactive_window, theme.font_inactive_title);
-	apply_font(s.font_menu_item, theme.font_menu_item);
-	apply_font(s.font_osd, theme.font_osd);
+	/* The fonts as set now (unsaved too), or their defaults. */
+	apply_font(setting_value(ui, "theme.font.activeWindow"), theme.font_active_title);
+	apply_font(setting_value(ui, "theme.font.inactiveWindow"), theme.font_inactive_title);
+	apply_font(setting_value(ui, "theme.font.menuItem"), theme.font_menu_item);
+	apply_font(setting_value(ui, "theme.font.osd"), theme.font_osd);
 
 	/* Backdrop. */
 	cairo_set_source_rgb(cr, 0.18, 0.18, 0.2);
@@ -126,34 +127,31 @@ void preview_refresh(Ui *ui) {
 		gtk_widget_queue_draw(ui->preview);
 }
 
-GtkWidget *build_theme_page(Ui *ui) {
-	GtkWidget *page = make_page();
-	GtkWidget *content = section(page, _("Theme"));
+/* The theme list, with a live preview beside it. */
+GtkWidget *build_theme_block(Ui *ui) {
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
 
 	GtkWidget *scroller = gtk_scrolled_window_new();
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller),
 			GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-	gtk_widget_set_vexpand(scroller, TRUE);
-	/* Room for several themes next to the preview. */
-	gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(scroller), 160);
-
+	gtk_widget_set_size_request(scroller, 200, 230);
+	gtk_widget_add_css_class(scroller, "frame");
 	GtkWidget *list = gtk_list_box_new();
 	gtk_list_box_set_selection_mode(GTK_LIST_BOX(list), GTK_SELECTION_BROWSE);
 	ui->theme_list = GTK_LIST_BOX(list);
 	g_signal_connect_swapped(list, "selected-rows-changed",
 			G_CALLBACK(preview_refresh), ui);
 	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), list);
-	gtk_box_append(GTK_BOX(content), scroller);
+	gtk_box_append(GTK_BOX(box), scroller);
 
-	/* Live preview pane below the theme list. */
-	GtkWidget *pcontent = section(page, _("Preview"));
 	GtkWidget *area = gtk_drawing_area_new();
-	gtk_widget_set_size_request(area, -1, 230);
+	gtk_widget_set_size_request(area, 320, 230);
+	gtk_widget_set_hexpand(area, TRUE);
 	gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(area), preview_draw, ui,
 			nullptr);
 	ui->preview = area;
-	gtk_box_append(GTK_BOX(pcontent), area);
-	return page;
+	gtk_box_append(GTK_BOX(box), area);
+	return box;
 }
 
 }  // namespace wbconf

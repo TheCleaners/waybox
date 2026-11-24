@@ -260,23 +260,9 @@ std::vector<wb::StartupSetting> collect_programs(Ui *ui) {
 	return out;
 }
 
-GtkWidget *build_integrations_page(Ui *ui) {
-	GtkWidget *page = make_page();
-	GtkWidget *scroller = gtk_scrolled_window_new();
-	gtk_widget_set_vexpand(scroller, TRUE);
-	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER,
-			GTK_POLICY_AUTOMATIC);
+/* The known programs by category, then other programs. */
+GtkWidget *build_integrations_block(Ui *ui) {
 	GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), inner);
-	gtk_box_append(GTK_BOX(page), scroller);
-
-	GtkWidget *note = gtk_label_new(_("Programs Waybox starts with the session, "
-			"and starts again if they crash. Nothing is started unless you "
-			"turn it on here (or list it in rc.xml)."));
-	gtk_label_set_wrap(GTK_LABEL(note), TRUE);
-	gtk_label_set_xalign(GTK_LABEL(note), 0);
-	gtk_widget_add_css_class(note, "dim-label");
-	gtk_box_append(GTK_BOX(inner), note);
 
 	const char *home = getenv("HOME");
 	const char *xdh = getenv("XDG_CONFIG_HOME");
@@ -313,10 +299,6 @@ GtkWidget *build_integrations_page(Ui *ui) {
 			missing.push_back(in.name);
 		}
 	}
-	GtkWidget *grid = section_grid(section(inner, _("Screens")));
-	ui->screen_off = add_spin(grid, 0, _("Switch the screens off after (minutes, 0 never):"),
-			0, 240);
-
 	ui->custom_box = section(inner, _("Other Programs"));
 	GtkWidget *add = gtk_button_new_with_label(_("Add a Program"));
 	gtk_widget_set_halign(add, GTK_ALIGN_START);
@@ -334,7 +316,7 @@ GtkWidget *build_integrations_page(Ui *ui) {
 		gtk_widget_add_css_class(more, "dim-label");
 		gtk_box_append(GTK_BOX(inner), more);
 	}
-	return page;
+	return inner;
 }
 
 }  // namespace wbconf

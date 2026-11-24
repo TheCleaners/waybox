@@ -196,6 +196,18 @@ if not get_option('tests_only')
     dependencies: [libxml2],
     )
   test('wbconf', wbconf_test)
+
+  if json_glib.found()
+  settings_schema_test = executable(
+    'settings_schema_test',
+    ['settings_schema_test.cpp', 'wb_test_main.cpp', files('../waybox/settings_schema.cpp',
+     '../waybox/wbconf.cpp'), startup_src, xml_strict_src, theme_src],
+    include_directories: [inc_dir],
+    dependencies: [libxml2, json_glib],
+    cpp_args: ['-DWB_SOURCE_ROOT="' + meson.project_source_root() + '"'],
+    )
+  test('settings_schema', settings_schema_test)
+  endif
 endif
 
 # Headless integration test driving real synthesized input via the

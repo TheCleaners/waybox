@@ -72,3 +72,9 @@ install_data(
 install_subdir('integrations',
   install_dir: get_option('prefix') / get_option('datadir') / 'waybox',
 )
+
+# wbconf's settings schema; more *.json files beside it (or in
+# $XDG_CONFIG_HOME/waybox/wbconf) can add settings.
+install_subdir('wbconf',
+  install_dir: get_option('prefix') / get_option('datadir') / 'waybox',
+)

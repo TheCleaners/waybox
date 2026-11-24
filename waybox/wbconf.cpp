@@ -423,8 +423,12 @@ void put_text(xmlNode *root, const std::vector<const char *> &path,
 		const std::optional<std::string> &value) {
 	if (value) {
 		xmlNode *node = ensure_path(root, path);
-		if (node != nullptr)
-			xmlNodeSetContent(node, xc(value->c_str()));
+		if (node != nullptr) {
+			/* AddContent escapes & and <; SetContent would read them as
+			 * markup. */
+			xmlNodeSetContent(node, nullptr);
+			xmlNodeAddContent(node, xc(value->c_str()));
+		}
 	} else if (xmlNode *node = find_path(root, path)) {
 		xmlUnlinkNode(node);
 		xmlFreeNode(node);
@@ -885,6 +889,130 @@ std::vector<std::string> installed_theme_names() {
 	std::sort(names.begin(), names.end());
 	names.erase(std::unique(names.begin(), names.end()), names.end());
 	return names;
+}
+
+namespace {
+
+std::vector<std::string> split_path(const std::string &path) {
+	std::vector<std::string> out;
+	size_t start = 0;
+	while (start <= path.size()) {
+		size_t slash = path.find('/', start);
+		std::string part = path.substr(start, slash == std::string::npos
+				? std::string::npos : slash - start);
+		if (!part.empty())
+			out.push_back(part);
+		if (slash == std::string::npos)
+			break;
+		start = slash + 1;
+	}
+	return out;
+}
+
+std::vector<const char *> c_path(const std::vector<std::string> &parts) {
+	std::vector<const char *> out;
+	for (const std::string &p : parts)
+		out.push_back(p.c_str());
+	return out;
+}
+
+/* Remove `node` and then each ancestor left without attributes or element
+ * children, up to (not including) the root. */
+void prune_empty(xmlNode *root, xmlNode *node) {
+	while (node != nullptr && node != root) {
+		bool empty = node->properties == nullptr;
+		for (xmlNode *c = node->children; empty && c != nullptr; c = c->next)
+			if (c->type == XML_ELEMENT_NODE || c->type == XML_COMMENT_NODE ||
+					(c->type == XML_TEXT_NODE && !xmlIsBlankNode(c)))
+				empty = false;
+		if (!empty)
+			return;
+		xmlNode *parent = node->parent;
+		unlink_element(node);
+		node = parent;
+	}
+}
+
+}  // namespace
+
+std::optional<std::string> RcDocument::get(const RcLocation &at) const {
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	if (root == nullptr)
+		return std::nullopt;
+	if (!at.font.empty())
+		return read_font(root, at.font.c_str());
+	std::vector<std::string> parts = split_path(at.path);
+	xmlNode *node = find_path(root, c_path(parts));
+	if (node == nullptr)
+		return std::nullopt;
+	if (!at.item.empty()) {
+		std::string lines;
+		bool any = false;
+		for (xmlNode *c = node->children; c != nullptr; c = c->next)
+			if (is_element(c, at.item.c_str())) {
+				lines += (any ? "\n" : "") + node_text(c).value_or("");
+				any = true;
+			}
+		return any ? std::optional<std::string>(lines) : std::nullopt;
+	}
+	if (!at.attr.empty())
+		return attr_value(node, at.attr.c_str());
+	return node_text(node);
+}
+
+void RcDocument::set(const RcLocation &at, const std::optional<std::string> &value) {
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	if (root == nullptr)
+		return;
+	if (!at.font.empty()) {
+		put_font(root, at.font.c_str(), value);
+		return;
+	}
+	std::vector<std::string> parts = split_path(at.path);
+	if (parts.empty())
+		return;
+	std::vector<const char *> path = c_path(parts);
+	if (!at.item.empty()) {
+		xmlNode *list = find_path(root, path);
+		if (list != nullptr) {
+			for (xmlNode *c = list->children; c != nullptr;) {
+				xmlNode *next = c->next;
+				if (is_element(c, at.item.c_str()))
+					unlink_element(c);
+				c = next;
+			}
+		}
+		if (!value) {
+			prune_empty(root, list);
+			return;
+		}
+		list = ensure_path(root, path);
+		size_t start = 0;
+		while (list != nullptr && start <= value->size()) {
+			size_t nl = value->find('\n', start);
+			std::string line = value->substr(start, nl == std::string::npos
+					? std::string::npos : nl - start);
+			xmlNode *item = new_child(list, at.item.c_str());
+			xmlNodeAddContent(item, xc(line.c_str()));
+			if (nl == std::string::npos)
+				break;
+			start = nl + 1;
+		}
+		return;
+	}
+	if (!at.attr.empty()) {
+		put_attr(root, path, at.attr.c_str(), value);
+		if (!value)
+			prune_empty(root, find_path(root, path));
+		return;
+	}
+	if (value) {
+		put_text(root, path, value);
+	} else if (xmlNode *node = find_path(root, path)) {
+		xmlNode *parent = node->parent;
+		unlink_element(node);
+		prune_empty(root, parent);
+	}
 }
 
 }  // namespace wb

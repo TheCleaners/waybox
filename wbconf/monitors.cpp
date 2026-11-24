@@ -96,23 +96,9 @@ void populate_monitors(Ui *ui, const std::vector<wb::OutputSetting> &outputs) {
 	}
 }
 
-GtkWidget *build_monitors_page(Ui *ui) {
-	GtkWidget *page = make_page();
-	GtkWidget *scroller = gtk_scrolled_window_new();
-	gtk_widget_set_vexpand(scroller, TRUE);
-	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER,
-			GTK_POLICY_AUTOMATIC);
+/* One block per connected monitor. */
+GtkWidget *build_monitors_block(Ui *ui) {
 	GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), inner);
-	gtk_box_append(GTK_BOX(page), scroller);
-
-	GtkWidget *note = gtk_label_new(_("Applied when a monitor is connected and on "
-			"reload. While kanshi (or another output manager) runs, its profiles "
-			"win; a monitor it changed keeps that for the session."));
-	gtk_label_set_wrap(GTK_LABEL(note), TRUE);
-	gtk_label_set_xalign(GTK_LABEL(note), 0);
-	gtk_widget_add_css_class(note, "dim-label");
-	gtk_box_append(GTK_BOX(inner), note);
 
 	std::string why;
 	auto monitors = query_monitors(&why);
@@ -121,7 +107,7 @@ GtkWidget *build_monitors_page(Ui *ui) {
 		gtk_label_set_wrap(GTK_LABEL(msg), TRUE);
 		gtk_label_set_xalign(GTK_LABEL(msg), 0);
 		gtk_box_append(GTK_BOX(inner), msg);
-		return page;
+		return inner;
 	}
 	ui->monitors.reserve(monitors->size());
 	for (const MonitorInfo &info : *monitors) {
@@ -154,7 +140,7 @@ GtkWidget *build_monitors_page(Ui *ui) {
 		ui->hdr[info.name] = GTK_CHECK_BUTTON(hdr);
 		ui->monitors.push_back(std::move(m));
 	}
-	return page;
+	return inner;
 }
 
 }  // namespace wbconf
