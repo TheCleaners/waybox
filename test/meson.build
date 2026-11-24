@@ -176,6 +176,7 @@ if not get_option('tests_only')
   wbconf_test = executable(
     'wbconf_test',
     ['wbconf_test.cpp', 'wb_test_main.cpp', files('../waybox/wbconf.cpp'),
+     xml_strict_src,
      theme_src],
     include_directories: [inc_dir],
     dependencies: [libxml2],
@@ -426,6 +427,17 @@ if python.found() and not get_option('tests_only')
     python,
     args: [
       files('integration' / 'output_rules_test.py'),
+      waybox_exe,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
+
+  test(
+    'integration_config_errors',
+    python,
+    args: [
+      files('integration' / 'config_errors_test.py'),
       waybox_exe,
     ],
     timeout: 60,

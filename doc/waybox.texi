@@ -218,6 +218,12 @@ To apply changes, run the @code{Reconfigure} action (@kbd{Super+C}) or send
 @code{SIGUSR2} to Waybox.  You can also edit settings with
 @command{wbconf}, a graphical tool in the style of obconf.
 
+If @file{rc.xml} has an XML error, such as a missing quote or an unescaped
+@samp{&} (write @samp{&amp;}), Waybox doesn't read any of it: it reports the
+line in a notification and keeps the settings it has, or starts with the
+default configuration.  @command{xmllint --noout rc.xml} finds such errors
+before you reconfigure.
+
 @section Key bindings
 @cindex key bindings
 A key binding runs one or more actions:

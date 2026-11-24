@@ -18,6 +18,12 @@ Waybox live in a *<waybox>* block, which Openbox ignores.
 Run the *Reconfigure* action, or send *SIGUSR2* to Waybox, to apply changes
 without restarting.
 
+A file with an XML error (a missing quote, an unescaped *&*) is not read at
+all. Waybox reports the file, line and error in its log and, when
+*notify-send* is installed, as a notification. On *Reconfigure* it keeps the
+current settings; at startup it uses the default configuration until the
+file is fixed. An empty *rc.xml* simply has no settings.
+
 Boolean values are written *yes* or *no* (*true*/*false* and *1*/*0* work
 too).
 

@@ -59,6 +59,11 @@ void wb_spawn(const char *cmd) {
 }
 
 void wb_reconfigure(struct wb_server *server) {
+	/* Read the new config first: a broken rc.xml keeps everything as it is. */
+	struct wb_config *fresh = reload_config(server);
+	if (fresh == nullptr)
+		return;
+
 	/* Drop anything that points into the old config (menu model, key-binding
 	 * tree, switcher list) before it is freed. */
 	server->menu.reset();
@@ -73,7 +78,7 @@ void wb_reconfigure(struct wb_server *server) {
 	}
 
 	deinit_config(server->config);
-	init_config(server);
+	server->config = fresh;
 
 	/* Existing frames were styled from the old theme: rebuild them from the
 	 * new one, then re-fit windows (titlebar height may have changed). */

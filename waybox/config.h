@@ -105,6 +105,11 @@ struct wb_config {
 	} titlebar;
 };
 
+/* Startup: read rc.xml into server->config. A broken user rc.xml is
+ * reported and the system default used instead (or built-in defaults). */
 bool init_config(struct wb_server *server);
+/* Reconfigure: read rc.xml into a new config; nullptr (reported) when it is
+ * broken, so the caller keeps the current one. */
+struct wb_config *reload_config(struct wb_server *server);
 void deinit_config(struct wb_config *config);
 #endif

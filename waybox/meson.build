@@ -19,6 +19,7 @@ wb_src = [
   client_menu_src,
   security_src,
   output_rules_src,
+  xml_strict_src,
   render_src,
   files(
     'action_xml.cpp',
