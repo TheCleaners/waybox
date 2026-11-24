@@ -95,7 +95,8 @@ reserve.
 
 *<xkb>* sets the keyboard with *<layout>*, *<variant>*, *<model>*,
 *<options>* and *<rules>* (see *xkeyboard-config*(7)); the *XKB_DEFAULT_\**
-environment variables work too.
+environment variables work too. *Reconfigure* applies a changed layout to
+the connected keyboards.
 
 *<keybind>* binds a key to one or more actions, run in order. The *key*
 attribute is a key name (an XKB keysym such as *Return*, *F4* or *a*)
@@ -157,7 +158,8 @@ Without any binding, dragging a titlebar or border moves or resizes the
 window, and so do Alt+left-drag and Alt+right-drag anywhere on a window. A
 *Press* binding takes the press over from these; other events add to them.
 
-*<libinput>* inside *<mouse>* configures pointing devices:
+*<libinput>* inside *<mouse>* configures pointing devices (also on
+*Reconfigure*; a setting left out goes back to the device's default):
 
 [[ *Element*
 :[ *Values*

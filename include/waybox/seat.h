@@ -1,6 +1,7 @@
 #ifndef _WB_SEAT_H
 #define _WB_SEAT_H
 
+#include <vector>
 #include "waybox/wlroots.hpp"
 
 #include "waybox/listener.hpp"
@@ -14,11 +15,19 @@ struct wb_seat {
 	struct wlr_layer_surface_v1 *focused_layer = nullptr;
 
 	struct wl_list keyboards;
+	/* Pointer devices, so Reconfigure can apply changed <libinput>
+	 * settings to them. */
+	std::vector<struct wb_pointer *> pointers;
 
 	wb::Listener request_set_primary_selection;
 	wb::Listener request_set_selection;
 
 	~wb_seat();
+};
+
+struct wb_pointer {
+	struct wlr_input_device *device = nullptr;
+	wb::Listener destroy;
 };
 
 struct wb_keyboard {
@@ -50,4 +59,8 @@ void seat_set_focus_layer(struct wb_seat *seat, struct wlr_layer_surface_v1 *lay
  * Both are no-ops when no switcher is active. */
 void wb_switcher_commit(struct wb_server *server);
 void wb_switcher_cancel(struct wb_server *server);
+/* Reconfigure: apply the keymap and pointer settings from the new rc.xml to
+ * the devices already connected. */
+void seat_reconfigure_input(struct wb_server *server);
+
 #endif
