@@ -666,13 +666,18 @@ static fs::path chosen_rc_file(struct wb_server *server) {
 
 /* Read one rc.xml into a new config. A file with any XML error is refused
  * (nullptr, with `problem` saying where), never half-read. */
-static struct wb_config *load_config_file(const fs::path &rc_file, std::string *problem) {
+/* With `contents`, that document instead of the file (named rc_file). */
+static struct wb_config *load_config_file(const fs::path &rc_file, std::string *problem,
+		const std::string *contents = nullptr) {
 	struct wb_config *config = new (std::nothrow) wb_config{};
 	if (config == NULL)
 		return nullptr;
 	const std::string rc_file_str = rc_file.string();
 	wb::XmlError err;
-	xmlDocPtr doc = wb::read_xml_strict(rc_file_str.c_str(), &err);
+	xmlDocPtr doc = contents != nullptr
+		? wb::read_xml_strict(rc_file_str.c_str(), &err, contents->c_str(),
+				static_cast<int>(contents->size()))
+		: wb::read_xml_strict(rc_file_str.c_str(), &err);
 	if (doc == NULL) {
 		if (problem != nullptr) {
 			char line[32] = "";
@@ -761,7 +766,8 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	}
 
 	if (char *layout = parse_xpath_expr("//ob:theme/ob:titleLayout", ctxt)) {
-		config->title_layout = layout;
+		if (layout[0] != '\0')  /* empty: the default, not "no buttons" */
+			config->title_layout = layout;
 		free(layout);
 	}
 
@@ -858,6 +864,14 @@ bool init_config(struct wb_server *server) {
  * configuration in place. Returns the new config, or nullptr. */
 struct wb_config *reload_config(struct wb_server *server) {
 	std::string problem;
+	fs::path rc_file = chosen_rc_file(server);
+	if (!rc_file.empty() && !has_settings(rc_file)) {
+		/* Missing or empty: no settings, the defaults (as at startup). */
+		static const std::string kNoSettings =
+				"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"/>";
+		wlr_log(WLR_INFO, "%s %s", _("No settings in"), rc_file.c_str());
+		return load_config_file(rc_file, &problem, &kNoSettings);
+	}
 	struct wb_config *config = load_config(server, &problem);
 	if (config == nullptr)
 		report_config_problem(problem, _("Keeping the current settings."), false);

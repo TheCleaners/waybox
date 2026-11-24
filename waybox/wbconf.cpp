@@ -645,6 +645,16 @@ void apply_fields(xmlNode *root, const WayboxSettings &s, const WayboxSettings *
 		OutputSetting empty{out.name, {}};
 		put_output(root, out, base == nullptr ? nullptr : (was ? was : &empty));
 	}
+	/* A monitor in the base but no longer in the settings (set back to all
+	 * automatic): its rule goes. */
+	if (base != nullptr)
+		for (const OutputSetting &was : base->outputs) {
+			bool kept = false;
+			for (const OutputSetting &out : s.outputs)
+				kept = kept || out.name == was.name;
+			if (!kept)
+				put_output(root, OutputSetting{was.name, {}}, &was);
+		}
 #undef WB_CHANGED
 }
 
@@ -720,8 +730,11 @@ bool RcDocument::save_file(const std::string &path, std::string *error) const {
 	}
 	if (existed)
 		(void) ::fchmod(fd, st.st_mode & 07777);
-	if (::fsync(fd) != 0 || ::close(fd) != 0) {
-		std::string why = std::strerror(errno);
+	int synced = ::fsync(fd);
+	int sync_errno = errno;
+	int closed = ::close(fd);  /* always, so a failing disk doesn't leak fds */
+	if (synced != 0 || closed != 0) {
+		std::string why = std::strerror(synced != 0 ? sync_errno : errno);
 		::unlink(tmp.c_str());
 		return fail("could not write " + tmp.string() + ": " + why);
 	}

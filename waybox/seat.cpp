@@ -53,7 +53,8 @@ static void cycle_toplevels_dir(struct wb_server *server, bool reverse) {
 	}
 
 	auto eligible = [&order](std::size_t i) {
-		return order[i]->mapped && toplevel_on_current_desktop(order[i]);
+		return order[i]->mapped && toplevel_on_current_desktop(order[i]) &&
+				view_modal_child(order[i]) == nullptr;  /* its modal stands for it */
 	};
 	std::optional<std::size_t> next =
 		wb::cycle_next(order.size(), eligible, current, reverse);
@@ -205,8 +206,16 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
  * over the window (a titlebar click), otherwise at the window's top-left
  * corner (from the keyboard). Always the native menu: an external launcher
  * can't act on a window. */
+/* The window an action acts on: a mouse binding's window while its actions
+ * run, else the focused one. */
+static struct wb_toplevel *action_target(struct wb_server *server) {
+	if (server->action_window != nullptr && toplevel_alive(server, server->action_window))
+		return server->action_window;
+	return first_toplevel(server);
+}
+
 void wb_show_client_menu(struct wb_server *server) {
-	struct wb_toplevel *t = first_toplevel(server);
+	struct wb_toplevel *t = action_target(server);
 	if (t == nullptr || !t->scene_tree->node.enabled)
 		return;
 	wlr_log(WLR_INFO, "wb-menu client-menu %s", view_app_id(t));
@@ -272,13 +281,13 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		switcher_invoke(server, true);
 		break;
 	case wb::ActionType::Close: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)
 			view_close(toplevel);
 		break;
 	}
 	case wb::ActionType::ToggleMaximize: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled) {
 			bool full = toplevel->max_horz && toplevel->max_vert;
 			set_toplevel_maximized(toplevel, !full, !full);
@@ -286,28 +295,28 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		break;
 	}
 	case wb::ActionType::ToggleMaximizeHorizontal: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)
 			set_toplevel_maximized(toplevel, !toplevel->max_horz,
 					toplevel->max_vert);
 		break;
 	}
 	case wb::ActionType::ToggleMaximizeVertical: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)
 			set_toplevel_maximized(toplevel, toplevel->max_horz,
 					!toplevel->max_vert);
 		break;
 	}
 	case wb::ActionType::Fullscreen: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)
 			set_toplevel_fullscreen(toplevel,
 					!toplevel->fullscreen);
 		break;
 	}
 	case wb::ActionType::Iconify: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled) {
 			set_toplevel_minimized(toplevel, true);
 		}
@@ -315,19 +324,19 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	}
 	case wb::ActionType::Shade:
 	case wb::ActionType::Unshade: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)
 			set_toplevel_shaded(toplevel, action.type == wb::ActionType::Shade);
 		break;
 	}
 	case wb::ActionType::Raise: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)
 			raise_toplevel(toplevel);
 		break;
 	}
 	case wb::ActionType::Lower: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)
 			lower_toplevel(toplevel);
 		break;
@@ -336,7 +345,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		wb_reconfigure(server);
 		break;
 	case wb::ActionType::ToggleDecorations: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled) {
 			toplevel->decorations = wb::toggle_decor(toplevel->decorations);
 			apply_toplevel_decoration(toplevel);
@@ -377,7 +386,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		break;
 	}
 	case wb::ActionType::SendToDesktop: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled)
 			break;
 		if (auto target = wb::desktop_target(action.to,
@@ -387,13 +396,13 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		break;
 	}
 	case wb::ActionType::ToggleOmnipresent: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)
 			wb_toggle_omnipresent(toplevel);
 		break;
 	}
 	case wb::ActionType::SnapToEdge: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled)
 			break;
 		if (action.direction == "down") {
@@ -411,7 +420,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	case wb::ActionType::Resize: {
 		/* Start moving or resizing with the pointer, as a titlebar or
 		 * border drag does (resizing from the nearest corner). */
-		struct wb_toplevel *toplevel = first_toplevel(server);
+		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled ||
 				toplevel->fullscreen)
 			break;
@@ -868,11 +877,16 @@ static void apply_pointer_config(struct wb_server *server, struct wlr_input_devi
 				libinput_device_config_tap_get_default_drag_enabled(d) ==
 					LIBINPUT_CONFIG_DRAG_ENABLED)
 				? LIBINPUT_CONFIG_DRAG_ENABLED : LIBINPUT_CONFIG_DRAG_DISABLED);
-		libinput_device_config_tap_set_drag_lock_enabled(d, on(get(&L::tap_drag_lock),
-				libinput_device_config_tap_get_default_drag_lock_enabled(d) !=
-					LIBINPUT_CONFIG_DRAG_LOCK_DISABLED)
-				? LIBINPUT_CONFIG_DRAG_LOCK_ENABLED_STICKY
-				: LIBINPUT_CONFIG_DRAG_LOCK_DISABLED);
+		/* "enabled" is the timed drag lock (LIBINPUT_CONFIG_DRAG_LOCK_ENABLED,
+		 * every libinput version); unset keeps the device's default, whatever
+		 * mode that is. */
+		if (const char *lock = get(&L::tap_drag_lock))
+			libinput_device_config_tap_set_drag_lock_enabled(d,
+					on(lock, false) ? LIBINPUT_CONFIG_DRAG_LOCK_ENABLED
+						: LIBINPUT_CONFIG_DRAG_LOCK_DISABLED);
+		else
+			libinput_device_config_tap_set_drag_lock_enabled(d,
+					libinput_device_config_tap_get_default_drag_lock_enabled(d));
 	}
 }
 #endif

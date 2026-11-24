@@ -130,7 +130,7 @@ static const wb::OutputRule *output_rule(struct wb_server *server, struct wlr_ou
  * preferred resolution at its highest refresh rate, a scale for its pixel
  * density). The state is tested first; a mode the output refuses falls back
  * to its preferred mode, so a bad rule can't leave it dark. Returns whether
- * the output is enabled. */
+ * the output is enabled (false too when it couldn't be set up). */
 static bool configure_output(struct wb_server *server, struct wlr_output *wlr_output,
 		const wb::OutputRule *rule) {
 	struct wlr_output_state state;
@@ -195,13 +195,15 @@ static bool configure_output(struct wb_server *server, struct wlr_output *wlr_ou
 			mode = preferred;
 		}
 	}
-	if (!wlr_output_commit_state(wlr_output, &state))
+	bool committed = wlr_output_commit_state(wlr_output, &state);
+	if (!committed)
 		wlr_log(WLR_ERROR, "%s: %s", wlr_output->name, _("could not set up the output"));
 	else if (mode != nullptr)
 		wlr_log(WLR_INFO, "%s: %dx%d@%.3f %s %.2f", wlr_output->name, mode->width,
 				mode->height, mode->refresh / 1000.0, _("scale"), scale);
 	wlr_output_state_finish(&state);
-	return true;
+	/* Not on (it refused even its preferred mode): not in the layout. */
+	return committed && wlr_output->enabled;
 }
 
 static void reconfigure_output(struct wb_output *output) {

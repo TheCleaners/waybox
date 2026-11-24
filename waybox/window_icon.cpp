@@ -28,14 +28,22 @@ void toplevel_update_icon(struct wb_toplevel *t) {
 		std::string lower = app_id;
 		std::transform(lower.begin(), lower.end(), lower.begin(),
 				[](unsigned char c) { return std::tolower(c); });
-		/* Reverse-DNS app IDs (org.example.App): also their last part,
-		 * which is often the desktop file's or the icon's name. */
+		/* Reverse-DNS app IDs (org.example.App) also try their last part,
+		 * which is often the desktop file's or the icon's name, but only
+		 * after the exact names. Desktop files are only read when needed. */
 		std::string last = lower.substr(lower.rfind('.') + 1);
-		for (const std::string &name : {t->client_icon_name,
-				wb::desktop_file_icon(app_id), wb::desktop_file_icon(last),
-				app_id, lower, last}) {
-			if (!name.empty() && (icon = wb::load_themed_icon(name, theme, size)))
-				break;
+		auto themed = [&](const std::string &name) {
+			if (icon == nullptr && !name.empty())
+				icon = wb::load_themed_icon(name, theme, size);
+		};
+		themed(t->client_icon_name);
+		if (icon == nullptr)
+			themed(wb::desktop_file_icon(app_id));
+		themed(app_id);
+		themed(lower);
+		if (icon == nullptr && last != lower) {
+			themed(wb::desktop_file_icon(last));
+			themed(last);
 		}
 	}
 	if (t->frame)
@@ -65,8 +73,18 @@ static cairo_surface_t *surface_from_buffer(struct wlr_buffer *buffer) {
 			&data, &format, &stride))
 		return nullptr;
 	cairo_surface_t *s = nullptr;
-	if (format == DRM_FORMAT_ARGB8888 || format == DRM_FORMAT_XRGB8888) {
+	/* An icon is small: refuse anything absurd (and anything Cairo can't
+	 * allocate), rather than copying into a surface that isn't there. */
+	bool sane = buffer->width > 0 && buffer->height > 0 &&
+			buffer->width <= 1024 && buffer->height <= 1024 &&
+			stride >= static_cast<size_t>(buffer->width) * 4;
+	if (sane && (format == DRM_FORMAT_ARGB8888 || format == DRM_FORMAT_XRGB8888)) {
 		s = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, buffer->width, buffer->height);
+		if (cairo_surface_status(s) != CAIRO_STATUS_SUCCESS) {
+			cairo_surface_destroy(s);
+			wlr_buffer_end_data_ptr_access(buffer);
+			return nullptr;
+		}
 		unsigned char *dst = cairo_image_surface_get_data(s);
 		int dst_stride = cairo_image_surface_get_stride(s);
 		for (int y = 0; y < buffer->height; y++) {
