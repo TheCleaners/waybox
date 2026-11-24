@@ -84,6 +84,14 @@ Rect clamp_resize(Rect box, bool resizing_left, bool resizing_top,
  */
 Rect maximize_within(const Rect &restore, const Rect &area, bool horz, bool vert);
 
+/*
+ * Where an input method's candidate popup (`width` x `height`) goes: just
+ * below the text cursor `cursor`, or above it when there is no room below,
+ * then shifted to stay inside `output`. Returns the popup's box; all in
+ * layout coordinates.
+ */
+Rect place_ime_popup(const Rect &cursor, int width, int height, const Rect &output);
+
 }  // namespace wb
 
 #endif /* WB_GEOMETRY_HPP */

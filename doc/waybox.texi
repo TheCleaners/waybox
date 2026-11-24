@@ -47,6 +47,7 @@ complete reference for its settings is the @samp{waybox(5)} manual page.
 * Companion programs::  Panels, wallpapers, launchers and the rest.
 * Screen locking::      Locking the screen.
 * Sandboxed programs::  Flatpak and other sandboxes.
+* Input methods::       fcitx5, ibus and other input methods.
 * X11 programs::        Running X11 programs through Xwayland.
 * Monitors and GPUs::   Several monitors, several graphics cards.
 * Index::
@@ -311,6 +312,36 @@ the clipboard through the desktop portals instead, which ask you first.
 
 Panels, lockers, screenshot tools and the like therefore need to be
 installed outside the sandbox.
+
+@node Input methods
+@chapter Input methods
+@cindex input methods
+@cindex fcitx5
+@cindex ibus
+
+Input methods, such as fcitx5 and ibus, let you type languages like
+Chinese, Japanese and Korean.  Start one from your autostart file; for
+fcitx5:
+
+@example
+fcitx5 -d &
+@end example
+
+@noindent
+For ibus, start the daemon and its panel, which connects to Waybox:
+
+@example
+ibus-daemon -d --panel=disable
+/usr/libexec/ibus-ui-gtk3 --enable-wayland-im &
+@end example
+
+When a text field has focus, the input method gets the keyboard after
+Waybox's own key bindings, so those keep working.  Its candidate window
+appears just below the text cursor (or above it, near the bottom of the
+screen).  Only one input method runs at a time.
+
+Programs that don't use the text-input protocol, such as X11 programs,
+need the input method's own setup; see its documentation.
 
 @node X11 programs
 @chapter X11 programs

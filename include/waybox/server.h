@@ -34,6 +34,8 @@ namespace wb { class MenuWidget; class SwitcherWidget; }
 struct wb_session_lock_state;
 struct wb_workspace_state;
 
+struct wb_input_method_relay;
+
 struct wb_server {
 	struct wl_display *wl_display;
 	struct wl_event_loop *wl_event_loop;
@@ -47,6 +49,8 @@ struct wb_server {
 	struct wlr_output_layout *output_layout;
 	struct wlr_xdg_output_manager_v1 *output_manager;
 	struct wlr_renderer *renderer;
+	/* text-input-v3 / input-method-v2 (see input_method.h). */
+	struct wb_input_method_relay *input_method_relay = nullptr;
 	/* security-context-v1: marks sandboxed clients (see sandbox.h). */
 	struct wlr_security_context_manager_v1 *security_context_manager = nullptr;
 	/* color-management-v1, when the renderer supports it (else null). */

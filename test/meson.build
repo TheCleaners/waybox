@@ -379,6 +379,41 @@ if python.found() and not get_option('tests_only')
     timeout: 60,
     env: integration_env,
     )
+  # An input method and a text-input application for the input method test.
+  text_input_xml = wl_protocol_dir / 'unstable/text-input/text-input-unstable-v3.xml'
+  input_method_xml = meson.project_source_root() / 'protocol' / 'input-method-unstable-v2.xml'
+  virtual_keyboard_xml = meson.project_source_root() / 'protocol' / 'virtual-keyboard-unstable-v1.xml'
+  ime_client = executable(
+    'ime_client',
+    [
+      'integration' / 'ime_client.c',
+      wayland_scanner_client.process(input_method_xml, text_input_xml, virtual_keyboard_xml),
+      wayland_scanner_code.process(input_method_xml, text_input_xml, virtual_keyboard_xml),
+    ],
+    dependencies: [dependency('wayland-client'), dependency('xkbcommon')],
+    )
+  text_input_client = executable(
+    'text_input_client',
+    [
+      'integration' / 'text_input_client.c',
+      wayland_scanner_client.process(text_input_xml, xdg_shell_client_xml),
+      wayland_scanner_code.process(text_input_xml, xdg_shell_client_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+  test(
+    'integration_input_method',
+    python,
+    args: [
+      files('integration' / 'input_method_test.py'),
+      waybox_exe,
+      ime_client,
+      text_input_client,
+    ],
+    timeout: 90,
+    env: integration_env,
+    )
+
   # A security-context-v1 "sandbox engine" for the sandbox test.
   security_context_xml = wl_protocol_dir / 'staging/security-context/security-context-v1.xml'
   sandbox_client = executable(
