@@ -121,3 +121,17 @@ WB_TEST(parse_pipe_menu_rejects_garbage) {
 	WB_CHECK(wb::parse_pipe_menu("<openbox_pipe_menu><item label=\"a\">", "x", "X")
 			.menus.empty());
 }
+
+WB_TEST(parse_pipe_menu_cdata_command) {
+	/* obamenu (and others) wrap commands in CDATA. */
+	MenuFile f = wb::parse_pipe_menu(R"(<?xml version="1.0" encoding="UTF-8" ?>
+<openbox_pipe_menu xmlns="http://openbox.org/">
+<menu id="openbox-Office" label="Office">
+<item label="Viewer"><action name="Execute"><command><![CDATA[papers --flag]]></command></action></item>
+</menu>
+</openbox_pipe_menu>)", "apps", "Applications");
+	const wb::Menu *office = f.find("openbox-Office");
+	WB_CHECK(office != nullptr && office->items.size() == 1);
+	WB_CHECK(office->items[0].actions.size() == 1);
+	WB_CHECK(office->items[0].actions[0].command == "papers --flag");
+}
