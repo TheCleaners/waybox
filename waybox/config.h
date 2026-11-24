@@ -77,6 +77,14 @@ struct wb_config {
 	 * through Xwayland (started on first use). */
 	bool xwayland = true;
 
+	/* rc.xml <waybox><edgeTiling enabled="yes|no" range="N"/>: drag a window
+	 * to a monitor edge to tile it (halves, corner quarters, maximize at the
+	 * top); range is how close to the edge the pointer must be, in pixels. */
+	struct {
+		bool enabled = true;
+		int range = 10;
+	} edge_tiling;
+
 	/* rc.xml <waybox><titlebar ...> server-side-decoration tuning. A value of
 	 * -1 means "unset" (fall back to a sensible default derived from the
 	 * theme/font); see frame_metrics() in decoration.cpp. */

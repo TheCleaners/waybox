@@ -73,6 +73,8 @@ std::optional<Action> parse_action_xml(xmlNode *action_node) {
 			action->to = text(c);
 		else if (is(c, "wrap"))
 			action->wrap = parse_yes(text(c), action->wrap);
+		else if (is(c, "direction"))
+			action->direction = text(c);
 		else if (is(c, "follow"))
 			action->follow = parse_yes(text(c), action->follow);
 	}

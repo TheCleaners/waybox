@@ -67,6 +67,14 @@ struct wb_server {
 	struct wb_toplevel *grabbed_toplevel;
 	struct wlr_box grab_geo_box;
 	double grab_x, grab_y;
+	/* Where the pointer was when a move started (dragging a tiled window
+	 * restores it only after the pointer has really moved). */
+	double move_start_x = 0, move_start_y = 0;
+	/* Edge tiling during a move: the zone under the pointer and its
+	 * translucent preview. */
+	struct wlr_scene_rect *tile_preview = nullptr;
+	int pending_tile = 0;  /* wb::TileZone */
+	struct wlr_output *pending_tile_output = nullptr;
 	uint32_t resize_edges;
 	struct wlr_ext_foreign_toplevel_list_v1 *foreign_toplevel_list;
 	struct wlr_foreign_toplevel_manager_v1 *foreign_toplevel_manager;
