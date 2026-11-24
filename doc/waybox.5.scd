@@ -213,6 +213,10 @@ and *?*; omitted attributes match anything.
   <virtualInput allow="unlocked"/>
   <xwayland enabled="yes"/>
   <hdr outputs="HDMI-A-1"/>
+  <outputs>
+    <output name="HDMI-A-1" mode="3840x2160@60" scale="1.5" position="0,0"/>
+    <output make="Dell Inc." serial="ABC123" position="2560,0"/>
+  </outputs>
 </waybox>
 ```
 
@@ -255,6 +259,29 @@ and *?*; omitted attributes match anything.
 	see *WLR_RENDERER* in *waybox*(1)) and an output that supports HDR10; otherwise, or if the output refuses it,
 	the output stays in SDR and the log says why. Colour-managed programs
 	(see *waybox*(1)) then show HDR content on it.
+
+*<outputs>*
+	Monitor settings, one *<output>* per monitor. An *<output>* matches
+	by *name* (the connector, as *wlr-randr* shows it), or by *make*,
+	*model* and *serial*: every one given must match. The first matching
+	*<output>* applies. Its settings, all optional:
+
+	*mode* _WIDTHxHEIGHT_[*@*_HZ_], e.g. *3840x2160@60*. Without a rate,
+	the highest at that size; otherwise the closest.
+
+	*scale* (e.g. *1.5*), *position* _X_*,*_Y_ (in the layout, after
+	scaling), *transform* (*normal*, *90*, *180*, *270*, *flipped*,
+	*flipped-90*, *flipped-180*, *flipped-270*), *adaptiveSync*
+	(*yes*|*no*), *enabled* (*yes*|*no*).
+
+	Without an *<output>*, a monitor gets its preferred resolution at the
+	highest refresh rate it offers there, a scale for its pixel density,
+	and a place to the right of the others. A mode the monitor refuses
+	falls back to its preferred mode.
+
+	The settings apply when a monitor is connected and on *Reconfigure*,
+	except that a monitor an output-management program (kanshi,
+	wlr-randr) has changed keeps those changes for the session.
 
 # ACTIONS
 

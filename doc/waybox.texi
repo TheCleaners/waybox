@@ -365,9 +365,31 @@ To turn Xwayland off, set @code{<waybox><xwayland enabled="no"/></waybox>}.
 @cindex monitors
 @cindex GPUs
 
-Waybox uses every monitor, but does not remember their settings.  Use
-wlr-randr to change modes, positions and scale, and kanshi to apply them
-automatically when monitors are connected.
+Waybox uses every monitor.  Without settings, each gets its preferred
+resolution at the highest refresh rate it offers there, a scale for its
+pixel density, and a place to the right of the others.  Set modes,
+scales and positions in @file{rc.xml}:
+
+@example
+<waybox>
+  <outputs>
+    <output name="HDMI-A-1" mode="3840x2160@@60" scale="1.5"/>
+    <output name="DP-1" position="2560,0" transform="90"/>
+    <output name="DP-2" enabled="no"/>
+  </outputs>
+</waybox>
+@end example
+
+@noindent
+Monitor names are those @command{wlr-randr} shows; @code{make},
+@code{model} and @code{serial} attributes match a particular monitor
+whichever connector it is on.  @xref{Configuration}, and waybox(5) for
+every setting.  A mode the monitor refuses falls back to its preferred
+mode, so a mistake can't leave it dark.
+
+wlr-randr changes settings for the session, and kanshi switches between
+profiles as monitors come and go.  A monitor either of them changed keeps
+those changes when Waybox reconfigures.
 
 With several graphics cards, Waybox drives monitors on all of them and
 draws the desktop on the first one it opens.  To choose the cards, or
