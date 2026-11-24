@@ -44,6 +44,10 @@ For background, see
 - **Alt+Tab switcher** with an on-screen list, in most-recently-used or
   stacking order.
 - **Openbox themes** (`themerc`) with per-place fonts.
+- **Edge tiling**: drag a window to a monitor edge to tile it to the left or
+  right half, a corner quarter, or maximized at the top, with a preview of
+  where it goes. Dragging it away restores its size. Super+arrows do the
+  same from the keyboard (`SnapToEdge`); `<waybox><edgeTiling>` turns it off.
 - **Placement and snapping**: new windows open on the monitor with the
   pointer; Smart, Center or UnderMouse placement; snapping
   to edges and other windows; maximizing that respects panels; separate

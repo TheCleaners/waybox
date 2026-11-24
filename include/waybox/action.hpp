@@ -43,6 +43,7 @@ enum class ActionType {
 	GoToDesktop,
 	SendToDesktop,
 	ToggleOmnipresent,
+	SnapToEdge,
 };
 
 /* A parsed action ready to run. `command` is only meaningful for actions whose
@@ -54,6 +55,7 @@ struct Action {
 	std::string to{};
 	bool wrap = true;
 	bool follow = true;
+	std::string direction{};  /* SnapToEdge: left, right, up, down, up-left, ... */
 };
 
 /* Registry entry describing one action by its rc.xml name. */

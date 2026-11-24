@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "waybox/decor_mode.hpp"
+#include "waybox/edge_tiling.hpp"
 #include "waybox/frame.hpp"
 #include "waybox/listener.hpp"
 #include "waybox/server.h"
@@ -89,6 +90,11 @@ struct wb_toplevel {
 	bool mapped = false;
 	bool minimized = false;
 	bool fullscreen = false;
+	/* Tiled to an edge zone (drag to an edge, SnapToEdge); restore_tile is
+	 * the geometry from before, restored when it is dragged away. */
+	bool tiled = false;
+	wb::TileZone tile_zone = wb::TileZone::None;
+	struct wlr_box restore_tile = {};
 	/* Virtual desktop (0-based) the window lives on; an omnipresent window
 	 * shows on every desktop (Openbox's "all desktops"/sticky). */
 	int desktop = 0;
@@ -171,6 +177,16 @@ struct wb_toplevel *first_toplevel(struct wb_server *server);
  * the node is not (the root of) one of our toplevels. */
 struct wb_toplevel *toplevel_from_node(struct wlr_scene_node *node);
 struct wlr_output *get_active_output(struct wb_toplevel *toplevel);
+
+/* Edge tiling. tile_toplevel() tiles to `zone` on `output` (null: the
+ * window's own); TileZone::Top maximizes. untile_toplevel() restores the
+ * size from before (and the position too with `restore_position`). */
+void tile_toplevel(struct wb_toplevel *toplevel, wb::TileZone zone,
+		struct wlr_output *output);
+void untile_toplevel(struct wb_toplevel *toplevel, bool restore_position);
+/* The frame rectangle `zone` covers on `output`, for the drag preview. */
+wb::Rect tile_preview_rect(struct wb_server *server, struct wlr_output *output,
+		wb::TileZone zone);
 
 /* Virtual desktops. */
 int desktop_count(struct wb_server *server);

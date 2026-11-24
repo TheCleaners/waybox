@@ -115,6 +115,13 @@ desktops_test = executable(
   )
 test('desktops', desktops_test)
 
+edge_tiling_test = executable(
+  'edge_tiling_test',
+  ['edge_tiling_test.cpp', 'wb_test_main.cpp', edge_tiling_src, geometry_src],
+  include_directories: [inc_dir],
+  )
+test('edge_tiling', edge_tiling_test)
+
 # Pixel test for the Cairo/Pango painting primitives. Needs cairo/pango, so it
 # is only built in the full build (not tests_only); it links no wlroots.
 if not get_option('tests_only')
@@ -189,6 +196,16 @@ if python.found() and not get_option('tests_only')
     python,
     args: [
       files('integration' / 'xwayland_test.py'),
+      waybox_exe,
+    ],
+    timeout: 90,
+    env: integration_env,
+    )
+  test(
+    'integration_edge_tiling',
+    python,
+    args: [
+      files('integration' / 'edge_tiling_test.py'),
       waybox_exe,
     ],
     timeout: 90,

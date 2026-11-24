@@ -506,6 +506,12 @@ void arrange_toplevels(struct wb_server *server) {
 			continue;
 		}
 
+		if (toplevel->tiled) {
+			/* Panels or the monitor changed: re-fit the tile. */
+			tile_toplevel(toplevel, toplevel->tile_zone, get_active_output(toplevel));
+			continue;
+		}
+
 		if (toplevel->max_horz || toplevel->max_vert) {
 			/* Re-apply the (possibly partial) maximized geometry against the
 			 * new usable area; this does not re-snapshot the restore rect. */
@@ -910,9 +916,102 @@ static wb::Rect maximize_area(struct wb_toplevel *toplevel) {
 	return area;
 }
 
+/* ---- Edge tiling ---- */
+
+/* The area tiles divide on `output`, as a frame rectangle in layout
+ * coordinates: the usable area (without panels) minus the margins. */
+static wb::Rect tile_frame_area(struct wb_server *server, struct wlr_output *output) {
+	struct wlr_box box;
+	wlr_output_layout_get_box(server->output_layout, output, &box);
+	wb::Rect area{box.x, box.y, box.width, box.height};
+	auto *wo = static_cast<struct wb_output *>(output->data);
+	if (wo != nullptr && wo->usable_area.width > 0 && wo->usable_area.height > 0)
+		area = {box.x + wo->usable_area.x, box.y + wo->usable_area.y,
+				wo->usable_area.width, wo->usable_area.height};
+	if (server->config)
+		area = wb::apply_strut(area, wb::Strut{server->config->margins.left,
+				server->config->margins.top, server->config->margins.right,
+				server->config->margins.bottom});
+	return area;
+}
+
+wb::Rect tile_preview_rect(struct wb_server *server, struct wlr_output *output,
+		wb::TileZone zone) {
+	return wb::tile_rect(zone, tile_frame_area(server, output));
+}
+
+/* Whether `output` is still one of ours (it may go away during a drag). */
+static bool output_alive(struct wb_server *server, struct wlr_output *output) {
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link) {
+		if (o->wlr_output == output)
+			return true;
+	}
+	return false;
+}
+
+void tile_toplevel(struct wb_toplevel *toplevel, wb::TileZone zone,
+		struct wlr_output *output) {
+	struct wb_server *server = toplevel->server;
+	if (zone == wb::TileZone::None || !view_ready(toplevel) || toplevel->fullscreen)
+		return;
+	if (output == nullptr || !output_alive(server, output))
+		output = get_active_output(toplevel);
+	if (output == nullptr)
+		return;
+	if (zone == wb::TileZone::Top) {
+		/* The top edge maximizes, on the monitor it was dropped on. */
+		if (toplevel->tiled)
+			untile_toplevel(toplevel, false);
+		struct wlr_box box;
+		wlr_output_layout_get_box(server->output_layout, output, &box);
+		toplevel->geometry.x = box.x + (box.width - toplevel->geometry.width) / 2;
+		toplevel->geometry.y = box.y;
+		set_toplevel_maximized(toplevel, true, true);
+		return;
+	}
+	if (toplevel->max_horz || toplevel->max_vert)
+		set_toplevel_maximized(toplevel, false, false);
+	if (!toplevel->tiled)
+		toplevel->restore_tile = toplevel->geometry;
+
+	wb::Rect frame = tile_preview_rect(server, output, zone);
+	wb::FrameInsets in = toplevel_insets(toplevel);
+	toplevel->geometry = {frame.x + in.left, frame.y + in.top,
+			frame.width - in.left - in.right, frame.height - in.top - in.bottom};
+	toplevel->tiled = true;
+	toplevel->tile_zone = zone;
+	view_set_size(toplevel, toplevel->geometry.width, toplevel->geometry.height);
+	position_toplevel(toplevel);
+	update_toplevel_decoration(toplevel);
+	wlr_log(WLR_INFO, "wb-geom tile-%s %dx%d+%d+%d",
+			std::string(wb::tile_zone_name(zone)).c_str(),
+			toplevel->geometry.width, toplevel->geometry.height,
+			toplevel->geometry.x, toplevel->geometry.y);
+}
+
+void untile_toplevel(struct wb_toplevel *toplevel, bool restore_position) {
+	if (!toplevel->tiled)
+		return;
+	toplevel->tiled = false;
+	toplevel->tile_zone = wb::TileZone::None;
+	if (restore_position) {
+		toplevel->geometry = toplevel->restore_tile;
+	} else {
+		toplevel->geometry.width = toplevel->restore_tile.width;
+		toplevel->geometry.height = toplevel->restore_tile.height;
+	}
+	view_set_size(toplevel, toplevel->geometry.width, toplevel->geometry.height);
+	position_toplevel(toplevel);
+	update_toplevel_decoration(toplevel);
+	log_geometry(toplevel, "untile");
+}
+
 void set_toplevel_maximized(struct wb_toplevel *toplevel, bool horz, bool vert) {
 	if (!view_ready(toplevel))
 		return;
+	if (horz || vert)
+		toplevel->tiled = false;  /* maximizing replaces the tile */
 
 	const bool was_any = toplevel->max_horz || toplevel->max_vert;
 	const bool now_any = horz || vert;
@@ -1050,6 +1149,10 @@ void begin_interactive(struct wb_toplevel *toplevel,
 	server->grabbed_toplevel = toplevel;
 	server->cursor->cursor_mode = mode;
 
+	server->move_start_x = server->cursor->cursor->x;
+	server->move_start_y = server->cursor->cursor->y;
+	if (mode == WB_CURSOR_RESIZE)
+		toplevel->tiled = false;  /* resized by hand: no longer a tile */
 	if (mode == WB_CURSOR_MOVE) {
 		server->grab_x = server->cursor->cursor->x - toplevel->geometry.x;
 		server->grab_y = server->cursor->cursor->y - toplevel->geometry.y;
