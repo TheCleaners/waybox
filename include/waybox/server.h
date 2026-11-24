@@ -127,5 +127,7 @@ bool wb_create_backend(struct wb_server *server);
 bool wb_start_server(struct wb_server *server);
 bool wb_terminate(struct wb_server *server);
 void wb_spawn(const char *cmd);
+/* Reload rc.xml/menu.xml/theme and restyle existing window frames. */
+void wb_reconfigure(struct wb_server *server);
 
 #endif /* server.h */

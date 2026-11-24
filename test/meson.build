@@ -267,6 +267,16 @@ if python.found() and not get_option('tests_only')
     env: integration_env,
     )
   test(
+    'integration_reconfigure',
+    python,
+    args: [
+      files('integration' / 'reconfigure_test.py'),
+      waybox_exe,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
+  test(
     'integration_input_focus',
     python,
     args: [
