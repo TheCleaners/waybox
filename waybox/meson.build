@@ -17,6 +17,7 @@ wb_src = [
   desktops_src,
   edge_tiling_src,
   client_menu_src,
+  security_src,
   render_src,
   files(
     'action_xml.cpp',
@@ -31,6 +32,7 @@ wb_src = [
     'menu_widget.cpp',
     'output.cpp',
     'pointer_constraints.cpp',
+    'sandbox.cpp',
     'scene_buffer.cpp',
     'seat.cpp',
     'server.cpp',
