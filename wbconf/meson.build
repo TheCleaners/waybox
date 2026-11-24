@@ -11,7 +11,9 @@ wbconf_args = [
 
 executable(
   'wbconf',
-  ['main.cpp', files('../waybox/wbconf.cpp'), xml_strict_src, theme_src, style_src, widget_src,
+  ['main.cpp', 'session.cpp', 'monitors.cpp', 'widgets.cpp', 'fonts.cpp',
+   'theme_page.cpp', 'integrations_page.cpp', 'pages.cpp', 'settings.cpp',
+   files('../waybox/wbconf.cpp'), xml_strict_src, theme_src, style_src, widget_src,
    render_src, startup_src, integrations_src],
   include_directories: [inc_dir],
   dependencies: [gtk4, json_glib, libxml2, cairo, pango, pangocairo],

@@ -107,6 +107,6 @@ WB_TEST(integrations_load_user_first_sorted) {
 	WB_CHECK(all[1].id == "mako");
 	std::filesystem::remove_all(root);
 	auto dirs = wb::integration_dirs("/h", "", "/a:/b", "/inst");
-	WB_CHECK(dirs.size() == 4 && dirs[0] == "/h/.local/share/waybox/integrations" &&
+	WB_CHECK(dirs.size() == 4 && dirs[0] == "/h/.config/waybox/integrations" &&
 			dirs[2] == "/b/waybox/integrations" && dirs[3] == "/inst");
 }

@@ -68,7 +68,7 @@ install_data(
   )
 
 # Companion programs wbconf can set up (see #153); users can add their own in
-# $XDG_DATA_HOME/waybox/integrations.
+# $XDG_CONFIG_HOME/waybox/integrations.
 install_subdir('integrations',
   install_dir: get_option('prefix') / get_option('datadir') / 'waybox',
 )
