@@ -103,6 +103,10 @@ Drag a window by its title bar, or anywhere with @kbd{Alt} held: the
 left button moves it, the right button resizes it.  Windows snap to
 screen edges and to each other as you drag them.
 
+Double-click a title bar to maximize the window or restore it,
+middle-click it to lower the window, and scroll on it to roll the window
+up to its title bar and back.
+
 @section Tiling
 @cindex tiling
 Drag a window to the edge of a monitor and a translucent preview shows
@@ -160,6 +164,8 @@ Take the active window to the previous or next desktop.
 @item Super+F1 @dots{} Super+F4
 Go to a desktop directly.
 @end table
+
+Scrolling on the empty desktop also switches desktops.
 
 @kbd{Alt+Tab} only switches between windows on the current desktop.
 Activating a window from a taskbar goes to its desktop.  Panels that
