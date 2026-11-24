@@ -45,10 +45,10 @@ TERMINAL=xdg-terminal-exec
 #TERMINAL=kitty
 export TERMINAL
 
-if command -v xdg-autostart >/dev/null 2>&1;
-then
-    export XDG_CURRENT_DESTKOP=OPENBOX
-else
-    # Use autostart scripts for these environments
-    export WB_AUTOSTART_ENVIRONMENT=GNOME:KDE:OPENBOX
-fi
+# XDG autostart entries (/etc/xdg/autostart, ~/.config/autostart) are started
+# for XDG_CURRENT_DESKTOP (Waybox): entries meant only for other desktops
+# (OnlyShowIn=GNOME, KDE, ...) are skipped, so a machine with GNOME or KDE
+# installed doesn't start their shells, indexers or screen readers here.
+# To also start another desktop's entries, list the desktop names, e.g.:
+#export WB_AUTOSTART_ENVIRONMENT=Waybox:XFCE
+# ("all" starts every entry regardless of OnlyShowIn/NotShowIn.)
