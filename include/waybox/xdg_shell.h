@@ -72,6 +72,7 @@ struct wb_toplevel {
 	wb::Listener request_configure;
 	wb::Listener request_activate;
 	wb::Listener set_decorations;
+	wb::Listener set_override_redirect;
 	wb::Listener surface_tree_destroy;
 
 	struct wlr_box geometry = {};
