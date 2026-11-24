@@ -296,6 +296,18 @@ if python.found() and not get_option('tests_only')
     dependencies: [dependency('wayland-client')],
     )
 
+  # A virtual pointer that can hold a button (wlrctl only clicks).
+  vpointer_xml = meson.project_source_root() / 'protocol' / 'wlr-virtual-pointer-unstable-v1.xml'
+  vpointer_client = executable(
+    'vpointer_client',
+    [
+      'integration' / 'vpointer_client.c',
+      wayland_scanner_client.process(vpointer_xml),
+      wayland_scanner_code.process(vpointer_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # Makes and drops idle inhibitors, for the idle test.
   idle_inhibit_xml = wl_protocol_dir / 'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml'
   inhibit_client = executable(
@@ -378,6 +390,7 @@ if python.found() and not get_option('tests_only')
     ['panel_reflow', 'panel_reflow_test.py', [layer_client], 60],
     ['pipe_menu', 'pipe_menu_test.py', [], 60],
     ['placement', 'placement_test.py', [default_rc], 60],
+    ['pointer_grab', 'pointer_grab_test.py', [constraint_client, layer_client, vpointer_client], 60],
     ['pointer_lock', 'pointer_lock_test.py', [constraint_client], 60],
     ['reconfigure', 'reconfigure_test.py', [], 60],
     ['robustness', 'robustness_test.py', [layer_client], 90],

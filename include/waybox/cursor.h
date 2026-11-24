@@ -24,6 +24,13 @@ struct wb_cursor {
 	/* Scroll-wheel fractions (value120) not yet making up a whole notch. */
 	int32_t scroll_value120 = 0;
 
+	/* Implicit grab: a surface pressed with a button keeps the pointer
+	 * until the last button is released, wherever the pointer goes (a
+	 * selection or screenshot box dragged across a panel). Its origin in
+	 * layout coordinates, to send motion relative to it. */
+	struct wlr_surface *grab_surface = nullptr;
+	double grab_origin_x = 0, grab_origin_y = 0;
+
 	wb::Listener cursor_motion;
 	wb::Listener cursor_motion_absolute;
 	wb::Listener cursor_button;

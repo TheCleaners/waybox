@@ -292,6 +292,22 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 		return;
 	}
 
+	/* A button held on a client surface: it keeps the pointer (as in
+	 * every compositor), even over other windows or a panel. Not during a
+	 * drag-and-drop, which has to reach the window under the pointer. */
+	{
+		struct wlr_seat *seat = server->seat->seat;
+		struct wb_cursor *c = server->cursor.get();
+		if (c->grab_surface != nullptr && seat->pointer_state.button_count > 0 &&
+				seat->pointer_state.focused_surface == c->grab_surface &&
+				seat->drag == nullptr) {
+			wlr_seat_pointer_notify_motion(seat, time,
+					c->cursor->x - c->grab_origin_x, c->cursor->y - c->grab_origin_y);
+			idle_activity(server, seat);
+			return;
+		}
+	}
+
 	/* Server-side decoration hover feedback: highlight the titlebar button under
 	 * the pointer (if any), and show a resize cursor over the frame's border /
 	 * corner grab areas. Cleared on every other frame. */
@@ -646,6 +662,15 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 	}
 
 	wlr_seat_pointer_notify_button(seat, event->time_msec, event->button, event->state);
+	if (seat->pointer_state.button_count == 0) {
+		this->grab_surface = nullptr;
+	} else if (event->state == WL_POINTER_BUTTON_STATE_PRESSED &&
+			seat->pointer_state.button_count == 1) {
+		/* The first button down: the surface under it keeps the pointer. */
+		this->grab_surface = seat->pointer_state.focused_surface;
+		this->grab_origin_x = cursor->x - seat->pointer_state.sx;
+		this->grab_origin_y = cursor->y - seat->pointer_state.sy;
+	}
 	if (event->state == WL_POINTER_BUTTON_STATE_RELEASED) {
 		/* Dropped on an edge zone: tile there. */
 		if (server->cursor->cursor_mode == WB_CURSOR_MOVE &&
