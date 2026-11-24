@@ -109,6 +109,20 @@ void view_set_size(struct wb_toplevel *t, int width, int height) {
 	wlr_xdg_toplevel_set_size(t->xdg_toplevel, width, height);
 }
 
+void view_moved(struct wb_toplevel *t) {
+#if WLR_HAS_XWAYLAND
+	if (!is_x11(t) || !view_ready(t))
+		return;
+	struct wlr_xwayland_surface *xs = t->xsurface;
+	if (xs->x == t->geometry.x && xs->y == t->geometry.y)
+		return;
+	wlr_xwayland_surface_configure(xs, static_cast<int16_t>(t->geometry.x),
+			static_cast<int16_t>(t->geometry.y), xs->width, xs->height);
+#else
+	(void) t;
+#endif
+}
+
 void view_set_activated(struct wb_toplevel *t, bool activated) {
 	if (!view_ready(t))
 		return;
