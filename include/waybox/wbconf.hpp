@@ -1,11 +1,22 @@
 #ifndef WB_WBCONF_HPP
 #define WB_WBCONF_HPP
 
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace wb {
+
+/* One <waybox><outputs><output name="..." .../> rule, matched by connector
+ * name (rules matched by make/model/serial are left to hand editing). Its
+ * attributes as written (mode, scale, position, transform, enabled, ...);
+ * an absent one means automatic. */
+struct OutputSetting {
+	std::string name;
+	std::map<std::string, std::string> attrs;
+	bool operator==(const OutputSetting &) const = default;
+};
 
 /*
  * The waybox settings that wbconf (our obconf-style GUI) reads from and writes
@@ -52,6 +63,18 @@ struct WayboxSettings {
 	std::optional<std::string> font_menu_item;       /* place="MenuItem" */
 	std::optional<std::string> font_osd;             /* place="ActiveOnScreenDisplay"
 	                                                  * (or Inactive.../OnScreenDisplay) */
+
+	/* Desktops */
+	std::optional<int> desktops_number;              /* desktops/number */
+	std::optional<std::vector<std::string>> desktop_names;  /* desktops/names/name */
+	std::optional<int> desktop_popup_time;           /* desktops/popupTime (ms) */
+
+	/* Edge tiling (waybox extension) */
+	std::optional<bool> edge_tiling;                 /* waybox/edgeTiling@enabled */
+	std::optional<int> edge_tiling_range;            /* waybox/edgeTiling@range */
+
+	/* Monitors: name-matched <waybox><outputs><output> rules */
+	std::vector<OutputSetting> outputs;
 
 	bool operator==(const WayboxSettings &) const = default;
 };

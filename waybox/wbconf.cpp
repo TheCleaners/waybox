@@ -48,12 +48,10 @@ xmlNode *child_named(xmlNode *parent, const char *name) {
 	return nullptr;
 }
 
-/* Find or create the element child `name` under `parent`, inheriting the
- * document's default namespace so it serialises like the hand-written nodes. A
- * little leading whitespace keeps the output readable. */
-xmlNode *ensure_child(xmlNode *parent, const char *name) {
-	if (xmlNode *existing = child_named(parent, name))
-		return existing;
+/* Append a new element child `name` to `parent`, inheriting the document's
+ * default namespace so it serialises like the hand-written nodes. A little
+ * leading whitespace keeps the output readable. */
+xmlNode *new_child(xmlNode *parent, const char *name) {
 	xmlNodePtr node = xmlNewNode(parent->ns, xc(name));
 	if (node == nullptr)
 		return nullptr;
@@ -62,9 +60,24 @@ xmlNode *ensure_child(xmlNode *parent, const char *name) {
 	for (xmlNode *p = parent; p != nullptr && p->parent != nullptr; p = p->parent)
 		++depth;
 	std::string indent = "\n" + std::string(static_cast<size_t>(depth) * 2, ' ');
-	xmlAddChild(parent, xmlNewText(xc(indent.c_str())));
-	xmlAddChild(parent, node);
+	/* Before the whitespace that indents the parent's closing tag, so the
+	 * new element gets its own line above it. */
+	xmlNode *last = parent->last;
+	if (last != nullptr && xmlIsBlankNode(last)) {
+		xmlAddPrevSibling(last, xmlNewText(xc(indent.c_str())));
+		xmlAddPrevSibling(last, node);
+	} else {
+		xmlAddChild(parent, xmlNewText(xc(indent.c_str())));
+		xmlAddChild(parent, node);
+	}
 	return node;
+}
+
+/* Find or create the element child `name` under `parent`. */
+xmlNode *ensure_child(xmlNode *parent, const char *name) {
+	if (xmlNode *existing = child_named(parent, name))
+		return existing;
+	return new_child(parent, name);
 }
 
 /* Walk/create a path of nested element names from the root, returning the leaf. */
@@ -328,6 +341,38 @@ WayboxSettings RcDocument::read() const {
 	s.font_menu_header = read_font(root, "MenuHeader");
 	s.font_menu_item = read_font(root, "MenuItem");
 	s.font_osd = read_font(root, "ActiveOnScreenDisplay");
+
+	s.desktops_number = to_int(node_text(find_path(root, {"desktops", "number"})));
+	if (xmlNode *names = find_path(root, {"desktops", "names"})) {
+		std::vector<std::string> list;
+		for (xmlNode *c = names->children; c != nullptr; c = c->next)
+			if (is_element(c, "name"))
+				list.push_back(node_text(c).value_or(""));
+		s.desktop_names = list;
+	}
+	s.desktop_popup_time = to_int(node_text(find_path(root, {"desktops", "popupTime"})));
+
+	xmlNode *et = find_path(root, {"waybox", "edgeTiling"});
+	s.edge_tiling = to_bool(attr_value(et, "enabled"));
+	s.edge_tiling_range = to_int(attr_value(et, "range"));
+
+	if (xmlNode *outs = find_path(root, {"waybox", "outputs"})) {
+		for (xmlNode *o = outs->children; o != nullptr; o = o->next) {
+			if (!is_element(o, "output"))
+				continue;
+			auto name = attr_value(o, "name");
+			if (!name || name->empty() || attr_value(o, "make") ||
+					attr_value(o, "model") || attr_value(o, "serial"))
+				continue;  /* only plain by-name rules */
+			OutputSetting out{*name, {}};
+			for (xmlAttr *a = o->properties; a != nullptr; a = a->next) {
+				std::string key = reinterpret_cast<const char *>(a->name);
+				if (key != "name")
+					out.attrs[key] = attr_value(o, key.c_str()).value_or("");
+			}
+			s.outputs.push_back(out);
+		}
+	}
 	return s;
 }
 
@@ -368,6 +413,62 @@ std::optional<std::string> bool_opt_str(const std::optional<bool> &v) {
 	if (!v)
 		return std::nullopt;
 	return std::string(bool_str(*v));
+}
+
+/* The <desktops><names> list: rewritten when it changes. */
+void put_names(xmlNode *root, const std::optional<std::vector<std::string>> &names) {
+	if (xmlNode *old = find_path(root, {"desktops", "names"})) {
+		xmlUnlinkNode(old);
+		xmlFreeNode(old);
+	}
+	if (!names || names->empty())
+		return;
+	xmlNode *list = ensure_path(root, {"desktops", "names"});
+	for (const std::string &n : *names) {
+		xmlNode *name = xmlNewNode(list->ns, xc("name"));
+		xmlNodeSetContent(name, xc(n.c_str()));
+		xmlAddChild(list, name);
+	}
+}
+
+/* The <waybox><outputs><output name="NAME"> element, or nullptr. */
+xmlNode *find_output(xmlNode *root, const std::string &name) {
+	xmlNode *outs = find_path(root, {"waybox", "outputs"});
+	for (xmlNode *o = outs ? outs->children : nullptr; o != nullptr; o = o->next)
+		if (is_element(o, "output") && attr_value(o, "name") == name &&
+				!attr_value(o, "make") && !attr_value(o, "model") &&
+				!attr_value(o, "serial"))
+			return o;
+	return nullptr;
+}
+
+/* Write one output's attributes: only those that differ from `base` (all
+ * of them without one). An output left with no settings is removed. */
+void put_output(xmlNode *root, const OutputSetting &out, const OutputSetting *base) {
+	xmlNode *node = find_output(root, out.name);
+	std::map<std::string, std::string> before = base ? base->attrs
+			: std::map<std::string, std::string>{};
+	if (node == nullptr) {
+		if (out.attrs.empty())
+			return;
+		xmlNode *outs = ensure_path(root, {"waybox", "outputs"});
+		node = new_child(outs, "output");
+		xmlSetProp(node, xc("name"), xc(out.name.c_str()));
+	}
+	for (const auto &[key, value] : out.attrs)
+		if (base == nullptr || before.count(key) == 0 || before.at(key) != value)
+			xmlSetProp(node, xc(key.c_str()), xc(value.c_str()));
+	for (const auto &[key, value] : before)
+		if (out.attrs.count(key) == 0)
+			xmlUnsetProp(node, xc(key.c_str()));
+	bool empty = true;
+	for (xmlAttr *a = node->properties; a != nullptr; a = a->next)
+		if (xmlStrcmp(a->name, xc("name")) != 0)
+			empty = false;
+	if (empty) {
+		xmlUnlinkNode(node);
+		xmlFreeNode(node);
+	}
 }
 
 /* Create/update or remove the <theme><font place="P"> element from a
@@ -465,6 +566,32 @@ void apply_fields(xmlNode *root, const WayboxSettings &s, const WayboxSettings *
 		put_font(root, "MenuItem", s.font_menu_item);
 	if (WB_CHANGED(font_osd))
 		put_font(root, "ActiveOnScreenDisplay", s.font_osd);
+
+	if (WB_CHANGED(desktops_number))
+		put_text(root, {"desktops", "number"}, int_str(s.desktops_number));
+	if (WB_CHANGED(desktop_names))
+		put_names(root, s.desktop_names);
+	if (WB_CHANGED(desktop_popup_time))
+		put_text(root, {"desktops", "popupTime"}, int_str(s.desktop_popup_time));
+
+	if (WB_CHANGED(edge_tiling))
+		put_attr(root, {"waybox", "edgeTiling"}, "enabled", bool_opt_str(s.edge_tiling));
+	if (WB_CHANGED(edge_tiling_range))
+		put_attr(root, {"waybox", "edgeTiling"}, "range", int_str(s.edge_tiling_range));
+
+	for (const OutputSetting &out : s.outputs) {
+		const OutputSetting *was = nullptr;
+		if (base != nullptr)
+			for (const OutputSetting &b : base->outputs)
+				if (b.name == out.name)
+					was = &b;
+		if (base != nullptr && was != nullptr && *was == out)
+			continue;
+		/* Without a base, every attribute is written; with one, an output
+		 * the base didn't have is written whole. */
+		OutputSetting empty{out.name, {}};
+		put_output(root, out, base == nullptr ? nullptr : (was ? was : &empty));
+	}
 #undef WB_CHANGED
 }
 

@@ -262,3 +262,66 @@ WB_TEST(save_keeps_a_backup_the_symlink_and_the_mode) {
 	WB_CHECK(!fs::exists(real.string() + ".tmp"));
 	fs::remove_all(dir);
 }
+
+/* ---- Desktops, edge tiling, monitors ---- */
+
+static const char *kMoreRc =
+		"<?xml version=\"1.0\"?>\n"
+		"<openbox_config xmlns=\"http://openbox.org/3.4/rc\">\n"
+		"  <desktops><number>3</number>"
+		"<names><name>Mail</name><name>Code</name></names></desktops>\n"
+		"  <waybox>\n"
+		"    <edgeTiling enabled=\"no\" range=\"12\"/>\n"
+		"    <outputs>\n"
+		"      <!-- the TV -->\n"
+		"      <output name=\"HDMI-A-1\" mode=\"3840x2160@60\" scale=\"1.5\"/>\n"
+		"      <output name=\"DP-4\" position=\"3840,0\"/>\n"
+		"      <output make=\"Dell Inc.\" name=\"DP-9\" scale=\"2\"/>\n"
+		"    </outputs>\n"
+		"  </waybox>\n"
+		"</openbox_config>\n";
+
+WB_TEST(reads_desktops_edge_tiling_and_outputs) {
+	auto doc = RcDocument::from_string(kMoreRc);
+	WB_CHECK(doc.has_value());
+	WayboxSettings s = doc->read();
+	WB_CHECK(s.desktops_number == std::optional<int>(3));
+	WB_CHECK(s.desktop_names && s.desktop_names->size() == 2 &&
+			(*s.desktop_names)[1] == "Code");
+	WB_CHECK(!s.desktop_popup_time.has_value());
+	WB_CHECK(s.edge_tiling == std::optional<bool>(false));
+	WB_CHECK(s.edge_tiling_range == std::optional<int>(12));
+	/* Only the rules matched by name alone. */
+	WB_CHECK(s.outputs.size() == 2);
+	WB_CHECK(s.outputs[0].name == "HDMI-A-1" &&
+			s.outputs[0].attrs.at("mode") == "3840x2160@60" &&
+			s.outputs[0].attrs.at("scale") == "1.5");
+	WB_CHECK(s.outputs[1].name == "DP-4" && s.outputs[1].attrs.size() == 1);
+}
+
+WB_TEST(writes_only_the_output_setting_that_changed) {
+	auto doc = RcDocument::from_string(kMoreRc);
+	WayboxSettings before = doc->read(), s = before;
+	s.outputs[0].attrs["scale"] = "2";           /* change one attribute */
+	s.outputs[1].attrs.clear();                   /* DP-4 back to automatic */
+	s.outputs.push_back({"DP-1", {{"enabled", "no"}}});  /* a new one */
+	s.desktop_popup_time = 0;
+	s.desktop_names = std::vector<std::string>{"Mail", "Code", "Games"};
+	doc->apply(s, before);
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("mode=\"3840x2160@60\" scale=\"2\"") != std::string::npos);
+	WB_CHECK(out.find("DP-4") == std::string::npos);  /* no settings left */
+	WB_CHECK(out.find("<output name=\"DP-1\" enabled=\"no\"/>") != std::string::npos);
+	WB_CHECK(out.find("make=\"Dell Inc.\" name=\"DP-9\" scale=\"2\"") != std::string::npos);
+	WB_CHECK(out.find("<!-- the TV -->") != std::string::npos);
+	WB_CHECK(out.find("<popupTime>0</popupTime>") != std::string::npos);
+	WB_CHECK(out.find("<name>Games</name>") != std::string::npos);
+	WB_CHECK(out.find("edgeTiling enabled=\"no\" range=\"12\"") != std::string::npos);
+
+	/* Read back: what was written is what is read. */
+	auto again = RcDocument::from_string(out);
+	WayboxSettings r = again->read();
+	WB_CHECK(r.outputs.size() == 2 && r.outputs[0].attrs.at("scale") == "2" &&
+			r.outputs[1].name == "DP-1");
+	WB_CHECK(r.desktop_names && r.desktop_names->size() == 3);
+}

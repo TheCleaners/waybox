@@ -11,8 +11,12 @@
  * the rest of the project's gettext catalogue (text domain "waybox").
  */
 #include <gtk/gtk.h>
+#include <json-glib/json-glib.h>
 
 #include <algorithm>
+#include <cmath>
+#include <map>
+#include <sstream>
 #include <cstring>
 #include <csignal>
 #include <cstdlib>
@@ -165,6 +169,75 @@ int signal_waybox_reload() {
 	return signalled;
 }
 
+/* ---- Monitors, as wlr-randr --json reports them ----------------------- */
+
+struct MonitorInfo {
+	std::string name;         /* connector */
+	std::string description;  /* make, model */
+	std::vector<std::string> modes;  /* "WxH@HZ" */
+};
+
+/* "60" for 60.000, "59.997" otherwise. */
+std::string format_hz(double hz) {
+	char buf[32];
+	snprintf(buf, sizeof(buf), "%.3f", hz);
+	std::string s = buf;
+	while (!s.empty() && s.back() == '0')
+		s.pop_back();
+	if (!s.empty() && s.back() == '.')
+		s.pop_back();
+	return s;
+}
+
+/* The connected monitors, or nullopt (with why) when wlr-randr can't say. */
+std::optional<std::vector<MonitorInfo>> query_monitors(std::string *why) {
+	gchar *out = nullptr;
+	gint status = 0;
+	GError *err = nullptr;
+	if (!g_spawn_command_line_sync("wlr-randr --json", &out, nullptr, &status, &err) ||
+			!g_spawn_check_wait_status(status, nullptr)) {
+		*why = _("Monitors are listed with wlr-randr; install it to set them here.");
+		if (err != nullptr)
+			g_error_free(err);
+		g_free(out);
+		return std::nullopt;
+	}
+	std::vector<MonitorInfo> list;
+	JsonParser *parser = json_parser_new();
+	if (json_parser_load_from_data(parser, out, -1, nullptr)) {
+		JsonNode *root = json_parser_get_root(parser);
+		JsonArray *arr = JSON_NODE_HOLDS_ARRAY(root) ? json_node_get_array(root) : nullptr;
+		for (guint i = 0; arr != nullptr && i < json_array_get_length(arr); i++) {
+			JsonObject *o = json_array_get_object_element(arr, i);
+			if (o == nullptr || !json_object_has_member(o, "name"))
+				continue;
+			MonitorInfo m;
+			m.name = json_object_get_string_member(o, "name");
+			if (json_object_has_member(o, "description"))
+				m.description = json_object_get_string_member(o, "description");
+			if (json_object_has_member(o, "modes")) {
+				JsonArray *modes = json_object_get_array_member(o, "modes");
+				for (guint j = 0; j < json_array_get_length(modes); j++) {
+					JsonObject *md = json_array_get_object_element(modes, j);
+					std::string v = std::to_string(json_object_get_int_member(md, "width")) +
+							"x" + std::to_string(json_object_get_int_member(md, "height"));
+					double hz = json_object_get_double_member(md, "refresh");
+					if (hz > 0)
+						v += "@" + format_hz(hz);
+					if (std::find(m.modes.begin(), m.modes.end(), v) == m.modes.end())
+						m.modes.push_back(v);
+				}
+			}
+			list.push_back(m);
+		}
+	}
+	g_object_unref(parser);
+	g_free(out);
+	if (list.empty())
+		*why = _("No monitors found.");
+	return list;
+}
+
 /* ---- A lightweight font picker: family + size + bold ----------------- */
 
 struct FontPicker {
@@ -219,6 +292,32 @@ struct Ui {
 	FontPicker font_menu_item;
 	FontPicker font_osd;
 
+	/* Desktops */
+	GtkSpinButton *desktops_number = nullptr;
+	GtkTextView *desktop_names = nullptr;
+	GtkSpinButton *popup_time = nullptr;
+
+	/* Edge tiling (on the Windows page) */
+	GtkSwitch *edge_tiling = nullptr;
+	GtkSpinButton *edge_range = nullptr;
+
+	/* Monitors: one block per connected monitor. Each dropdown's values are
+	 * kept beside it; "" (the first) is Automatic. */
+	struct Monitor {
+		std::string name;
+		GtkSwitch *enabled = nullptr;
+		GtkDropDown *mode = nullptr;
+		std::vector<std::string> modes;
+		GtkDropDown *scale = nullptr;
+		std::vector<std::string> scales;
+		GtkEntry *position = nullptr;
+		GtkDropDown *transform = nullptr;
+		std::map<std::string, std::string> kept;  /* attributes not shown here */
+	};
+	std::vector<Monitor> monitors;
+	/* Rules for monitors that aren't connected now: passed through as is. */
+	std::vector<wb::OutputSetting> other_outputs;
+
 	/* Live theme preview (redrawn when the theme/fonts change). */
 	GtkWidget *preview = nullptr;
 	GtkNotebook *notebook = nullptr;  /* for "reset this page" */
@@ -234,6 +333,8 @@ struct Ui {
 const char *const kPlacement[] = {"Smart", "Center", "UnderMouse", nullptr};
 const char *const kSubmenu[] = {"hover", "click", nullptr};
 const char *const kOrder[] = {"mru", "stacking", "spatial", nullptr};
+std::vector<std::string> kTransforms = {"", "normal", "90", "180", "270", "flipped",
+		"flipped-90", "flipped-180", "flipped-270"};
 
 int index_of(const char *const *list, const std::string &value, int fallback) {
 	for (int i = 0; list[i] != nullptr; ++i)
@@ -560,6 +661,66 @@ void preview_refresh(Ui *ui) {
 		gtk_widget_queue_draw(ui->preview);
 }
 
+/* A dropdown over `values`, "" shown as Automatic. */
+GtkDropDown *values_dropdown(const std::vector<std::string> &values) {
+	GtkStringList *model = gtk_string_list_new(nullptr);
+	for (const std::string &v : values)
+		gtk_string_list_append(model, v.empty() ? _("Automatic") : v.c_str());
+	return GTK_DROP_DOWN(gtk_drop_down_new(G_LIST_MODEL(model), nullptr));
+}
+
+/* Select `value` in a values dropdown, adding it if it isn't listed (so a
+ * value written by hand stays exactly as written). */
+void select_value(GtkDropDown *dd, std::vector<std::string> &values,
+		const std::string &value) {
+	auto it = std::find(values.begin(), values.end(), value);
+	if (it == values.end()) {
+		gtk_string_list_append(GTK_STRING_LIST(gtk_drop_down_get_model(dd)),
+				value.c_str());
+		values.push_back(value);
+		it = values.end() - 1;
+	}
+	gtk_drop_down_set_selected(dd, static_cast<guint>(it - values.begin()));
+}
+
+std::string selected_value(GtkDropDown *dd, const std::vector<std::string> &values) {
+	guint i = gtk_drop_down_get_selected(dd);
+	return i < values.size() ? values[i] : std::string();
+}
+
+void populate_monitors(Ui *ui, const std::vector<wb::OutputSetting> &outputs) {
+	ui->other_outputs.clear();
+	for (const wb::OutputSetting &o : outputs) {
+		bool connected = false;
+		for (const Ui::Monitor &m : ui->monitors)
+			connected = connected || m.name == o.name;
+		if (!connected)
+			ui->other_outputs.push_back(o);
+	}
+	for (Ui::Monitor &m : ui->monitors) {
+		std::map<std::string, std::string> attrs;
+		for (const wb::OutputSetting &o : outputs)
+			if (o.name == m.name)
+				attrs = o.attrs;
+		auto take = [&attrs](const char *key) {
+			auto it = attrs.find(key);
+			std::string v = it == attrs.end() ? "" : it->second;
+			if (it != attrs.end())
+				attrs.erase(it);
+			return v;
+		};
+		std::string enabled = take("enabled");
+		gtk_switch_set_active(m.enabled, enabled != "no");
+		if (!enabled.empty() && enabled != "no")
+			attrs["enabled"] = enabled;  /* an explicit "yes" stays */
+		select_value(m.mode, m.modes, take("mode"));
+		select_value(m.scale, m.scales, take("scale"));
+		gtk_editable_set_text(GTK_EDITABLE(m.position), take("position").c_str());
+		select_value(m.transform, kTransforms, take("transform"));
+		m.kept = attrs;
+	}
+}
+
 void populate(Ui *ui, const wb::WayboxSettings &s) {
 	/* Theme list: every installed theme, current one guaranteed present and
 	 * selected (obconf shows the active theme highlighted in the list). */
@@ -630,6 +791,19 @@ void populate(Ui *ui, const wb::WayboxSettings &s) {
 	font_set(&ui->font_menu_item, s.font_menu_item.value_or("Sans 10"));
 	font_set(&ui->font_osd, s.font_osd.value_or("Sans 10"));
 
+	gtk_spin_button_set_value(ui->desktops_number, s.desktops_number.value_or(4));
+	std::string names;
+	for (const std::string &n : s.desktop_names.value_or(std::vector<std::string>{}))
+		names += n + "\n";
+	gtk_text_buffer_set_text(gtk_text_view_get_buffer(ui->desktop_names),
+			names.c_str(), -1);
+	gtk_spin_button_set_value(ui->popup_time, s.desktop_popup_time.value_or(875));
+
+	gtk_switch_set_active(ui->edge_tiling, s.edge_tiling.value_or(true));
+	gtk_spin_button_set_value(ui->edge_range, s.edge_tiling_range.value_or(10));
+
+	populate_monitors(ui, s.outputs);
+
 	ui->shown = collect(ui);
 	preview_refresh(ui);
 }
@@ -669,6 +843,43 @@ wb::WayboxSettings collect(Ui *ui) {
 	s.font_menu_header = font_value(&ui->font_menu_header);
 	s.font_menu_item = font_value(&ui->font_menu_item);
 	s.font_osd = font_value(&ui->font_osd);
+
+	s.desktops_number = gtk_spin_button_get_value_as_int(ui->desktops_number);
+	GtkTextBuffer *buf = gtk_text_view_get_buffer(ui->desktop_names);
+	GtkTextIter start, end;
+	gtk_text_buffer_get_bounds(buf, &start, &end);
+	gchar *text = gtk_text_buffer_get_text(buf, &start, &end, FALSE);
+	std::vector<std::string> names;
+	std::istringstream lines(text);
+	for (std::string line; std::getline(lines, line);)
+		names.push_back(line);
+	g_free(text);
+	while (!names.empty() && names.back().empty())
+		names.pop_back();
+	if (!names.empty())
+		s.desktop_names = names;
+	s.desktop_popup_time = gtk_spin_button_get_value_as_int(ui->popup_time);
+
+	s.edge_tiling = gtk_switch_get_active(ui->edge_tiling);
+	s.edge_tiling_range = gtk_spin_button_get_value_as_int(ui->edge_range);
+
+	for (Ui::Monitor &m : ui->monitors) {
+		wb::OutputSetting out{m.name, m.kept};
+		if (!gtk_switch_get_active(m.enabled))
+			out.attrs["enabled"] = "no";
+		auto put = [&out](const char *key, const std::string &v) {
+			if (!v.empty())
+				out.attrs[key] = v;
+		};
+		put("mode", selected_value(m.mode, m.modes));
+		put("scale", selected_value(m.scale, m.scales));
+		put("position", gtk_editable_get_text(GTK_EDITABLE(m.position)));
+		put("transform", selected_value(m.transform, kTransforms));
+		if (!out.attrs.empty())
+			s.outputs.push_back(out);
+	}
+	for (const wb::OutputSetting &o : ui->other_outputs)
+		s.outputs.push_back(o);
 	return s;
 }
 
@@ -720,7 +931,7 @@ void on_close(GtkButton *, gpointer data) {
 
 /* The default values for one notebook page, set straight onto its widgets.
  * Page order matches build_window: 0 Theme, 1 Appearance, 2 Fonts, 3 Windows,
- * 4 Margins, 5 Menu, 6 Switcher. */
+ * 4 Margins, 5 Menu, 6 Switcher, 7 Desktops, 8 Monitors. */
 void reset_page_widgets(Ui *ui, int page) {
 	switch (page) {
 	case 0:  /* Theme: clear the selection (built-in default theme). */
@@ -740,6 +951,8 @@ void reset_page_widgets(Ui *ui, int page) {
 		break;
 	case 3:  /* Windows */
 		gtk_drop_down_set_selected(ui->placement, 0);  /* Smart */
+		gtk_switch_set_active(ui->edge_tiling, TRUE);
+		gtk_spin_button_set_value(ui->edge_range, 10);
 		break;
 	case 4:  /* Margins */
 		gtk_spin_button_set_value(ui->margin_top, 0);
@@ -758,6 +971,20 @@ void reset_page_widgets(Ui *ui, int page) {
 		gtk_drop_down_set_selected(ui->switcher_order, 0);  /* mru */
 		gtk_switch_set_active(ui->switcher_osd, TRUE);
 		gtk_switch_set_active(ui->switcher_wrap, TRUE);
+		break;
+	case 7:  /* Desktops */
+		gtk_spin_button_set_value(ui->desktops_number, 4);
+		gtk_text_buffer_set_text(gtk_text_view_get_buffer(ui->desktop_names), "", -1);
+		gtk_spin_button_set_value(ui->popup_time, 875);
+		break;
+	case 8:  /* Monitors: everything automatic */
+		for (Ui::Monitor &m : ui->monitors) {
+			gtk_switch_set_active(m.enabled, TRUE);
+			gtk_drop_down_set_selected(m.mode, 0);
+			gtk_drop_down_set_selected(m.scale, 0);
+			gtk_editable_set_text(GTK_EDITABLE(m.position), "");
+			gtk_drop_down_set_selected(m.transform, 0);
+		}
 		break;
 	}
 	preview_refresh(ui);
@@ -861,6 +1088,88 @@ GtkWidget *build_windows_page(Ui *ui) {
 	GtkWidget *grid = section_grid(content);
 	ui->placement = add_dropdown(grid, 0, _("Prefer to place windows:"),
 			kPlacement);
+
+	GtkWidget *tiling = section_grid(section(page, _("Edge Tiling")));
+	ui->edge_tiling = add_switch(tiling, 0, _("Tile windows dragged to a screen edge:"));
+	ui->edge_range = add_spin(tiling, 1, _("Distance from the edge (px):"), 1, 100);
+	return page;
+}
+
+GtkWidget *build_desktops_page(Ui *ui) {
+	GtkWidget *page = make_page();
+	GtkWidget *grid = section_grid(section(page, _("Desktops")));
+	ui->desktops_number = add_spin(grid, 0, _("Number of desktops:"), 1, 64);
+	ui->popup_time = add_spin(grid, 1, _("Show the name after switching (ms, 0 = off):"),
+			0, 10000);
+	gtk_spin_button_set_increments(ui->popup_time, 125, 500);
+
+	GtkWidget *names = section(page, _("Names (one per line)"));
+	GtkWidget *scroller = gtk_scrolled_window_new();
+	gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(scroller), 120);
+	gtk_widget_set_vexpand(scroller, TRUE);
+	GtkWidget *view = gtk_text_view_new();
+	gtk_text_view_set_left_margin(GTK_TEXT_VIEW(view), 6);
+	gtk_text_view_set_top_margin(GTK_TEXT_VIEW(view), 4);
+	ui->desktop_names = GTK_TEXT_VIEW(view);
+	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), view);
+	gtk_box_append(GTK_BOX(names), scroller);
+	return page;
+}
+
+GtkWidget *build_monitors_page(Ui *ui) {
+	GtkWidget *page = make_page();
+	GtkWidget *scroller = gtk_scrolled_window_new();
+	gtk_widget_set_vexpand(scroller, TRUE);
+	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER,
+			GTK_POLICY_AUTOMATIC);
+	GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), inner);
+	gtk_box_append(GTK_BOX(page), scroller);
+
+	GtkWidget *note = gtk_label_new(_("Applied when a monitor is connected and on "
+			"reload. While kanshi (or another output manager) runs, its profiles "
+			"win; a monitor it changed keeps that for the session."));
+	gtk_label_set_wrap(GTK_LABEL(note), TRUE);
+	gtk_label_set_xalign(GTK_LABEL(note), 0);
+	gtk_widget_add_css_class(note, "dim-label");
+	gtk_box_append(GTK_BOX(inner), note);
+
+	std::string why;
+	auto monitors = query_monitors(&why);
+	if (!monitors || monitors->empty()) {
+		GtkWidget *msg = gtk_label_new(why.c_str());
+		gtk_label_set_wrap(GTK_LABEL(msg), TRUE);
+		gtk_label_set_xalign(GTK_LABEL(msg), 0);
+		gtk_box_append(GTK_BOX(inner), msg);
+		return page;
+	}
+	ui->monitors.reserve(monitors->size());
+	for (const MonitorInfo &info : *monitors) {
+		std::string title = info.name;
+		if (!info.description.empty())
+			title += "  " + info.description;
+		GtkWidget *grid = section_grid(section(inner, title.c_str()));
+		Ui::Monitor m;
+		m.name = info.name;
+		m.enabled = add_switch(grid, 0, _("On:"));
+		m.modes.push_back("");
+		for (const std::string &v : info.modes)
+			m.modes.push_back(v);
+		grid_label(grid, 1, _("Mode:"));
+		m.mode = values_dropdown(m.modes);
+		grid_control(grid, 1, GTK_WIDGET(m.mode));
+		m.scales = {"", "1", "1.25", "1.5", "1.75", "2", "2.5", "3"};
+		grid_label(grid, 2, _("Scale:"));
+		m.scale = values_dropdown(m.scales);
+		grid_control(grid, 2, GTK_WIDGET(m.scale));
+		grid_label(grid, 3, _("Position (x,y):"));
+		m.position = GTK_ENTRY(grid_control(grid, 3, gtk_entry_new()));
+		gtk_entry_set_placeholder_text(m.position, _("Automatic"));
+		grid_label(grid, 4, _("Rotation:"));
+		m.transform = values_dropdown(kTransforms);
+		grid_control(grid, 4, GTK_WIDGET(m.transform));
+		ui->monitors.push_back(std::move(m));
+	}
 	return page;
 }
 
@@ -931,6 +1240,8 @@ void build_window(GtkApplication *app, Ui *ui) {
 	add_tab(notebook, build_margins_page(ui), _("Margins"));
 	add_tab(notebook, build_menu_page(ui), _("Menu"));
 	add_tab(notebook, build_switcher_page(ui), _("Switcher"));
+	add_tab(notebook, build_desktops_page(ui), _("Desktops"));
+	add_tab(notebook, build_monitors_page(ui), _("Monitors"));
 
 	/* Action row + status line. */
 	GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
