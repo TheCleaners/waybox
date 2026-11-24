@@ -60,6 +60,10 @@
          game asks to keep them on). Unset or 0: never.
     <idle screenOff="600"/>
     -->
+    <!-- A focused VM viewer or remote desktop may take the keyboard
+         shortcuts (Super+Escape takes them back); "no" never lets it.
+    <shortcutsInhibit allow="yes"/>
+    -->
     <!-- Let a fullscreen game that asks for it (vsync off) show frames
          without waiting for the display's refresh: lower latency, with
          tearing. Needs GPU and driver support; off unless set.

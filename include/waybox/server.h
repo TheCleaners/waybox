@@ -33,6 +33,7 @@
 namespace wb { class MenuWidget; class SwitcherWidget; class DesktopPopup; }
 struct wb_session_lock_state;
 struct wb_startup_state;
+struct wb_shortcuts_inhibit_state;
 struct wb_workspace_state;
 
 struct wb_input_method_relay;
@@ -51,6 +52,11 @@ struct wb_server {
 	struct wlr_drm_lease_v1_manager *drm_lease_manager = nullptr;
 	/* tearing-control-v1: games ask for unsynchronised flips. */
 	struct wlr_tearing_control_manager_v1 *tearing_control = nullptr;
+	/* keyboard-shortcuts-inhibit-v1 (shortcuts_inhibit.cpp) */
+	struct wlr_keyboard_shortcuts_inhibit_manager_v1 *shortcuts_inhibit = nullptr;
+	struct wb_shortcuts_inhibit_state *shortcuts_inhibit_state = nullptr;
+	wb::Listener new_shortcuts_inhibitor;
+	wb::Listener keyboard_focus_change;
 	wb::Listener drm_lease_request;
 	wb::Listener output_power_set_mode;
 	struct wlr_idle_inhibit_manager_v1 *idle_inhibit_manager;
