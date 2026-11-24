@@ -7,6 +7,8 @@
 #include <string_view>
 #include <vector>
 
+#include <sys/types.h>
+
 #include <cairo.h>
 
 #include "waybox/wlroots.hpp"
@@ -67,6 +69,21 @@ private:
 		int parent_item = -1;  /* the submenu item in the parent that opened it */
 		int hovered = -1;
 		int icon_col = 0;  /* this menu's icon column width (0 if no icons) */
+		/* Pipe menu id whose output this level is waiting for (it shows the
+		 * "Loading…" placeholder until then), or empty. */
+		std::string pending_id;
+	};
+
+	/* A running pipe-menu command (see start_pipe). */
+	struct PipeJob {
+		MenuWidget *owner = nullptr;
+		std::string id;
+		std::string label;
+		pid_t pid = -1;
+		int fd = -1;
+		struct wl_event_source *read_source = nullptr;
+		struct wl_event_source *timer = nullptr;
+		std::string output;
 	};
 
 	int text_width(std::string_view label) const;
@@ -77,6 +94,18 @@ private:
 	void close_below(size_t keep);  /* close levels deeper than index `keep` */
 	void open_submenu(size_t level_index, int item_index);
 	int menu_icon_column(const Menu *menu);
+
+	/* Look `id` up in finished pipe-menu output first, then in menu.xml. */
+	const Menu *find_menu(std::string_view id) const;
+	/* Run a pipe menu's command (unless already running or done); its output
+	 * replaces the placeholder via finish_pipe(). */
+	void start_pipe(const Menu &menu);
+	void finish_pipe(PipeJob *job, bool ok);
+	void stop_pipe(PipeJob *job);
+	/* Re-open whatever level is showing the placeholder for pipe menu `id`. */
+	void refresh_pending(const std::string &id);
+	static int on_pipe_readable(int fd, uint32_t mask, void *data);
+	static int on_pipe_timeout(void *data);
 	cairo_surface_t *icon_surface(const std::string &name);
 
 	struct wb_server *server_;
@@ -91,6 +120,15 @@ private:
 	std::map<std::string, cairo_surface_t *> icon_cache_;  /* owned surfaces */
 	std::vector<Level> levels_;
 	std::vector<Action> pending_;  /* actions of a chosen entry, for the caller */
+
+	/* Pipe menus: finished output (per pipe menu id, kept while the menu is
+	 * open; re-run the next time it opens, as Openbox does), running jobs,
+	 * and the placeholder shown meanwhile. */
+	std::map<std::string, std::unique_ptr<MenuFile>> pipe_results_;
+	std::map<std::string, std::unique_ptr<PipeJob>> pipe_jobs_;
+	Menu loading_menu_;
+	std::string root_id_;
+	int root_x_ = 0, root_y_ = 0;
 };
 
 }  // namespace wb

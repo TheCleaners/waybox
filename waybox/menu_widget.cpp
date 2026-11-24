@@ -6,8 +6,13 @@
 #include "waybox/menu_widget.hpp"
 
 #include <algorithm>
+#include <cerrno>
+#include <csignal>
 #include <cstdlib>
+#include <fcntl.h>
 #include <fstream>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include <cairo.h>
 
@@ -110,9 +115,17 @@ MenuWidget::MenuWidget(struct wb_server *server, const MenuFile &menus,
 	tree_ = wlr_scene_tree_create(&server_->scene->tree);
 	wlr_scene_node_raise_to_top(&tree_->node);
 	session_lock_keep_on_top(server_);
+
+	MenuItem loading;
+	loading.kind = MenuItem::Kind::Separator;
+	loading.label = "Loading…";
+	loading_menu_.items.push_back(std::move(loading));
 }
 
 MenuWidget::~MenuWidget() {
+	/* Stop running pipe-menu commands: nothing will read their output. */
+	while (!pipe_jobs_.empty())
+		stop_pipe(pipe_jobs_.begin()->second.get());
 	levels_.clear();  /* destroy canvases (scene buffers) before their tree */
 	for (auto &[name, surf] : icon_cache_) {
 		if (surf != nullptr)
@@ -248,9 +261,18 @@ void MenuWidget::push_menu(const Menu *menu, const Rect &rect, int parent_item) 
 }
 
 bool MenuWidget::open(std::string_view root_id, int lx, int ly) {
-	const Menu *menu = menus_.find(root_id);
+	const Menu *menu = find_menu(root_id);
 	if (menu == nullptr)
 		return false;
+	root_id_ = std::string(root_id);
+	root_x_ = lx;
+	root_y_ = ly;
+	std::string pending;
+	if (!menu->execute.empty()) {
+		pending = menu->id;
+		start_pipe(*menu);
+		menu = &loading_menu_;
+	}
 	MenuMetrics m = metrics_;
 	m.icon_column = menu_icon_column(menu);
 	MenuLayout layout = layout_menu(*menu, m,
@@ -258,6 +280,7 @@ bool MenuWidget::open(std::string_view root_id, int lx, int ly) {
 	Rect bounds = output_bounds(lx, ly);
 	Rect rect = place_root_menu(lx, ly, layout.width, layout.height, bounds);
 	push_menu(menu, rect, -1);
+	levels_.back().pending_id = pending;
 	return true;
 }
 
@@ -335,7 +358,7 @@ void MenuWidget::close_below(size_t keep) {
 void MenuWidget::open_submenu(size_t level_index, int item_index) {
 	Level &parent = levels_[level_index];
 	const MenuItem &item = parent.menu->items[item_index];
-	const Menu *submenu = menus_.find(item.submenu_id);
+	const Menu *submenu = find_menu(item.submenu_id);
 	if (submenu == nullptr)
 		return;
 
@@ -344,6 +367,14 @@ void MenuWidget::open_submenu(size_t level_index, int item_index) {
 			levels_[level_index + 1].parent_item == item_index)
 		return;
 	close_below(level_index);
+
+	/* A pipe menu whose output isn't in yet: run it, show a placeholder. */
+	std::string pending;
+	if (!submenu->execute.empty()) {
+		pending = submenu->id;
+		start_pipe(*submenu);
+		submenu = &loading_menu_;
+	}
 
 	MenuMetrics m = metrics_;
 	m.icon_column = menu_icon_column(submenu);
@@ -354,6 +385,160 @@ void MenuWidget::open_submenu(size_t level_index, int item_index) {
 	Rect rect = place_submenu(parent.rect, parent.rect.y + ir.y,
 			layout.width, layout.height, bounds, style_.panel.border.width);
 	push_menu(submenu, rect, item_index);
+	levels_.back().pending_id = pending;
+}
+
+const Menu *MenuWidget::find_menu(std::string_view id) const {
+	for (const auto &[pipe_id, file] : pipe_results_) {
+		if (const Menu *m = file->find(id))
+			return m;
+	}
+	return menus_.find(id);
+}
+
+void MenuWidget::start_pipe(const Menu &menu) {
+	if (pipe_jobs_.count(menu.id) || pipe_results_.count(menu.id))
+		return;
+	int fds[2];
+	if (pipe2(fds, O_CLOEXEC) != 0) {
+		wlr_log(WLR_ERROR, "pipe menu %s: pipe: %s", menu.id.c_str(), strerror(errno));
+		return;
+	}
+	pid_t pid = fork();
+	if (pid < 0) {
+		wlr_log(WLR_ERROR, "pipe menu %s: fork: %s", menu.id.c_str(), strerror(errno));
+		close(fds[0]);
+		close(fds[1]);
+		return;
+	}
+	if (pid == 0) {
+		/* As wb_spawn: don't inherit the compositor's blocked signals. */
+		sigset_t none;
+		sigemptyset(&none);
+		sigprocmask(SIG_SETMASK, &none, nullptr);
+		/* Own process group, so a timeout can stop the whole command
+		 * (sh -c, the script, and anything it started), not just sh. */
+		setpgid(0, 0);
+		dup2(fds[1], STDOUT_FILENO);
+		int devnull = ::open("/dev/null", O_RDONLY);
+		if (devnull >= 0)
+			dup2(devnull, STDIN_FILENO);
+		execl("/bin/sh", "/bin/sh", "-c", menu.execute.c_str(), (char *) nullptr);
+		_exit(127);
+	}
+	setpgid(pid, pid);  /* also from the parent, so there is no race */
+	close(fds[1]);
+	fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL) | O_NONBLOCK);
+
+	auto job = std::make_unique<PipeJob>();
+	job->owner = this;
+	job->id = menu.id;
+	job->label = menu.label;
+	job->pid = pid;
+	job->fd = fds[0];
+	job->read_source = wl_event_loop_add_fd(server_->wl_event_loop, job->fd,
+			WL_EVENT_READABLE, &MenuWidget::on_pipe_readable, job.get());
+	job->timer = wl_event_loop_add_timer(server_->wl_event_loop,
+			&MenuWidget::on_pipe_timeout, job.get());
+	/* A pipe menu that takes longer than this is treated as failed. */
+	wl_event_source_timer_update(job->timer, 5000);
+	pipe_jobs_[menu.id] = std::move(job);
+}
+
+int MenuWidget::on_pipe_readable(int fd, uint32_t mask, void *data) {
+	auto *job = static_cast<PipeJob *>(data);
+	/* Pipe menus are small; refuse runaway output. */
+	constexpr size_t kMaxOutput = 1 << 20;
+	char buf[8192];
+	for (;;) {
+		ssize_t n = read(fd, buf, sizeof(buf));
+		if (n > 0) {
+			job->output.append(buf, static_cast<size_t>(n));
+			if (job->output.size() > kMaxOutput) {
+				wlr_log(WLR_ERROR, "pipe menu %s: output over %zu bytes",
+						job->id.c_str(), kMaxOutput);
+				job->owner->finish_pipe(job, false);
+				return 0;
+			}
+			continue;
+		}
+		if (n == 0) {  /* EOF: the command closed its output */
+			job->owner->finish_pipe(job, true);
+			return 0;
+		}
+		if (errno == EINTR)
+			continue;
+		if (errno == EAGAIN || errno == EWOULDBLOCK)
+			return 0;  /* more later */
+		job->owner->finish_pipe(job, false);
+		return 0;
+	}
+}
+
+int MenuWidget::on_pipe_timeout(void *data) {
+	auto *job = static_cast<PipeJob *>(data);
+	wlr_log(WLR_ERROR, "pipe menu %s: no complete output after 5s", job->id.c_str());
+	job->owner->finish_pipe(job, false);
+	return 0;
+}
+
+void MenuWidget::stop_pipe(PipeJob *job) {
+	if (job->read_source != nullptr)
+		wl_event_source_remove(job->read_source);
+	if (job->timer != nullptr)
+		wl_event_source_remove(job->timer);
+	if (job->fd >= 0)
+		close(job->fd);
+	if (job->pid > 0) {
+		/* Done or abandoned either way: if it is still running, stop its
+		 * whole process group, then reap it. */
+		if (waitpid(job->pid, nullptr, WNOHANG) == 0) {
+			kill(-job->pid, SIGKILL);
+			waitpid(job->pid, nullptr, 0);
+		}
+	}
+	pipe_jobs_.erase(job->id);  /* frees job */
+}
+
+void MenuWidget::finish_pipe(PipeJob *job, bool ok) {
+	std::string id = job->id;
+	auto file = std::make_unique<MenuFile>();
+	if (ok)
+		*file = parse_pipe_menu(job->output, id, job->label);
+	if (file->find(id) == nullptr) {
+		/* Failed, timed out or not a pipe menu document: say so in place. */
+		wlr_log(WLR_ERROR, "pipe menu %s: no usable output", id.c_str());
+		Menu failed;
+		failed.id = id;
+		failed.label = job->label;
+		MenuItem note;
+		note.kind = MenuItem::Kind::Separator;
+		note.label = "(pipe menu failed)";
+		failed.items.push_back(std::move(note));
+		file = std::make_unique<MenuFile>();
+		file->menus.push_back(std::move(failed));
+	}
+	stop_pipe(job);
+	pipe_results_[id] = std::move(file);
+	refresh_pending(id);
+}
+
+void MenuWidget::refresh_pending(const std::string &id) {
+	for (size_t depth = 0; depth < levels_.size(); depth++) {
+		if (levels_[depth].pending_id != id)
+			continue;
+		if (depth == 0) {
+			/* The root itself was a pipe menu: reopen it in place. */
+			levels_.clear();
+			open(root_id_, root_x_, root_y_);
+		} else {
+			size_t parent = depth - 1;
+			int item = levels_[depth].parent_item;
+			close_below(parent);
+			open_submenu(parent, item);
+		}
+		return;
+	}
 }
 
 void MenuWidget::on_motion(double lx, double ly) {

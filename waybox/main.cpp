@@ -105,9 +105,11 @@ int main(int argc, char **argv) {
 		exit(EXIT_FAILURE);
 	}
 
+	struct wl_event_source *signal_sources[4];
+	int n_signal_sources = 0;
 	for (int sig : {SIGINT, SIGTERM, SIGUSR1, SIGUSR2}) {
-		wl_event_loop_add_signal(server.wl_event_loop, sig, handle_signal,
-				&server);
+		signal_sources[n_signal_sources++] = wl_event_loop_add_signal(
+				server.wl_event_loop, sig, handle_signal, &server);
 	}
 
 	if (startup_cmd) {
@@ -115,6 +117,12 @@ int main(int argc, char **argv) {
 	}
 
 	wl_display_run(server.wl_display);
+
+	/* Event sources are not freed with the loop; remove them first. */
+	for (int i = 0; i < n_signal_sources; i++) {
+		if (signal_sources[i] != nullptr)
+			wl_event_source_remove(signal_sources[i]);
+	}
 
 	wb_terminate(&server);
 

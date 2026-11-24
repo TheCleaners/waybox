@@ -56,14 +56,12 @@ bool has_element_children(xmlNode *node) {
 	return false;
 }
 
-/* Parse a <menu> definition into a Menu, registering nested menu definitions
- * into `file` and adding submenu references to the parent's items. */
-void parse_menu_node(xmlNode *menu_node, MenuFile &file) {
-	Menu menu;
-	menu.id = attr(menu_node, "id");
-	menu.label = attr(menu_node, "label");
+void parse_menu_node(xmlNode *menu_node, MenuFile &file);
 
-	for (xmlNode *c = menu_node->children; c; c = c->next) {
+/* Parse the items, separators and submenus under `parent` into `menu`,
+ * registering nested menu definitions into `file`. */
+void parse_menu_children(xmlNode *parent, Menu &menu, MenuFile &file) {
+	for (xmlNode *c = parent->children; c; c = c->next) {
 		if (c->type != XML_ELEMENT_NODE)
 			continue;
 		const char *tag = reinterpret_cast<const char *>(c->name);
@@ -81,11 +79,12 @@ void parse_menu_node(xmlNode *menu_node, MenuFile &file) {
 			item.label = attr(c, "label");
 			menu.items.push_back(std::move(item));
 		} else if (strcmp(tag, "menu") == 0) {
-			/* A <menu> with a label or children defines a submenu; a bare
-			 * <menu id="..."/> just references one. Either way it shows as a
-			 * submenu item pointing at the id. */
+			/* A <menu> with a label, children or a pipe command defines a
+			 * submenu; a bare <menu id="..."/> just references one. Either
+			 * way it shows as a submenu item pointing at the id. */
 			std::string sub_id = attr(c, "id");
-			if (has_element_children(c) || attr(c, "label")[0] != '\0')
+			if (has_element_children(c) || attr(c, "label")[0] != '\0' ||
+					attr(c, "execute")[0] != '\0')
 				parse_menu_node(c, file);
 			MenuItem item;
 			item.kind = MenuItem::Kind::Submenu;
@@ -95,7 +94,17 @@ void parse_menu_node(xmlNode *menu_node, MenuFile &file) {
 			menu.items.push_back(std::move(item));
 		}
 	}
+}
 
+/* Parse a <menu> definition into a Menu, registering nested menu definitions
+ * into `file` and adding submenu references to the parent's items. */
+void parse_menu_node(xmlNode *menu_node, MenuFile &file) {
+	Menu menu;
+	menu.id = attr(menu_node, "id");
+	menu.label = attr(menu_node, "label");
+	menu.execute = attr(menu_node, "execute");
+	if (menu.execute.empty())
+		parse_menu_children(menu_node, menu, file);
 	file.menus.push_back(std::move(menu));
 }
 
@@ -114,6 +123,25 @@ MenuFile parse_menu_xml(std::string_view contents) {
 					strcmp(reinterpret_cast<const char *>(c->name), "menu") == 0)
 				parse_menu_node(c, file);
 		}
+	}
+	xmlFreeDoc(doc);
+	return file;
+}
+
+MenuFile parse_pipe_menu(std::string_view contents, const std::string &id,
+		const std::string &label) {
+	MenuFile file;
+	xmlDoc *doc = xmlReadMemory(contents.data(), static_cast<int>(contents.size()),
+			"pipe-menu", nullptr, XML_PARSE_NONET | XML_PARSE_NOERROR |
+			XML_PARSE_NOWARNING);
+	if (doc == nullptr)
+		return file;
+	if (xmlNode *root = xmlDocGetRootElement(doc)) {
+		Menu menu;
+		menu.id = id;
+		menu.label = label;
+		parse_menu_children(root, menu, file);
+		file.menus.push_back(std::move(menu));
 	}
 	xmlFreeDoc(doc);
 	return file;

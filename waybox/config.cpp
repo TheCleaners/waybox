@@ -152,8 +152,11 @@ static std::string action_command(xmlNode *action_node) {
 	for (xmlNode *child = action_node->children; child; child = child->next) {
 		if (child->type != XML_ELEMENT_NODE)
 			continue;
+		/* <menu> is Openbox's spelling of ShowMenu's argument
+		 * (<action name="ShowMenu"><menu>root-menu</menu></action>). */
 		if (strcmp((char *) child->name, "command") == 0 ||
-				strcmp((char *) child->name, "execute") == 0) {
+				strcmp((char *) child->name, "execute") == 0 ||
+				strcmp((char *) child->name, "menu") == 0) {
 			if (child->children && child->children->content)
 				return (const char *) child->children->content;
 		}
