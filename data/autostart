@@ -22,6 +22,31 @@ cairo-dock &
 # Start a notification daemon
 mako &
 
+# Start a polkit authentication agent: it asks for your password when a
+# program needs more privileges (mounting a drive, changing system
+# settings). Each desktop's agent autostarts only in that desktop, so start
+# the first one installed.
+start_polkit_agent()
+{
+    for agent in \
+        /usr/lib/*/libexec/polkit-kde-authentication-agent-1 \
+        /usr/libexec/polkit-kde-authentication-agent-1 \
+        /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 \
+        /usr/libexec/polkit-gnome-authentication-agent-1 \
+        /usr/lib/policykit-1-gnome/polkit-gnome-authentication-agent-1 \
+        /usr/libexec/polkit-mate-authentication-agent-1 \
+        /usr/lib/mate-polkit/polkit-mate-authentication-agent-1 \
+        /usr/libexec/xfce-polkit \
+        lxqt-policykit-agent lxpolkit soteria
+    do
+        if command -v "$agent" >/dev/null 2>&1; then
+            "$agent" &
+            return
+        fi
+    done
+}
+start_polkit_agent
+
 # Load a random wallpaper
 get_random_wallpaper()
 {
