@@ -83,6 +83,10 @@ extern "C" {
 #include <wlr/types/wlr_xdg_output_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/types/wlr_xdg_toplevel_icon_v1.h>
+#include <wlr/types/wlr_xdg_dialog_v1.h>
+#include <wlr/types/wlr_xdg_foreign_registry.h>
+#include <wlr/types/wlr_xdg_foreign_v1.h>
+#include <wlr/types/wlr_xdg_foreign_v2.h>
 #include <wlr/util/box.h>
 #include <wlr/util/region.h>
 #if WLR_HAS_XWAYLAND

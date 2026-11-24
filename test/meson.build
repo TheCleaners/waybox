@@ -263,6 +263,20 @@ if python.found() and not get_option('tests_only')
     ],
     dependencies: [dependency('wayland-client')],
     )
+  # Two programs, one exporting a window and one attaching a dialog to it,
+  # for the dialogs test (xdg-foreign, xdg-dialog).
+  foreign_xml = wl_protocol_dir / 'unstable/xdg-foreign/xdg-foreign-unstable-v2.xml'
+  dialog_xml = wl_protocol_dir / 'staging/xdg-dialog/xdg-dialog-v1.xml'
+  dialog_client = executable(
+    'dialog_client',
+    [
+      'integration' / 'dialog_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml, foreign_xml, dialog_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml, foreign_xml, dialog_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # A security-context-v1 "sandbox engine" for the sandbox test.
   security_context_xml = wl_protocol_dir / 'staging/security-context/security-context-v1.xml'
   sandbox_client = executable(
@@ -299,6 +313,7 @@ if python.found() and not get_option('tests_only')
     ['color_management', 'color_management_test.py', [], 90],
     ['config_errors', 'config_errors_test.py', [], 60],
     ['desktop_popup', 'desktop_popup_test.py', [], 60],
+    ['dialogs', 'dialogs_test.py', [dialog_client], 60],
     ['desktops', 'desktops_test.py', [], 90],
     ['edge_tiling', 'edge_tiling_test.py', [], 90],
     ['foreign_toplevel', 'foreign_toplevel_test.py', [default_rc], 60],

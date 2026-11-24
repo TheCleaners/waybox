@@ -200,6 +200,35 @@ struct wb_toplevel *view_parent(struct wb_toplevel *t) {
 	return toplevel_from_surface(t->server, parent_surface);
 }
 
+bool view_is_modal(struct wb_toplevel *t) {
+#if WLR_HAS_XWAYLAND
+	if (is_x11(t))
+		return t->xsurface->modal;
+#endif
+	if (t->xdg_toplevel == nullptr)
+		return false;
+	struct wlr_xdg_dialog_v1 *dialog =
+			wlr_xdg_dialog_v1_try_from_wlr_xdg_toplevel(t->xdg_toplevel);
+	return dialog != nullptr && dialog->modal;
+}
+
+struct wb_toplevel *view_modal_child(struct wb_toplevel *t) {
+	struct wb_toplevel *found = nullptr;
+	for (int depth = 0; depth < 8; depth++) {  /* parent cycles can't loop */
+		struct wb_toplevel *next = nullptr, *c;
+		wl_list_for_each(c, &t->server->toplevels, link)
+			if (c != t && c->mapped && !c->minimized && view_parent(c) == t &&
+					view_is_modal(c)) {
+				next = c;
+				break;
+			}
+		if (next == nullptr)
+			break;
+		found = t = next;
+	}
+	return found;
+}
+
 struct wb_toplevel *toplevel_from_surface(struct wb_server *server,
 		struct wlr_surface *surface) {
 	if (surface == nullptr)

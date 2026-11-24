@@ -147,6 +147,11 @@ void view_set_minimized(struct wb_toplevel *toplevel, bool minimized);
 void view_close(struct wb_toplevel *toplevel);
 /* The window this one is a dialog/transient for, if it is one of ours. */
 struct wb_toplevel *view_parent(struct wb_toplevel *toplevel);
+/* A modal dialog: xdg-dialog's set_modal, or X11's _NET_WM_STATE_MODAL. */
+bool view_is_modal(struct wb_toplevel *toplevel);
+/* The mapped modal dialog in front of `toplevel` (the innermost, when a
+ * modal dialog has its own), or null. */
+struct wb_toplevel *view_modal_child(struct wb_toplevel *toplevel);
 /* The wb_toplevel whose main surface is `surface`, or null. */
 struct wb_toplevel *toplevel_from_surface(struct wb_server *server,
 		struct wlr_surface *surface);

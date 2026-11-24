@@ -71,7 +71,7 @@ For background, see
 | Area | Protocols |
 |---|---|
 | Displays | `wlr-output-management` (wlr-randr, kanshi), per-monitor settings in `rc.xml` (`<waybox><outputs>`), `wp-fractional-scale` (sharp text in foot and others at 1.25×, 1.5× and so on), `xdg-output`, `gamma-control` |
-| Shell | `xdg-shell`, `xdg-decoration`, `layer-shell`, `xdg-activation`, `xdg-toplevel-icon` |
+| Shell | `xdg-shell`, `xdg-decoration`, `layer-shell`, `xdg-activation`, `xdg-toplevel-icon`, `xdg-dialog` (modal dialogs take focus from their window), `xdg-foreign` (dialogs of other programs, such as portal file choosers, centred over their window) |
 | Security | `ext-session-lock` (swaylock); virtual keyboard and pointer, ignored while locked by default (`<virtualInput>`); `security-context` (programs in Flatpak and other sandboxes don't get capture, input injection, background clipboard, window control, layer-shell, locking or output control) |
 | Taskbars | `wlr-foreign-toplevel-management`, `ext-foreign-toplevel-list`, `ext-workspace` (desktops in Waybar) |
 | Input | `pointer-constraints`, `relative-pointer` (pointer lock for games, held only while the window has keyboard focus); `text-input-v3` and `input-method-v2` (input methods such as fcitx5 and ibus, with their candidate popups at the text cursor) |
