@@ -329,6 +329,29 @@ example:
 export WLR_DRM_DEVICES=/dev/dri/card0:/dev/dri/card1
 @end example
 
+@cindex HDR
+@cindex colour management
+@section Colour management and HDR
+Programs that describe their colours, such as video players and image
+editors, are shown correctly on each monitor when Waybox uses the Vulkan
+renderer.  To switch to it, add this to your environment file:
+
+@example
+export WLR_RENDERER=vulkan
+@end example
+
+wlroots, the library Waybox is built on, still calls its Vulkan renderer
+experimental.  With it, a monitor that supports HDR10 can be driven in
+HDR: list it in @file{rc.xml},
+
+@example
+<waybox><hdr outputs="HDMI-A-1"/></waybox>
+@end example
+
+@noindent
+and restart Waybox.  If the monitor refuses HDR, it stays in SDR and the
+log says why.  Monitor names are those @command{wlr-randr} shows.
+
 @node Index
 @unnumbered Index
 

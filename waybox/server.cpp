@@ -84,9 +84,57 @@ void wb_reconfigure(struct wb_server *server) {
 		}
 	}
 	desktops_reconfigured(server);
+	/* <hdr outputs=...> may have changed. */
+	struct wb_output *output;
+	wl_list_for_each(output, &server->outputs, link) {
+		struct wlr_output_state state;
+		wlr_output_state_init(&state);
+		apply_output_color(server, output->wlr_output, &state);
+		wlr_output_commit_state(output->wlr_output, &state);
+		wlr_output_state_finish(&state);
+	}
 	workspace_schedule_sync(server);  /* names or count may have changed */
 	arrange_toplevels(server);
 	wlr_log(WLR_INFO, "%s", _("Reconfigured"));
+}
+
+/* Colour management (color-management-v1, color-representation-v1): clients
+ * describe their colour spaces, and the scene converts them for each
+ * output. Needs a renderer that applies colour transforms (Vulkan). */
+static void init_color_management(struct wb_server *server) {
+#if WLR_CHECK_VERSION(0, 20, 0)
+	if (!server->renderer->features.input_color_transform) {
+		wlr_log(WLR_INFO, "%s", _("Colour management needs the Vulkan renderer (WLR_RENDERER=vulkan)"));
+		return;
+	}
+	const enum wp_color_manager_v1_render_intent intents[] = {
+		WP_COLOR_MANAGER_V1_RENDER_INTENT_PERCEPTUAL,
+	};
+	size_t n_tf = 0, n_primaries = 0;
+	enum wp_color_manager_v1_transfer_function *tfs =
+			wlr_color_manager_v1_transfer_function_list_from_renderer(
+					server->renderer, &n_tf);
+	enum wp_color_manager_v1_primaries *primaries =
+			wlr_color_manager_v1_primaries_list_from_renderer(
+					server->renderer, &n_primaries);
+	struct wlr_color_manager_v1_options options = {};
+	options.features.parametric = true;
+	options.features.set_mastering_display_primaries = true;
+	options.render_intents = intents;
+	options.render_intents_len = sizeof(intents) / sizeof(intents[0]);
+	options.transfer_functions = tfs;
+	options.transfer_functions_len = n_tf;
+	options.primaries = primaries;
+	options.primaries_len = n_primaries;
+	server->color_manager = wlr_color_manager_v1_create(server->wl_display, 1, &options);
+	free(tfs);
+	free(primaries);
+	wlr_color_representation_manager_v1_create_with_renderer(server->wl_display, 1,
+			server->renderer);
+	wlr_log(WLR_INFO, "%s", _("Colour management enabled"));
+#else
+	(void) server;
+#endif
 }
 
 bool wb_create_backend(struct wb_server* server) {
@@ -118,6 +166,9 @@ bool wb_create_backend(struct wb_server* server) {
          * can also specify a renderer using the WLR_RENDERER env var.
          * The renderer is responsible for defining the various pixel formats it
          * supports for shared memory, this configures that for clients. */
+	/* wlroots picks the renderer (WLR_RENDERER overrides it). Colour
+	 * management and HDR need the Vulkan renderer, which wlroots still
+	 * calls experimental, so it is opt-in: WLR_RENDERER=vulkan. */
 	server->renderer = wlr_renderer_autocreate(server->backend);
 	if (server->renderer == NULL) {
 		wlr_log(WLR_ERROR, "%s", _("Failed to create renderer"));
@@ -125,6 +176,7 @@ bool wb_create_backend(struct wb_server* server) {
 	}
 
 	wlr_renderer_init_wl_display(server->renderer, server->wl_display);
+	init_color_management(server);
 
 	/* Explicit sync (linux-drm-syncobj-v1): clients pass GPU fences with
 	 * their buffers instead of relying on implicit sync, which NVIDIA's
@@ -188,6 +240,10 @@ bool wb_start_server(struct wb_server* server) {
 	 * necessary.
 	 */
 	server->scene = wlr_scene_create();
+#if WLR_CHECK_VERSION(0, 20, 0)
+	if (server->color_manager != nullptr)
+		wlr_scene_set_color_manager_v1(server->scene, server->color_manager);
+#endif
 	server->scene_layout =
 		wlr_scene_attach_output_layout(server->scene, server->output_layout);
 	/* The toplevel container. Created up-front so per-output layer trees (made

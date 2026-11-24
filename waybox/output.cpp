@@ -1,3 +1,4 @@
+#include <drm_fourcc.h>
 #include <math.h>
 
 #include "waybox/wlroots.hpp"
@@ -34,6 +35,50 @@ static float compute_default_scale(struct wlr_output *output,
 		scale = 3.0;
 	}
 	return (float) scale;
+}
+
+/* Add HDR10 (BT.2020 primaries, the PQ transfer function, a 10-bit buffer)
+ * to `state` when rc.xml lists this output and both the output and the
+ * renderer support it; otherwise ask for the default (SDR). If the HDR
+ * state fails the output's test, fall back to SDR rather than leave the
+ * output dark. */
+void apply_output_color(struct wb_server *server, struct wlr_output *output,
+		struct wlr_output_state *state) {
+#if WLR_CHECK_VERSION(0, 20, 0)
+	bool wanted = false;
+	if (server->config != nullptr)
+		for (const std::string &name : server->config->hdr_outputs)
+			wanted |= name == output->name;
+	bool possible = server->renderer->features.output_color_transform &&
+			(output->supported_primaries & WLR_COLOR_NAMED_PRIMARIES_BT2020) &&
+			(output->supported_transfer_functions & WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ);
+	if (wanted && !possible)
+		wlr_log(WLR_INFO, "%s: %s", output->name,
+				server->renderer->features.output_color_transform
+						? _("the output does not support HDR10")
+						: _("HDR needs the Vulkan renderer (WLR_RENDERER=vulkan)"));
+	if (wanted && possible) {
+		struct wlr_output_image_description hdr = {};
+		hdr.primaries = WLR_COLOR_NAMED_PRIMARIES_BT2020;
+		hdr.transfer_function = WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ;
+		wlr_output_state_set_render_format(state, DRM_FORMAT_XRGB2101010);
+		wlr_output_state_set_image_description(state, &hdr);
+		if (wlr_output_test_state(output, state)) {
+			wlr_log(WLR_INFO, "%s: %s", output->name, _("HDR on"));
+			return;
+		}
+		wlr_log(WLR_ERROR, "%s: %s", output->name, _("HDR refused by the output; using SDR"));
+	}
+	/* Leave the output alone unless it is in HDR now and shouldn't be. */
+	if (output->image_description != nullptr) {
+		wlr_output_state_set_render_format(state, DRM_FORMAT_XRGB8888);
+		wlr_output_state_set_image_description(state, nullptr);
+	}
+#else
+	(void) server;
+	(void) output;
+	(void) state;
+#endif
 }
 
 /* Recompute derived state after an output's configuration changes: refresh the
@@ -93,6 +138,7 @@ static bool apply_output_config(struct wb_server *server,
 			wlr_output_state_set_transform(&state, head->state.transform);
 			wlr_output_state_set_adaptive_sync_enabled(&state,
 					head->state.adaptive_sync_enabled);
+			apply_output_color(server, wlr_output, &state);
 		}
 		if (test_only) {
 			ok = wlr_output_test_state(wlr_output, &state) && ok;
@@ -220,6 +266,7 @@ void new_output_notify(struct wb_server *server, void *data) {
 
 	/* Choose an initial scale based on the display's pixel density. */
 	wlr_output_state_set_scale(&state, compute_default_scale(wlr_output, mode));
+	apply_output_color(server, wlr_output, &state);
 
 	wlr_output_commit_state(wlr_output, &state);
 	wlr_output_state_finish(&state);

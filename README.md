@@ -79,6 +79,7 @@ For background, see
 | Capture | `ext-image-copy-capture` (grim, screen recorders), with whole outputs and single windows as sources (window capture needs wlroots 0.20) |
 | X11 | Xwayland (lazy start, `DISPLAY` exported to the session) |
 | Graphics | `linux-dmabuf` v4, `linux-drm-syncobj` (explicit sync, on the DRM backend) |
+| Colour | `color-management`, `color-representation`, and HDR10 output (`<waybox><hdr>`), with the Vulkan renderer (`WLR_RENDERER=vulkan`) and wlroots 0.20 |
 | Other | `presentation-time`, `viewporter`, `single-pixel-buffer`, `content-type`, `cursor-shape`, `idle-notify`, `idle-inhibit` |
 
 ### Robustness

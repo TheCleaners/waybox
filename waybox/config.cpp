@@ -468,6 +468,26 @@ static void parse_xwayland(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><hdr outputs="NAME NAME..."/> (spaces or commas). */
+static void parse_hdr(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:hdr", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *node = object->nodesetval->nodeTab[0];
+		std::string list = node ? (const char *) get_attribute(node, "outputs") : "";
+		for (char &c : list)
+			if (c == ',')
+				c = ' ';
+		std::istringstream in(list);
+		std::string name;
+		while (in >> name)
+			config->hdr_outputs.push_back(name);
+	}
+	xmlXPathFreeObject(object);
+}
+
 /* Parse <waybox><edgeTiling enabled="yes|no" range="N"/>. */
 static void parse_edge_tiling(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
@@ -686,6 +706,7 @@ bool init_config(struct wb_server *server) {
 	parse_virtual_input(config, ctxt);
 	parse_xwayland(config, ctxt);
 	parse_edge_tiling(config, ctxt);
+	parse_hdr(config, ctxt);
 	parse_titlebar(config, ctxt);
 
 	server->config = config;

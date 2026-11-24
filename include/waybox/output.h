@@ -36,5 +36,8 @@ struct wb_output {
 
 void handle_gamma_control_set_gamma(struct wb_server *server, void *data);
 void init_output(struct wb_server *server);
+/* Set HDR (or SDR) colour state on an output state before committing it. */
+void apply_output_color(struct wb_server *server, struct wlr_output *output,
+		struct wlr_output_state *state);
 
 #endif /* output.h */

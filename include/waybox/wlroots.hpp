@@ -85,6 +85,10 @@ extern "C" {
 #endif
 #include <wlr/util/log.h>
 #include <wlr/version.h>
+#if WLR_VERSION_MINOR >= 20 || WLR_VERSION_MAJOR > 0
+#include <wlr/types/wlr_color_management_v1.h>
+#include <wlr/types/wlr_color_representation_v1.h>
+#endif
 
 #undef class
 #undef namespace
