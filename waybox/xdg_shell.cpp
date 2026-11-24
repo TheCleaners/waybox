@@ -748,6 +748,15 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 		wlr_log(WLR_INFO, "wb-toplevel %s id %s", view_app_id(toplevel),
 				toplevel->foreign_toplevel_handle->identifier);
 
+	/* A client that asked for fullscreen before mapping (foot -F, video
+	 * players, games) was just placed like any window: apply fullscreen
+	 * again, on the monitor it was placed on, with that placement as the
+	 * size to return to. */
+	if (toplevel->fullscreen) {
+		toplevel->fullscreen = false;
+		set_toplevel_fullscreen(toplevel, true);
+	}
+
 	/* Apply requested initial states after the base mapping. */
 	if (rule != nullptr) {
 		if (rule->decor.has_value()) {

@@ -111,9 +111,7 @@ static struct wb_layer_surface *wb_layer_surface_create(
 }
 
 static void handle_surface_commit(struct wb_layer_surface *surface, void *data) {
-	struct wb_toplevel *current_toplevel = first_toplevel(surface->server);
-
-	if (!surface->output || (current_toplevel && current_toplevel->fullscreen)) {
+	if (!surface->output) {
 		return;
 	}
 	wlr_fractional_scale_v1_notify_scale(surface->scene->layer_surface->surface, surface->output->wlr_output->scale);
@@ -138,10 +136,9 @@ static void handle_surface_commit(struct wb_layer_surface *surface, void *data) 
 		wlr_surface_send_frame_done(layer_surface->surface, &now);
 	}
 
-	if (layer_surface->current.layer != ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
-		wlr_scene_node_raise_to_top(&output_layer->node);
-		session_lock_keep_on_top(surface->server);
-	}
+	/* The layer trees keep the stacking they got when the output appeared
+	 * (background and bottom below windows; top, fullscreen and overlay
+	 * above). Raising one here would lift panels over fullscreen windows. */
 
 	if (layer_surface == surface->server->seat->focused_layer) {
 		seat_focus_surface(surface->server->seat.get(), layer_surface->surface);
