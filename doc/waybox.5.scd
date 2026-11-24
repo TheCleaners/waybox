@@ -251,8 +251,8 @@ and *?*; omitted attributes match anything.
 *<hdr>*
 	*outputs* lists outputs (by name, separated by spaces) to drive in
 	HDR10: BT.2020 primaries and the PQ transfer function, 10 bits per
-	channel. It needs the Vulkan renderer (*WLR_RENDERER=vulkan*) and an
-	output that supports HDR10; otherwise, or if the output refuses it,
+	channel. It needs the Vulkan renderer (the default on real displays;
+	see *WLR_RENDERER* in *waybox*(1)) and an output that supports HDR10; otherwise, or if the output refuses it,
 	the output stays in SDR and the log says why. Colour-managed programs
 	(see *waybox*(1)) then show HDR content on it.
 

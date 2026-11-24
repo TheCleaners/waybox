@@ -333,16 +333,13 @@ export WLR_DRM_DEVICES=/dev/dri/card0:/dev/dri/card1
 @cindex colour management
 @section Colour management and HDR
 Programs that describe their colours, such as video players and image
-editors, are shown correctly on each monitor when Waybox uses the Vulkan
-renderer.  To switch to it, add this to your environment file:
+editors, are shown correctly on each monitor.  This needs the Vulkan
+renderer, which Waybox uses by default; if a graphics driver has trouble
+with it, add @code{export WLR_RENDERER=gles2} to your environment file to
+go back to OpenGL, without colour management.
 
-@example
-export WLR_RENDERER=vulkan
-@end example
-
-wlroots, the library Waybox is built on, still calls its Vulkan renderer
-experimental.  With it, a monitor that supports HDR10 can be driven in
-HDR: list it in @file{rc.xml},
+A monitor that supports HDR10 can be driven in HDR: list it in
+@file{rc.xml},
 
 @example
 <waybox><hdr outputs="HDMI-A-1"/></waybox>

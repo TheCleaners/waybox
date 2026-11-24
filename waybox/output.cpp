@@ -56,7 +56,7 @@ void apply_output_color(struct wb_server *server, struct wlr_output *output,
 		wlr_log(WLR_INFO, "%s: %s", output->name,
 				server->renderer->features.output_color_transform
 						? _("the output does not support HDR10")
-						: _("HDR needs the Vulkan renderer (WLR_RENDERER=vulkan)"));
+						: _("HDR needs the Vulkan renderer"));
 	if (wanted && possible) {
 		struct wlr_output_image_description hdr = {};
 		hdr.primaries = WLR_COLOR_NAMED_PRIMARIES_BT2020;

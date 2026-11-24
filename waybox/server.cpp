@@ -104,7 +104,7 @@ void wb_reconfigure(struct wb_server *server) {
 static void init_color_management(struct wb_server *server) {
 #if WLR_CHECK_VERSION(0, 20, 0)
 	if (!server->renderer->features.input_color_transform) {
-		wlr_log(WLR_INFO, "%s", _("Colour management needs the Vulkan renderer (WLR_RENDERER=vulkan)"));
+		wlr_log(WLR_INFO, "%s", _("Colour management needs the Vulkan renderer"));
 		return;
 	}
 	const enum wp_color_manager_v1_render_intent intents[] = {
@@ -166,10 +166,21 @@ bool wb_create_backend(struct wb_server* server) {
          * can also specify a renderer using the WLR_RENDERER env var.
          * The renderer is responsible for defining the various pixel formats it
          * supports for shared memory, this configures that for clients. */
-	/* wlroots picks the renderer (WLR_RENDERER overrides it). Colour
-	 * management and HDR need the Vulkan renderer, which wlroots still
-	 * calls experimental, so it is opt-in: WLR_RENDERER=vulkan. */
-	server->renderer = wlr_renderer_autocreate(server->backend);
+	/* The Vulkan renderer by default when Waybox drives real displays (a
+	 * DRM backend): colour management and HDR need it. Nested and
+	 * headless sessions keep wlroots' choice, since there Vulkan may pick
+	 * another GPU than the one the output buffers come from. WLR_RENDERER
+	 * overrides either; without Vulkan, fall back to the usual choice. */
+	if (getenv("WLR_RENDERER") == nullptr &&
+			wlr_backend_get_drm_fd(server->backend) >= 0) {
+		setenv("WLR_RENDERER", "vulkan", 1);
+		server->renderer = wlr_renderer_autocreate(server->backend);
+		unsetenv("WLR_RENDERER");
+		if (server->renderer == nullptr)
+			wlr_log(WLR_INFO, "%s", _("Vulkan renderer unavailable; using the default"));
+	}
+	if (server->renderer == nullptr)
+		server->renderer = wlr_renderer_autocreate(server->backend);
 	if (server->renderer == NULL) {
 		wlr_log(WLR_ERROR, "%s", _("Failed to create renderer"));
 		return false;

@@ -89,10 +89,11 @@ only; entries limited to other desktops (_OnlyShowIn_) are skipped.
 	Where configuration files, themes and icons are looked up.
 
 *WLR_RENDERER*
-	The renderer: *gles2* (wlroots' usual choice), *vulkan* or *pixman*.
-	Colour management (programs describing their colour spaces, such as
-	video players and image editors) and HDR need *vulkan*, which wlroots
-	still calls experimental.
+	The renderer: *vulkan*, *gles2* or *pixman*. On real displays Waybox
+	uses *vulkan*, falling back to *gles2* when Vulkan is unavailable;
+	nested and headless sessions use wlroots' usual choice. Colour
+	management (programs describing their colour spaces, such as video
+	players and image editors) and HDR need *vulkan*.
 
 *WLR_DRM_DEVICES*
 	Which GPUs to use, colon-separated (e.g. _/dev/dri/card0:/dev/dri/card1_).
