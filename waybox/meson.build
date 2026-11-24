@@ -32,6 +32,7 @@ wb_src = [
     'icon_loader.cpp',
     'idle.cpp',
     'startup_supervisor.cpp',
+    'shortcuts_inhibit.cpp',
     'input_method.cpp',
     'layer_shell.cpp',
     'main.cpp',

@@ -11,6 +11,7 @@
 #include "waybox/wlroots.hpp"
 
 #include "idle.h"
+#include "shortcuts_inhibit.h"
 #include "startup_supervisor.h"
 #include "waybox/workspace.h"
 #include "waybox/xwayland.h"
@@ -84,6 +85,7 @@ void wb_reconfigure(struct wb_server *server) {
 	deinit_config(server->config);
 	server->config = fresh;
 	seat_reconfigure_input(server);  /* keymap, <libinput> */
+	shortcuts_inhibit_update(server);  /* <shortcutsInhibit allow> */
 
 	/* Existing frames were styled from the old theme: rebuild them from the
 	 * new one, then re-fit windows (titlebar height may have changed). */
@@ -356,6 +358,7 @@ bool wb_start_server(struct wb_server* server) {
 	init_xdg_shell(server);
 	init_xwayland(server);  /* after the seat, cursor and config */
 	init_pointer_constraints(server);  /* after the seat and cursor */
+	init_shortcuts_inhibit(server);    /* after the seat */
 	init_input_method(server);
 
 	wlr_fractional_scale_manager_v1_create(server->wl_display, 1);
@@ -392,6 +395,7 @@ bool wb_terminate(struct wb_server* server) {
 	wl_display_destroy_clients(server->wl_display);
 	finish_session_lock(server);
 	workspace_finish(server);
+	finish_shortcuts_inhibit(server);
 	finish_xwayland(server);  /* X11 windows still use the seat and cursor */
 	finish_pointer_constraints(server);
 	finish_input_method(server);

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "idle.h"
+#include "shortcuts_inhibit.h"
 #include "waybox/input_method.h"
 #include "waybox/wlroots.hpp"
 #if WLR_HAS_LIBINPUT_BACKEND && defined(HAS_LIBINPUT)
@@ -678,8 +679,30 @@ void wb_keyboard::on_key(void *data) {
 			idle_activity(server, seat);
 			return;
 		}
-		for (int i = 0; i < nsyms; i++) {
-			handled = handle_keybinding(server, syms[i], modifiers);
+		/* Super+Escape: shortcuts back from (or again to) a program that
+		 * took them (keyboard-shortcuts-inhibit). */
+		bool logo_only = (modifiers & ~WLR_MODIFIER_CAPS & ~WLR_MODIFIER_MOD2) ==
+				WLR_MODIFIER_LOGO;
+		for (int i = 0; i < nsyms && !handled; i++)
+			if (syms[i] == XKB_KEY_Escape && logo_only)
+				handled = shortcuts_inhibit_toggle(server);
+		if (handled) {
+			/* consumed */
+		} else if (shortcuts_inhibited(server)) {
+			/* The focused program has the keys; only VT switching stays. */
+			if ((modifiers & (WLR_MODIFIER_CTRL | WLR_MODIFIER_ALT)) &&
+					server->session != nullptr)
+				for (int i = 0; i < nsyms && !handled; i++)
+					if (syms[i] >= XKB_KEY_XF86Switch_VT_1 &&
+							syms[i] <= XKB_KEY_XF86Switch_VT_12) {
+						wlr_session_change_vt(server->session,
+								syms[i] - XKB_KEY_XF86Switch_VT_1 + 1);
+						handled = true;
+					}
+		} else {
+			for (int i = 0; i < nsyms; i++) {
+				handled = handle_keybinding(server, syms[i], modifiers);
+			}
 		}
 	} else if (server->menu != nullptr || server->switcher != nullptr) {
 		/* Swallow key releases too while a menu or the switcher OSD is up.
