@@ -7,6 +7,7 @@
 #include "waybox/xdg_shell.h"
 #include "decoration.h"
 #include "waybox/workspace.h"
+#include "waybox/menu_widget.hpp"
 
 static void log_geometry(struct wb_toplevel *toplevel, const char *tag);
 
@@ -841,7 +842,13 @@ static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 }
 
 void destroy_toplevel(struct wb_toplevel *toplevel) {
-	toplevel->server->click_tracker.forget(reinterpret_cast<uintptr_t>(toplevel));
+	struct wb_server *srv = toplevel->server;
+	srv->click_tracker.forget(reinterpret_cast<uintptr_t>(toplevel));
+	if (srv->menu_target == toplevel) {
+		/* Its window menu must not act on another window instead. */
+		srv->menu.reset();
+		srv->menu_target = nullptr;
+	}
 	wlr_ext_foreign_toplevel_handle_v1_destroy(toplevel->foreign_toplevel_handle);
 	destroy_foreign_handle(toplevel);  /* no-op if already gone via unmap */
 
@@ -1117,6 +1124,21 @@ static void xdg_toplevel_request_maximize(struct wb_toplevel *toplevel, void *da
 
 static void xdg_toplevel_request_minimize(struct wb_toplevel *toplevel, void *data) {
 	set_toplevel_minimized(toplevel, toplevel->xdg_toplevel->requested.minimized);
+}
+
+void set_toplevel_shaded(struct wb_toplevel *toplevel, bool shaded) {
+	if (shaded == toplevel->shaded)
+		return;
+	/* Nothing to roll up to without a titlebar of ours. */
+	if (shaded && (!toplevel->frame || toplevel->fullscreen))
+		return;
+	toplevel->shaded = shaded;
+	/* The client keeps its size; only its contents are hidden, so rolling
+	 * down shows it exactly as it was. */
+	if (toplevel->surface_tree != nullptr)
+		wlr_scene_node_set_enabled(&toplevel->surface_tree->node, !shaded);
+	update_toplevel_decoration(toplevel);
+	log_geometry(toplevel, shaded ? "shade-on" : "shade-off");
 }
 
 void set_toplevel_minimized(struct wb_toplevel *toplevel, bool minimize_requested) {

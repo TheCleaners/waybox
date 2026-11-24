@@ -107,6 +107,11 @@ Double-click a title bar to maximize the window or restore it,
 middle-click it to lower the window, and scroll on it to roll the window
 up to its title bar and back.
 
+@cindex window menu
+Right-click a title bar, or press @kbd{Alt+Space}, for the window menu:
+send the window to another desktop, minimize, maximize, move, resize, roll
+it up, turn its title bar off, or close it.
+
 @section Tiling
 @cindex tiling
 Drag a window to the edge of a monitor and a translucent preview shows

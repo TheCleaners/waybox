@@ -41,6 +41,9 @@ For background, see
   focus and actions as Wayland ones; dialogs open centred over their parent,
   and menus and tooltips appear where the program puts them. Turn it off
   with `<xwayland enabled="no"/>`.
+- **Window menu**: right-click a title bar or press Alt+Space to send the
+  window to another desktop, minimize, maximize, move, resize, roll it up or
+  close it.
 - **Alt+Tab switcher** with an on-screen list, in most-recently-used order.
 - **Openbox themes** (`themerc`) with per-place fonts.
 - **Edge tiling**: drag a window to a monitor edge to tile it to the left or

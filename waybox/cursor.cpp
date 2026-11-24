@@ -511,8 +511,7 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 		if (dismiss) {
 			std::vector<wb::Action> actions = server->menu->take_actions();
 			server->menu.reset();
-			for (const wb::Action &action : actions)
-				wb::run_action(action, server);
+			wb_run_menu_actions(server, std::move(actions));
 		}
 		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
 		return;

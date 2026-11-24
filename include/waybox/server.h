@@ -119,6 +119,11 @@ struct wb_server {
 
 	/* The open root/context menu (a compositor-drawn input grab), or null. */
 	std::unique_ptr<wb::MenuWidget> menu;
+	/* The window menu's contents (built each time it opens; the widget
+	 * refers to them) and the window it was opened for, which its entries
+	 * act on. */
+	std::unique_ptr<wb::MenuFile> client_menu;
+	struct wb_toplevel *menu_target = nullptr;
 
 	/* The toplevel whose titlebar button is currently held down (for the
 	 * pressed visual + activate-on-release), or null. */
@@ -162,6 +167,9 @@ struct wb_server {
 bool wb_create_backend(struct wb_server *server);
 bool wb_start_server(struct wb_server *server);
 bool wb_terminate(struct wb_server *server);
+/* Run the actions of a chosen menu entry, on the window the menu was
+ * opened for when it was the window menu. */
+void wb_run_menu_actions(struct wb_server *server, std::vector<wb::Action> actions);
 void wb_spawn(const char *cmd);
 /* Reload rc.xml/menu.xml/theme and restyle existing window frames. */
 void wb_reconfigure(struct wb_server *server);
