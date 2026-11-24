@@ -396,7 +396,13 @@ void arrange_toplevels(struct wb_server *server) {
 			toplevel->geometry.x = usable.x;
 		if (toplevel->geometry.y < usable.y)
 			toplevel->geometry.y = usable.y;
+		/* Then keep the whole frame (including a server-side titlebar) out
+		 * of panel-reserved edges. */
+		struct wlr_box before = toplevel->geometry;
+		constrain_toplevel_to_usable_area(toplevel);
 		position_toplevel(toplevel);
+		if (memcmp(&before, &toplevel->geometry, sizeof(before)) != 0)
+			log_geometry(toplevel, "reflow");
 	}
 }
 

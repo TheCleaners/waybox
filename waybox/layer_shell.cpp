@@ -60,7 +60,15 @@ void arrange_layers(struct wb_output *output) {
 	/* Remember the area left over after subtracting layer-shell exclusive
 	 * zones (e.g. a panel like Waybar) so that toplevels can be placed and
 	 * maximized within it instead of underneath the panel. */
+	bool changed = memcmp(&output->usable_area, &usable_area,
+			sizeof(struct wlr_box)) != 0;
 	output->usable_area = usable_area;
+
+	/* A panel appeared, moved or went away: re-fit existing windows, so one
+	 * opened before the panel started doesn't keep its titlebar underneath
+	 * it, and maximized windows track the new area. */
+	if (changed)
+		arrange_toplevels(output->server);
 }
 
 static struct wlr_scene_tree *wb_layer_get_scene(struct wb_output *output,
