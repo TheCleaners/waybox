@@ -212,6 +212,7 @@ and *?*; omitted attributes match anything.
   <titlebar paddingY="2" buttonSize="0" resizeGrab="8"/>
   <virtualInput allow="unlocked"/>
   <xwayland enabled="yes"/>
+  <hdr outputs="HDMI-A-1"/>
 </waybox>
 ```
 
@@ -246,6 +247,14 @@ and *?*; omitted attributes match anything.
 *<xwayland>*
 	Run X11 programs through Xwayland, started when the first one
 	connects (default *yes*).
+
+*<hdr>*
+	*outputs* lists outputs (by name, separated by spaces) to drive in
+	HDR10: BT.2020 primaries and the PQ transfer function, 10 bits per
+	channel. It needs the Vulkan renderer (the default on real displays;
+	see *WLR_RENDERER* in *waybox*(1)) and an output that supports HDR10; otherwise, or if the output refuses it,
+	the output stays in SDR and the log says why. Colour-managed programs
+	(see *waybox*(1)) then show HDR content on it.
 
 # ACTIONS
 

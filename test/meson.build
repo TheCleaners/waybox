@@ -249,6 +249,16 @@ if python.found() and not get_option('tests_only')
     env: integration_env,
     )
   test(
+    'integration_color_management',
+    python,
+    args: [
+      files('integration' / 'color_management_test.py'),
+      waybox_exe,
+    ],
+    timeout: 90,
+    env: integration_env,
+    )
+  test(
     'integration_desktops',
     python,
     args: [

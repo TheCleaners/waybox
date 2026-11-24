@@ -47,6 +47,8 @@ struct wb_server {
 	struct wlr_output_layout *output_layout;
 	struct wlr_xdg_output_manager_v1 *output_manager;
 	struct wlr_renderer *renderer;
+	/* color-management-v1, when the renderer supports it (else null). */
+	struct wlr_color_manager_v1 *color_manager = nullptr;
 	struct wlr_scene *scene;
 	/* Container for all xdg toplevels, kept at a fixed z between the lower
 	 * (background, bottom) and upper (top, overlay) layer-shell trees so panels

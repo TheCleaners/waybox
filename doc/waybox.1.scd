@@ -88,10 +88,17 @@ only; entries limited to other desktops (_OnlyShowIn_) are skipped.
 *XDG_CONFIG_HOME*, *XDG_DATA_HOME*, *XDG_DATA_DIRS*
 	Where configuration files, themes and icons are looked up.
 
+*WLR_RENDERER*
+	The renderer: *vulkan*, *gles2* or *pixman*. On real displays Waybox
+	uses *vulkan*, falling back to *gles2* when Vulkan is unavailable;
+	nested and headless sessions use wlroots' usual choice. Colour
+	management (programs describing their colour spaces, such as video
+	players and image editors) and HDR need *vulkan*.
+
 *WLR_DRM_DEVICES*
 	Which GPUs to use, colon-separated (e.g. _/dev/dri/card0:/dev/dri/card1_).
 	The desktop is drawn on the first. Waybox is built on wlroots, and
-	wlroots' other variables (such as *WLR_RENDERER*) apply as well.
+	wlroots' other variables apply as well.
 
 Waybox sets *WAYLAND_DISPLAY* for the programs it starts, and *DISPLAY* when
 Xwayland is enabled (see *waybox*(5)).

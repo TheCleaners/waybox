@@ -329,6 +329,26 @@ example:
 export WLR_DRM_DEVICES=/dev/dri/card0:/dev/dri/card1
 @end example
 
+@cindex HDR
+@cindex colour management
+@section Colour management and HDR
+Programs that describe their colours, such as video players and image
+editors, are shown correctly on each monitor.  This needs the Vulkan
+renderer, which Waybox uses by default; if a graphics driver has trouble
+with it, add @code{export WLR_RENDERER=gles2} to your environment file to
+go back to OpenGL, without colour management.
+
+A monitor that supports HDR10 can be driven in HDR: list it in
+@file{rc.xml},
+
+@example
+<waybox><hdr outputs="HDMI-A-1"/></waybox>
+@end example
+
+@noindent
+and restart Waybox.  If the monitor refuses HDR, it stays in SDR and the
+log says why.  Monitor names are those @command{wlr-randr} shows.
+
 @node Index
 @unnumbered Index
 

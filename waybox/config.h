@@ -77,6 +77,10 @@ struct wb_config {
 	 * through Xwayland (started on first use). */
 	bool xwayland = true;
 
+	/* rc.xml <waybox><hdr outputs="HDMI-A-1 DP-1"/>: outputs to drive in
+	 * HDR10 (BT.2020 primaries, PQ), when the output and renderer can. */
+	std::vector<std::string> hdr_outputs;
+
 	/* rc.xml <waybox><edgeTiling enabled="yes|no" range="N"/>: drag a window
 	 * to a monitor edge to tile it (halves, corner quarters, maximize at the
 	 * top); range is how close to the edge the pointer must be, in pixels. */
