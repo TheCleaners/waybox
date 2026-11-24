@@ -12,8 +12,8 @@ Usage:
   tools/record-tour.py [--build build] [--theme Onyx-Citrus] [--out screenshots]
                        [--no-stills] [--keep-frames DIR]
 
-Writes <out>/tour.gif and, unless --no-stills, <out>/desktop.png, menu.png and
-alttab.png. Requires: grim, wtype, wlrctl, swaybg, waybar, foot, dash,
+Writes <out>/tour.gif and, unless --no-stills, <out>/desktop.png, menu.png,
+alttab.png and wbconf-search.png. Requires: grim, wtype, wlrctl, swaybg, waybar, foot, dash,
 fastfetch, magick (ImageMagick 7), gifsicle, and a waybox build (wbconf
 optional). Nothing from the real system is shown: no process lists, and
 only a made-up home directory. Fonts: Inter (captions, Waybar) and Fira Code (terminals), with
@@ -211,12 +211,31 @@ class Session:
                             f"{esc}[38;2;139;149;167m~{esc}[0m $ ",
                         TERMINAL="foot --title=terminal",
                         WLR_BACKENDS="headless", WLR_RENDERER="pixman",
-                        WLR_HEADLESS_OUTPUTS="1", GSK_RENDERER="cairo")
+                        WLR_HEADLESS_OUTPUTS="1", GSK_RENDERER="cairo",
+
+                        # Dark GTK windows, whatever the recording desktop
+                        # prefers (that comes over the session bus).
+                        GTK_THEME="Adwaita:dark",
+                        # wbconf's settings schema and integration files,
+                        # from the source tree.
+                        WBCONF_SCHEMA_DIR=os.path.join(REPO, "data", "wbconf"),
+                        XDG_DATA_DIRS=os.path.join(root, "share") + ":" +
+                            (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"))
+        os.makedirs(os.path.join(root, "share", "waybox"), exist_ok=True)
+        os.symlink(os.path.join(REPO, "data", "integrations"),
+                   os.path.join(root, "share", "waybox", "integrations"))
         # Recording from inside a Waybox session: don't inherit its config
         # paths (they would win over ours) or its displays.
         for var in ("WAYLAND_DISPLAY", "DISPLAY", "WB_RC_XML", "WB_MENU_XML",
                     "WB_ICON_THEME"):
             self.env.pop(var, None)
+        # A private session bus, not the user's: a GtkApplication such as
+        # wbconf would hand off to the user's running copy instead of
+        # opening here (and Waybar wants a bus).
+        self.bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork",
+                                     "--print-address=1"], stdout=subprocess.PIPE,
+                                    text=True)
+        self.env["DBUS_SESSION_BUS_ADDRESS"] = self.bus.stdout.readline().strip()
         self.log = open(os.path.join(root, "waybox.log"), "w")
         # Started in the made-up home, so terminals open there.
         self.proc = subprocess.Popen([waybox, "--debug"], env=self.env,
@@ -230,6 +249,13 @@ class Session:
                 self.env["WAYLAND_DISPLAY"] = socks[0]
                 break
         else:
+            # Don't leave it running (its runtime directory is about to go).
+            self.bus.terminate()
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
             sys.exit("waybox did not create a Wayland socket; see "
                      + os.path.join(root, "waybox.log"))
         self.children = []
@@ -317,6 +343,7 @@ class Session:
             self.proc.wait(10)
         except subprocess.TimeoutExpired:
             self.proc.kill()
+        self.bus.terminate()
         self.log.close()
 
 
@@ -391,15 +418,21 @@ def tour(s, wbconf, stills_dir):
     time.sleep(1.2)
 
     if wbconf:
-        s.step("wbconf: settings with a live theme preview", 0.2)
+        s.step("wbconf: every setting in one list, with a live theme preview", 0.2)
         s.spawn(wbconf)
         for _ in range(40):
-            if "Waybox Configuration" in s.logtext():
+            if "org.waybox.wbconf" in s.logtext():  # mapped (wb-geom)
                 break
             time.sleep(0.2)
         time.sleep(3.0)
     if stills_dir:
         s.still(os.path.join(stills_dir, "desktop.png"))
+    if wbconf:
+        s.step("Type to search: settings, and programs to start with the session", 0.3)
+        s.type("night")
+        time.sleep(2.4)
+        if stills_dir:
+            s.still(os.path.join(stills_dir, "wbconf-search.png"))
     s.step("", 0.2)
 
 
@@ -544,7 +577,7 @@ def main():
         encode(s.frames, gif, accent, wall, root)
         print(f"wrote {gif} ({os.path.getsize(gif) // 1024} KB)")
         if stills:
-            for name in ("desktop.png", "menu.png", "alttab.png"):
+            for name in ("desktop.png", "menu.png", "alttab.png", "wbconf-search.png"):
                 src = os.path.join(stills, name)
                 if os.path.exists(src):
                     dst = os.path.join(a.out, name)

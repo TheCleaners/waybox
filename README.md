@@ -186,6 +186,8 @@ headless Waybox, drives it with `wlrctl` and `wtype`, and captures it with
 |---|---|
 | ![The root menu, opened by right-clicking the desktop](screenshots/menu.png) | ![The Alt+Tab switcher](screenshots/alttab.png) |
 
+![wbconf searching its settings for "night": wlsunset, to start with the session](screenshots/wbconf-search.png)
+
 ## Companion programs
 
 Like Openbox, Waybox leaves most desktop functions to separate programs.
