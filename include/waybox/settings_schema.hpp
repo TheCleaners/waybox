@@ -37,12 +37,15 @@ struct SettingDef {
 	std::vector<SettingChoice> choices;
 	RcLocation rc;
 	std::string widget;       /* Custom: which editor ("theme", "monitors"...) */
+	std::string group;        /* settings in a row with the same group share one
+	                           * line: "Margins" (Top, Bottom...) */
 	bool operator==(const SettingDef &) const = default;
 };
 
 struct SettingCategory {
 	std::string id;
 	std::string title;
+	std::string description;
 	std::vector<SettingDef> settings;
 };
 
