@@ -444,6 +444,17 @@ if python.found() and not get_option('tests_only')
     env: integration_env,
     )
 
+  test(
+    'integration_desktop_popup',
+    python,
+    args: [
+      files('integration' / 'desktop_popup_test.py'),
+      waybox_exe,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
+
   # A security-context-v1 "sandbox engine" for the sandbox test.
   security_context_xml = wl_protocol_dir / 'staging/security-context/security-context-v1.xml'
   sandbox_client = executable(

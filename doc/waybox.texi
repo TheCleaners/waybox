@@ -179,8 +179,11 @@ Activating a window from a taskbar goes to its desktop.  Panels that
 support the ext-workspace protocol, such as Waybar's
 @code{ext/workspaces} module, show the desktops and switch on click.
 
-To name desktops or change their number, use @code{<desktops>} in
-@file{rc.xml}; an application rule can open a program on a given desktop.
+After switching, the desktop's name shows in the middle of the monitor for
+a moment.  To name desktops, change their number, or change or turn off
+that popup (@code{<popupTime>}, in milliseconds; @code{0} turns it off),
+use @code{<desktops>} in @file{rc.xml}; an application rule can open a
+program on a given desktop.
 
 @node The root menu
 @chapter The root menu

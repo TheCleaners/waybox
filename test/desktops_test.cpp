@@ -55,3 +55,13 @@ WB_TEST(count_is_clamped) {
 	WB_CHECK_EQ(parse_desktop_count("many", 4), 4);
 	WB_CHECK_EQ(parse_desktop_count("", 4), 4);
 }
+
+WB_TEST(popup_time_parsing) {
+	WB_CHECK(wb::parse_popup_time("875", 1) == 875);
+	WB_CHECK(wb::parse_popup_time(" 0 ", 1) == 0);
+	WB_CHECK(wb::parse_popup_time("99999", 1) == 10000);
+	WB_CHECK(wb::parse_popup_time("-5", 1) == 0);
+	WB_CHECK(wb::parse_popup_time("", 875) == 875);
+	WB_CHECK(wb::parse_popup_time("soon", 875) == 875);
+	WB_CHECK(wb::DesktopConfig{}.popup_time_ms == 875);  /* Openbox's default */
+}

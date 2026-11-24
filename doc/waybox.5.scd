@@ -53,12 +53,17 @@ _place_: *ActiveWindow*, *InactiveWindow*, *MenuHeader*, *MenuItem* or
 <desktops>
   <number>4</number>
   <names><name>web</name><name>code</name></names>
+  <popupTime>875</popupTime>
 </desktops>
 ```
 
 The number of virtual desktops (default 4) and, optionally, their names.
 Unnamed desktops are called "Desktop _N_". Panels can show and switch
 desktops through the ext-workspace protocol.
+
+*popupTime* is how long, in milliseconds, the desktop's name shows in the
+middle of the monitor after switching (default 875, as in Openbox); *0*
+turns it off.
 
 ## Placement and margins
 

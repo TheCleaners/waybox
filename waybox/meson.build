@@ -26,6 +26,7 @@ wb_src = [
     'config.cpp',
     'cursor.cpp',
     'decoration.cpp',
+    'desktop_popup.cpp',
     'frame_view.cpp',
     'idle.cpp',
     'input_method.cpp',
