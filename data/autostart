@@ -13,6 +13,12 @@
 # Update the DBus environment
 dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
 
+# Desktop portals (screenshots, screen sharing) choose their backends from
+# XDG_CURRENT_DESKTOP when they start. Restart one still running from another
+# desktop session, so it serves Waybox; nothing happens if none is running.
+command -v systemctl >/dev/null 2>&1 &&
+	systemctl --user try-restart xdg-desktop-portal.service 2>/dev/null
+
 # Start a dock
 cairo-dock &
 
