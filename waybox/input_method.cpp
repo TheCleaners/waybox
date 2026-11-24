@@ -10,6 +10,7 @@
 #include "waybox/geometry.hpp"
 #include "waybox/listener.hpp"
 #include "waybox/seat.h"
+#include "waybox/session_lock.h"
 #include "waybox/server.h"
 
 struct wb_input_method_relay;
@@ -107,6 +108,7 @@ static void update_popup(wb_ime_popup *p) {
 	wlr_scene_node_set_position(&p->tree->node, placed.x, placed.y);
 	wlr_scene_node_set_enabled(&p->tree->node, true);
 	wlr_scene_node_raise_to_top(&relay->popup_tree->node);
+	session_lock_keep_on_top(relay->server);  /* never above the lock screen */
 
 	/* The cursor, relative to the popup, so it can point at it. Only when it
 	 * changes: the popup may redraw (and commit) in response. */

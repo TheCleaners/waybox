@@ -102,7 +102,6 @@ struct wb_server {
 	struct wlr_layer_shell_v1 *layer_shell;
 	struct wlr_xdg_shell *xdg_shell;
 
-	wb::Listener gamma_control_set_gamma;
 	wb::Listener new_layer_surface;
 	wb::Listener new_xdg_decoration;
 	wb::Listener new_xdg_popup;

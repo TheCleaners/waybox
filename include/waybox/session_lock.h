@@ -22,6 +22,8 @@ void finish_session_lock(struct wb_server *server);
 
 /* True from the moment a locker locks until it unlocks. */
 bool session_locked(const struct wb_server *server);
+/* An output is going away or off: stop waiting for its locked frame. */
+void session_lock_output_gone(struct wb_server *server, struct wlr_output *output);
 
 /* True if `surface` is a lock surface of the current lock. */
 bool session_lock_owns_surface(const struct wb_server *server,
