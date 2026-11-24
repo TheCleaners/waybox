@@ -1,3 +1,4 @@
+#include <string_view>
 #include <filesystem>
 #include <fstream>
 #include <new>
@@ -300,9 +301,12 @@ static xmlNode *child_node(xmlNode *parent, const char *name) {
 static std::optional<bool> parse_bool(const char *s) {
 	if (s == nullptr)
 		return std::nullopt;
-	if (strcmp(s, "yes") == 0 || strcmp(s, "true") == 0 || strcmp(s, "1") == 0)
+	/* string_view, not strcmp: GCC -O3 flags strcmp against the 1-byte
+	 * empty attribute string it can inline here (-Wstring-compare). */
+	std::string_view v(s);
+	if (v == "yes" || v == "true" || v == "1")
 		return true;
-	if (strcmp(s, "no") == 0 || strcmp(s, "false") == 0 || strcmp(s, "0") == 0)
+	if (v == "no" || v == "false" || v == "0")
 		return false;
 	return std::nullopt;
 }
