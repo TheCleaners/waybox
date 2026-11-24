@@ -52,6 +52,14 @@ install_data(
   install_mode: 'rw-r--r--',
   )
 
+# Portal backend selection for XDG_CURRENT_DESKTOP=Waybox; without it
+# xdg-desktop-portal finds no ScreenCast/Screenshot backend for this desktop.
+install_data(
+  'waybox-portals.conf',
+  install_dir: get_option('prefix') / get_option('datadir') / 'xdg-desktop-portal',
+  install_mode: 'rw-r--r--',
+  )
+
 install_data(
   'menu',
   install_dir: get_option('prefix') / get_option('bindir'),
