@@ -25,6 +25,7 @@ void position_toplevel(struct wb_toplevel *toplevel) {
 	wb::FrameInsets in = toplevel_insets(toplevel);
 	wlr_scene_node_set_position(&toplevel->scene_tree->node,
 			toplevel->geometry.x - in.left, toplevel->geometry.y - in.top);
+	view_moved(toplevel);
 }
 
 /* A scene node's wb_toplevel, via its tagged wb_scene_descriptor, or NULL if

@@ -117,6 +117,10 @@ void view_size_hints(struct wb_toplevel *toplevel, int *min_w, int *min_h,
  * (toplevel->geometry.x/y), which they need for placing their own menus. */
 void view_set_size(struct wb_toplevel *toplevel, int width, int height);
 void view_set_activated(struct wb_toplevel *toplevel, bool activated);
+/* Tell the client where it is after a move (X11 windows place their own
+ * menus and popups from it; no-op for xdg-shell, whose clients don't know
+ * their position). */
+void view_moved(struct wb_toplevel *toplevel);
 void view_set_maximized(struct wb_toplevel *toplevel, bool horz, bool vert);
 void view_set_fullscreen(struct wb_toplevel *toplevel, bool fullscreen);
 void view_set_minimized(struct wb_toplevel *toplevel, bool minimized);

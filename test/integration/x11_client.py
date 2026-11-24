@@ -7,6 +7,11 @@ Reads commands on stdin, one per line:
   override NAME X Y W H RRGGBB      an override-redirect window (a "menu")
   fullscreen NAME                   ask the WM for _NET_WM_STATE_FULLSCREEN
   destroy NAME                      destroy a window
+  move NAME                         start an interactive move from the
+                                    pointer (_NET_WM_MOVERESIZE), as a
+                                    client-drawn titlebar does
+  where NAME                        print "where NAME X Y": the window's
+                                    position as the X server knows it
 
 Prints "mapped NAME" when a window is mapped, and "delete NAME" when the
 window manager asks it to close (WM_DELETE_WINDOW), after which the window
@@ -27,6 +32,7 @@ def main():
     wm_delete = d.intern_atom("WM_DELETE_WINDOW")
     net_wm_state = d.intern_atom("_NET_WM_STATE")
     net_fullscreen = d.intern_atom("_NET_WM_STATE_FULLSCREEN")
+    net_moveresize = d.intern_atom("_NET_WM_MOVERESIZE")
     windows = {}
     names = {}
 
@@ -70,6 +76,19 @@ def main():
             root.send_event(ev, event_mask=X.SubstructureRedirectMask |
                             X.SubstructureNotifyMask)
             d.flush()
+        elif parts[0] == "move":
+            win = windows[parts[1]]
+            ptr = root.query_pointer()
+            ev = protocol.event.ClientMessage(
+                window=win, client_type=net_moveresize,
+                data=(32, [ptr.root_x, ptr.root_y, 8, 1, 1]))  # 8 = MOVE
+            root.send_event(ev, event_mask=X.SubstructureRedirectMask |
+                            X.SubstructureNotifyMask)
+            d.flush()
+        elif parts[0] == "where":
+            pos = windows[parts[1]].translate_coords(root, 0, 0)
+            # translate_coords gives root's origin in the window: negate.
+            out(f"where {parts[1]} {-pos.x} {-pos.y}")
         elif parts[0] == "destroy":
             win = windows.pop(parts[1])
             win.destroy()

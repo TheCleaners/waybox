@@ -10,7 +10,9 @@ a solid red active titlebar, and grim to check what is on screen:
 4. An override-redirect window (a menu) is drawn where the client put it,
    and disappears when destroyed.
 5. Desktops hide and show X11 windows.
-6. A fullscreen request is honoured, and Close sends WM_DELETE_WINDOW.
+6. After the window is moved, the X server knows its new position (X11
+   programs place their own menus from it).
+7. A fullscreen request is honoured, and Close sends WM_DELETE_WINDOW.
 
 Skips (exit 77) without Xwayland, python-xlib, wtype, grim, magick or a
 headless display.
@@ -55,7 +57,7 @@ def main():
         print(__doc__)
         sys.exit(2)
     waybox = sys.argv[1]
-    for tool in ("Xwayland", "wtype", "grim", "magick"):
+    for tool in ("Xwayland", "wtype", "wlrctl", "grim", "magick"):
         need(tool)
     try:
         import Xlib  # noqa: F401
@@ -226,7 +228,35 @@ def main():
         keys("-M", "logo", "-k", "1", "-m", "logo")
         expect(colour_at(cx, cy) == GREEN, "X11 windows not back on desktop 1")
 
-        # 6. Fullscreen request; Close asks the client to close.
+        # 6. A moved window learns its new position.
+        def where(name):
+            send(f"where {name}")
+            line = wait_line(f"where {name}")
+            return tuple(map(int, line.split()[2:4])) if line else None
+        before = where("main")
+        subprocess.run(["wlrctl", "pointer", "move", "-9000", "-9000"], env=cenv,
+                       capture_output=True)
+        subprocess.run(["wlrctl", "pointer", "move", str(x + 50), str(y + 50)],
+                       env=cenv, capture_output=True)
+        time.sleep(0.3)
+        send("move main")
+        time.sleep(0.5)
+        subprocess.run(["wlrctl", "pointer", "move", "150", "80"], env=cenv,
+                       capture_output=True)
+        time.sleep(0.3)
+        subprocess.run(["wlrctl", "pointer", "click", "left"], env=cenv,
+                       capture_output=True)  # ends the move
+        time.sleep(0.5)
+        after = where("main")
+        if before is None or after is None:
+            failures.append(f"no position from the client ({before}, {after})")
+        else:
+            dx, dy = after[0] - before[0], after[1] - before[1]
+            # Within edge-snapping distance (16px) of the pointer's motion.
+            expect(abs(dx - 150) <= 20 and abs(dy - 80) <= 20,
+                   f"X server position not updated after a move: {before} -> {after}")
+
+        # 7. Fullscreen request; Close asks the client to close.
         send("fullscreen main")
         time.sleep(1.0)
         expect("wb-geom fullscreen-on" in logtext(), "fullscreen request ignored")
