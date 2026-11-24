@@ -208,7 +208,7 @@ gboolean on_close_request(GtkWindow *window, gpointer data) {
 void build_window(GtkApplication *app, Ui *ui) {
 	ui->window = GTK_WINDOW(gtk_application_window_new(app));
 	gtk_window_set_title(ui->window, _("Waybox Settings"));
-	gtk_window_set_default_size(ui->window, 980, 720);
+	gtk_window_set_default_size(ui->window, 880, 620);
 
 	/* An explicit header bar: GTK then owns a proper, draggable client-side
 	 * titlebar that drives compositor move/maximize correctly (GTK doesn't
@@ -237,7 +237,8 @@ void build_window(GtkApplication *app, Ui *ui) {
 	gtk_popover_set_child(GTK_POPOVER(pop), pbox);
 	gtk_menu_button_set_popover(GTK_MENU_BUTTON(menu), pop);
 	gtk_header_bar_pack_end(GTK_HEADER_BAR(header), menu);
-	GtkWidget *open_rc = gtk_button_new_from_icon_name("document-edit-symbolic");
+	/* Text, not an icon: clearer, and not at the mercy of icon themes. */
+	GtkWidget *open_rc = gtk_button_new_with_label(_("Edit rc.xml"));
 	gtk_widget_set_tooltip_text(open_rc, _("Open rc.xml in a text editor"));
 	g_signal_connect(open_rc, "clicked", G_CALLBACK(on_open_rc), ui);
 	gtk_header_bar_pack_end(GTK_HEADER_BAR(header), open_rc);

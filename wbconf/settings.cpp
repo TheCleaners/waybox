@@ -36,9 +36,27 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 	if (sel >= 0) {
 		GtkListBoxRow *selected = gtk_list_box_get_row_at_index(ui->theme_list, sel);
 		gtk_list_box_select_row(ui->theme_list, selected);
-		/* Scroll it into view once the list is laid out (focusing a row does). */
-		g_idle_add_once([](gpointer row) { gtk_widget_grab_focus(GTK_WIDGET(row)); },
-				selected);
+		/* Scroll it into view within the theme list once laid out (not
+		 * by focusing it, which scrolled the whole settings list too). */
+		/* Retried until the window is shown and laid out (a few tries). */
+		g_object_set_data(G_OBJECT(selected), "wb-tries", GINT_TO_POINTER(0));
+		g_timeout_add(100, [](gpointer data) -> gboolean {
+			GtkWidget *row = GTK_WIDGET(data);
+			int tries = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(row), "wb-tries"));
+			g_object_set_data(G_OBJECT(row), "wb-tries", GINT_TO_POINTER(tries + 1));
+			GtkWidget *sw = gtk_widget_get_ancestor(row, GTK_TYPE_SCROLLED_WINDOW);
+			GtkWidget *list = gtk_widget_get_parent(row);
+			graphene_point_t p = GRAPHENE_POINT_INIT(0, 0), out;
+			GtkAdjustment *adj = sw ? gtk_scrolled_window_get_vadjustment(
+					GTK_SCROLLED_WINDOW(sw)) : nullptr;
+			if (adj == nullptr || list == nullptr || !gtk_widget_get_mapped(row) ||
+					gtk_adjustment_get_page_size(adj) <= 0 ||
+					!gtk_widget_compute_point(row, list, &p, &out))
+				return tries < 50 ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
+			double page = gtk_adjustment_get_page_size(adj);
+			gtk_adjustment_set_value(adj, out.y - page / 2 + gtk_widget_get_height(row) / 2.0);
+			return G_SOURCE_REMOVE;
+		}, selected);
 	}
 
 	populate_monitors(ui, s.outputs);
