@@ -403,6 +403,20 @@ void new_output_notify(struct wb_server *server, void *data) {
 	struct wlr_output *wlr_output = static_cast<struct wlr_output *>(data);
 	wlr_log(WLR_INFO, "%s: %s", _("New output device detected"), wlr_output->name);
 
+	/* A VR headset (a non-desktop display) isn't part of the desktop: no
+	 * windows go there. It's offered for leasing instead, so a VR runtime
+	 * (SteamVR, Monado) can drive it directly. */
+	if (wlr_output->non_desktop) {
+		if (server->drm_lease_manager != nullptr &&
+				wlr_drm_lease_v1_manager_offer_output(server->drm_lease_manager, wlr_output))
+			wlr_log(WLR_INFO, "%s: %s", _("Offered a VR headset for leasing"),
+					wlr_output->name);
+		else
+			wlr_log(WLR_INFO, "%s: %s", _("Ignoring a non-desktop output (VR headset)"),
+					wlr_output->name);
+		return;
+	}
+
 	/* Configures the output created by the backend to use our allocator
          * and our renderer */
 	wlr_output_init_render(wlr_output, server->allocator, server->renderer);
@@ -554,6 +568,27 @@ void init_output(struct wb_server *server) {
 		wl_list_for_each(output, &server->outputs, link)
 			arrange_layers(output);
 	});
+
+	/* drm-lease-v1: only with the DRM backend (a real session); headless,
+	 * nested and X11 sessions have no connectors to lease. */
+	server->drm_lease_manager = wlr_drm_lease_v1_manager_create(server->wl_display,
+			server->backend);
+	if (server->drm_lease_manager != nullptr) {
+		server->drm_lease_request.connect(&server->drm_lease_manager->events.request,
+				[](void *data) {
+			auto *request = static_cast<struct wlr_drm_lease_request_v1 *>(data);
+			/* Only offered (non-desktop) connectors can be requested, and a
+			 * sandboxed client can't see the protocol at all. */
+			if (wlr_drm_lease_request_v1_grant(request) == nullptr) {
+				wlr_log(WLR_ERROR, "%s", _("Couldn't grant a DRM lease"));
+				wlr_drm_lease_request_v1_reject(request);
+			} else {
+				wlr_log(WLR_INFO, "%s", _("Granted a DRM lease (VR headset)"));
+			}
+		});
+	} else {
+		wlr_log(WLR_DEBUG, "drm-lease-v1 not available (no DRM backend)");
+	}
 
 	/* Screens off and on for power saving (swayidle with wlopm). */
 	server->output_power_manager = wlr_output_power_manager_v1_create(server->wl_display);
