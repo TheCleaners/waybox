@@ -327,6 +327,20 @@ if python.found() and not get_option('tests_only')
     dependencies: [dependency('wayland-client')],
     )
 
+  # A fullscreen "game" asking for tearing, for the tearing test.
+  tearing_xml = wl_protocol_dir / 'staging/tearing-control/tearing-control-v1.xml'
+  tearing_client = executable(
+    'tearing_client',
+    [
+      'integration' / 'tearing_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml),
+      wayland_scanner_client.process(tearing_xml),
+      wayland_scanner_code.process(tearing_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # Makes and drops idle inhibitors, for the idle test.
   idle_inhibit_xml = wl_protocol_dir / 'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml'
   inhibit_client = executable(
@@ -420,6 +434,7 @@ if python.found() and not get_option('tests_only')
     ['startup_programs', 'startup_programs_test.py', [], 60],
     ['switcher_icons', 'switcher_icons_test.py', [], 60],
     ['switcher_order', 'switcher_order_test.py', [], 60],
+    ['tearing', 'tearing_test.py', [tearing_client], 60],
     ['titlebar_buttons', 'titlebar_buttons_test.py', [], 60],
     ['titlebar_icon', 'titlebar_icon_test.py', [], 60],
     ['window_capture', 'window_capture_test.py', [], 60],

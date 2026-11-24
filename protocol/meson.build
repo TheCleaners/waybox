@@ -28,6 +28,7 @@ protocols = [
   [wl_protocol_dir, 'staging/ext-idle-notify/ext-idle-notify-v1.xml'],
   [wl_protocol_dir, 'staging/ext-workspace/ext-workspace-v1.xml'],
   [wl_protocol_dir, 'staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml'],
+  [wl_protocol_dir, 'staging/tearing-control/tearing-control-v1.xml'],
   [wl_protocol_dir, 'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml'],
   [wl_protocol_dir, 'unstable/pointer-constraints/pointer-constraints-unstable-v1.xml'],
   [wl_protocol_dir, 'unstable/primary-selection/primary-selection-unstable-v1.xml'],

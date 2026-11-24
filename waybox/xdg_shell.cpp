@@ -829,6 +829,16 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 		toplevel->fullscreen = false;
 		set_toplevel_fullscreen(toplevel, true);
 	}
+	/* Asked before the first commit (a game, a video player, a browser
+	 * starting maximized): those requests were ignored then (wlroots can't
+	 * take them yet), and clients don't ask again. */
+	if (toplevel->kind == wb_view_kind::Xdg && toplevel->xdg_toplevel != nullptr) {
+		if (toplevel->xdg_toplevel->requested.fullscreen && !toplevel->fullscreen)
+			set_toplevel_fullscreen(toplevel, true);
+		else if (toplevel->xdg_toplevel->requested.maximized &&
+				!(toplevel->max_horz && toplevel->max_vert))
+			set_toplevel_maximized(toplevel, true, true);
+	}
 
 	/* Apply requested initial states after the base mapping. */
 	if (rule != nullptr) {

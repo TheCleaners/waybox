@@ -325,6 +325,28 @@ static bool apply_output_config(struct wb_server *server,
 	return ok;
 }
 
+/* Whether to flip `output` without waiting for its refresh: tearing is
+ * allowed in the settings, nothing is locked, and the window fullscreen
+ * on it asked for it (wp_tearing_control_v1, "async"). */
+static bool output_wants_tearing(struct wb_output *output) {
+	struct wb_server *server = output->server;
+	if (server->config == nullptr || !server->config->allow_tearing ||
+			server->tearing_control == nullptr || session_locked(server))
+		return false;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link) {
+		if (!t->fullscreen || t->scene_tree == nullptr ||
+				t->scene_tree->node.parent != output->layers.shell_fullscreen)
+			continue;
+		struct wlr_surface *surface = view_surface(t);
+		return surface != nullptr &&
+				wlr_tearing_control_manager_v1_surface_hint_from_surface(
+						server->tearing_control, surface) ==
+				WP_TEARING_CONTROL_V1_PRESENTATION_HINT_ASYNC;
+	}
+	return false;
+}
+
 void wb_output::on_frame(void *data) {
 	/* Called every time the output is ready to display a frame, generally at
 	 * the output's refresh rate (e.g. 60Hz). */
@@ -338,9 +360,42 @@ void wb_output::on_frame(void *data) {
 	wlr_output_layout_get_box(output->server->output_layout,
 			output->wlr_output, &output->geometry);
 
-	/* Render the scene if needed and commit the output */
-	if (wlr_scene_output_commit(scene_output, NULL))
-		session_lock_output_frame(output);
+	/* Render the scene if needed and commit the output: unsynchronised
+	 * for a fullscreen game that asked (and the settings allow), else at
+	 * the display's refresh. */
+	bool want = output_wants_tearing(output);
+	if (want != output->tearing_wanted) {
+		output->tearing_wanted = want;
+		wlr_log(WLR_INFO, "wb-tearing-wanted %s %d", output->wlr_output->name, want ? 1 : 0);
+	}
+	if (want) {
+		if (!wlr_scene_output_needs_frame(scene_output))
+			goto frame_done;  /* nothing new (as wlr_scene_output_commit) */
+		struct wlr_output_state state;
+		wlr_output_state_init(&state);
+		if (wlr_scene_output_build_state(scene_output, &state, NULL)) {
+			state.tearing_page_flip = true;
+			/* The hardware (or driver) may not do it: then synced. */
+			if (!wlr_output_test_state(output->wlr_output, &state))
+				state.tearing_page_flip = false;
+			if (output->tearing != state.tearing_page_flip) {
+				output->tearing = state.tearing_page_flip;
+				wlr_log(WLR_INFO, "wb-tearing %s %s", output->wlr_output->name,
+						output->tearing ? "on" : "unsupported");
+			}
+			if (wlr_output_commit_state(output->wlr_output, &state))
+				session_lock_output_frame(output);
+		}
+		wlr_output_state_finish(&state);
+	} else {
+		if (output->tearing) {
+			output->tearing = false;
+			wlr_log(WLR_INFO, "wb-tearing %s off", output->wlr_output->name);
+		}
+		if (wlr_scene_output_commit(scene_output, NULL))
+			session_lock_output_frame(output);
+	}
+frame_done:
 
 	/* This lets the client know that we've displayed that frame and it can
 	 * prepare another one now if it likes. */
@@ -568,6 +623,8 @@ void init_output(struct wb_server *server) {
 		wl_list_for_each(output, &server->outputs, link)
 			arrange_layers(output);
 	});
+
+	server->tearing_control = wlr_tearing_control_manager_v1_create(server->wl_display, 1);
 
 	/* drm-lease-v1: only with the DRM backend (a real session); headless,
 	 * nested and X11 sessions have no connectors to lease. */

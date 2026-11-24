@@ -101,6 +101,11 @@ struct wb_config {
 	 * after that long without input (0, the default: never). */
 	int idle_screen_off_s = 0;
 
+	/* rc.xml <waybox><tearing allow="yes"/>: a fullscreen window that
+	 * asks for it (a game with vsync off) is shown without waiting for
+	 * the display's refresh. Off unless set. */
+	bool allow_tearing = false;
+
 	/* rc.xml <waybox><edgeTiling enabled="yes|no" range="N"/>: drag a window
 	 * to a monitor edge to tile it (halves, corner quarters, maximize at the
 	 * top); range is how close to the edge the pointer must be, in pixels. */

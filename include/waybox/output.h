@@ -28,6 +28,9 @@ struct wb_output {
 	bool powered_off = false;
 	/* Switched off by Waybox's own <idle screenOff>: back on with input. */
 	bool idle_off = false;
+	/* Flipping without waiting for refresh now (a fullscreen game asked). */
+	bool tearing = false;
+	bool tearing_wanted = false;  /* allowed and asked for (logged on change) */
 	struct wlr_box geometry = {};
 	struct wlr_box usable_area = {};
 
