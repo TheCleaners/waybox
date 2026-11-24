@@ -5,6 +5,8 @@
  * Copyright 2019 Drew DeVault
  * Copyright 2022 Sway Developers
  */
+#include <vector>
+
 #include "waybox/wlroots.hpp"
 
 #include "waybox/xdg_shell.h"
@@ -139,7 +141,9 @@ static void handle_map(struct wb_layer_surface *surface, void *data) {
 				seat->focused_layer->current.layer >= layer_surface->current.layer) {
 			seat_set_focus_layer(seat, layer_surface);
 		}
-		arrange_layers(surface->output);
+		if (surface->output) {
+			arrange_layers(surface->output);
+		}
 	}
 }
 
@@ -175,6 +179,32 @@ static void handle_destroy(struct wb_layer_surface *surface, void *data) {
 	wb_layer_surface_destroy(surface);
 }
 
+void layer_shell_output_destroy(struct wb_output *output) {
+	/* Close every layer surface on this output before its layer trees go
+	 * away. Otherwise they keep a dangling wb_output and the next commit
+	 * (e.g. Waybar redrawing) dereferences freed memory. Closing sends
+	 * `closed`; clients such as Waybar drop that bar and recreate it when the
+	 * output comes back. Collect first: destroying modifies the scene. */
+	std::vector<struct wb_layer_surface *> surfaces;
+	struct wlr_scene_tree *trees[] = {
+		output->layers.shell_background, output->layers.shell_bottom,
+		output->layers.shell_top, output->layers.shell_fullscreen,
+		output->layers.shell_overlay,
+	};
+	for (struct wlr_scene_tree *tree : trees) {
+		struct wlr_scene_node *node;
+		wl_list_for_each(node, &tree->children, link) {
+			auto *desc = static_cast<struct wb_scene_descriptor *>(node->data);
+			if (desc != NULL && desc->type == WB_SCENE_DESC_LAYER_SHELL)
+				surfaces.push_back(static_cast<struct wb_layer_surface *>(desc->data));
+		}
+	}
+	for (struct wb_layer_surface *surface : surfaces) {
+		surface->output = NULL;
+		wlr_layer_surface_v1_destroy(surface->scene->layer_surface);
+	}
+}
+
 static void popup_handle_destroy(struct wb_layer_popup *popup, void *data) {
 	/* The wb::Listener members disconnect themselves on delete. */
 	delete popup;
@@ -208,6 +238,9 @@ static void popup_unconstrain(struct wb_layer_popup *popup) {
 
 	struct wlr_xdg_popup *wlr_popup = popup->wlr_popup;
 	struct wb_output *output = surface->output;
+	if (output == NULL) {
+		return;
+	}
 
 	int lx, ly;
 	wlr_scene_node_coords(&popup->scene->node, &lx, &ly);

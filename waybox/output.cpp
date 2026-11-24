@@ -264,8 +264,10 @@ void new_output_notify(struct wb_server *server, void *data) {
 	output->request_state.connect(&wlr_output->events.request_state,
 			[output](void *data) { output->on_request_state(data); });
 	output->destroy.connect(&wlr_output->events.destroy, [output](void *data) {
-		/* Frees the layer scene-trees; the wb::Listener members disconnect
+		/* Close this output's layer surfaces (panels, wallpapers) first, then
+		 * free the layer scene-trees; the wb::Listener members disconnect
 		 * themselves when the output is deleted. */
+		layer_shell_output_destroy(output);
 		size_t num_layers =
 			sizeof(output->layers) / sizeof(struct wlr_scene_node *);
 		for (size_t i = 0; i < num_layers; i++) {
