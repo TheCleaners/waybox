@@ -13,6 +13,10 @@ a solid red active titlebar, and grim to check what is on screen:
 6. After the window is moved, the X server knows its new position (X11
    programs place their own menus from it).
 7. A fullscreen request is honoured, and Close sends WM_DELETE_WINDOW.
+8. An undecorated window exactly the size of the monitor (how games go
+   fullscreen) is made fullscreen.
+9. A window created override-redirect and made ordinary before mapping (as
+   Wine does) becomes an ordinary, focused window.
 
 Skips (exit 77) without Xwayland, python-xlib, wtype, grim, magick or a
 headless display.
@@ -57,7 +61,7 @@ def main():
         print(__doc__)
         sys.exit(2)
     waybox = sys.argv[1]
-    for tool in ("Xwayland", "wtype", "wlrctl", "grim", "magick"):
+    for tool in ("Xwayland", "wtype", "wlrctl", "grim", "magick", "wlr-randr"):
         need(tool)
     try:
         import Xlib  # noqa: F401
@@ -262,6 +266,29 @@ def main():
         expect("wb-geom fullscreen-on" in logtext(), "fullscreen request ignored")
         keys("-M", "alt", "-k", "F4", "-m", "alt")
         expect(wait_line("delete") is not None, "Close did not send WM_DELETE_WINDOW")
+
+        # 8. A borderless, monitor-sized window is fullscreen.
+        outs = subprocess.run(["wlr-randr"], env=cenv, capture_output=True,
+                              text=True).stdout
+        size = re.search(r"(\d+)x(\d+) px[^\n]*current", outs)
+        if size is None:
+            raise RuntimeError(f"no output size from wlr-randr:\n{outs}")
+        ow, oh = map(int, size.groups())
+        n_full = logtext().count("wb-geom fullscreen-on")
+        send(f"borderless game 0 0 {ow} {oh} ff00ff")
+        expect(wait_line("mapped game") is not None, "borderless window never mapped")
+        time.sleep(1.0)
+        full = re.findall(r"wb-geom fullscreen-on (\d+)x(\d+)\+(-?\d+)\+(-?\d+)",
+                          logtext())
+        expect(len(full) > n_full and tuple(map(int, full[-1])) == (ow, oh, 0, 0),
+               f"monitor-sized borderless window not fullscreen: {full[n_full:]}")
+
+        # 9. Override-redirect switched off before mapping: an ordinary window.
+        send("ortoggle toggled 300 200 00ffff")
+        expect(wait_line("mapped toggled") is not None, "toggled window never mapped")
+        time.sleep(1.0)
+        expect(focused() == "toggled",
+               f"toggled window not managed and focused ({focused()})")
         if proc.poll() is not None:
             failures.append(f"waybox exited (status {proc.returncode})")
     except RuntimeError as e:

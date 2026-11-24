@@ -5,6 +5,10 @@ Reads commands on stdin, one per line:
   window NAME W H RRGGBB [PARENT]   a managed window (WM_CLASS NAME), solid
                                     colour, optionally transient for PARENT
   override NAME X Y W H RRGGBB      an override-redirect window (a "menu")
+  borderless NAME X Y W H RRGGBB    an undecorated window (Motif hints) at
+                                    X,Y, as games make for "fullscreen"
+  ortoggle NAME W H RRGGBB          a window created override-redirect and
+                                    made ordinary before mapping (as Wine does)
   fullscreen NAME                   ask the WM for _NET_WM_STATE_FULLSCREEN
   destroy NAME                      destroy a window
   move NAME                         start an interactive move from the
@@ -33,13 +37,15 @@ def main():
     net_wm_state = d.intern_atom("_NET_WM_STATE")
     net_fullscreen = d.intern_atom("_NET_WM_STATE_FULLSCREEN")
     net_moveresize = d.intern_atom("_NET_WM_MOVERESIZE")
+    motif_hints = d.intern_atom("_MOTIF_WM_HINTS")
     windows = {}
     names = {}
 
     def out(line):
         print(line, flush=True)
 
-    def create(name, x, y, w, h, colour, override=False, parent=None):
+    def create(name, x, y, w, h, colour, override=False, parent=None,
+               borderless=False, toggle=False):
         win = root.create_window(
             x, y, w, h, 0, screen.root_depth, X.InputOutput, X.CopyFromParent,
             background_pixel=int(colour, 16),
@@ -50,6 +56,14 @@ def main():
         if not override:
             win.set_wm_protocols([wm_delete])
             win.set_wm_normal_hints(flags=0)
+        if borderless:
+            # flags=MWM_HINTS_DECORATIONS, decorations=0; keep the position.
+            win.change_property(motif_hints, motif_hints, 32, [2, 0, 0, 0, 0])
+            win.set_wm_normal_hints(flags=1, x=x, y=y)  # USPosition
+        if toggle:
+            win.set_wm_protocols([wm_delete])
+            d.flush()
+            win.change_attributes(override_redirect=False)
         if parent is not None:
             win.set_wm_transient_for(windows[parent])
         win.map()
@@ -65,6 +79,12 @@ def main():
             name, w, h, colour = parts[1], int(parts[2]), int(parts[3]), parts[4]
             parent = parts[5] if len(parts) > 5 else None
             create(name, 0, 0, w, h, colour, parent=parent)
+        elif parts[0] == "borderless":
+            name, x, y, w, h, colour = parts[1], *map(int, parts[2:6]), parts[6]
+            create(name, x, y, w, h, colour, borderless=True)
+        elif parts[0] == "ortoggle":
+            name, w, h, colour = parts[1], int(parts[2]), int(parts[3]), parts[4]
+            create(name, 0, 0, w, h, colour, override=True, toggle=True)
         elif parts[0] == "override":
             name, x, y, w, h, colour = parts[1], *map(int, parts[2:6]), parts[6]
             create(name, x, y, w, h, colour, override=True)

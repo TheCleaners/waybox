@@ -20,6 +20,7 @@
 #include "waybox/listener.hpp"
 #include "waybox/seat.h"
 #include "waybox/xdg_shell.h"
+#include "waybox/output.h"
 #include "config.h"
 #include "decoration.h"
 
@@ -37,8 +38,12 @@ struct Unmanaged {
 	wb::Listener map;
 	wb::Listener unmap;
 	wb::Listener set_geometry;
+	wb::Listener set_override_redirect;
 	wb::Listener destroy;
 };
+
+void new_managed(struct wb_server *server, struct wlr_xwayland_surface *xs);
+void new_unmanaged(struct wb_server *server, struct wlr_xwayland_surface *xs);
 
 void unmanaged_map(Unmanaged *u) {
 	struct wlr_xwayland_surface *xs = u->xsurface;
@@ -74,15 +79,36 @@ void unmanaged_unmap(Unmanaged *u) {
 	}
 }
 
+/* Follow the window's wl_surface (also when it was associated, or even
+ * mapped, before we got the window: see the override-redirect switch). */
+void unmanaged_associate(Unmanaged *u) {
+	struct wlr_surface *surface = u->xsurface->surface;
+	u->map.connect(&surface->events.map, [u](void *) { unmanaged_map(u); });
+	u->unmap.connect(&surface->events.unmap, [u](void *) { unmanaged_unmap(u); });
+	if (surface->mapped)
+		unmanaged_map(u);
+}
+
 void new_unmanaged(struct wb_server *server, struct wlr_xwayland_surface *xs) {
 	auto *u = new Unmanaged{};
 	u->server = server;
 	u->xsurface = xs;
-	u->associate.connect(&xs->events.associate, [u](void *) {
-		u->map.connect(&u->xsurface->surface->events.map,
-				[u](void *) { unmanaged_map(u); });
-		u->unmap.connect(&u->xsurface->surface->events.unmap,
-				[u](void *) { unmanaged_unmap(u); });
+	xs->data = nullptr;
+	u->associate.connect(&xs->events.associate,
+			[u](void *) { unmanaged_associate(u); });
+	if (xs->surface != nullptr)
+		unmanaged_associate(u);
+	/* A window may stop being override-redirect before it is mapped (Wine
+	 * does this, e.g. for game windows): it becomes an ordinary window. */
+	u->set_override_redirect.connect(&xs->events.set_override_redirect,
+			[u](void *) {
+		if (u->xsurface->override_redirect)
+			return;
+		struct wb_server *server = u->server;
+		struct wlr_xwayland_surface *xs = u->xsurface;
+		unmanaged_unmap(u);
+		delete u;  /* the Listener members disconnect themselves */
+		new_managed(server, xs);
 	});
 	u->dissociate.connect(&xs->events.dissociate, [u](void *) {
 		u->map.disconnect();
@@ -104,11 +130,30 @@ void new_unmanaged(struct wb_server *server, struct wlr_xwayland_surface *xs) {
 
 /* ---- Managed windows ---- */
 
+/* Games often go "fullscreen" without saying so: an undecorated window
+ * exactly the size of a monitor, with no _NET_WM_STATE_FULLSCREEN. Treat
+ * that as fullscreen (as GNOME and KDE do), so it covers panels instead of
+ * being fitted below them. Returns whether the box matches a monitor. */
+bool covers_an_output(struct wb_server *server, struct wlr_xwayland_surface *xs,
+		struct wlr_box want) {
+	if (xs->decorations == WLR_XWAYLAND_SURFACE_DECORATIONS_ALL)
+		return false;  /* a decorated window is an ordinary big window */
+	struct wb_output *output;
+	wl_list_for_each(output, &server->outputs, link) {
+		struct wlr_box box;
+		wlr_output_layout_get_box(server->output_layout, output->wlr_output, &box);
+		if (!wlr_box_empty(&box) && wlr_box_equal(&box, &want))
+			return true;
+	}
+	return false;
+}
+
 void x11_map(struct wb_toplevel *t) {
 	struct wlr_xwayland_surface *xs = t->xsurface;
 	/* Start from where and how big the client asked to be; map_toplevel()
 	 * places it from there (and centres dialogs over their parent). */
 	t->geometry = {xs->x, xs->y, xs->width, xs->height};
+	bool screen_sized = covers_an_output(t->server, xs, t->geometry);
 	t->surface_tree = wlr_scene_subsurface_tree_create(t->scene_tree, xs->surface);
 	if (t->surface_tree != nullptr) {
 		assign_scene_descriptor(&t->surface_tree->node,
@@ -121,6 +166,12 @@ void x11_map(struct wb_toplevel *t) {
 		});
 	}
 	map_toplevel(t);
+	if (screen_sized || xs->fullscreen) {
+		/* Back over the monitor it asked for, then fullscreen there. */
+		t->geometry = {xs->x, xs->y, xs->width, xs->height};
+		position_toplevel(t);
+		set_toplevel_fullscreen(t, true);
+	}
 }
 
 void x11_unmap(struct wb_toplevel *t) {
@@ -159,6 +210,14 @@ void x11_request_configure(struct wb_toplevel *t, void *data) {
 				ev->width, ev->height);
 		return;
 	}
+	struct wlr_box want = {ev->x, ev->y, ev->width, ev->height};
+	if (!t->fullscreen && covers_an_output(t->server, t->xsurface, want)) {
+		/* Resizing itself to cover a monitor: fullscreen there. */
+		t->geometry = want;
+		position_toplevel(t);
+		set_toplevel_fullscreen(t, true);
+		return;
+	}
 	if (t->fullscreen || t->max_horz || t->max_vert) {
 		/* Managed size: repeat ours so the client stays in sync. */
 		view_set_size(t, t->geometry.width, t->geometry.height);
@@ -172,6 +231,17 @@ void x11_request_configure(struct wb_toplevel *t, void *data) {
 	update_toplevel_decoration(t);
 }
 
+/* Follow the window's wl_surface (also when it was associated, or even
+ * mapped, before we got the window: see the override-redirect switch). */
+void managed_associate(struct wb_toplevel *t) {
+	struct wlr_surface *surface = t->xsurface->surface;
+	t->map.connect(&surface->events.map, [t](void *) { x11_map(t); });
+	t->unmap.connect(&surface->events.unmap, [t](void *) { x11_unmap(t); });
+	t->commit.connect(&surface->events.commit, [t](void *) { x11_commit(t); });
+	if (surface->mapped)
+		x11_map(t);
+}
+
 void new_managed(struct wb_server *server, struct wlr_xwayland_surface *xs) {
 	auto *t = new wb_toplevel{};
 	t->server = server;
@@ -180,11 +250,22 @@ void new_managed(struct wb_server *server, struct wlr_xwayland_surface *xs) {
 	xs->data = t;
 	register_toplevel(t);
 
-	t->associate.connect(&xs->events.associate, [t](void *) {
-		struct wlr_surface *surface = t->xsurface->surface;
-		t->map.connect(&surface->events.map, [t](void *) { x11_map(t); });
-		t->unmap.connect(&surface->events.unmap, [t](void *) { x11_unmap(t); });
-		t->commit.connect(&surface->events.commit, [t](void *) { x11_commit(t); });
+	t->associate.connect(&xs->events.associate,
+			[t](void *) { managed_associate(t); });
+	if (xs->surface != nullptr)
+		managed_associate(t);
+	/* The reverse switch: an ordinary window turning override-redirect. */
+	t->set_override_redirect.connect(&xs->events.set_override_redirect,
+			[t](void *) {
+		if (!t->xsurface->override_redirect)
+			return;
+		struct wb_server *server = t->server;
+		struct wlr_xwayland_surface *xs = t->xsurface;
+		x11_unmap(t);
+		xs->data = nullptr;
+		t->xsurface = nullptr;
+		destroy_toplevel(t);
+		new_unmanaged(server, xs);
 	});
 	t->dissociate.connect(&xs->events.dissociate, [t](void *) {
 		x11_unmap(t);  /* the surface is going away, mapped or not */
