@@ -323,3 +323,17 @@ if python.found() and not get_option('tests_only')
     env: integration_env,
     )
 endif
+
+# data/xdg-autostart against fixture autostart directories (needs only sh).
+sh = find_program('sh', required: false)
+if sh.found()
+  test(
+    'xdg_autostart',
+    sh,
+    args: [
+      files('xdg_autostart_test.sh'),
+      meson.project_source_root() / 'data' / 'xdg-autostart',
+    ],
+    timeout: 30,
+    )
+endif
