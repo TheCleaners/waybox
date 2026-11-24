@@ -76,6 +76,9 @@ extern "C" {
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/types/wlr_xdg_toplevel_icon_v1.h>
 #include <wlr/util/box.h>
+#if WLR_HAS_XWAYLAND
+#include <wlr/xwayland.h>
+#endif
 #include <wlr/util/log.h>
 #include <wlr/version.h>
 

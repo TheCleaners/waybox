@@ -26,8 +26,7 @@ static void activate_frame_button(struct wb_toplevel *toplevel, int i) {
 		return;
 	switch (buttons[i]) {
 	case wb::FrameButton::Iconify:
-		toplevel->xdg_toplevel->requested.minimized = true;
-		wl_signal_emit(&toplevel->xdg_toplevel->events.request_minimize, NULL);
+		set_toplevel_minimized(toplevel, true);
 		break;
 	case wb::FrameButton::Maximize: {
 		bool full = toplevel->max_horz && toplevel->max_vert;
@@ -35,7 +34,7 @@ static void activate_frame_button(struct wb_toplevel *toplevel, int i) {
 		break;
 	}
 	case wb::FrameButton::Close:
-		wlr_xdg_toplevel_send_close(toplevel->xdg_toplevel);
+		view_close(toplevel);
 		break;
 	}
 }
@@ -118,16 +117,13 @@ static void process_cursor_resize(struct wb_server *server) {
 		}
 	}
 
-	struct wlr_box geo_box = toplevel->xdg_toplevel->base->geometry;
+	struct wlr_box geo_box = view_geometry(toplevel);
 
 	/* Honor the client's size hints: clamp the proposed size to its min/max,
 	 * keeping the non-dragged edges anchored. */
-	wb::SizeHints hints{
-		toplevel->xdg_toplevel->current.min_width,
-		toplevel->xdg_toplevel->current.min_height,
-		toplevel->xdg_toplevel->current.max_width,
-		toplevel->xdg_toplevel->current.max_height,
-	};
+	wb::SizeHints hints{};
+	view_size_hints(toplevel, &hints.min_width, &hints.min_height,
+			&hints.max_width, &hints.max_height);
 	wb::Rect resized = wb::clamp_resize(
 			wb::Rect{new_left, new_top, new_right - new_left, new_bottom - new_top},
 			(server->resize_edges & WLR_EDGE_LEFT) != 0,
@@ -138,7 +134,7 @@ static void process_cursor_resize(struct wb_server *server) {
 	toplevel->geometry.y = resized.y - geo_box.y;
 		position_toplevel(toplevel);
 
-	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, resized.width, resized.height);
+	view_set_size(toplevel, resized.width, resized.height);
 }
 
 static void process_cursor_motion(struct wb_server *server, uint32_t time) {
