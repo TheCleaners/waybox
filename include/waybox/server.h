@@ -24,6 +24,7 @@
 #include "config.h"
 #include "waybox/cursor.h"
 #include "waybox/keychain.hpp"
+#include "waybox/mousebind.hpp"
 #include "decoration.h"
 #include "layer_shell.h"
 #include "waybox/xdg_shell.h"
@@ -70,6 +71,8 @@ struct wb_server {
 	/* Where the pointer was when a move started (dragging a tiled window
 	 * restores it only after the pointer has really moved). */
 	double move_start_x = 0, move_start_y = 0;
+	/* Press/Click/DoubleClick/Drag/Release detection for mouse bindings. */
+	wb::ClickTracker click_tracker;
 	/* Edge tiling during a move: the zone under the pointer and its
 	 * translucent preview. */
 	struct wlr_scene_rect *tile_preview = nullptr;

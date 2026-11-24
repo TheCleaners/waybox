@@ -1,5 +1,6 @@
 #include <time.h>
 #include <cmath>
+#include <optional>
 #include <vector>
 
 #include "waybox/cursor.h"
@@ -112,6 +113,10 @@ static void update_tile_preview(struct wb_server *server) {
 				&toplevel->scene_tree->node);
 	wlr_scene_node_set_enabled(&server->tile_preview->node, true);
 }
+
+static bool run_mouse_bindings(struct wb_server *server, wb::MouseContext context,
+		struct wb_toplevel *window, uint32_t button, uint32_t modifiers,
+		wb::MouseEvent event);
 
 static void process_cursor_move(struct wb_server *server) {
 	/* Move the grabbed toplevel to the new position. */
@@ -239,7 +244,20 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 		return;
 	}
 
-	/* An open menu grabs the pointer: update its hover/submenu state and keep
+	/* A button held past the drag threshold: Drag bindings. */
+	if (server->menu == nullptr) {
+		std::optional<wb::ClickTracker::Pressed> held =
+				server->click_tracker.pressed();
+		if (held && !server->click_tracker.motion(server->cursor->cursor->x,
+				server->cursor->cursor->y).empty()) {
+			auto *window = reinterpret_cast<struct wb_toplevel *>(held->target);
+			if (window == nullptr || toplevel_alive(server, window))
+				run_mouse_bindings(server, held->context, window, held->button,
+						held->modifiers, wb::MouseEvent::Drag);
+		}
+	}
+
+		/* An open menu grabs the pointer: update its hover/submenu state and keep
 	 * the default cursor; do not forward motion to clients. */
 	if (server->menu != nullptr) {
 		server->menu->on_motion(server->cursor->cursor->x,
@@ -376,10 +394,95 @@ void wb_cursor::on_pointer_focus_change(void *data) {
 	}
 }
 
+/* The mouse-binding context under the pointer, and the window there (if
+ * any). std::nullopt where bindings don't apply: a panel or other
+ * layer-shell surface (its own clicks are its business) and the titlebar
+ * buttons (which work on their own). */
+static std::optional<wb::MouseContext> pointer_context(struct wb_server *server,
+		struct wb_toplevel **window) {
+	*window = nullptr;
+	double x = server->cursor->cursor->x, y = server->cursor->cursor->y;
+	wb::FrameHit fh;
+	if (struct wb_toplevel *ft = toplevel_frame_at(server, x, y, &fh)) {
+		*window = ft;
+		switch (fh.part) {
+		case wb::FramePart::Titlebar:     return wb::MouseContext::Titlebar;
+		case wb::FramePart::BorderTop:    return wb::MouseContext::Top;
+		case wb::FramePart::BorderBottom: return wb::MouseContext::Bottom;
+		case wb::FramePart::BorderLeft:   return wb::MouseContext::Left;
+		case wb::FramePart::BorderRight:  return wb::MouseContext::Right;
+		case wb::FramePart::Button:       return std::nullopt;
+		default:                          return wb::MouseContext::Frame;
+		}
+	}
+	double sx, sy;
+	struct wlr_surface *surface = nullptr;
+	struct wb_toplevel *toplevel = get_toplevel_at(server, x, y, &surface, &sx, &sy);
+	if (toplevel != nullptr) {
+		*window = toplevel;
+		return wb::MouseContext::Client;
+	}
+	if (surface != nullptr)
+		return std::nullopt;  /* a panel, a popup or an X11 menu */
+	return wb::MouseContext::Root;
+}
+
+/* Run the mouse bindings for this event. A window binding focuses the
+ * window first, so its actions act on the window that was clicked. */
+static bool run_mouse_bindings(struct wb_server *server, wb::MouseContext context,
+		struct wb_toplevel *window, uint32_t button, uint32_t modifiers,
+		wb::MouseEvent event) {
+	if (server->config == nullptr)
+		return false;
+	bool handled = false;
+	for (const wb::MouseBinding &binding : server->config->mouse_bindings) {
+		if (!wb::mouse_binding_matches(binding, context, button, modifiers, event))
+			continue;
+		if (window != nullptr && !toplevel_alive(server, window))
+			break;  /* closed by an earlier action */
+		if (window != nullptr && !handled)
+			focus_toplevel(window);
+		/* Copy: an action may reconfigure, replacing the bindings. */
+		std::vector<wb::Action> actions = binding.actions;
+		for (const wb::Action &action : actions)
+			wb::run_action(action, server);
+		handled = true;
+		if (server->config == nullptr)
+			break;
+	}
+	return handled;
+}
+
+static uint32_t keyboard_modifiers(struct wb_server *server) {
+	struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(server->seat->seat);
+	return keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
+}
+
 void wb_cursor::on_button(void *data) {
 	auto *event = static_cast<struct wlr_pointer_button_event *>(data);
 	if (wb_input_blocked(server, &event->pointer->base))
 		return;
+	/* Release, Click and DoubleClick bindings run after everything else a
+	 * release does (e.g. ending the move a titlebar press started). */
+	std::optional<wb::ClickTracker::Pressed> pressed;
+	std::vector<wb::MouseEvent> release_events;
+	if (event->state == WL_POINTER_BUTTON_STATE_RELEASED) {
+		pressed = server->click_tracker.pressed();
+		release_events = server->click_tracker.release(event->button,
+				event->time_msec);
+	}
+	handle_button(event);
+	if (pressed && !session_locked(server) && server->menu == nullptr) {
+		auto *window = reinterpret_cast<struct wb_toplevel *>(pressed->target);
+		if (window != nullptr && !toplevel_alive(server, window))
+			return;
+		for (wb::MouseEvent e : release_events)
+			run_mouse_bindings(server, pressed->context, window,
+					pressed->button, pressed->modifiers, e);
+	}
+}
+
+void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 	struct wlr_seat *seat = server->seat->seat;
 
 	/* Locked: no bindings, frames or menus. The button goes to the pointer
@@ -439,6 +542,21 @@ void wb_cursor::on_button(void *data) {
 	}
 
 	if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
+		/* Mouse bindings first: a Press binding takes the press over from
+		 * the built-in behaviour below (titlebar drag, Alt+drag, ...). */
+		struct wb_toplevel *bound_window = nullptr;
+		if (auto context = pointer_context(server, &bound_window)) {
+			uint32_t mods = keyboard_modifiers(server);
+			server->click_tracker.press(event->button, *context,
+					reinterpret_cast<uintptr_t>(bound_window), mods,
+					cursor->x, cursor->y, event->time_msec);
+			if (run_mouse_bindings(server, *context, bound_window,
+					event->button, mods, wb::MouseEvent::Press)) {
+				wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+				return;
+			}
+		}
+
 		/* Server-side decoration interaction: a press on a window's titlebar,
 		 * border or a titlebar button. Resolved against the scene (respects
 		 * z-order), so it takes priority over Root/Client bindings — a titlebar
@@ -469,8 +587,7 @@ void wb_cursor::on_button(void *data) {
 		/* Alt + drag moves (left) or resizes (right) the window under the
 		 * pointer regardless of its decorations, matching Openbox's default
 		 * frame mouse bindings. The button is consumed, not forwarded. */
-		struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(seat);
-		uint32_t modifiers = keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
+		uint32_t modifiers = keyboard_modifiers(server);
 		if (toplevel != nullptr && (modifiers & WLR_MODIFIER_ALT) &&
 				(event->button == wb::MOUSE_BUTTON_LEFT ||
 						event->button == wb::MOUSE_BUTTON_RIGHT)) {
@@ -479,49 +596,13 @@ void wb_cursor::on_button(void *data) {
 				begin_interactive(toplevel, WB_CURSOR_MOVE, 0);
 			} else {
 				/* Resize from the corner nearest the pointer. */
-				uint32_t edges = 0;
-				edges |= (cursor->x <
-						toplevel->geometry.x + toplevel->geometry.width / 2.0)
-						? WLR_EDGE_LEFT : WLR_EDGE_RIGHT;
-				edges |= (cursor->y <
-						toplevel->geometry.y + toplevel->geometry.height / 2.0)
-						? WLR_EDGE_TOP : WLR_EDGE_BOTTOM;
-				begin_interactive(toplevel, WB_CURSOR_RESIZE, edges);
+				begin_interactive(toplevel, WB_CURSOR_RESIZE,
+						nearest_resize_edges(toplevel, cursor->x, cursor->y));
 			}
 			wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
 			return;
 		}
 
-		/* Configured mouse bindings. Resolve the context from what is under the
-		 * pointer: a window's Client area, or the Root desktop. A layer-shell
-		 * surface (panel/bar like Waybar) is a client too — it is not a
-		 * toplevel, but it is NOT the desktop either, so it must NOT count as
-		 * Root (that would steal right-clicks from a bar's own context menus).
-		 * Only an empty hit (no surface at all) is Root. Titlebar/Frame
-		 * contexts become reachable once server-side decorations exist. */
-		bool over_layer_surface = toplevel == nullptr && surface != nullptr;
-		wb::MouseContext context = toplevel != nullptr
-				? wb::MouseContext::Client
-				: wb::MouseContext::Root;
-		bool handled = false;
-		if (server->config != nullptr && !over_layer_surface) {
-			for (const wb::MouseBinding &binding : server->config->mouse_bindings) {
-				if (!wb::mouse_binding_matches(binding, context, event->button,
-						modifiers, wb::MouseEvent::Press))
-					continue;
-				/* A click in a client focuses it first, so window-targeted
-				 * actions act on the clicked window. */
-				if (context == wb::MouseContext::Client)
-					focus_toplevel(toplevel);
-				for (const wb::Action &action : binding.actions)
-					wb::run_action(action, server);
-				handled = true;
-			}
-		}
-		if (handled) {
-			wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
-			return;
-		}
 	}
 
 	wlr_seat_pointer_notify_button(seat, event->time_msec, event->button, event->state);
@@ -544,6 +625,31 @@ void wb_cursor::on_axis(void *data) {
 	auto *event = static_cast<struct wlr_pointer_axis_event *>(data);
 	if (wb_input_blocked(server, &event->pointer->base))
 		return;
+	/* A wheel notch is the "Up" or "Down" button: Press and Click bindings
+	 * (scroll on the desktop to switch desktops, on a titlebar to shade).
+	 * High-resolution wheels report fractions of a notch (value120), which
+	 * add up; a wheel without notch information counts each event as one.
+	 * Touchpad scrolling has no notches and always goes to clients. */
+	int steps = event->orientation == WL_POINTER_AXIS_VERTICAL_SCROLL
+			? wb::wheel_notches(&scroll_value120, event->delta_discrete,
+					event->source == WL_POINTER_AXIS_SOURCE_WHEEL, event->delta)
+			: 0;
+	if (steps != 0 && !session_locked(server) && server->menu == nullptr &&
+			server->cursor->cursor_mode == WB_CURSOR_PASSTHROUGH) {
+		struct wb_toplevel *window = nullptr;
+		if (auto context = pointer_context(server, &window)) {
+			uint32_t button = steps < 0 ? wb::MOUSE_BUTTON_UP
+					: wb::MOUSE_BUTTON_DOWN;
+			uint32_t mods = keyboard_modifiers(server);
+			bool pressed = run_mouse_bindings(server, *context, window, button,
+					mods, wb::MouseEvent::Press);
+			bool clicked = (window == nullptr || toplevel_alive(server, window)) &&
+					run_mouse_bindings(server, *context, window, button, mods,
+							wb::MouseEvent::Click);
+			if (pressed || clicked)
+				return;
+		}
+	}
 	wlr_seat_pointer_notify_axis(server->seat->seat, event->time_msec,
 			event->orientation, event->delta, event->delta_discrete,
 			event->source, event->relative_direction);

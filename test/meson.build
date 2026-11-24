@@ -212,6 +212,16 @@ if python.found() and not get_option('tests_only')
     env: integration_env,
     )
   test(
+    'integration_mouse_contexts',
+    python,
+    args: [
+      files('integration' / 'mouse_contexts_test.py'),
+      waybox_exe,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
+  test(
     'integration_desktops',
     python,
     args: [

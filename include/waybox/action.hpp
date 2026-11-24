@@ -44,6 +44,8 @@ enum class ActionType {
 	SendToDesktop,
 	ToggleOmnipresent,
 	SnapToEdge,
+	Move,
+	Resize,
 };
 
 /* A parsed action ready to run. `command` is only meaningful for actions whose
