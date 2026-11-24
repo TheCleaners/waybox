@@ -98,7 +98,7 @@ static struct wb_layer_surface *wb_layer_surface_create(
 static void handle_surface_commit(struct wb_layer_surface *surface, void *data) {
 	struct wb_toplevel *current_toplevel = first_toplevel(surface->server);
 
-	if (!surface->output || (current_toplevel && current_toplevel->xdg_toplevel->current.fullscreen)) {
+	if (!surface->output || (current_toplevel && current_toplevel->fullscreen)) {
 		return;
 	}
 	wlr_fractional_scale_v1_notify_scale(surface->scene->layer_surface->surface, surface->output->wlr_output->scale);

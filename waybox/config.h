@@ -73,6 +73,10 @@ struct wb_config {
 	enum class VirtualInput { Unlocked, Always, Never };
 	VirtualInput virtual_input = VirtualInput::Unlocked;
 
+	/* rc.xml <waybox><xwayland enabled="yes|no"/>: run X11 programs
+	 * through Xwayland (started on first use). */
+	bool xwayland = true;
+
 	/* rc.xml <waybox><titlebar ...> server-side-decoration tuning. A value of
 	 * -1 means "unset" (fall back to a sensible default derived from the
 	 * theme/font); see frame_metrics() in decoration.cpp. */

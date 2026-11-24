@@ -26,10 +26,7 @@
 #include "waybox/session_lock.h"
 
 static void deiconify_toplevel(struct wb_toplevel *toplevel) {
-	if (toplevel->xdg_toplevel->requested.minimized) {
-		toplevel->xdg_toplevel->requested.minimized = false;
-		wl_signal_emit(&toplevel->xdg_toplevel->events.request_minimize, NULL);
-	}
+	set_toplevel_minimized(toplevel, false);
 }
 
 /* Shared Alt+Tab cycle: walk the MRU focus order to the next/previous eligible
@@ -47,7 +44,7 @@ static void cycle_toplevels_dir(struct wb_server *server, bool reverse) {
 		server->seat->seat->keyboard_state.focused_surface;
 	std::optional<std::size_t> current;
 	for (std::size_t i = 0; i < order.size(); ++i) {
-		if (order[i]->xdg_toplevel->base->surface == focused) {
+		if (view_surface(order[i]) == focused) {
 			current = i;
 			break;
 		}
@@ -80,10 +77,10 @@ static constexpr uint32_t kSwitcherTriggerMask =
 		WLR_MODIFIER_ALT | WLR_MODIFIER_LOGO | WLR_MODIFIER_CTRL;
 
 static std::string toplevel_label(struct wb_toplevel *t) {
-	if (t->xdg_toplevel->title != nullptr && t->xdg_toplevel->title[0] != '\0')
-		return t->xdg_toplevel->title;
-	if (t->xdg_toplevel->app_id != nullptr && t->xdg_toplevel->app_id[0] != '\0')
-		return t->xdg_toplevel->app_id;
+	if (view_title(t)[0] != '\0')
+		return view_title(t);
+	if (view_app_id(t)[0] != '\0')
+		return view_app_id(t);
 	return "(untitled)";
 }
 
@@ -186,7 +183,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	case wb::ActionType::Close: {
 		struct wb_toplevel *toplevel = first_toplevel(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)
-			wlr_xdg_toplevel_send_close(toplevel->xdg_toplevel);
+			view_close(toplevel);
 		break;
 	}
 	case wb::ActionType::ToggleMaximize: {
@@ -215,25 +212,24 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		struct wb_toplevel *toplevel = first_toplevel(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)
 			set_toplevel_fullscreen(toplevel,
-					!toplevel->xdg_toplevel->current.fullscreen);
+					!toplevel->fullscreen);
 		break;
 	}
 	case wb::ActionType::Iconify: {
 		struct wb_toplevel *toplevel = first_toplevel(server);
 		if (toplevel && toplevel->scene_tree->node.enabled) {
-			toplevel->xdg_toplevel->requested.minimized = true;
-			wl_signal_emit(&toplevel->xdg_toplevel->events.request_minimize, NULL);
+			set_toplevel_minimized(toplevel, true);
 		}
 		break;
 	}
 	case wb::ActionType::Shade: {
 		struct wb_toplevel *toplevel = first_toplevel(server);
 		if (toplevel && toplevel->scene_tree->node.enabled) {
-			struct wlr_box geo_box = toplevel->xdg_toplevel->base->geometry;
+			struct wlr_box geo_box = view_geometry(toplevel);
 			int decoration_height = MAX(geo_box.y - toplevel->geometry.y, TITLEBAR_HEIGHT);
 
 			toplevel->restore_shade = toplevel->geometry;
-			wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
+			view_set_size(toplevel,
 					toplevel->geometry.width, decoration_height);
 		}
 		break;
@@ -243,7 +239,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		if (toplevel && toplevel->restore_shade.height > 0 &&
 				toplevel->restore_shade.width > 0 &&
 				toplevel->scene_tree->node.enabled) {
-			wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
+			view_set_size(toplevel,
 					toplevel->restore_shade.width,
 					toplevel->restore_shade.height);
 		}

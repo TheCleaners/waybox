@@ -37,6 +37,8 @@
          screen; "always" allows it (e.g. an on-screen keyboard to unlock a
          tablet); "never" ignores virtual devices entirely. -->
     <virtualInput allow="unlocked"/>
+    <!-- Run X11 programs through Xwayland, started on first use. -->
+    <xwayland enabled="yes"/>
     <titlebar paddingY="2" buttonSize="0" resizeGrab="8"/>
   </waybox>
   <!-- Virtual desktops. Names are optional (unnamed ones show as

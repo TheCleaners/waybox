@@ -23,8 +23,20 @@ static constexpr bool kSsdAvailable = true;
  * decoration protocol for this toplevel; for such clients we then honour
  * DecorMode and the client's requested mode. */
 static bool toplevel_wants_ssd(struct wb_toplevel *toplevel) {
-	if (toplevel->xdg_toplevel->current.fullscreen)
+	if (toplevel->fullscreen)
 		return false;
+#if WLR_HAS_XWAYLAND
+	/* X11 windows: decorate unless the client asked for none through Motif
+	 * hints (as CSD toolkits and most games do). */
+	if (toplevel->kind == wb_view_kind::Xwayland) {
+		bool client_wants_ssd = toplevel->xsurface != nullptr &&
+				toplevel->xsurface->decorations ==
+				WLR_XWAYLAND_SURFACE_DECORATIONS_ALL;
+		return wb::negotiate_decoration(toplevel->decorations,
+				client_wants_ssd, kSsdAvailable) ==
+				wb::NegotiatedDecoration::ServerSide;
+	}
+#endif
 	if (toplevel->decoration == nullptr)
 		return false;  /* CSD-only client (e.g. GTK): leave its decorations be */
 	bool client_wants_ssd = toplevel->decoration->requested_mode ==
@@ -67,8 +79,7 @@ static wb::FrameMetrics frame_metrics(const wb::Theme &theme,
 }
 
 void update_toplevel_decoration(struct wb_toplevel *toplevel) {
-	if (toplevel == nullptr || toplevel->xdg_toplevel == nullptr ||
-			!toplevel->xdg_toplevel->base->initialized)
+	if (toplevel == nullptr || !view_ready(toplevel))
 		return;
 	struct wb_server *server = toplevel->server;
 	bool want = toplevel_wants_ssd(toplevel);
@@ -95,13 +106,12 @@ void update_toplevel_decoration(struct wb_toplevel *toplevel) {
 		if (toplevel->surface_tree != nullptr)
 			wlr_scene_node_set_position(&toplevel->surface_tree->node,
 					in.left, in.top);
-		struct wlr_box g = toplevel->xdg_toplevel->base->geometry;
+		struct wlr_box g = view_geometry(toplevel);
 		int cw = g.width > 0 ? g.width : toplevel->geometry.width;
 		int ch = g.height > 0 ? g.height : toplevel->geometry.height;
 		toplevel->frame->set_client_size(cw, ch);
 		toplevel->frame->set_active(first_toplevel(server) == toplevel);
-		const char *title = toplevel->xdg_toplevel->title;
-		toplevel->frame->set_title(title != nullptr ? title : "");
+		toplevel->frame->set_title(view_title(toplevel));
 		toplevel->frame->set_maximized(toplevel->max_horz && toplevel->max_vert);
 	}
 
@@ -109,8 +119,14 @@ void update_toplevel_decoration(struct wb_toplevel *toplevel) {
 }
 
 void apply_toplevel_decoration(struct wb_toplevel *toplevel) {
-	if (toplevel == nullptr || toplevel->decoration == nullptr)
+	if (toplevel == nullptr)
 		return;
+	/* No decoration protocol to answer (X11 windows, CSD-only clients):
+	 * just rebuild or drop our frame. */
+	if (toplevel->decoration == nullptr) {
+		update_toplevel_decoration(toplevel);
+		return;
+	}
 	struct wlr_xdg_toplevel_decoration_v1 *deco = toplevel->decoration;
 	if (!deco->toplevel->base->initialized)
 		return;

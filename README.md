@@ -36,6 +36,11 @@ For background, see
   and a `<desktop>` app rule. Alt+Tab stays on the current desktop, and
   focusing a window from a taskbar goes to its desktop. Panels see and switch
   desktops through `ext-workspace-v1` (Waybar's `ext/workspaces` module).
+- **X11 programs** through Xwayland, started on first use: Steam, Wine,
+  older toolkits. X11 windows get the same frames, placement, desktops,
+  focus and actions as Wayland ones; dialogs open centred over their parent,
+  and menus and tooltips appear where the program puts them. Turn it off
+  with `<xwayland enabled="no"/>`.
 - **Alt+Tab switcher** with an on-screen list, in most-recently-used or
   stacking order.
 - **Openbox themes** (`themerc`) with per-place fonts.
@@ -64,6 +69,7 @@ For background, see
 | Taskbars | `wlr-foreign-toplevel-management`, `ext-foreign-toplevel-list`, `ext-workspace` (desktops in Waybar) |
 | Clipboard | `primary-selection`, `ext-data-control` |
 | Capture | `ext-image-copy-capture` (grim, screen recorders) |
+| X11 | Xwayland (lazy start, `DISPLAY` exported to the session) |
 | Other | `presentation-time`, `viewporter`, `single-pixel-buffer`, `content-type`, `cursor-shape`, `idle-notify`, `idle-inhibit` |
 
 ### Robustness

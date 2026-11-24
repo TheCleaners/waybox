@@ -18,9 +18,16 @@ struct wb_popup {
 	wb::Listener destroy;
 };
 
+/* What kind of client window a wb_toplevel wraps. Code outside the shell
+ * files goes through the view_* functions below instead of touching
+ * xdg_toplevel/xsurface directly. */
+enum class wb_view_kind { Xdg, Xwayland };
+
 struct wb_toplevel {
 	struct wb_server *server = nullptr;
-	struct wlr_xdg_toplevel *xdg_toplevel = nullptr;
+	wb_view_kind kind = wb_view_kind::Xdg;
+	struct wlr_xdg_toplevel *xdg_toplevel = nullptr;      /* Xdg only */
+	struct wlr_xwayland_surface *xsurface = nullptr;      /* Xwayland only */
 	/* scene_tree is the per-window frame container (positioned, raised/lowered
 	 * and z-ordered as the window). surface_tree holds the client's xdg surface
 	 * inside it, offset by the decoration insets (zero for client-side
@@ -59,6 +66,13 @@ struct wb_toplevel {
 	wb::Listener request_resize;
 	wb::Listener set_app_id;
 	wb::Listener set_title;
+	/* Xwayland only. */
+	wb::Listener associate;
+	wb::Listener dissociate;
+	wb::Listener request_configure;
+	wb::Listener request_activate;
+	wb::Listener set_decorations;
+	wb::Listener surface_tree_destroy;
 
 	struct wlr_box geometry = {};
 	/* Per-state restore rects, kept separate so interleaving states
@@ -72,6 +86,8 @@ struct wb_toplevel {
 	bool max_horz = false;
 	bool max_vert = false;
 	bool mapped = false;
+	bool minimized = false;
+	bool fullscreen = false;
 	/* Virtual desktop (0-based) the window lives on; an omnipresent window
 	 * shows on every desktop (Openbox's "all desktops"/sticky). */
 	int desktop = 0;
@@ -82,6 +98,45 @@ struct wb_toplevel {
 };
 
 void init_xdg_shell(struct wb_server *server);
+
+/* ---- Views: the per-kind window operations (view.cpp) ---- */
+/* Title and app id (X11: WM_CLASS class); never null. */
+const char *view_title(struct wb_toplevel *toplevel);
+const char *view_app_id(struct wb_toplevel *toplevel);
+/* The client's main surface, or null (an X11 window not yet associated). */
+struct wlr_surface *view_surface(struct wb_toplevel *toplevel);
+/* Whether configures may be sent (xdg: initial commit done). */
+bool view_ready(struct wb_toplevel *toplevel);
+/* The client's window geometry within its surface (xdg: excludes CSD
+ * shadows); X11 windows have no offset. */
+struct wlr_box view_geometry(struct wb_toplevel *toplevel);
+/* Min/max size hints (0 = unset). */
+void view_size_hints(struct wb_toplevel *toplevel, int *min_w, int *min_h,
+		int *max_w, int *max_h);
+/* Ask the client for a new size. X11 windows also learn their position
+ * (toplevel->geometry.x/y), which they need for placing their own menus. */
+void view_set_size(struct wb_toplevel *toplevel, int width, int height);
+void view_set_activated(struct wb_toplevel *toplevel, bool activated);
+void view_set_maximized(struct wb_toplevel *toplevel, bool horz, bool vert);
+void view_set_fullscreen(struct wb_toplevel *toplevel, bool fullscreen);
+void view_set_minimized(struct wb_toplevel *toplevel, bool minimized);
+void view_close(struct wb_toplevel *toplevel);
+/* The window this one is a dialog/transient for, if it is one of ours. */
+struct wb_toplevel *view_parent(struct wb_toplevel *toplevel);
+/* The wb_toplevel whose main surface is `surface`, or null. */
+struct wb_toplevel *toplevel_from_surface(struct wb_server *server,
+		struct wlr_surface *surface);
+
+/* ---- Shared window lifecycle (xdg_shell.cpp), used by both kinds ---- */
+void map_toplevel(struct wb_toplevel *toplevel);
+void unmap_toplevel(struct wb_toplevel *toplevel);
+void destroy_toplevel(struct wb_toplevel *toplevel);
+void toplevel_title_changed(struct wb_toplevel *toplevel);
+void toplevel_app_id_changed(struct wb_toplevel *toplevel);
+void set_toplevel_minimized(struct wb_toplevel *toplevel, bool minimized);
+/* Insert a new toplevel into the server lists and create its scene
+ * container (both kinds). */
+void register_toplevel(struct wb_toplevel *toplevel);
 void focus_toplevel(struct wb_toplevel *toplevel);
 void raise_toplevel(struct wb_toplevel *toplevel);
 void lower_toplevel(struct wb_toplevel *toplevel);

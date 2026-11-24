@@ -33,8 +33,10 @@ wb_src = [
     'server.cpp',
     'session_lock.cpp',
     'switcher_widget.cpp',
+    'view.cpp',
     'workspace.cpp',
     'xdg_shell.cpp',
+    'xwayland.cpp',
   ),
   ]
 
