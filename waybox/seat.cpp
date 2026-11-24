@@ -311,6 +311,21 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 			wb_toggle_omnipresent(toplevel);
 		break;
 	}
+	case wb::ActionType::SnapToEdge: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled)
+			break;
+		if (action.direction == "down") {
+			/* Back to how it was before tiling or maximizing. */
+			if (toplevel->tiled)
+				untile_toplevel(toplevel, true);
+			else if (toplevel->max_horz || toplevel->max_vert)
+				set_toplevel_maximized(toplevel, false, false);
+		} else if (auto zone = wb::tile_zone_from_name(action.direction)) {
+			tile_toplevel(toplevel, *zone, nullptr);
+		}
+		break;
+	}
 	case wb::ActionType::Exit:
 		wl_display_terminate(server->wl_display);
 		break;
