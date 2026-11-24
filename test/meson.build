@@ -192,6 +192,40 @@ if python.found() and not get_option('tests_only')
     timeout: 60,
     env: integration_env,
     )
+  # A minimal ext-session-lock-v1 client for the session-lock test.
+  session_lock_xml = wl_protocol_dir / 'staging/ext-session-lock/ext-session-lock-v1.xml'
+  lock_client = executable(
+    'lock_client',
+    [
+      'integration' / 'lock_client.c',
+      wayland_scanner_client.process(session_lock_xml),
+      wayland_scanner_code.process(session_lock_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+  test(
+    'integration_session_lock',
+    python,
+    args: [
+      files('integration' / 'session_lock_test.py'),
+      waybox_exe,
+      lock_client,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
+  test(
+    'integration_session_lock_virtual_always',
+    python,
+    args: [
+      files('integration' / 'session_lock_test.py'),
+      waybox_exe,
+      lock_client,
+      'always',
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
   test(
     'integration_input_focus',
     python,

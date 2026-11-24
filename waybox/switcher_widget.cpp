@@ -12,6 +12,7 @@
 
 #include "waybox/render.hpp"
 #include "waybox/server.h"
+#include "waybox/session_lock.h"
 
 namespace wb {
 
@@ -20,6 +21,7 @@ SwitcherWidget::SwitcherWidget(struct wb_server *server,
 	: server_(server), style_(style), behavior_(behavior) {
 	tree_ = wlr_scene_tree_create(&server_->scene->tree);
 	wlr_scene_node_raise_to_top(&tree_->node);
+	session_lock_keep_on_top(server_);
 	text_height_ = measure_text("Ag", style_.item_text.font).height;
 }
 

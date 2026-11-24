@@ -22,6 +22,7 @@
 #include "waybox/style.hpp"
 #include "waybox/theme.hpp"
 #include "decoration.h"
+#include "waybox/session_lock.h"
 
 static void deiconify_toplevel(struct wb_toplevel *toplevel) {
 	if (toplevel->xdg_toplevel->requested.minimized) {
@@ -397,12 +398,38 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 	return false;
 }
 
+/* Marks devices created through the virtual input protocols (wlroots has a
+ * getter for virtual keyboards but none for virtual pointers). */
+static char virtual_device_tag;
+
+bool wb_input_is_virtual(struct wlr_input_device *device) {
+	return device != nullptr && device->data == &virtual_device_tag;
+}
+
+bool wb_input_blocked(struct wb_server *server, struct wlr_input_device *device) {
+	if (!wb_input_is_virtual(device))
+		return false;
+	auto policy = server->config ? server->config->virtual_input
+			: wb_config::VirtualInput::Unlocked;
+	switch (policy) {
+	case wb_config::VirtualInput::Always:
+		return false;
+	case wb_config::VirtualInput::Never:
+		return true;
+	case wb_config::VirtualInput::Unlocked:
+	default:
+		return session_locked(server);
+	}
+}
+
 void wb_keyboard::on_modifiers(void *data) {
 	/* Raised when a modifier key (shift, alt, ...) is pressed; forward it.
 	 *
 	 * A seat can only have one keyboard, but that is a Wayland-protocol
 	 * limitation, not a wlroots one: we assign every connected keyboard to the
 	 * same seat and wlr_seat swaps the underlying wlr_keyboard transparently. */
+	if (wb_input_blocked(server, &keyboard->base))
+		return;
 	wlr_seat_set_keyboard(server->seat->seat, keyboard);
 	wlr_seat_keyboard_notify_modifiers(server->seat->seat,
 		&keyboard->modifiers);
@@ -421,6 +448,9 @@ void wb_keyboard::on_key(void *data) {
 	auto *event = static_cast<struct wlr_keyboard_key_event *>(data);
 	struct wlr_seat *seat = server->seat->seat;
 
+	if (wb_input_blocked(server, &keyboard->base))
+		return;
+
 	/* Translate libinput keycode -> xkbcommon */
 	uint32_t keycode = event->keycode + 8;
 	const xkb_keysym_t *syms;
@@ -428,6 +458,30 @@ void wb_keyboard::on_key(void *data) {
 
 	bool handled = false;
 	uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard);
+
+	/* Locked: no compositor bindings, menus or switcher. Keys go only to the
+	 * focused surface, which can only be a lock surface; VT switching still
+	 * works so a stuck lock can be recovered from another VT. */
+	if (session_locked(server)) {
+		if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED &&
+				(modifiers & (WLR_MODIFIER_CTRL | WLR_MODIFIER_ALT)) &&
+				server->session != nullptr) {
+			for (int i = 0; i < nsyms; i++) {
+				if (syms[i] >= XKB_KEY_XF86Switch_VT_1 &&
+						syms[i] <= XKB_KEY_XF86Switch_VT_12) {
+					wlr_session_change_vt(server->session,
+							syms[i] - XKB_KEY_XF86Switch_VT_1 + 1);
+					return;
+				}
+			}
+		}
+		wlr_seat_set_keyboard(seat, keyboard);
+		wlr_seat_keyboard_notify_key(seat, event->time_msec,
+			event->keycode, event->state);
+		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		return;
+	}
+
 	if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
 		/* The Alt+Tab OSD grabs the keyboard: Tab/Shift+Tab move the selection,
 		 * Escape cancels, Return commits. All keys are swallowed so they neither
@@ -705,6 +759,12 @@ void seat_focus_surface(struct wb_seat *seat, struct wlr_surface *surface) {
 		wlr_seat_keyboard_notify_clear_focus(seat->seat);
 		return;
 	}
+	/* While the session is locked, only the locker may hold keyboard focus.
+	 * This is the single place keyboard enter is sent, so it covers window
+	 * focus, layer-shell focus and activation requests alike. */
+	if (session_locked(seat->server) &&
+			!session_lock_owns_surface(seat->server, surface))
+		return;
 
 	/* Always send enter, even with no keyboard attached yet (headless, or a
 	 * keyboard hot-plugged later): otherwise the surface never receives
@@ -731,6 +791,7 @@ void seat_set_focus_layer(struct wb_seat *seat, struct wlr_layer_surface_v1 *lay
 
 struct wb_seat *wb_seat_create(struct wb_server *server) {
 	auto *seat = new wb_seat{};
+	seat->server = server;
 	wl_list_init(&seat->keyboards);
 	server->new_input.connect(&server->backend->events.new_input,
 			[server](void *data) { new_input_notify(server, data); });
@@ -747,6 +808,7 @@ struct wb_seat *wb_seat_create(struct wb_server *server) {
 			[server](void *data) {
 		auto *virtual_keyboard =
 			static_cast<struct wlr_virtual_keyboard_v1 *>(data);
+		virtual_keyboard->keyboard.base.data = &virtual_device_tag;
 		handle_new_keyboard(server, &virtual_keyboard->keyboard.base);
 		update_seat_capabilities(server);
 	});
@@ -757,6 +819,7 @@ struct wb_seat *wb_seat_create(struct wb_server *server) {
 			[server](void *data) {
 		auto *event =
 			static_cast<struct wlr_virtual_pointer_v1_new_pointer_event *>(data);
+		event->new_pointer->pointer.base.data = &virtual_device_tag;
 		handle_new_pointer(server, &event->new_pointer->pointer.base);
 		update_seat_capabilities(server);
 	});

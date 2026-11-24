@@ -18,6 +18,7 @@
 #include "waybox/icon.hpp"
 #include "waybox/render.hpp"
 #include "waybox/server.h"
+#include "waybox/session_lock.h"
 
 namespace wb {
 
@@ -108,6 +109,7 @@ MenuWidget::MenuWidget(struct wb_server *server, const MenuFile &menus,
 
 	tree_ = wlr_scene_tree_create(&server_->scene->tree);
 	wlr_scene_node_raise_to_top(&tree_->node);
+	session_lock_keep_on_top(server_);
 }
 
 MenuWidget::~MenuWidget() {

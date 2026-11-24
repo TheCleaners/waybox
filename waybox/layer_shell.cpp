@@ -8,6 +8,7 @@
 #include "waybox/wlroots.hpp"
 
 #include "waybox/xdg_shell.h"
+#include "waybox/session_lock.h"
 
 void assign_scene_descriptor(struct wlr_scene_node *node,
 		enum wb_scene_descriptor_type type, void *data) {
@@ -114,6 +115,7 @@ static void handle_surface_commit(struct wb_layer_surface *surface, void *data) 
 
 	if (layer_surface->current.layer != ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
 		wlr_scene_node_raise_to_top(&output_layer->node);
+		session_lock_keep_on_top(surface->server);
 	}
 
 	if (layer_surface == surface->server->seat->focused_layer) {

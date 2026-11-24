@@ -30,6 +30,7 @@
 #include "waybox/seat.h"
 
 namespace wb { class MenuWidget; class SwitcherWidget; }
+struct wb_session_lock_state;
 
 struct wb_server {
 	struct wl_display *wl_display;
@@ -117,6 +118,9 @@ struct wb_server {
 	std::vector<struct wb_toplevel *> switcher_windows;
 	uint32_t switcher_mods = 0;
 	uint32_t last_key_modifiers = 0;
+
+	/* ext-session-lock-v1 state (see session_lock.h), or null. */
+	struct wb_session_lock_state *session_lock = nullptr;
 };
 
 bool wb_create_backend(struct wb_server *server);
