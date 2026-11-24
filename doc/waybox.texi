@@ -1,0 +1,326 @@
+\input texinfo
+@setfilename waybox.info
+@settitle Waybox Manual
+@documentencoding UTF-8
+
+@copying
+This manual is for Waybox, an Openbox-style Wayland compositor.
+
+Waybox is free software, distributed under the terms of the MIT license.
+@end copying
+
+@dircategory X Window System
+@direntry
+* Waybox: (waybox).        An Openbox-style Wayland compositor.
+@end direntry
+
+@titlepage
+@title Waybox Manual
+@subtitle An Openbox-style Wayland compositor
+@page
+@vskip 0pt plus 1filll
+@insertcopying
+@end titlepage
+
+@contents
+
+@ifnottex
+@node Top
+@top Waybox
+
+Waybox is a Wayland compositor modelled on Openbox.  It reads Openbox's
+configuration files and themes, and leaves panels, wallpapers, launchers
+and other desktop functions to separate programs.
+
+This manual describes how to start Waybox and how to use it.  The
+complete reference for its settings is the @samp{waybox(5)} manual page.
+
+@insertcopying
+@end ifnottex
+
+@menu
+* Starting Waybox::     Sessions, configuration files and autostart.
+* Windows::             Moving, tiling, switching and closing windows.
+* Desktops::            Virtual desktops.
+* The root menu::       The desktop menu and pipe menus.
+* Configuration::       rc.xml, key bindings, rules and themes.
+* Companion programs::  Panels, wallpapers, launchers and the rest.
+* Screen locking::      Locking the screen.
+* X11 programs::        Running X11 programs through Xwayland.
+* Monitors and GPUs::   Several monitors, several graphics cards.
+* Index::
+@end menu
+
+@node Starting Waybox
+@chapter Starting Waybox
+@cindex starting
+@cindex session
+
+Run @command{waybox} from a virtual terminal, or choose Waybox in a
+display manager.  @command{waybox} is a session script: it reads your
+environment file, finds the configuration files, and starts the
+compositor, which then runs your autostart script.
+
+@cindex configuration files
+Your files go in @file{~/.config/waybox/} (or
+@file{$XDG_CONFIG_HOME/waybox/}):
+
+@table @file
+@item rc.xml
+Settings, key and mouse bindings, and rules for applications.
+@xref{Configuration}.
+@item menu.xml
+The root menu.  @xref{The root menu}.
+@item environment
+A shell script sourced when the session starts.  Export variables here
+so they reach Waybox and every program it starts.
+@item autostart
+A shell script run when the session starts, for panels, wallpapers and
+other programs.  It must be executable.
+@end table
+
+For each file you don't have, Waybox uses the system default (usually in
+@file{/etc/xdg/waybox/}).  To customize one, copy it to
+@file{~/.config/waybox/} and edit the copy.
+
+@cindex autostart
+The default @file{autostart} starts a dock, a panel, a notification
+daemon, a wallpaper and a polkit agent, the program that asks for your password
+when an application needs more privileges.  Programs that install XDG
+autostart entries are started too, unless the entry is limited to another
+desktop.
+
+To leave Waybox, press @kbd{Ctrl+Escape} (the @code{Exit} action).
+
+@node Windows
+@chapter Windows
+@cindex windows
+
+@section Moving and resizing
+@cindex moving windows
+@cindex resizing windows
+Drag a window by its title bar, or anywhere with @kbd{Alt} held: the
+left button moves it, the right button resizes it.  Windows snap to
+screen edges and to each other as you drag them.
+
+@section Tiling
+@cindex tiling
+Drag a window to the edge of a monitor and a translucent preview shows
+where it will go.  Release it there to tile it:
+
+@itemize
+@item at the left or right edge, to that half of the monitor;
+@item near a corner, to that quarter;
+@item at the top edge, maximized.
+@end itemize
+
+Drag a tiled window away and it gets its previous size back.  From the
+keyboard, @kbd{Super+Left} and @kbd{Super+Right} tile the active window
+to a half, @kbd{Super+Up} maximizes it, and @kbd{Super+Down} puts it
+back.
+
+@section Switching
+@cindex switching windows
+@kbd{Alt+Tab} shows the windows on the current desktop, most recently
+used first.  Press @kbd{Tab} again to move through the list and release
+@kbd{Alt} to switch.  @kbd{Alt+Shift+Tab} goes the other way.
+
+@section Other window keys
+@table @kbd
+@item Alt+F4
+Close the window.
+@item Super+M
+Minimize it.
+@item Super+Shift+M
+Maximize it, or restore it.
+@item F11
+Fullscreen.
+@item Super+S, Super+Shift+S
+Shade (roll up to the title bar) and unshade.
+@item Super+T
+Turn the title bar and border on or off.
+@end table
+
+These are the defaults from the shipped @file{rc.xml}; you can change
+them all.  @xref{Configuration}.
+
+@node Desktops
+@chapter Desktops
+@cindex desktops
+@cindex virtual desktops
+
+Waybox has four virtual desktops unless you set another number.  Each
+window lives on one desktop, or on all of them.
+
+@table @kbd
+@item Ctrl+Alt+Left, Ctrl+Alt+Right
+Go to the previous or next desktop.
+@item Shift+Alt+Left, Shift+Alt+Right
+Take the active window to the previous or next desktop.
+@item Super+F1 @dots{} Super+F4
+Go to a desktop directly.
+@end table
+
+@kbd{Alt+Tab} only switches between windows on the current desktop.
+Activating a window from a taskbar goes to its desktop.  Panels that
+support the ext-workspace protocol, such as Waybar's
+@code{ext/workspaces} module, show the desktops and switch on click.
+
+To name desktops or change their number, use @code{<desktops>} in
+@file{rc.xml}; an application rule can open a program on a given desktop.
+
+@node The root menu
+@chapter The root menu
+@cindex menu
+@cindex root menu
+
+Right-click the empty desktop to open the root menu, defined in
+@file{menu.xml}.  It can have submenus, separators and icons, and you can
+navigate it with the keyboard.
+
+@cindex pipe menu
+A pipe menu is a submenu whose contents a program writes when you open it,
+in Openbox's @code{<openbox_pipe_menu>} format.  The default menu uses one
+for the installed applications.  For example:
+
+@example
+<menu id="apps" label="Applications" execute="obamenu"/>
+@end example
+
+To use a launcher such as rofi instead of the built-in menu, set
+@code{<waybox><menu source="rofi -show drun"/></waybox>} in @file{rc.xml}.
+
+@node Configuration
+@chapter Configuration
+@cindex configuration
+@cindex rc.xml
+
+@file{rc.xml} uses Openbox's format, and an Openbox @file{rc.xml} works
+as it is: Waybox applies the settings it supports and ignores the rest.
+Settings only Waybox has go in a @code{<waybox>} block, which Openbox
+ignores.  The shipped @file{rc.xml} is commented throughout, and the
+@samp{waybox(5)} manual page lists every setting and action.
+
+To apply changes, run the @code{Reconfigure} action (@kbd{Super+C}) or send
+@code{SIGUSR2} to Waybox.  You can also edit settings with
+@command{wbconf}, a graphical tool in the style of obconf.
+
+@section Key bindings
+@cindex key bindings
+A key binding runs one or more actions:
+
+@example
+<keyboard>
+  <keybind key="W-Return">
+    <action name="Execute"><execute>foot</execute></action>
+  </keybind>
+</keyboard>
+@end example
+
+Modifiers are @code{A} (Alt), @code{C} (Ctrl), @code{S} (Shift),
+@code{W} (Super), joined to the key with @samp{-}.  A @code{<keybind>}
+inside another is a key chain: press the first key, then the second.
+
+@section Application rules
+@cindex application rules
+Rules set how particular programs open, matched by app ID (the
+@code{WM_CLASS} class for X11 programs) or title:
+
+@example
+<applications>
+  <application class="firefox">
+    <desktop>2</desktop>
+    <maximized>yes</maximized>
+  </application>
+</applications>
+@end example
+
+@section Themes
+@cindex themes
+Waybox uses Openbox themes, set with @code{<theme><name>} in
+@file{rc.xml}.  Themes are looked up in @file{~/.local/share/themes},
+@file{~/.themes} and the system theme directories.
+
+@node Companion programs
+@chapter Companion programs
+@cindex companion programs
+
+Like Openbox, Waybox leaves most desktop functions to separate programs,
+usually started from @file{autostart}:
+
+@table @asis
+@item Panel
+Waybar or yambar.
+@item Wallpaper
+swaybg, wpaperd or hyprpaper.
+@item Displays
+wlr-randr to change modes and positions; kanshi to keep profiles.
+@item Launcher
+rofi (Wayland version) or any dmenu-like program.
+@item Notifications
+mako.
+@item Password prompts
+A polkit agent, such as KDE's, GNOME's or lxqt-policykit.
+@item Screenshots and recording
+grim and slurp; wf-recorder.
+@end table
+
+@node Screen locking
+@chapter Screen locking
+@cindex locking the screen
+@cindex swaylock
+
+Lock the screen with swaylock or another locker that uses the
+ext-session-lock protocol.  While the screen is locked, it is covered on
+every monitor, Waybox's own bindings are off and only the locker gets
+input.  If the locker crashes, the screen stays locked until a new locker
+unlocks it.
+
+The lock screen is opaque.  For a blurred-desktop look, give swaylock a
+blurred screenshot:
+
+@example
+grim - | magick - -blur 0x8 /tmp/lock.png && swaylock -i /tmp/lock.png
+@end example
+
+@node X11 programs
+@chapter X11 programs
+@cindex X11
+@cindex Xwayland
+
+Programs that only speak X11, such as Steam, Wine and older toolkits, run
+through Xwayland.  Xwayland starts the first time such a program runs;
+Waybox sets @env{DISPLAY} for the programs it starts.  X11 windows get the
+same frames, placement, desktops and bindings as other windows.
+
+Games that cover the whole monitor with an undecorated window are treated
+as fullscreen.  Games can also lock the pointer for mouse-look; the lock
+only holds while the game has keyboard focus, so @kbd{Alt+Tab} always
+releases it.
+
+To turn Xwayland off, set @code{<waybox><xwayland enabled="no"/></waybox>}.
+
+@node Monitors and GPUs
+@chapter Monitors and GPUs
+@cindex monitors
+@cindex GPUs
+
+Waybox uses every monitor, but does not remember their settings.  Use
+wlr-randr to change modes, positions and scale, and kanshi to apply them
+automatically when monitors are connected.
+
+With several graphics cards, Waybox drives monitors on all of them and
+draws the desktop on the first one it opens.  To choose the cards, or
+their order, set @env{WLR_DRM_DEVICES} in your environment file, for
+example:
+
+@example
+export WLR_DRM_DEVICES=/dev/dri/card0:/dev/dri/card1
+@end example
+
+@node Index
+@unnumbered Index
+
+@printindex cp
+
+@bye
