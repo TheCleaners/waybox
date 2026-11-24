@@ -32,6 +32,7 @@ struct WayboxSettings {
 	std::optional<int> titlebar_pad_y;              /* waybox/titlebar@paddingY */
 	std::optional<int> titlebar_button_size;        /* waybox/titlebar@buttonSize */
 	std::optional<int> titlebar_resize_grab;        /* waybox/titlebar@resizeGrab */
+	std::optional<std::string> title_layout;        /* theme/titleLayout */
 
 	/* Windows */
 	std::optional<std::string> placement_policy;    /* placement/policy:

@@ -49,8 +49,9 @@ _place_: *ActiveWindow*, *InactiveWindow*, *MenuHeader*, *MenuItem* or
 *normal*.
 
 *<titleLayout>* lays out the titlebar, as in Openbox: *N* the window's icon,
-*L* the title, *I* iconify, *M* maximize, *C* close; letters before *L* go
-to its left, the rest to its right (default *NLIMC*). The icon is the one
+*L* the title, *I* iconify, *M* maximize, *C* close, *S* shade (roll up or
+down), *D* on all desktops (or only this one); letters before *L* go to its
+left, the rest to its right (default *NLIMC*). The icon is the one
 the program sets, else its desktop file's, else its app ID as an icon name.
 
 ## Desktops

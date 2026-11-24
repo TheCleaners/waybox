@@ -335,6 +335,7 @@ WayboxSettings RcDocument::read() const {
 	s.titlebar_pad_y = to_int(attr_value(tb, "paddingY"));
 	s.titlebar_button_size = to_int(attr_value(tb, "buttonSize"));
 	s.titlebar_resize_grab = to_int(attr_value(tb, "resizeGrab"));
+	s.title_layout = node_text(find_path(root, {"theme", "titleLayout"}));
 
 	s.font_active_window = read_font(root, "ActiveWindow");
 	s.font_inactive_window = read_font(root, "InactiveWindow");
@@ -564,6 +565,8 @@ void apply_fields(xmlNode *root, const WayboxSettings &s, const WayboxSettings *
 	if (WB_CHANGED(titlebar_button_size))
 		put_attr(root, {"waybox", "titlebar"}, "buttonSize",
 				int_str(s.titlebar_button_size));
+	if (WB_CHANGED(title_layout))
+		put_text(root, {"theme", "titleLayout"}, s.title_layout);
 	if (WB_CHANGED(titlebar_resize_grab))
 		put_attr(root, {"waybox", "titlebar"}, "resizeGrab",
 				int_str(s.titlebar_resize_grab));

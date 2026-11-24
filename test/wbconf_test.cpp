@@ -383,3 +383,16 @@ WB_TEST(writes_only_changed_input_settings) {
 	WB_CHECK(out.find("<libinput") == std::string::npos);
 	WB_CHECK(out.find("<keybind key=\"W-x\">") != std::string::npos);
 }
+
+WB_TEST(title_layout_round_trip) {
+	auto doc = RcDocument::from_string(kMinimalRc);
+	WayboxSettings before = doc->read(), s = before;
+	WB_CHECK(!before.title_layout.has_value());
+	s.title_layout = "NLSDIMC";
+	doc->apply(s, before);
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("<titleLayout>NLSDIMC</titleLayout>") != std::string::npos);
+	WB_CHECK(out.find("<name>Clearlooks</name>") != std::string::npos);
+	WB_CHECK(RcDocument::from_string(out)->read().title_layout ==
+			std::optional<std::string>("NLSDIMC"));
+}

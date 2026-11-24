@@ -123,6 +123,8 @@ void update_toplevel_decoration(struct wb_toplevel *toplevel) {
 		toplevel->frame->set_active(first_toplevel(server) == toplevel);
 		toplevel->frame->set_title(view_title(toplevel));
 		toplevel->frame->set_maximized(toplevel->max_horz && toplevel->max_vert);
+		toplevel->frame->set_shaded(toplevel->shaded);
+		toplevel->frame->set_omnipresent(toplevel->omnipresent);
 	}
 
 	position_toplevel(toplevel);

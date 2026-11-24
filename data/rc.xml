@@ -17,7 +17,8 @@
        ActiveOnScreenDisplay. The titlebar height tracks the title font size. -->
   <!-- <theme>
     <name>Clearlooks</name>
-    <titleLayout>NLIMC</titleLayout>  (N icon, L title, I M C buttons)
+    <titleLayout>NLIMC</titleLayout>  (N icon, L title, I iconify, M maximize,
+                                       C close, S shade, D all desktops)
     <font place="ActiveWindow"><name>Sans</name><size>10</size><weight>bold</weight></font>
     <font place="InactiveWindow"><name>Sans</name><size>10</size><weight>normal</weight></font>
     <font place="MenuItem"><name>Sans</name><size>10</size><weight>normal</weight></font>

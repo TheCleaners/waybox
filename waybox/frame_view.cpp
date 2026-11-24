@@ -23,7 +23,8 @@ void to_rgba(const Color &c, float out[4]) {
 
 /* Draw a button glyph (iconify/maximize/close) centred in `r`. */
 void paint_button_glyph(cairo_t *cr, const Rect &r, FrameButton kind,
-		bool maximized, const Color &fg) {
+		bool on, const Color &fg) {
+	bool maximized = on;
 	double cx = r.x + r.width / 2.0;
 	double cy = r.y + r.height / 2.0;
 	double s = r.width * 0.28;  /* glyph half-extent */
@@ -52,6 +53,34 @@ void paint_button_glyph(cairo_t *cr, const Rect &r, FrameButton kind,
 		cairo_line_to(cr, cx - s, cy + s);
 		cairo_stroke(cr);
 		break;
+	case FrameButton::Shade: {
+		/* A rolled-up blind: a bar at the top, with an arrow up (roll up)
+		 * or, rolled up, down (roll down). */
+		cairo_move_to(cr, cx - s, cy - s);
+		cairo_line_to(cr, cx + s, cy - s);
+		double a = s * 0.6;
+		double tip = on ? cy + s : cy - s * 0.2;
+		double base = on ? cy + s * 0.2 : cy + s;
+		cairo_move_to(cr, cx - a, base);
+		cairo_line_to(cr, cx, tip);
+		cairo_line_to(cr, cx + a, base);
+		cairo_stroke(cr);
+		break;
+	}
+	case FrameButton::AllDesktops: {
+		/* Four desktops; filled when the window is on all of them. */
+		double q = s * 0.8;
+		for (int i = 0; i < 4; i++) {
+			double x0 = (i % 2 == 0) ? cx - s : cx + s - q;
+			double y0 = (i / 2 == 0) ? cy - s : cy + s - q;
+			cairo_rectangle(cr, x0, y0, q, q);
+		}
+		if (on)
+			cairo_fill(cr);
+		else
+			cairo_stroke(cr);
+		break;
+	}
 	case FrameButton::Icon: {
 		/* No icon: a small window (frame with a title strip). */
 		double e = r.width * 0.32;
@@ -145,6 +174,20 @@ void FrameView::set_maximized(bool maximized) {
 	if (maximized_ == maximized)
 		return;
 	maximized_ = maximized;
+	render_titlebar();
+}
+
+void FrameView::set_shaded(bool shaded) {
+	if (shaded_ == shaded)
+		return;
+	shaded_ = shaded;
+	render_titlebar();
+}
+
+void FrameView::set_omnipresent(bool omnipresent) {
+	if (omnipresent_ == omnipresent)
+		return;
+	omnipresent_ = omnipresent;
 	render_titlebar();
 }
 
@@ -258,7 +301,10 @@ void FrameView::render_titlebar() {
 		 * painted; only fill when hovered/pressed so the accent shows. */
 		if (ws != WidgetState::Normal)
 			paint_fill(cr, r.x, r.y, r.width, r.height, bs.fill);
-		paint_button_glyph(cr, r, buttons_[i], maximized_, bs.fg);
+		bool on = buttons_[i] == FrameButton::Shade ? shaded_
+				: buttons_[i] == FrameButton::AllDesktops ? omnipresent_
+				: maximized_;
+		paint_button_glyph(cr, r, buttons_[i], on, bs.fg);
 	}
 
 	titlebar_->commit();

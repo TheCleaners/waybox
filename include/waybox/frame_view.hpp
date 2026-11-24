@@ -47,6 +47,8 @@ public:
 	void set_active(bool active);
 	void set_title(std::string title);
 	void set_maximized(bool maximized);
+	void set_shaded(bool shaded);
+	void set_omnipresent(bool omnipresent);
 	/* The window's icon for the Icon item (borrowed: the owner keeps it
 	 * alive while set, or clears it); null draws a generic glyph. */
 	void set_icon(cairo_surface_t *icon);
@@ -79,6 +81,8 @@ private:
 	int outer_h_ = 0;
 	bool active_state_ = true;
 	bool maximized_ = false;
+	bool shaded_ = false;
+	bool omnipresent_ = false;
 	int hovered_button_ = -1;
 	int pressed_button_ = -1;
 	std::string title_;
