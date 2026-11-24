@@ -97,7 +97,7 @@ bool merge_settings_schema(std::vector<SettingCategory> &into, std::string_view 
 			if (c.id == cid)
 				cat = &c;
 		if (cat == nullptr) {
-			into.push_back({cid, str(co, "title"), {}});
+			into.push_back({cid, str(co, "title"), str(co, "description"), {}});
 			cat = &into.back();
 			if (cat->title.empty())
 				cat->title = cid;
@@ -122,6 +122,7 @@ bool merge_settings_schema(std::vector<SettingCategory> &into, std::string_view 
 			s.unit = str(so, "unit");
 			s.hint = str(so, "hint");
 			s.widget = str(so, "widget");
+			s.group = str(so, "group");
 			if (so && json_object_has_member(so, "choices")) {
 				JsonArray *ch = json_object_get_array_member(so, "choices");
 				for (guint k = 0; ch && k < json_array_get_length(ch); k++) {
@@ -168,9 +169,12 @@ std::vector<SettingCategory> load_settings_schema(const std::vector<std::string>
 				errors->push_back(f.string() + ": " + err);
 		}
 	}
-	/* Categories without settings (all skipped) aren't shown. */
+	/* Categories without settings (all skipped) aren't shown; except
+	 * integrations, whose programs wbconf adds from their own files. */
 	out.erase(std::remove_if(out.begin(), out.end(),
-			[](const SettingCategory &c) { return c.settings.empty(); }), out.end());
+			[](const SettingCategory &c) {
+				return c.settings.empty() && c.id != "integrations";
+			}), out.end());
 	return out;
 }
 

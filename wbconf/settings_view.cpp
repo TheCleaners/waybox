@@ -38,15 +38,34 @@ std::string title_markup(const Ui::SettingRow &r, bool crumb) {
 	return out;
 }
 
+/* The rows sharing one line (a group, or just one setting). */
+std::vector<Ui::SettingRow *> line_of(Ui::SettingRow *r) {
+	std::vector<Ui::SettingRow *> out;
+	Ui *ui = static_cast<Ui *>(g_object_get_data(G_OBJECT(r->row), "wb-ui"));
+	if (ui == nullptr)
+		return {r};
+	for (auto &o : ui->rows)
+		if (o->row == r->row)
+			out.push_back(o.get());
+	if (out.empty())
+		out.push_back(r);
+	return out;
+}
+
 void refresh_marker(Ui::SettingRow *r) {
 	if (r->bar == nullptr)
 		return;
 	gtk_widget_remove_css_class(r->bar, "wb-set");
 	gtk_widget_remove_css_class(r->bar, "wb-unsaved");
-	if (r->value != r->saved) {
+	bool set = false, unsaved = false;
+	for (Ui::SettingRow *o : line_of(r)) {
+		set = set || o->value.has_value();
+		unsaved = unsaved || o->value != o->saved;
+	}
+	if (unsaved) {
 		gtk_widget_add_css_class(r->bar, "wb-unsaved");
 		gtk_widget_set_tooltip_text(r->bar, _("Changed, not saved yet"));
-	} else if (r->value) {
+	} else if (set) {
 		gtk_widget_add_css_class(r->bar, "wb-set");
 		gtk_widget_set_tooltip_text(r->bar, _("Set in rc.xml"));
 	} else {
@@ -212,19 +231,27 @@ GtkWidget *menu_item(const char *label, GCallback cb, Ui::SettingRow *r, GtkWidg
 
 void on_reset(Ui::SettingRow *r) {
 	Ui *ui = static_cast<Ui *>(g_object_get_data(G_OBJECT(r->row), "wb-ui"));
-	r->value.reset();
-	show_value(ui, r);
-	if (r->def->type == wb::SettingType::Font)
-		preview_refresh(ui);
+	for (Ui::SettingRow *o : line_of(r)) {
+		o->value.reset();
+		show_value(ui, o);
+		if (o->def->type == wb::SettingType::Font)
+			preview_refresh(ui);
+	}
 	update_status(ui);
 }
 
 void on_copy_id(Ui::SettingRow *r) {
-	copy_text(r->row, r->def->id);
+	std::string ids;
+	for (Ui::SettingRow *o : line_of(r))
+		ids += (ids.empty() ? "" : "\n") + o->def->id;
+	copy_text(r->row, ids);
 }
 
 void on_copy_xml(Ui::SettingRow *r) {
-	copy_text(r->row, as_xml(*r->def, r->value.value_or(r->def->def)));
+	std::string xml;
+	for (Ui::SettingRow *o : line_of(r))
+		xml += (xml.empty() ? "" : "\n") + as_xml(*o->def, o->value.value_or(o->def->def));
+	copy_text(r->row, xml);
 }
 
 GtkWidget *row_menu(Ui::SettingRow *r) {
@@ -328,14 +355,33 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 			return build_theme_block(ui);
 		if (d.widget == "monitors")
 			return build_monitors_block(ui);
-		if (d.widget == "integrations")
-			return build_integrations_block(ui);
+		if (d.widget.rfind("program:", 0) == 0)
+			return build_program_block(ui, d.widget.substr(8));
+		if (d.widget == "programs-other")
+			return build_other_programs_block(ui);
 		return wrapped_label(_("(This setting's editor isn't available.)"), true);
 	}
 	return nullptr;
 }
 
-GtkWidget *add_row(Ui *ui, const wb::SettingDef &d, const std::string &category) {
+/* A grouped setting after the group's first: its control, captioned, on
+ * the group's line. */
+void add_to_group(Ui *ui, const wb::SettingDef &d, const std::string &category,
+		Ui::SettingRow *leader, GtkWidget *line) {
+	auto r = std::make_unique<Ui::SettingRow>();
+	r->def = &d;
+	r->category = category;
+	r->row = leader->row;
+	r->bar = leader->bar;
+	GtkWidget *item = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+	gtk_box_append(GTK_BOX(item), wrapped_label(d.title, true));
+	gtk_box_append(GTK_BOX(item), control_for(ui, r.get()));
+	gtk_box_append(GTK_BOX(line), item);
+	ui->rows.push_back(std::move(r));
+}
+
+GtkWidget *add_row(Ui *ui, const wb::SettingDef &d, const std::string &category,
+		GtkWidget **group_line = nullptr) {
 	auto r = std::make_unique<Ui::SettingRow>();
 	r->def = &d;
 	r->category = category;
@@ -354,7 +400,26 @@ GtkWidget *add_row(Ui *ui, const wb::SettingDef &d, const std::string &category)
 	gtk_widget_set_hexpand(body, TRUE);
 	gtk_box_append(GTK_BOX(row), body);
 	GtkWidget *control = control_for(ui, r.get());
-	if (d.type == wb::SettingType::Bool) {
+	if (!d.group.empty() && group_line != nullptr) {
+		/* The first of a group: the group's title and description, then a
+		 * line of captioned controls (the others join it). */
+		GtkWidget *title = gtk_label_new(nullptr);
+		char *m = g_markup_printf_escaped("<b>%s</b>", d.group.c_str());
+		gtk_label_set_markup(GTK_LABEL(title), m);
+		g_free(m);
+		gtk_label_set_xalign(GTK_LABEL(title), 0);
+		gtk_box_append(GTK_BOX(body), title);
+		if (!d.description.empty())
+			gtk_box_append(GTK_BOX(body), wrapped_label(d.description, true));
+		GtkWidget *line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 18);
+		gtk_widget_set_margin_top(line, 2);
+		GtkWidget *item = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+		gtk_box_append(GTK_BOX(item), wrapped_label(d.title, true));
+		gtk_box_append(GTK_BOX(item), control);
+		gtk_box_append(GTK_BOX(line), item);
+		gtk_box_append(GTK_BOX(body), line);
+		*group_line = line;
+	} else if (d.type == wb::SettingType::Bool) {
 		gtk_box_append(GTK_BOX(body), control);
 		if (!d.description.empty()) {
 			GtkWidget *desc = wrapped_label(d.description, true);
@@ -423,13 +488,23 @@ void on_search(GtkSearchEntry *entry, gpointer data) {
 	std::string q = gtk_editable_get_text(GTK_EDITABLE(entry));
 	/* The custom editors count as modified when they hold anything. */
 	wb::WayboxSettings now = collect(ui);
-	auto custom_set = [&now](const std::string &widget) {
+	auto custom_set = [&now, ui](const std::string &widget) {
 		if (widget == "theme")
 			return now.theme_name.has_value();
 		if (widget == "monitors")
 			return !now.outputs.empty() || now.hdr_outputs.has_value();
-		if (widget == "integrations")
-			return !now.startup.empty();
+		if (widget.rfind("program:", 0) == 0) {
+			for (auto &p : ui->programs)
+				if (p->in != nullptr && p->in->id == widget.substr(8))
+					return p->listed || gtk_switch_get_active(p->on);
+			return false;
+		}
+		if (widget == "programs-other") {
+			for (auto &p : ui->programs)
+				if (p->in == nullptr && !p->removed)
+					return true;
+			return false;
+		}
 		return false;
 	};
 	bool any = false;
@@ -438,14 +513,16 @@ void on_search(GtkSearchEntry *entry, gpointer data) {
 		for (auto &[heading, rows] : c.sections) {
 			bool sec_any = false;
 			for (GtkWidget *w : rows) {
-				Ui::SettingRow *r = nullptr;
-				for (auto &row : ui->rows)
-					if (row->row == w)
-						r = row.get();
-				bool modified = r != nullptr && (r->def->type == wb::SettingType::Custom
-						? custom_set(r->def->widget) : r->value.has_value());
-				bool show = r != nullptr && wb::setting_matches(*r->def, r->category, q,
-						modified);
+				bool show = false;
+				for (auto &row : ui->rows) {
+					if (row->row != w)
+						continue;
+					Ui::SettingRow *r = row.get();
+					bool modified = r->def->type == wb::SettingType::Custom
+							? custom_set(r->def->widget) : r->value.has_value();
+					std::string cat = r->category + " " + r->def->group;
+					show = show || wb::setting_matches(*r->def, cat, q, modified);
+				}
 				gtk_widget_set_visible(w, show);
 				sec_any = sec_any || show;
 			}
@@ -454,6 +531,8 @@ void on_search(GtkSearchEntry *entry, gpointer data) {
 			cat_any = cat_any || sec_any;
 		}
 		gtk_widget_set_visible(c.heading, cat_any);
+		if (c.description != nullptr)
+			gtk_widget_set_visible(c.description, cat_any && q.empty());
 		gtk_widget_set_visible(c.toc, cat_any);
 		any = any || cat_any;
 	}
@@ -480,6 +559,24 @@ GtkWidget *build_settings_view(Ui *ui) {
 			{override_dir && *override_dir ? override_dir : WB_SCHEMA_DIR, user_dir}, &errors);
 	for (const std::string &e : errors)
 		g_warning("%s", e.c_str());
+
+	/* Known programs join the list as settings of their own, from their
+	 * integration files: at the start of Integrations. */
+	{
+		std::string problem;
+		std::optional<wb::RcDocument> doc = load_document(&problem);
+		load_integrations_data(ui, doc ? doc->read() : wb::WayboxSettings{});
+		wb::SettingCategory *cat = nullptr;
+		for (wb::SettingCategory &c : ui->schema)
+			if (c.id == "integrations")
+				cat = &c;
+		if (cat == nullptr) {
+			ui->schema.push_back({"integrations", _("Integrations"), "", {}});
+			cat = &ui->schema.back();
+		}
+		std::vector<wb::SettingDef> programs = program_settings(ui);
+		cat->settings.insert(cat->settings.begin(), programs.begin(), programs.end());
+	}
 
 	GtkWidget *paned = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 
@@ -517,6 +614,12 @@ GtkWidget *build_settings_view(Ui *ui) {
 		gtk_label_set_xalign(GTK_LABEL(view.heading), 0);
 		gtk_widget_add_css_class(view.heading, "wb-category");
 		gtk_box_append(GTK_BOX(list), view.heading);
+		if (!cat.description.empty()) {
+			GtkWidget *desc = wrapped_label(cat.description, true);
+			gtk_widget_set_margin_bottom(desc, 4);
+			gtk_box_append(GTK_BOX(list), desc);
+			view.description = desc;
+		}
 
 		GtkWidget *toc_label = gtk_label_new(cat.title.c_str());
 		gtk_label_set_xalign(GTK_LABEL(toc_label), 0);
@@ -525,6 +628,9 @@ GtkWidget *build_settings_view(Ui *ui) {
 				static_cast<int>(ui->categories.size())));
 
 		std::string section = "\x01";  /* no section yet */
+		std::string group;
+		Ui::SettingRow *group_leader = nullptr;
+		GtkWidget *group_line = nullptr;
 		for (const wb::SettingDef &d : cat.settings) {
 			if (d.section != section) {
 				section = d.section;
@@ -536,8 +642,15 @@ GtkWidget *build_settings_view(Ui *ui) {
 					gtk_box_append(GTK_BOX(list), h);
 				}
 				view.sections.push_back({h, {}});
+				group_leader = nullptr;  /* a group doesn't cross sections */
 			}
-			GtkWidget *row = add_row(ui, d, cat.title);
+			if (!d.group.empty() && d.group == group && group_leader != nullptr) {
+				add_to_group(ui, d, cat.title, group_leader, group_line);
+				continue;
+			}
+			group = d.group;
+			GtkWidget *row = add_row(ui, d, cat.title, &group_line);
+			group_leader = d.group.empty() ? nullptr : ui->rows.back().get();
 			gtk_box_append(GTK_BOX(list), row);
 			view.sections.back().second.push_back(row);
 		}

@@ -70,14 +70,14 @@
         { "id": "waybox.outputs", "title": "Monitors", "type": "custom", "widget": "monitors",
           "description": "Mode, scale, position and rotation of each connected monitor, and HDR. Applied when a monitor is connected and on reload; while kanshi or another output manager runs, its profiles win.",
           "keywords": "display screen resolution refresh scale rotate hdr output" },
-        { "id": "margins.top", "section": "Reserved Margins", "title": "Top", "type": "int", "min": 0, "max": 1024,
-          "unit": "px", "default": "0", "description": "Space windows are kept out of, as a panel would reserve.",
+        { "id": "margins.top", "group": "Reserved margins", "title": "Top", "type": "int", "min": 0, "max": 1024,
+          "unit": "px", "default": "0", "description": "Space at each screen edge that windows are kept out of, as a panel would reserve.",
           "rc": { "path": "margins/top" } },
-        { "id": "margins.bottom", "section": "Reserved Margins", "title": "Bottom", "type": "int", "min": 0, "max": 1024,
+        { "id": "margins.bottom", "group": "Reserved margins", "title": "Bottom", "type": "int", "min": 0, "max": 1024,
           "unit": "px", "default": "0", "rc": { "path": "margins/bottom" } },
-        { "id": "margins.left", "section": "Reserved Margins", "title": "Left", "type": "int", "min": 0, "max": 1024,
+        { "id": "margins.left", "group": "Reserved margins", "title": "Left", "type": "int", "min": 0, "max": 1024,
           "unit": "px", "default": "0", "rc": { "path": "margins/left" } },
-        { "id": "margins.right", "section": "Reserved Margins", "title": "Right", "type": "int", "min": 0, "max": 1024,
+        { "id": "margins.right", "group": "Reserved margins", "title": "Right", "type": "int", "min": 0, "max": 1024,
           "unit": "px", "default": "0", "rc": { "path": "margins/right" } }
       ]
     },
@@ -193,10 +193,8 @@
     {
       "id": "integrations",
       "title": "Integrations",
+      "description": "Programs Waybox starts with the session, and starts again if they crash. Nothing is started unless you turn it on here (or list it in rc.xml).",
       "settings": [
-        { "id": "waybox.startup", "title": "Programs", "type": "custom", "widget": "integrations",
-          "description": "Programs Waybox starts with the session, and starts again if they crash. Nothing is started unless you turn it on here (or list it in rc.xml).",
-          "keywords": "autostart startup panel waybar notifications mako wallpaper night light wlsunset tray clipboard" },
         { "id": "waybox.idle.screenOff", "section": "Screens", "title": "Switch the screens off after", "type": "int",
           "description": "Minutes without input; 0 never. A video or game playing keeps them on.",
           "min": 0, "max": 240, "scale": 60, "unit": "min", "default": "0", "keywords": "idle dpms blank power",

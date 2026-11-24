@@ -122,6 +122,7 @@ struct Ui {
 	GtkWidget *custom_box = nullptr;
 	std::vector<std::string> in_autostart;  /* programs the autostart script runs */
 	std::set<std::string> running;          /* process names running now */
+	std::set<std::string> listed_integrations;  /* ids rc.xml's <startup> uses */
 
 	/* Live theme preview (redrawn when the theme/fonts change). */
 	GtkWidget *preview = nullptr;
@@ -151,6 +152,7 @@ struct Ui {
 		std::string id;
 		GtkWidget *heading = nullptr;
 		GtkWidget *toc = nullptr;
+		GtkWidget *description = nullptr;
 		std::vector<std::pair<GtkWidget *, std::vector<GtkWidget *>>> sections;
 	};
 	std::vector<CategoryView> categories;
@@ -219,7 +221,7 @@ void on_option_changed(GtkEditable *, gpointer data);
 void on_command_changed(GtkEditable *, gpointer data);
 void on_remove_program(GtkButton *, gpointer data);
 Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration *in,
-		const std::string &name, const std::string &command);
+		const std::string &name, const std::string &command, bool titled);
 void on_add_program(GtkButton *, gpointer data);
 void populate_programs(Ui *ui, const std::vector<wb::StartupSetting> &startup);
 std::vector<wb::StartupSetting> collect_programs(Ui *ui);
@@ -235,7 +237,11 @@ void on_activate(GtkApplication *app, gpointer data);
 /* The custom editors, each a block placed in its setting's row. */
 GtkWidget *build_theme_block(Ui *ui);
 GtkWidget *build_monitors_block(Ui *ui);
-GtkWidget *build_integrations_block(Ui *ui);
+const char *integration_category_title(const std::string &category);
+void load_integrations_data(Ui *ui, const wb::WayboxSettings &s);
+std::vector<wb::SettingDef> program_settings(Ui *ui);
+GtkWidget *build_program_block(Ui *ui, const std::string &id);
+GtkWidget *build_other_programs_block(Ui *ui);
 GtkWidget *make_font_picker(FontPicker *out, GCallback on_change, gpointer user);
 
 /* settings_view.cpp: the searchable list of every setting */

@@ -104,3 +104,18 @@ WB_TEST(rc_get_set_keeps_the_rest) {
 	WB_CHECK(out.find("switcher") == std::string::npos);
 	WB_CHECK(out.find("<!-- mine -->") != std::string::npos);
 }
+
+WB_TEST(shipped_schema_groups_the_margins) {
+	auto cats = wb::load_settings_schema({WB_SOURCE_ROOT "/data/wbconf"});
+	int in_group = 0;
+	for (const SettingCategory &c : cats)
+		for (const wb::SettingDef &s : c.settings)
+			if (s.group == "Reserved margins")
+				++in_group;
+	WB_CHECK(in_group == 4);
+	/* Integrations stays (wbconf adds the programs) even with few settings. */
+	bool integrations = false;
+	for (const SettingCategory &c : cats)
+		integrations = integrations || (c.id == "integrations" && !c.description.empty());
+	WB_CHECK(integrations);
+}

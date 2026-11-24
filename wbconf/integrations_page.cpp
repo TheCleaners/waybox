@@ -62,6 +62,7 @@ void program_status(Ui *ui, Ui::ProgramRow *row) {
 		warn = true;
 	}
 	gtk_label_set_text(row->status, text.c_str());
+	gtk_widget_set_visible(GTK_WIDGET(row->status), !text.empty());
 	if (warn)
 		gtk_widget_add_css_class(GTK_WIDGET(row->status), "warning");
 	else
@@ -108,7 +109,7 @@ void on_remove_program(GtkButton *, gpointer data) {
 
 /* One program's block: switch, name and status; its options; its command. */
 Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration *in,
-		const std::string &name, const std::string &command) {
+		const std::string &name, const std::string &command, bool titled) {
 	auto row = std::make_unique<Ui::ProgramRow>();
 	row->in = in;
 	row->name = name;
@@ -122,7 +123,13 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 	gtk_widget_set_valign(GTK_WIDGET(row->on), GTK_ALIGN_CENTER);
 	g_object_set_data(G_OBJECT(row->on), "wb-ui", ui);
 	gtk_box_append(GTK_BOX(head), GTK_WIDGET(row->on));
-	if (in != nullptr) {
+	if (in != nullptr && !titled) {
+		/* In the settings list, whose row shows the name and description:
+		 * just "On" beside the switch. */
+		GtkWidget *on = gtk_label_new(_("Start with the session"));
+		gtk_label_set_xalign(GTK_LABEL(on), 0);
+		gtk_box_append(GTK_BOX(head), on);
+	} else if (in != nullptr) {
 		GtkWidget *title = gtk_label_new(nullptr);
 		char *markup = g_markup_printf_escaped("<b>%s</b>  <small>%s</small>",
 				in->name.c_str(), in->comment.c_str());
@@ -183,7 +190,7 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 
 void on_add_program(GtkButton *, gpointer data) {
 	auto *ui = static_cast<Ui *>(data);
-	Ui::ProgramRow *row = add_program_row(ui, ui->custom_box, nullptr, "", "");
+	Ui::ProgramRow *row = add_program_row(ui, ui->custom_box, nullptr, "", "", true);
 	gtk_switch_set_active(row->on, TRUE);
 	gtk_widget_grab_focus(GTK_WIDGET(row->command));
 }
@@ -212,7 +219,7 @@ void populate_programs(Ui *ui, const std::vector<wb::StartupSetting> &startup) {
 			if (in != nullptr && r->in == in && !r->listed)
 				row = r.get();
 		if (row == nullptr)
-			row = add_program_row(ui, ui->custom_box, nullptr, p.name, p.command);
+			row = add_program_row(ui, ui->custom_box, nullptr, p.name, p.command, true);
 		row->name = p.name;
 		row->attrs = p.attrs;
 		row->listed = true;
@@ -267,9 +274,21 @@ std::vector<wb::StartupSetting> collect_programs(Ui *ui) {
 }
 
 /* The known programs by category, then other programs. */
-GtkWidget *build_integrations_block(Ui *ui) {
-	GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+const char *integration_category_title(const std::string &category) {
+	static const std::map<std::string, const char *> titles = {
+		{"Panel", N_("Panel")}, {"Notifications", N_("Notifications")},
+		{"Wallpaper", N_("Wallpaper")}, {"NightLight", N_("Night Light")},
+		{"Idle", N_("Idle and Locking")}, {"Clipboard", N_("Clipboard")},
+		{"Tray", N_("Tray Applets")}, {"Polkit", N_("Password Prompts")},
+		{"Displays", N_("Displays")}, {"Screenshots", N_("Screenshots")},
+	};
+	auto t = titles.find(category);
+	return t != titles.end() ? _(t->second) : category.c_str();
+}
 
+/* The integration files, what's running, what the autostart script runs,
+ * and which programs rc.xml lists: what the settings list is built from. */
+void load_integrations_data(Ui *ui, const wb::WayboxSettings &s) {
 	const char *home = getenv("HOME");
 	const char *xdh = getenv("XDG_CONFIG_HOME");
 	const char *xdd = getenv("XDG_DATA_DIRS");
@@ -280,49 +299,71 @@ GtkWidget *build_integrations_block(Ui *ui) {
 	for (const wb::Integration &in : ui->integrations)
 		binaries.push_back(in.binary);
 	ui->in_autostart = wb::programs_in_script(autostart_text(), binaries);
+	ui->listed_integrations.clear();
+	for (const wb::StartupSetting &p : s.startup)
+		if (const wb::Integration *in = wb::match_integration(ui->integrations, p.name, p.command))
+			ui->listed_integrations.insert(in->id);
+}
 
-	/* Known programs by category; ones not installed are listed by name
-	 * only (shown in full if rc.xml has them). */
-	static const std::map<std::string, const char *> titles = {
-		{"Panel", N_("Panel")}, {"Notifications", N_("Notifications")},
-		{"Wallpaper", N_("Wallpaper")}, {"NightLight", N_("Night Light")},
-		{"Idle", N_("Idle and Locking")}, {"Clipboard", N_("Clipboard")},
-		{"Tray", N_("Tray Applets")}, {"Polkit", N_("Password Prompts")},
-		{"Displays", N_("Displays")}, {"Screenshots", N_("Screenshots")},
-	};
-	std::string category;
-	GtkWidget *content = nullptr;
+/* The settings list's entries for programs: one per known program that's
+ * installed or in rc.xml, by category, then "Other programs". */
+std::vector<wb::SettingDef> program_settings(Ui *ui) {
+	std::vector<wb::SettingDef> out;
 	std::vector<std::string> missing;
 	for (const wb::Integration &in : ui->integrations) {
-		if (in.category != category || content == nullptr) {
-			category = in.category;
-			auto t = titles.find(category);
-			content = section(inner, t != titles.end() ? _(t->second) : category.c_str());
-		}
-		Ui::ProgramRow *row = add_program_row(ui, content, &in, in.id, in.exec);
-		if (!installed(in.binary)) {
-			gtk_widget_set_visible(row->box, FALSE);  /* shown if listed */
+		if (!installed(in.binary) && ui->listed_integrations.count(in.id) == 0) {
 			missing.push_back(in.name);
+			continue;
 		}
+		wb::SettingDef d;
+		d.id = "waybox.startup." + in.id;
+		d.section = integration_category_title(in.category);
+		d.title = in.name;
+		d.description = in.comment;
+		d.keywords = in.binary + " " + in.category + " autostart startup";
+		for (const wb::IntegrationOption &o : in.options)
+			d.keywords += " " + o.label;
+		d.type = wb::SettingType::Custom;
+		d.widget = "program:" + in.id;
+		out.push_back(std::move(d));
 	}
-	ui->custom_box = section(inner, _("Other Programs"));
-	GtkWidget *add = gtk_button_new_with_label(_("Add a Program"));
-	gtk_widget_set_halign(add, GTK_ALIGN_START);
-	g_signal_connect(add, "clicked", G_CALLBACK(on_add_program), ui);
-	gtk_box_append(GTK_BOX(inner), add);
-
+	wb::SettingDef other;
+	other.id = "waybox.startup.other";
+	other.section = _("Other Programs");
+	other.title = _("Other programs");
+	other.description = _("Any command, started with the session and again if it crashes.");
 	if (!missing.empty()) {
 		std::string list;
 		for (const std::string &m : missing)
 			list += (list.empty() ? "" : ", ") + m;
-		GtkWidget *more = gtk_label_new((std::string(_("Also supported when installed: ")) +
-				list + ".").c_str());
-		gtk_label_set_wrap(GTK_LABEL(more), TRUE);
-		gtk_label_set_xalign(GTK_LABEL(more), 0);
-		gtk_widget_add_css_class(more, "dim-label");
-		gtk_box_append(GTK_BOX(inner), more);
+		other.description += std::string(" ") + _("Also supported when installed: ") + list + ".";
 	}
-	return inner;
+	other.keywords = "autostart startup command custom";
+	other.type = wb::SettingType::Custom;
+	other.widget = "programs-other";
+	out.push_back(std::move(other));
+	return out;
+}
+
+/* One known program's editor: its switch, status, options and command. */
+GtkWidget *build_program_block(Ui *ui, const std::string &id) {
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	for (const wb::Integration &in : ui->integrations)
+		if (in.id == id)
+			add_program_row(ui, box, &in, in.id, in.exec, false);
+	return box;
+}
+
+/* Other programs: their rows, and a button to add one. */
+GtkWidget *build_other_programs_block(Ui *ui) {
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+	ui->custom_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+	gtk_box_append(GTK_BOX(box), ui->custom_box);
+	GtkWidget *add = gtk_button_new_with_label(_("Add a Program"));
+	gtk_widget_set_halign(add, GTK_ALIGN_START);
+	g_signal_connect(add, "clicked", G_CALLBACK(on_add_program), ui);
+	gtk_box_append(GTK_BOX(box), add);
+	return box;
 }
 
 }  // namespace wbconf
