@@ -147,6 +147,9 @@ struct wb_server {
 	/* ext-session-lock-v1 state (see session_lock.h), or null. */
 	struct wb_session_lock_state *session_lock = nullptr;
 
+	/* Window capture requests (see init_window_capture). */
+	wb::Listener new_window_capture;
+
 	/* Pointer constraints and relative motion (see pointer_constraints.h). */
 	struct wlr_pointer_constraints_v1 *pointer_constraints = nullptr;
 	struct wlr_relative_pointer_manager_v1 *relative_pointer_manager = nullptr;

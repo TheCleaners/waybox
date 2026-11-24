@@ -249,6 +249,7 @@ bool wb_start_server(struct wb_server* server) {
 
 	wlr_ext_image_copy_capture_manager_v1_create(server->wl_display, 1);
 	wlr_ext_output_image_capture_source_manager_v1_create(server->wl_display, 1);
+	init_window_capture(server);
 	create_idle_manager(server);
 
 	init_xdg_decoration(server);
@@ -315,6 +316,7 @@ bool wb_terminate(struct wb_server* server) {
 	server->new_layer_surface.disconnect();
 
 	server->new_xdg_toplevel.disconnect();
+	server->new_window_capture.disconnect();
 	server->new_xdg_popup.disconnect();
 
 	wlr_backend_destroy(server->backend);

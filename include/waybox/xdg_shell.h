@@ -90,6 +90,11 @@ struct wb_toplevel {
 	bool minimized = false;
 	bool fullscreen = false;
 	bool shaded = false;
+	/* Window capture (screen sharing one window): a private scene with
+	 * just this window's contents, made on the first capture request. The
+	 * capture source belongs to it and goes away with it. */
+	struct wlr_scene *capture_scene = nullptr;
+	struct wlr_ext_image_capture_source_v1 *capture_source = nullptr;
 	/* Tiled to an edge zone (drag to an edge, SnapToEdge); restore_tile is
 	 * the geometry from before, restored when it is dragged away. */
 	bool tiled = false;
@@ -151,6 +156,9 @@ void set_toplevel_shaded(struct wb_toplevel *toplevel, bool shaded);
 /* Insert a new toplevel into the server lists and create its scene
  * container (both kinds). */
 void register_toplevel(struct wb_toplevel *toplevel);
+/* Window capture (wlroots 0.20+; no-ops otherwise). */
+void init_window_capture(struct wb_server *server);
+void drop_window_capture(struct wb_toplevel *toplevel);
 void focus_toplevel(struct wb_toplevel *toplevel);
 void raise_toplevel(struct wb_toplevel *toplevel);
 void lower_toplevel(struct wb_toplevel *toplevel);

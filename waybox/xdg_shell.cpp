@@ -744,6 +744,9 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 		view_set_size(toplevel, toplevel->geometry.width,
 				toplevel->geometry.height);
 	log_geometry(toplevel, "mapped");
+	if (toplevel->foreign_toplevel_handle != nullptr)
+		wlr_log(WLR_INFO, "wb-toplevel %s id %s", view_app_id(toplevel),
+				toplevel->foreign_toplevel_handle->identifier);
 
 	/* Apply requested initial states after the base mapping. */
 	if (rule != nullptr) {
@@ -841,8 +844,73 @@ static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 	destroy_toplevel(toplevel);
 }
 
+/* ---- Window capture ---- */
+
+void drop_window_capture(struct wb_toplevel *toplevel) {
+	if (toplevel->capture_scene != nullptr) {
+		/* Takes the capture source along; capturing clients see it end. */
+		wlr_scene_node_destroy(&toplevel->capture_scene->tree.node);
+		toplevel->capture_scene = nullptr;
+		toplevel->capture_source = nullptr;
+	}
+}
+
+#if WLR_CHECK_VERSION(0, 20, 0)
+/* A capture source for one window: its contents only (no frame), in a
+ * scene of its own, so it can be captured while hidden on another desktop
+ * or minimized. Made once and reused. */
+static struct wlr_ext_image_capture_source_v1 *window_capture_source(
+		struct wb_toplevel *t) {
+	struct wb_server *server = t->server;
+	if (t->capture_scene == nullptr) {
+		struct wlr_surface *surface = view_surface(t);
+		if (surface == nullptr)
+			return nullptr;
+		t->capture_scene = wlr_scene_create();
+		if (t->capture_scene == nullptr)
+			return nullptr;
+		if (t->kind == wb_view_kind::Xdg)
+			wlr_scene_xdg_surface_create(&t->capture_scene->tree, t->xdg_toplevel->base);
+		else
+			wlr_scene_subsurface_tree_create(&t->capture_scene->tree, surface);
+		t->capture_source = wlr_ext_image_capture_source_v1_create_with_scene_node(
+				&t->capture_scene->tree.node, server->wl_event_loop,
+				server->allocator, server->renderer);
+	}
+	return t->capture_source;
+}
+#endif
+
+void init_window_capture(struct wb_server *server) {
+#if WLR_CHECK_VERSION(0, 20, 0)
+	auto *manager = wlr_ext_foreign_toplevel_image_capture_source_manager_v1_create(
+			server->wl_display, 1);
+	if (manager == nullptr)
+		return;
+	server->new_window_capture.connect(&manager->events.new_request,
+			[server](void *data) {
+		auto *request = static_cast<
+				struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request *>(data);
+		struct wb_toplevel *t;
+		wl_list_for_each(t, &server->toplevels, link) {
+			if (t->foreign_toplevel_handle != request->toplevel_handle)
+				continue;
+			if (struct wlr_ext_image_capture_source_v1 *source =
+					window_capture_source(t))
+				wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accept(
+						request, source);
+			return;
+		}
+	});
+#else
+	(void) server;
+	wlr_log(WLR_INFO, "Window capture needs wlroots 0.20");
+#endif
+}
+
 void destroy_toplevel(struct wb_toplevel *toplevel) {
 	struct wb_server *srv = toplevel->server;
+	drop_window_capture(toplevel);
 	srv->click_tracker.forget(reinterpret_cast<uintptr_t>(toplevel));
 	if (srv->menu_target == toplevel) {
 		/* Its window menu must not act on another window instead. */
