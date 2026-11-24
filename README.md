@@ -30,6 +30,11 @@ For background, see
 - **Native root menu**: right-click the desktop. It is built from `menu.xml`,
   with submenus, pipe menus, icons and keyboard navigation. You can hand it off
   to an external launcher such as rofi instead.
+- **Virtual desktops** as in Openbox: `<desktops>` in `rc.xml`, the
+  `GoToDesktop`, `SendToDesktop` and `ToggleOmnipresent` actions
+  (Ctrl+Alt+Left/Right, Shift+Alt+Left/Right and Super+F1–F4 by default),
+  and a `<desktop>` app rule. Alt+Tab stays on the current desktop, and
+  focusing a window from a taskbar goes to its desktop.
 - **Alt+Tab switcher** with an on-screen list, in most-recently-used or
   stacking order.
 - **Openbox themes** (`themerc`) with per-place fonts.
@@ -38,7 +43,7 @@ For background, see
   horizontal and vertical maximize; shading.
 - **Bindings and rules**: Openbox key chains, mouse/context bindings,
   Alt+drag to move or resize, and per-application rules (position, size,
-  state, focus, decorations).
+  state, focus, decorations, desktop).
 - **Screen locking** with swaylock or any other `ext-session-lock-v1` locker.
   While locked, every output is covered, compositor bindings are off, and
   only the locker gets input. If the locker crashes, the screen stays locked

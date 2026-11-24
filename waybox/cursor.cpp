@@ -1,3 +1,4 @@
+#include <time.h>
 #include <vector>
 
 #include "waybox/cursor.h"
@@ -64,7 +65,8 @@ static void process_cursor_move(struct wb_server *server) {
 			std::vector<wb::Rect> others;
 			struct wb_toplevel *other;
 			wl_list_for_each(other, &server->toplevels, link) {
-				if (other == toplevel || !other->mapped)
+				if (other == toplevel || !other->mapped ||
+						!toplevel_on_current_desktop(other))
 					continue;
 				others.push_back(wb::Rect{other->geometry.x, other->geometry.y,
 						other->geometry.width, other->geometry.height});
@@ -246,6 +248,16 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 	wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
 }
 
+
+void cursor_refresh_focus(struct wb_server *server) {
+	if (server->cursor == nullptr ||
+			server->cursor->cursor_mode != WB_CURSOR_PASSTHROUGH)
+		return;
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	process_cursor_motion(server,
+			static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000));
+}
 
 void wb_cursor::on_motion(void *data) {
 	auto *event = static_cast<struct wlr_pointer_motion_event *>(data);

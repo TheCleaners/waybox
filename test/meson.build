@@ -108,6 +108,13 @@ menu_test = executable(
   )
 test('menu', menu_test)
 
+desktops_test = executable(
+  'desktops_test',
+  ['desktops_test.cpp', 'wb_test_main.cpp', desktops_src],
+  include_directories: [inc_dir],
+  )
+test('desktops', desktops_test)
+
 # Pixel test for the Cairo/Pango painting primitives. Needs cairo/pango, so it
 # is only built in the full build (not tests_only); it links no wlroots.
 if not get_option('tests_only')
@@ -129,7 +136,7 @@ if not get_option('tests_only')
   menu_parse_test = executable(
     'menu_parse_test',
     ['menu_parse_test.cpp', 'wb_test_main.cpp', menu_src,
-     action_src, files('../waybox/menu_parse.cpp')],
+     action_src, files('../waybox/menu_parse.cpp', '../waybox/action_xml.cpp')],
     include_directories: [inc_dir],
     dependencies: [libxml2],
     )
@@ -175,6 +182,16 @@ if python.found() and not get_option('tests_only')
       meson.project_source_root() / 'data' / 'rc.xml',
     ],
     timeout: 60,
+    env: integration_env,
+    )
+  test(
+    'integration_desktops',
+    python,
+    args: [
+      files('integration' / 'desktops_test.py'),
+      waybox_exe,
+    ],
+    timeout: 90,
     env: integration_env,
     )
   test(

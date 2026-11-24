@@ -46,5 +46,8 @@ struct wb_cursor {
 
 std::unique_ptr<wb_cursor> wb_cursor_create(struct wb_server *server);
 void reset_cursor_mode(struct wb_server *server);
+/* Re-pick the surface under the pointer after the scene changed underneath it
+ * (e.g. a desktop switch), without the pointer having moved. */
+void cursor_refresh_focus(struct wb_server *server);
 
 #endif /* cursor.h */

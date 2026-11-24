@@ -2,6 +2,7 @@
  * Openbox menu.xml parsing (libxml). Produces the pure wb::MenuFile model.
  */
 #include "waybox/menu.hpp"
+#include "waybox/action_xml.hpp"
 
 #include <cstring>
 #include <string>
@@ -20,32 +21,6 @@ const char *attr(xmlNode *node, const char *name) {
 			return reinterpret_cast<const char *>(a->children->content);
 	}
 	return "";
-}
-
-std::string action_command(xmlNode *action_node) {
-	for (xmlNode *c = action_node->children; c; c = c->next) {
-		if (c->type != XML_ELEMENT_NODE)
-			continue;
-		const char *tag = reinterpret_cast<const char *>(c->name);
-		if ((strcmp(tag, "command") == 0 || strcmp(tag, "execute") == 0) &&
-				c->children && c->children->content)
-			return reinterpret_cast<const char *>(c->children->content);
-	}
-	return {};
-}
-
-void collect_actions(xmlNode *item, std::vector<Action> &out) {
-	for (xmlNode *c = item->children; c; c = c->next) {
-		if (c->type != XML_ELEMENT_NODE ||
-				strcmp(reinterpret_cast<const char *>(c->name), "action") != 0)
-			continue;
-		const char *name = attr(c, "name");
-		const ActionSpec *spec = action_spec_from_name(name);
-		std::string command =
-			(spec && spec->takes_command) ? action_command(c) : std::string{};
-		if (auto action = make_action(name, command))
-			out.push_back(std::move(*action));
-	}
 }
 
 bool has_element_children(xmlNode *node) {
@@ -71,7 +46,7 @@ void parse_menu_children(xmlNode *parent, Menu &menu, MenuFile &file) {
 			item.kind = MenuItem::Kind::Entry;
 			item.label = attr(c, "label");
 			item.icon = attr(c, "icon");
-			collect_actions(c, item.actions);
+			collect_actions_xml(c->children, item.actions);
 			menu.items.push_back(std::move(item));
 		} else if (strcmp(tag, "separator") == 0) {
 			MenuItem item;

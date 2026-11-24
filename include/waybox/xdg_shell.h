@@ -72,6 +72,10 @@ struct wb_toplevel {
 	bool max_horz = false;
 	bool max_vert = false;
 	bool mapped = false;
+	/* Virtual desktop (0-based) the window lives on; an omnipresent window
+	 * shows on every desktop (Openbox's "all desktops"/sticky). */
+	int desktop = 0;
+	bool omnipresent = false;
 
 	struct wl_list link;       /* server::toplevels — stacking (z-)order */
 	struct wl_list focus_link; /* server::focus_order — MRU focus order */
@@ -107,6 +111,22 @@ struct wb_toplevel *first_toplevel(struct wb_server *server);
  * the node is not (the root of) one of our toplevels. */
 struct wb_toplevel *toplevel_from_node(struct wlr_scene_node *node);
 struct wlr_output *get_active_output(struct wb_toplevel *toplevel);
+
+/* Virtual desktops. */
+int desktop_count(struct wb_server *server);
+bool toplevel_on_desktop(struct wb_toplevel *toplevel, int desktop);
+bool toplevel_on_current_desktop(struct wb_toplevel *toplevel);
+/* Show desktop `index` (0-based): hide the other desktops' windows and focus
+ * the most recently used window here (or nothing). */
+void wb_go_to_desktop(struct wb_server *server, int index);
+/* Move a window to desktop `index`; with `follow`, go there with it. */
+void wb_send_to_desktop(struct wb_toplevel *toplevel, int index, bool follow);
+void wb_toggle_omnipresent(struct wb_toplevel *toplevel);
+/* Focus the most recently used visible window on the current desktop, or
+ * clear keyboard focus when there is none. */
+void focus_current_desktop(struct wb_server *server);
+/* After a reconfigure: move windows off desktops that no longer exist. */
+void desktops_reconfigured(struct wb_server *server);
 struct wb_toplevel *get_toplevel_at(
 		struct wb_server *server, double lx, double ly,
 		struct wlr_surface **surface, double *sx, double *sy);
