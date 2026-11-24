@@ -44,7 +44,8 @@ For background, see
 - **Alt+Tab switcher** with an on-screen list, in most-recently-used or
   stacking order.
 - **Openbox themes** (`themerc`) with per-place fonts.
-- **Placement and snapping**: Smart, Center or UnderMouse placement; snapping
+- **Placement and snapping**: new windows open on the monitor with the
+  pointer; Smart, Center or UnderMouse placement; snapping
   to edges and other windows; maximizing that respects panels; separate
   horizontal and vertical maximize; shading.
 - **Bindings and rules**: Openbox key chains, mouse/context bindings,
@@ -83,21 +84,23 @@ headless integration tests run in CI.
 ## Building
 
 You need Meson (or muon), a C++20 compiler and wlroots 0.19 or 0.20, plus
-the libraries below. librsvg (SVG menu icons) and GTK4 (wbconf) are optional.
+the libraries below. librsvg (SVG menu icons), GTK4 (wbconf) and Xwayland
+(X11 programs, needed at run time only) are optional.
 
 **Debian / Ubuntu**
 
 ```sh
-sudo apt install meson ninja-build g++ pkg-config libwlroots-0.19-dev \
+sudo apt install meson ninja-build g++ pkg-config libwlroots-0.20-dev \
   libwayland-dev wayland-protocols libxkbcommon-dev libxml2-dev libevdev-dev \
-  libinput-dev libcairo2-dev libpango1.0-dev librsvg2-dev libgtk-4-dev
+  libinput-dev libcairo2-dev libpango1.0-dev librsvg2-dev libgtk-4-dev \
+  xwayland
 ```
 
 **Alpine**
 
 ```sh
 apk add meson g++ wlroots-dev wayland-dev wayland-protocols libxkbcommon-dev \
-  libxml2-dev libevdev-dev libinput-dev cairo-dev pango-dev
+  libxml2-dev libevdev-dev libinput-dev cairo-dev pango-dev xwayland
 ```
 
 Then build and test:
@@ -185,6 +188,7 @@ Like Openbox, Waybox leaves most desktop functions to separate programs.
 | Displays | [wlr-randr](https://sr.ht/~emersion/wlr-randr/), [kanshi](https://sr.ht/~emersion/kanshi/) (profiles) |
 | Launcher | [rofi-wayland](https://github.com/lbonn/rofi) or any dmenu-like tool |
 | Notifications | [mako](https://wayland.emersion.fr/mako/) |
+| Password prompts | a polkit agent, e.g. KDE's, GNOME's or [lxqt-policykit](https://github.com/lxqt/lxqt-policykit); the default `autostart` starts the first one installed |
 | Clipboard | [wl-clipboard](https://github.com/bugaevc/wl-clipboard) |
 | Screenshots | [grim](https://git.sr.ht/~emersion/grim) + [slurp](https://github.com/emersion/slurp) |
 | Screen recording | [wf-recorder](https://github.com/ammen99/wf-recorder) |
