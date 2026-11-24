@@ -468,6 +468,17 @@ if python.found() and not get_option('tests_only')
     dependencies: [dependency('wayland-client')],
     )
   test(
+    'integration_fullscreen_panel',
+    python,
+    args: [
+      files('integration' / 'fullscreen_panel_test.py'),
+      waybox_exe,
+      layer_client,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
+  test(
     'integration_output_hotplug',
     python,
     args: [
