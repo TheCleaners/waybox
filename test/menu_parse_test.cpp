@@ -69,3 +69,55 @@ WB_TEST(parse_empty_and_garbage_is_safe) {
 	WB_CHECK(wb::parse_menu_xml("").menus.empty());
 	WB_CHECK(wb::parse_menu_xml("not xml at all").find("root-menu") == nullptr);
 }
+
+WB_TEST(parse_records_pipe_menu_command) {
+	MenuFile f = wb::parse_menu_xml(R"(<openbox_menu>
+  <menu id="root-menu" label="Root">
+    <menu id="apps" label="Applications" execute="openbox-menu"/>
+    <menu id="bare" execute="gen --bare"/>
+  </menu>
+</openbox_menu>)");
+	const wb::Menu *apps = f.find("apps");
+	WB_CHECK(apps != nullptr);
+	WB_CHECK(apps->execute == "openbox-menu");
+	WB_CHECK(apps->items.empty());
+	/* A pipe menu without a label is still a definition, not a reference. */
+	const wb::Menu *bare = f.find("bare");
+	WB_CHECK(bare != nullptr && bare->execute == "gen --bare");
+	const wb::Menu *root = f.find("root-menu");
+	WB_CHECK(root != nullptr && root->items.size() == 2);
+	WB_CHECK(root->items[0].kind == wb::MenuItem::Kind::Submenu);
+	WB_CHECK(root->items[0].submenu_id == "apps");
+}
+
+WB_TEST(parse_pipe_menu_output) {
+	MenuFile f = wb::parse_pipe_menu(R"(<openbox_pipe_menu>
+  <item label="Terminal"><action name="Execute"><execute>foot</execute></action></item>
+  <separator/>
+  <menu id="games" label="Games">
+    <item label="Chess"><action name="Execute"><execute>gnome-chess</execute></action></item>
+  </menu>
+  <menu id="more" label="More" execute="gen more"/>
+</openbox_pipe_menu>)", "apps", "Applications");
+	const wb::Menu *apps = f.find("apps");
+	WB_CHECK(apps != nullptr);
+	WB_CHECK(apps->label == "Applications");
+	WB_CHECK(apps->items.size() == 4);
+	WB_CHECK(apps->items[0].label == "Terminal");
+	WB_CHECK(apps->items[0].actions.size() == 1);
+	WB_CHECK(apps->items[1].kind == wb::MenuItem::Kind::Separator);
+	WB_CHECK(apps->items[2].submenu_id == "games");
+	const wb::Menu *games = f.find("games");
+	WB_CHECK(games != nullptr && games->items.size() == 1);
+	/* Pipe menus can nest further pipe menus. */
+	const wb::Menu *more = f.find("more");
+	WB_CHECK(more != nullptr && more->execute == "gen more");
+}
+
+WB_TEST(parse_pipe_menu_rejects_garbage) {
+	WB_CHECK(wb::parse_pipe_menu("not xml at all", "x", "X").menus.empty());
+	WB_CHECK(wb::parse_pipe_menu("", "x", "X").menus.empty());
+	/* Truncated output (e.g. a script killed mid-write) is not accepted. */
+	WB_CHECK(wb::parse_pipe_menu("<openbox_pipe_menu><item label=\"a\">", "x", "X")
+			.menus.empty());
+}

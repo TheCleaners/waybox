@@ -38,6 +38,10 @@ struct Menu {
 	std::string id;
 	std::string label;
 	std::vector<MenuItem> items;
+	/* Openbox pipe menu: when non-empty, the items come from running this
+	 * command each time the menu is shown; its stdout is an
+	 * <openbox_pipe_menu> document (see parse_pipe_menu). */
+	std::string execute;
 };
 
 /* A parsed menu file: a set of menus addressable by id. */
@@ -118,6 +122,13 @@ Rect place_submenu(const Rect &parent, int item_y, int w, int h,
 /* Parse Openbox menu.xml contents into a MenuFile (defined in menu_parse.cpp,
  * which links libxml; declared here so the pure model stays libxml-free). */
 MenuFile parse_menu_xml(std::string_view contents);
+
+/* Parse a pipe menu's output (an <openbox_pipe_menu> document) into a
+ * MenuFile whose menu `id` (labelled `label`) holds the top-level items;
+ * nested <menu> definitions in the output are added alongside it. Returns
+ * an empty MenuFile if the output is not well-formed XML. */
+MenuFile parse_pipe_menu(std::string_view contents, const std::string &id,
+		const std::string &label);
 
 }  // namespace wb
 

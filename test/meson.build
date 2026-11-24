@@ -277,6 +277,16 @@ if python.found() and not get_option('tests_only')
     env: integration_env,
     )
   test(
+    'integration_pipe_menu',
+    python,
+    args: [
+      files('integration' / 'pipe_menu_test.py'),
+      waybox_exe,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
+  test(
     'integration_input_focus',
     python,
     args: [
