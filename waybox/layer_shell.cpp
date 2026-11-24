@@ -45,6 +45,21 @@ static void arrange_surface(struct wb_output *output, struct wlr_box *full_area,
 }
 
 void arrange_layers(struct wb_output *output) {
+	/* Layer surfaces are arranged in output-local coordinates (full_area and
+	 * usable_area start at 0,0); the output's layer trees sit at the output's
+	 * position in the layout, so a second monitor's panel and wallpaper land
+	 * on that monitor rather than at the origin. (The fullscreen tree holds
+	 * toplevels, which use layout coordinates, so it stays at 0,0.) */
+	wlr_output_layout_get_box(output->server->output_layout,
+			output->wlr_output, &output->geometry);
+	struct wlr_scene_tree *layer_trees[] = {
+		output->layers.shell_background, output->layers.shell_bottom,
+		output->layers.shell_top, output->layers.shell_overlay,
+	};
+	for (struct wlr_scene_tree *tree : layer_trees)
+		wlr_scene_node_set_position(&tree->node, output->geometry.x,
+				output->geometry.y);
+
 	struct wlr_box usable_area = {};
 	struct wlr_box full_area;
 	wlr_output_effective_resolution(output->wlr_output,

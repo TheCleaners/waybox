@@ -273,6 +273,7 @@ bool wb_terminate(struct wb_server* server) {
 	server->cursor.reset();
 	server->new_xdg_decoration.disconnect(); /* wb_decoration_destroy */
 	deinit_config(server->config);
+	server->output_layout_change.disconnect();  /* before its signal is freed */
 	wlr_output_layout_destroy(server->output_layout);
 	wlr_allocator_destroy(server->allocator);
 	wlr_renderer_destroy(server->renderer);

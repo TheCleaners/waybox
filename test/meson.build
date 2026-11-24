@@ -305,6 +305,17 @@ if python.found() and not get_option('tests_only')
     env: integration_env,
     )
   test(
+    'integration_multi_output',
+    python,
+    args: [
+      files('integration' / 'multi_output_test.py'),
+      waybox_exe,
+      layer_client,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
+  test(
     'integration_panel_reflow',
     python,
     args: [

@@ -458,19 +458,25 @@ static void focus_next_after(struct wb_server *server, struct wb_toplevel *excep
 	}
 }
 
+/* The usable area (output minus panel reservations) of the output the
+ * toplevel is on, in layout coordinates. wb_output::usable_area is
+ * output-local, so it is shifted by the output's position in the layout. */
 static struct wlr_box get_usable_area(struct wb_toplevel *toplevel) {
 	struct wlr_output *output = get_active_output(toplevel);
 	struct wlr_box usable_area = {};
-	if (output != NULL) {
-		struct wb_output *wb_output = static_cast<struct wb_output *>(output->data);
-		if (wb_output != NULL && wb_output->usable_area.width > 0 &&
-				wb_output->usable_area.height > 0) {
-			/* Area left after subtracting layer-shell exclusive zones. */
-			usable_area = wb_output->usable_area;
-		} else {
-			wlr_output_effective_resolution(output,
-					&usable_area.width, &usable_area.height);
-		}
+	if (output == NULL)
+		return usable_area;
+	struct wlr_box box;
+	wlr_output_layout_get_box(toplevel->server->output_layout, output, &box);
+	struct wb_output *wb_output = static_cast<struct wb_output *>(output->data);
+	if (wb_output != NULL && wb_output->usable_area.width > 0 &&
+			wb_output->usable_area.height > 0) {
+		/* Area left after subtracting layer-shell exclusive zones. */
+		usable_area = wb_output->usable_area;
+		usable_area.x += box.x;
+		usable_area.y += box.y;
+	} else {
+		usable_area = box;
 	}
 	return usable_area;
 }
@@ -607,8 +613,16 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 	struct wb_toplevel *parent = view_parent(toplevel);
 	if (parent != nullptr && !parent->mapped)
 		parent = nullptr;
-	if (parent != nullptr)
+	if (parent != nullptr) {
 		toplevel->geometry = parent->geometry;  /* so the usable area is its output's */
+	} else if (toplevel->kind == wb_view_kind::Xdg) {
+		/* Wayland windows have no position of their own yet: open them on the
+		 * monitor with the pointer, as Openbox does. (X11 windows start from
+		 * the position they asked for.) */
+		toplevel->geometry = {
+			static_cast<int>(toplevel->server->cursor->cursor->x),
+			static_cast<int>(toplevel->server->cursor->cursor->y), 0, 0};
+	}
 	struct wlr_box usable_area = get_usable_area(toplevel);
 	struct wlr_box geo_box = view_geometry(toplevel);
 
