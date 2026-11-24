@@ -1,3 +1,4 @@
+#include "waybox/desktop_popup.hpp"
 #include "waybox/wlroots.hpp"
 
 #include "idle.h"
@@ -360,6 +361,23 @@ void focus_current_desktop(struct wb_server *server) {
 	clear_toplevel_focus(server);
 }
 
+/* Show the desktop's name for a moment (Openbox's <popupTime>). */
+static void show_desktop_popup(struct wb_server *server, int index) {
+	wb::DesktopConfig defaults;
+	const wb::DesktopConfig &desktops =
+			server->config != nullptr ? server->config->desktops : defaults;
+	if (desktops.popup_time_ms <= 0)
+		return;
+	if (server->desktop_popup == nullptr) {
+		wb::Theme theme = server->config != nullptr ? server->config->theme
+				: wb::default_theme();
+		server->desktop_popup = std::make_unique<wb::DesktopPopup>(server,
+				wb::switcher_style_from_theme(theme));
+	}
+	server->desktop_popup->show(wb::desktop_name(desktops, index),
+			desktops.popup_time_ms);
+}
+
 static void switch_desktop(struct wb_server *server, int index, bool refocus) {
 	if (index < 0 || index >= desktop_count(server))
 		return;
@@ -379,6 +397,7 @@ static void switch_desktop(struct wb_server *server, int index, bool refocus) {
 			update_desktop_visibility(toplevel);
 		wlr_log(WLR_INFO, "wb-desktop %d", index + 1);
 		workspace_schedule_sync(server);
+		show_desktop_popup(server, index);
 	}
 	if (refocus)
 		focus_current_desktop(server);

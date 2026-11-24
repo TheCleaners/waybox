@@ -4,6 +4,8 @@
  */
 #include "waybox/desktops.hpp"
 
+#include <algorithm>
+
 #include <charconv>
 
 namespace wb {
@@ -43,6 +45,20 @@ std::string desktop_name(const DesktopConfig &config, int index) {
 			!config.names[index].empty())
 		return config.names[index];
 	return "Desktop " + std::to_string(index + 1);
+}
+
+int parse_popup_time(std::string_view text, int fallback) {
+	while (!text.empty() && (text.front() == ' ' || text.front() == '\n' ||
+			text.front() == '\t'))
+		text.remove_prefix(1);
+	while (!text.empty() && (text.back() == ' ' || text.back() == '\n' ||
+			text.back() == '\t'))
+		text.remove_suffix(1);
+	int ms = 0;
+	auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), ms);
+	if (text.empty() || ec != std::errc{} || end != text.data() + text.size())
+		return fallback;
+	return std::clamp(ms, 0, 10000);
 }
 
 int parse_desktop_count(std::string_view text, int fallback) {

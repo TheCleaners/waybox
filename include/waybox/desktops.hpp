@@ -20,6 +20,9 @@ constexpr int kMaxDesktops = 64;
 struct DesktopConfig {
 	int number = 4;                  /* Openbox's default */
 	std::vector<std::string> names;  /* optional; may be shorter than number */
+	/* How long the desktop's name shows after switching, in ms; 0 = never
+	 * (Openbox's <popupTime>, same default). */
+	int popup_time_ms = 875;
 };
 
 /* The desktop a GoToDesktop/SendToDesktop <to> names, given the current and
@@ -34,6 +37,9 @@ std::optional<int> desktop_target(std::string_view to, int current, int last,
 /* The display name of desktop `index` (0-based): its configured name, or
  * "Desktop N". */
 std::string desktop_name(const DesktopConfig &config, int index);
+
+/* <popupTime> in ms: 0 (off) to 10 s; `fallback` when it isn't a number. */
+int parse_popup_time(std::string_view text, int fallback);
 
 /* A clamped desktop count from rc.xml's <number> text (1..kMaxDesktops). */
 int parse_desktop_count(std::string_view text, int fallback);

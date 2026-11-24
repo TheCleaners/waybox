@@ -364,6 +364,9 @@ static void parse_desktops(struct wb_config *config, xmlXPathContextPtr ctxt) {
 		if (const char *n = child_text(node, "number"))
 			config->desktops.number =
 					wb::parse_desktop_count(n, config->desktops.number);
+		if (const char *t = child_text(node, "popupTime"))
+			config->desktops.popup_time_ms =
+					wb::parse_popup_time(t, config->desktops.popup_time_ms);
 		if (xmlNode *names = child_node(node, "names")) {
 			for (xmlNode *c = names->children; c; c = c->next) {
 				if (c->type != XML_ELEMENT_NODE ||

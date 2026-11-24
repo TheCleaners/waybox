@@ -50,6 +50,8 @@
   <desktops>
     <number>4</number>
     <!-- <names><name>web</name><name>code</name></names> -->
+    <!-- How long the desktop's name shows after switching, in ms (0 = off). -->
+    <popupTime>875</popupTime>
   </desktops>
   <!-- Where newly-mapped windows are placed: Smart (avoid overlap, then
        cascade), Center, or UnderMouse. -->

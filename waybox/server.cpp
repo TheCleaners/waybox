@@ -15,6 +15,7 @@
 #include "waybox/xwayland.h"
 #include "waybox/pointer_constraints.h"
 #include "waybox/sandbox.h"
+#include "waybox/desktop_popup.hpp"
 #include "waybox/input_method.h"
 #include "waybox/server.h"
 #include "waybox/session_lock.h"
@@ -68,6 +69,7 @@ void wb_reconfigure(struct wb_server *server) {
 	 * tree, switcher list) before it is freed. */
 	server->menu.reset();
 	server->switcher.reset();
+	server->desktop_popup.reset();  /* restyled from the new theme */
 	server->switcher_windows.clear();
 	server->switcher_mods = 0;
 	server->active_keychain = nullptr;
@@ -372,6 +374,7 @@ bool wb_terminate(struct wb_server* server) {
 	finish_pointer_constraints(server);
 	finish_input_method(server);
 
+	server->desktop_popup.reset();  /* its timer is on the event loop */
 	server->cursor.reset();
 	server->new_xdg_decoration.disconnect(); /* wb_decoration_destroy */
 	deinit_config(server->config);
