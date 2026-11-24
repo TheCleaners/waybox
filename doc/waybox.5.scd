@@ -257,7 +257,9 @@ act on a window use the focused one.
 	Run *<execute>* (or *<command>*) with *sh -c*.
 
 *ShowMenu*
-	Open the menu with the id in *<menu>*, at the pointer.
+	Open the menu with the id in *<menu>*, at the pointer. *client-menu* is
+	the window menu, built in: send to desktop, iconify, maximize, move,
+	resize, roll up, decorate and close, for the window it was opened on.
 
 *NextWindow*, *PreviousWindow*
 	Switch windows (Alt+Tab).
@@ -272,7 +274,8 @@ act on a window use the focused one.
 	Toggle fullscreen.
 
 *Shade*, *Unshade*
-	Roll the window up to its titlebar, and back.
+	Roll the window up to its titlebar, hiding its contents, and back down.
+	Only windows with a server-side titlebar can be rolled up.
 
 *Move*, *Resize*
 	Start moving or resizing the window with the pointer (resizing from

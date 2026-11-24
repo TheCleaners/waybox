@@ -122,6 +122,13 @@ edge_tiling_test = executable(
   )
 test('edge_tiling', edge_tiling_test)
 
+client_menu_test = executable(
+  'client_menu_test',
+  ['client_menu_test.cpp', 'wb_test_main.cpp', client_menu_src, menu_src, action_src],
+  include_directories: [inc_dir],
+  )
+test('client_menu', client_menu_test)
+
 # Pixel test for the Cairo/Pango painting primitives. Needs cairo/pango, so it
 # is only built in the full build (not tests_only); it links no wlroots.
 if not get_option('tests_only')
@@ -219,6 +226,16 @@ if python.found() and not get_option('tests_only')
       waybox_exe,
     ],
     timeout: 60,
+    env: integration_env,
+    )
+  test(
+    'integration_window_menu',
+    python,
+    args: [
+      files('integration' / 'window_menu_test.py'),
+      waybox_exe,
+    ],
+    timeout: 90,
     env: integration_env,
     )
   test(

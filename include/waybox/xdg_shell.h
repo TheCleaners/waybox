@@ -81,7 +81,6 @@ struct wb_toplevel {
 	 * (maximize/fullscreen/shade/minimize) each restore to the right place. */
 	struct wlr_box restore_maximize = {};
 	struct wlr_box restore_fullscreen = {};
-	struct wlr_box restore_shade = {};
 	struct wlr_box restore_minimize = {};
 	/* Independent horizontal/vertical maximize state (the xdg protocol only
 	 * signals full maximize, so we track the axes ourselves). */
@@ -90,6 +89,7 @@ struct wb_toplevel {
 	bool mapped = false;
 	bool minimized = false;
 	bool fullscreen = false;
+	bool shaded = false;
 	/* Tiled to an edge zone (drag to an edge, SnapToEdge); restore_tile is
 	 * the geometry from before, restored when it is dragged away. */
 	bool tiled = false;
@@ -145,6 +145,9 @@ void destroy_toplevel(struct wb_toplevel *toplevel);
 void toplevel_title_changed(struct wb_toplevel *toplevel);
 void toplevel_app_id_changed(struct wb_toplevel *toplevel);
 void set_toplevel_minimized(struct wb_toplevel *toplevel, bool minimized);
+/* Roll a window up to its titlebar (hiding its contents) or back down.
+ * Only windows with a server-side frame can be rolled up. */
+void set_toplevel_shaded(struct wb_toplevel *toplevel, bool shaded);
 /* Insert a new toplevel into the server lists and create its scene
  * container (both kinds). */
 void register_toplevel(struct wb_toplevel *toplevel);

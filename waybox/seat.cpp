@@ -17,6 +17,7 @@
 #include "waybox/seat.h"
 #include "waybox/window_cycle.hpp"
 #include "waybox/desktops.hpp"
+#include "waybox/client_menu.hpp"
 #include "waybox/xdg_shell.h"
 #include "waybox/menu_widget.hpp"
 #include "waybox/switcher_widget.hpp"
@@ -165,6 +166,60 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 	server->switcher = std::move(widget);
 }
 
+/* Open the window menu for the focused window: at the pointer when it is
+ * over the window (a titlebar click), otherwise at the window's top-left
+ * corner (from the keyboard). Always the native menu: an external launcher
+ * can't act on a window. */
+static void show_client_menu(struct wb_server *server) {
+	struct wb_toplevel *t = first_toplevel(server);
+	if (t == nullptr || !t->scene_tree->node.enabled)
+		return;
+	wb::ClientMenuState state;
+	for (int i = 0; i < desktop_count(server); i++)
+		state.desktop_names.push_back(
+				wb::desktop_name(server->config->desktops, i));
+	state.desktop = t->desktop;
+	state.omnipresent = t->omnipresent;
+	state.maximized = t->max_horz && t->max_vert;
+	state.shaded = t->shaded;
+	state.decorated = t->frame != nullptr;
+	state.can_decorate = t->kind == wb_view_kind::Xwayland || t->decoration != nullptr;
+
+	server->menu.reset();  /* it may refer to the previous client_menu */
+	server->client_menu = std::make_unique<wb::MenuFile>(wb::build_client_menu(state));
+	auto widget = std::make_unique<wb::MenuWidget>(server, *server->client_menu,
+			wb::menu_style_from_theme(server->config->theme),
+			server->config->menu_behavior);
+
+	double cx = server->cursor->cursor->x, cy = server->cursor->cursor->y;
+	wb::FrameInsets in = toplevel_insets(t);
+	struct wlr_box frame = {t->geometry.x - in.left, t->geometry.y - in.top,
+			t->geometry.width + in.left + in.right,
+			t->geometry.height + in.top + in.bottom};
+	int x = static_cast<int>(cx), y = static_cast<int>(cy);
+	if (!wlr_box_contains_point(&frame, cx, cy)) {
+		x = t->geometry.x;
+		y = t->geometry.y;
+	}
+	if (widget->open(wb::kClientMenuId, x, y)) {
+		server->menu = std::move(widget);
+		server->menu_target = t;
+	}
+}
+
+void wb_run_menu_actions(struct wb_server *server, std::vector<wb::Action> actions) {
+	struct wb_toplevel *target = server->menu_target;
+	server->menu_target = nullptr;
+	if (target != nullptr) {
+		/* Act on the window the menu was opened for. */
+		if (!toplevel_alive(server, target))
+			return;
+		focus_toplevel(target);
+	}
+	for (const wb::Action &action : actions)
+		wb::run_action(action, server);
+}
+
 /* Run a single parsed action against the live compositor state. This is the
  * "live" half of the action framework (the registry/parsing half lives in
  * action.cpp). Adding a new action means adding a case here plus a row in the
@@ -222,27 +277,11 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		}
 		break;
 	}
-	case wb::ActionType::Shade: {
-		struct wb_toplevel *toplevel = first_toplevel(server);
-		if (toplevel && toplevel->scene_tree->node.enabled) {
-			struct wlr_box geo_box = view_geometry(toplevel);
-			int decoration_height = MAX(geo_box.y - toplevel->geometry.y, TITLEBAR_HEIGHT);
-
-			toplevel->restore_shade = toplevel->geometry;
-			view_set_size(toplevel,
-					toplevel->geometry.width, decoration_height);
-		}
-		break;
-	}
+	case wb::ActionType::Shade:
 	case wb::ActionType::Unshade: {
 		struct wb_toplevel *toplevel = first_toplevel(server);
-		if (toplevel && toplevel->restore_shade.height > 0 &&
-				toplevel->restore_shade.width > 0 &&
-				toplevel->scene_tree->node.enabled) {
-			view_set_size(toplevel,
-					toplevel->restore_shade.width,
-					toplevel->restore_shade.height);
-		}
+		if (toplevel && toplevel->scene_tree->node.enabled)
+			set_toplevel_shaded(toplevel, action.type == wb::ActionType::Shade);
 		break;
 	}
 	case wb::ActionType::Raise: {
@@ -271,6 +310,10 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	case wb::ActionType::ShowMenu: {
 		if (server->config == nullptr)
 			break;
+		if (action.command == wb::kClientMenuId) {
+			show_client_menu(server);
+			break;
+		}
 		/* Delegate to an external launcher when configured (built-in-or-delegate
 		 * pillar); otherwise open the native menu widget. */
 		if (server->config->menu_source.kind ==
@@ -284,8 +327,10 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 				server->config->menu_behavior);
 		int x = static_cast<int>(server->cursor->cursor->x);
 		int y = static_cast<int>(server->cursor->cursor->y);
-		if (widget->open(action.command, x, y))
+		if (widget->open(action.command, x, y)) {
 			server->menu = std::move(widget);
+			server->menu_target = nullptr;
+		}
 		break;
 	}
 	case wb::ActionType::GoToDesktop: {
@@ -575,8 +620,7 @@ void wb_keyboard::on_key(void *data) {
 					std::vector<wb::Action> actions =
 							server->menu->take_actions();
 					server->menu.reset();
-					for (const wb::Action &action : actions)
-						wb::run_action(action, server);
+					wb_run_menu_actions(server, std::move(actions));
 					break;
 				}
 			}

@@ -96,6 +96,12 @@ void update_toplevel_decoration(struct wb_toplevel *toplevel) {
 		toplevel->frame = std::make_unique<wb::FrameView>(
 				toplevel->scene_tree, active, inactive, m, std::move(buttons));
 	} else if (!want && toplevel->frame) {
+		/* No titlebar any more: a rolled-up window comes back down. */
+		if (toplevel->shaded) {
+			toplevel->shaded = false;
+			if (toplevel->surface_tree != nullptr)
+				wlr_scene_node_set_enabled(&toplevel->surface_tree->node, true);
+		}
 		toplevel->frame.reset();
 		if (toplevel->surface_tree != nullptr)
 			wlr_scene_node_set_position(&toplevel->surface_tree->node, 0, 0);
@@ -109,7 +115,8 @@ void update_toplevel_decoration(struct wb_toplevel *toplevel) {
 		struct wlr_box g = view_geometry(toplevel);
 		int cw = g.width > 0 ? g.width : toplevel->geometry.width;
 		int ch = g.height > 0 ? g.height : toplevel->geometry.height;
-		toplevel->frame->set_client_size(cw, ch);
+		/* Rolled up: just the titlebar and borders. */
+		toplevel->frame->set_client_size(cw, toplevel->shaded ? 0 : ch);
 		toplevel->frame->set_active(first_toplevel(server) == toplevel);
 		toplevel->frame->set_title(view_title(toplevel));
 		toplevel->frame->set_maximized(toplevel->max_horz && toplevel->max_vert);
