@@ -226,12 +226,26 @@ static void sync_frame_active(struct wb_server *server) {
 
 /* Raise a toplevel to the top of the stacking order (z-order), without
  * touching focus. */
-void raise_toplevel(struct wb_toplevel *toplevel) {
-	if (toplevel == NULL)
-		return;
+static void raise_with_children(struct wb_toplevel *toplevel, int depth) {
 	wlr_scene_node_raise_to_top(&toplevel->scene_tree->node);
 	wl_list_remove(&toplevel->link);
 	wl_list_insert(&toplevel->server->toplevels, &toplevel->link);
+	if (depth >= 8)
+		return;  /* parent cycles can't loop */
+	/* Its dialogs stay above it, in the order they were (bottom first). */
+	std::vector<struct wb_toplevel *> children;
+	struct wb_toplevel *c;
+	wl_list_for_each_reverse(c, &toplevel->server->toplevels, link)
+		if (c != toplevel && c->mapped && view_parent(c) == toplevel)
+			children.push_back(c);
+	for (struct wb_toplevel *child : children)
+		raise_with_children(child, depth + 1);
+}
+
+void raise_toplevel(struct wb_toplevel *toplevel) {
+	if (toplevel == NULL)
+		return;
+	raise_with_children(toplevel, 0);
 }
 
 /* Lower a toplevel to the bottom of the stacking order, without touching
@@ -261,6 +275,14 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	 * window is ready once it has a surface.) */
 	if (!view_ready(toplevel))
 		return;
+	/* A window with a modal dialog in front of it: the dialog gets focus. */
+	if (struct wb_toplevel *modal = view_modal_child(toplevel)) {
+		wlr_log(WLR_INFO, "wb-focus %s -> modal %s", view_app_id(toplevel),
+				view_app_id(modal));
+		toplevel = modal;
+		if (!view_ready(toplevel))
+			return;
+	}
 
 	/* Focusing a window on another desktop (taskbar, activation request,
 	 * Alt+Tab) goes to that desktop, as in Openbox. */
