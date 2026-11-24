@@ -36,6 +36,7 @@ wb_src = [
     'view.cpp',
     'workspace.cpp',
     'xdg_shell.cpp',
+    'xwayland.cpp',
   ),
   ]
 

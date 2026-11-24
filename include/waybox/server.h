@@ -51,6 +51,8 @@ struct wb_server {
 	 * (background, bottom) and upper (top, overlay) layer-shell trees so panels
 	 * like Waybar correctly render above ordinary windows. */
 	struct wlr_scene_tree *toplevel_tree;
+	/* X11 override-redirect windows (menus, tooltips), above toplevels. */
+	struct wlr_scene_tree *unmanaged_tree = nullptr;
 	struct wlr_scene_output_layout *scene_layout;
 	struct wlr_session *session;
 	struct wlr_subcompositor *subcompositor;
@@ -127,6 +129,11 @@ struct wb_server {
 
 	/* ext-session-lock-v1 state (see session_lock.h), or null. */
 	struct wb_session_lock_state *session_lock = nullptr;
+
+	/* Xwayland (see xwayland.h), or null when off or unavailable. */
+	struct wlr_xwayland *xwayland = nullptr;
+	wb::Listener new_xwayland_surface;
+	wb::Listener xwayland_ready;
 
 	/* ext-workspace-v1 state (see workspace.h), or null. */
 	struct wb_workspace_state *workspaces = nullptr;

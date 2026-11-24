@@ -185,6 +185,16 @@ if python.found() and not get_option('tests_only')
     env: integration_env,
     )
   test(
+    'integration_xwayland',
+    python,
+    args: [
+      files('integration' / 'xwayland_test.py'),
+      waybox_exe,
+    ],
+    timeout: 90,
+    env: integration_env,
+    )
+  test(
     'integration_desktops',
     python,
     args: [

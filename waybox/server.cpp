@@ -12,6 +12,7 @@
 
 #include "idle.h"
 #include "waybox/workspace.h"
+#include "waybox/xwayland.h"
 #include "waybox/server.h"
 #include "waybox/session_lock.h"
 #include "waybox/frame_view.hpp"
@@ -173,6 +174,7 @@ bool wb_start_server(struct wb_server* server) {
 	 * its children, so adding/raising a window never lifts it above the panel
 	 * layers. */
 	server->toplevel_tree = wlr_scene_tree_create(&server->scene->tree);
+	server->unmanaged_tree = wlr_scene_tree_create(&server->scene->tree);
 
 	const char *socket = wl_display_add_socket_auto(server->wl_display);
 	if (!socket) {
@@ -237,6 +239,7 @@ bool wb_start_server(struct wb_server* server) {
 	 * https://drewdevault.com/2018/07/29/Wayland-shells.html
 	 */
 	init_xdg_shell(server);
+	init_xwayland(server);  /* after the seat, cursor and config */
 
 	wlr_fractional_scale_manager_v1_create(server->wl_display, 1);
 	wlr_viewporter_create(server->wl_display);
@@ -265,6 +268,7 @@ bool wb_terminate(struct wb_server* server) {
 	wl_display_destroy_clients(server->wl_display);
 	finish_session_lock(server);
 	workspace_finish(server);
+	finish_xwayland(server);  /* X11 windows still use the seat and cursor */
 
 	server->cursor.reset();
 	server->new_xdg_decoration.disconnect(); /* wb_decoration_destroy */

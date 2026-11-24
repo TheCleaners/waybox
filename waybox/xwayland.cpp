@@ -1,0 +1,299 @@
+/*
+ * Xwayland: X11 programs as Waybox windows.
+ *
+ * Xwayland starts lazily, on the first X11 connection; DISPLAY is exported
+ * right away so programs Waybox starts can find it. Managed X11 windows are
+ * wb_toplevels (kind Xwayland) and share mapping, placement, focus,
+ * desktops, frames and actions with xdg-shell windows through the view
+ * layer. Override-redirect windows (menus, tooltips, drag icons) are not
+ * managed: they are drawn where the client puts them, above ordinary
+ * windows, and get keyboard focus only when they ask for it.
+ */
+#include "waybox/wlroots.hpp"
+
+#if WLR_HAS_XWAYLAND
+
+#include <cstdlib>
+
+#include "waybox/xwayland.h"
+#include "waybox/frame_view.hpp"
+#include "waybox/listener.hpp"
+#include "waybox/seat.h"
+#include "waybox/xdg_shell.h"
+#include "config.h"
+#include "decoration.h"
+
+namespace {
+
+/* ---- Override-redirect (unmanaged) windows ---- */
+
+struct Unmanaged {
+	struct wb_server *server = nullptr;
+	struct wlr_xwayland_surface *xsurface = nullptr;
+	struct wlr_scene_tree *tree = nullptr;
+	wb::Listener tree_destroy;
+	wb::Listener associate;
+	wb::Listener dissociate;
+	wb::Listener map;
+	wb::Listener unmap;
+	wb::Listener set_geometry;
+	wb::Listener destroy;
+};
+
+void unmanaged_map(Unmanaged *u) {
+	struct wlr_xwayland_surface *xs = u->xsurface;
+	u->tree = wlr_scene_subsurface_tree_create(u->server->unmanaged_tree,
+			xs->surface);
+	if (u->tree != nullptr) {
+		wlr_scene_node_set_position(&u->tree->node, xs->x, xs->y);
+		/* wlroots frees the tree with the surface; forget it then. */
+		u->tree_destroy.connect(&u->tree->node.events.destroy, [u](void *) {
+			u->tree = nullptr;
+			u->tree_destroy.disconnect();
+		});
+	}
+	if (wlr_xwayland_surface_override_redirect_wants_focus(xs))
+		seat_focus_surface(u->server->seat.get(), xs->surface);
+}
+
+void unmanaged_unmap(Unmanaged *u) {
+	if (u->tree != nullptr) {
+		u->tree_destroy.disconnect();
+		wlr_scene_node_destroy(&u->tree->node);
+		u->tree = nullptr;
+	}
+	struct wb_server *server = u->server;
+	struct wlr_seat *seat = server->seat->seat;
+	if (u->xsurface->surface != nullptr &&
+			seat->keyboard_state.focused_surface == u->xsurface->surface) {
+		/* A menu with focus went away: back to the window it came from. */
+		if (struct wb_toplevel *active = first_toplevel(server))
+			seat_focus_surface(server->seat.get(), view_surface(active));
+		else
+			seat_focus_surface(server->seat.get(), nullptr);
+	}
+}
+
+void new_unmanaged(struct wb_server *server, struct wlr_xwayland_surface *xs) {
+	auto *u = new Unmanaged{};
+	u->server = server;
+	u->xsurface = xs;
+	u->associate.connect(&xs->events.associate, [u](void *) {
+		u->map.connect(&u->xsurface->surface->events.map,
+				[u](void *) { unmanaged_map(u); });
+		u->unmap.connect(&u->xsurface->surface->events.unmap,
+				[u](void *) { unmanaged_unmap(u); });
+	});
+	u->dissociate.connect(&xs->events.dissociate, [u](void *) {
+		u->map.disconnect();
+		u->unmap.disconnect();
+	});
+	u->set_geometry.connect(&xs->events.set_geometry, [u](void *) {
+		if (u->tree != nullptr)
+			wlr_scene_node_set_position(&u->tree->node, u->xsurface->x,
+					u->xsurface->y);
+	});
+	u->destroy.connect(&xs->events.destroy, [u](void *) {
+		if (u->tree != nullptr) {
+			u->tree_destroy.disconnect();
+			wlr_scene_node_destroy(&u->tree->node);
+		}
+		delete u;  /* the Listener members disconnect themselves */
+	});
+}
+
+/* ---- Managed windows ---- */
+
+void x11_map(struct wb_toplevel *t) {
+	struct wlr_xwayland_surface *xs = t->xsurface;
+	/* Start from where and how big the client asked to be; map_toplevel()
+	 * places it from there (and centres dialogs over their parent). */
+	t->geometry = {xs->x, xs->y, xs->width, xs->height};
+	t->surface_tree = wlr_scene_subsurface_tree_create(t->scene_tree, xs->surface);
+	if (t->surface_tree != nullptr) {
+		assign_scene_descriptor(&t->surface_tree->node,
+				WB_SCENE_DESC_TOPLEVEL, t);
+		/* wlroots frees the tree with the surface; forget it then. */
+		t->surface_tree_destroy.connect(&t->surface_tree->node.events.destroy,
+				[t](void *) {
+			t->surface_tree = nullptr;
+			t->surface_tree_destroy.disconnect();
+		});
+	}
+	map_toplevel(t);
+}
+
+void x11_unmap(struct wb_toplevel *t) {
+	if (!t->mapped)
+		return;
+	unmap_toplevel(t);
+	/* Frames belong to a mapped window; the surface tree goes with the
+	 * surface. */
+	t->frame.reset();
+	if (t->server->frame_pressed == t)
+		t->server->frame_pressed = nullptr;
+	if (t->surface_tree != nullptr) {
+		t->surface_tree_destroy.disconnect();
+		wlr_scene_node_destroy(&t->surface_tree->node);
+		t->surface_tree = nullptr;
+	}
+}
+
+void x11_commit(struct wb_toplevel *t) {
+	struct wlr_xwayland_surface *xs = t->xsurface;
+	/* The client may have resized itself (or acked our configure). */
+	if (xs->width != t->geometry.width || xs->height != t->geometry.height) {
+		t->geometry.width = xs->width;
+		t->geometry.height = xs->height;
+		if (t->frame)
+			update_toplevel_decoration(t);
+	}
+}
+
+void x11_request_configure(struct wb_toplevel *t, void *data) {
+	auto *ev = static_cast<struct wlr_xwayland_surface_configure_event *>(data);
+	if (!t->mapped) {
+		/* Before mapping, the client chooses its own geometry; placement
+		 * happens on map. */
+		wlr_xwayland_surface_configure(t->xsurface, ev->x, ev->y,
+				ev->width, ev->height);
+		return;
+	}
+	if (t->fullscreen || t->max_horz || t->max_vert) {
+		/* Managed size: repeat ours so the client stays in sync. */
+		view_set_size(t, t->geometry.width, t->geometry.height);
+		return;
+	}
+	/* A floating window may move and resize itself (many X11 programs
+	 * restore their saved geometry this way). */
+	t->geometry = {ev->x, ev->y, ev->width, ev->height};
+	view_set_size(t, ev->width, ev->height);
+	position_toplevel(t);
+	update_toplevel_decoration(t);
+}
+
+void new_managed(struct wb_server *server, struct wlr_xwayland_surface *xs) {
+	auto *t = new wb_toplevel{};
+	t->server = server;
+	t->kind = wb_view_kind::Xwayland;
+	t->xsurface = xs;
+	xs->data = t;
+	register_toplevel(t);
+
+	t->associate.connect(&xs->events.associate, [t](void *) {
+		struct wlr_surface *surface = t->xsurface->surface;
+		t->map.connect(&surface->events.map, [t](void *) { x11_map(t); });
+		t->unmap.connect(&surface->events.unmap, [t](void *) { x11_unmap(t); });
+		t->commit.connect(&surface->events.commit, [t](void *) { x11_commit(t); });
+	});
+	t->dissociate.connect(&xs->events.dissociate, [t](void *) {
+		x11_unmap(t);  /* the surface is going away, mapped or not */
+		t->map.disconnect();
+		t->unmap.disconnect();
+		t->commit.disconnect();
+	});
+	t->destroy.connect(&xs->events.destroy, [t](void *) {
+		x11_unmap(t);
+		t->xsurface->data = nullptr;
+		/* Clear the pointer so the view layer treats this as gone while the
+		 * shared teardown runs. */
+		t->xsurface = nullptr;
+		destroy_toplevel(t);
+	});
+	t->request_configure.connect(&xs->events.request_configure,
+			[t](void *data) { x11_request_configure(t, data); });
+	t->request_move.connect(&xs->events.request_move, [t](void *) {
+		if (t->mapped)
+			begin_interactive(t, WB_CURSOR_MOVE, 0);
+	});
+	t->request_resize.connect(&xs->events.request_resize, [t](void *data) {
+		auto *ev = static_cast<struct wlr_xwayland_resize_event *>(data);
+		if (t->mapped)
+			begin_interactive(t, WB_CURSOR_RESIZE, ev->edges);
+	});
+	t->request_maximize.connect(&xs->events.request_maximize, [t](void *) {
+		if (t->mapped)
+			set_toplevel_maximized(t, t->xsurface->maximized_horz,
+					t->xsurface->maximized_vert);
+	});
+	t->request_fullscreen.connect(&xs->events.request_fullscreen, [t](void *) {
+		if (t->mapped)
+			set_toplevel_fullscreen(t, t->xsurface->fullscreen);
+	});
+	t->request_minimize.connect(&xs->events.request_minimize, [t](void *data) {
+		auto *ev = static_cast<struct wlr_xwayland_minimize_event *>(data);
+		if (t->mapped)
+			set_toplevel_minimized(t, ev->minimize);
+	});
+	t->request_activate.connect(&xs->events.request_activate, [t](void *) {
+		if (t->mapped)
+			focus_toplevel(t);
+	});
+	t->set_title.connect(&xs->events.set_title,
+			[t](void *) { toplevel_title_changed(t); });
+	t->set_app_id.connect(&xs->events.set_class,
+			[t](void *) { toplevel_app_id_changed(t); });
+	t->set_decorations.connect(&xs->events.set_decorations,
+			[t](void *) { update_toplevel_decoration(t); });
+}
+
+void handle_new_surface(struct wb_server *server, void *data) {
+	auto *xs = static_cast<struct wlr_xwayland_surface *>(data);
+	if (xs->override_redirect)
+		new_unmanaged(server, xs);
+	else
+		new_managed(server, xs);
+}
+
+}  // namespace
+
+void init_xwayland(struct wb_server *server) {
+	if (server->config != nullptr && !server->config->xwayland) {
+		wlr_log(WLR_INFO, "%s", _("Xwayland disabled in rc.xml"));
+		return;
+	}
+	server->xwayland = wlr_xwayland_create(server->wl_display,
+			server->compositor, true /* lazy: start on first X11 client */);
+	if (server->xwayland == nullptr) {
+		wlr_log(WLR_ERROR, "%s", _("Could not set up Xwayland; X11 programs will not run"));
+		return;
+	}
+	server->new_xwayland_surface.connect(&server->xwayland->events.new_surface,
+			[server](void *data) { handle_new_surface(server, data); });
+	server->xwayland_ready.connect(&server->xwayland->events.ready,
+			[server](void *) {
+		wlr_xwayland_set_seat(server->xwayland, server->seat->seat);
+		/* The root window's cursor (X11 programs that never set one). */
+		if (struct wlr_xcursor *xc = wlr_xcursor_manager_get_xcursor(
+				server->cursor->xcursor_manager, "default", 1)) {
+			struct wlr_xcursor_image *img = xc->images[0];
+			wlr_xwayland_set_cursor(server->xwayland, img->buffer,
+					img->width * 4, img->width, img->height,
+					static_cast<int32_t>(img->hotspot_x),
+					static_cast<int32_t>(img->hotspot_y));
+		}
+		wlr_log(WLR_INFO, "Xwayland ready on DISPLAY=%s",
+				server->xwayland->display_name);
+	});
+	setenv("DISPLAY", server->xwayland->display_name, true);
+	wlr_log(WLR_INFO, "Xwayland on DISPLAY=%s (starts on first use)",
+			server->xwayland->display_name);
+}
+
+void finish_xwayland(struct wb_server *server) {
+	if (server->xwayland == nullptr)
+		return;
+	server->new_xwayland_surface.disconnect();
+	server->xwayland_ready.disconnect();
+	wlr_xwayland_destroy(server->xwayland);
+	server->xwayland = nullptr;
+}
+
+#else  /* !WLR_HAS_XWAYLAND */
+
+#include "waybox/xwayland.h"
+
+void init_xwayland(struct wb_server *) {}
+void finish_xwayland(struct wb_server *) {}
+
+#endif
