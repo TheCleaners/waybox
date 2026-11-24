@@ -23,14 +23,14 @@
     <font place="ActiveOnScreenDisplay"><name>Sans</name><size>10</size><weight>bold</weight></font>
   </theme> -->
   <!-- waybox-only extensions (Openbox ignores this block). Menu behaviour:
-       submenuOpen="hover|click", hoverDelay (ms before a submenu opens on
-       hover), wrap (keyboard navigation wraps at the ends), icons (show
-       per-item icons from the icon theme, when available). source selects the
-       built-in native menu ("builtin", the default) or delegates to an external
-       launcher command (e.g. source="rofi -show drun"). -->
+       submenuOpen="hover|click", wrap (keyboard navigation wraps at the
+       ends), icons (show per-item icons from the icon theme, when
+       available). source selects the built-in native menu ("builtin", the
+       default) or delegates to an external launcher command (e.g.
+       source="rofi -show drun"). See waybox(5). -->
   <waybox>
-    <menu source="builtin" submenuOpen="hover" hoverDelay="100" wrap="yes" icons="yes"/>
-    <switcher order="mru" osd="yes" wrap="yes"/>
+    <menu source="builtin" submenuOpen="hover" wrap="yes" icons="yes"/>
+    <switcher osd="yes" wrap="yes"/>
     <!-- Input from virtual keyboards/pointers (wtype, wlrctl, on-screen
          keyboards, remote-desktop tools): "unlocked" (default) ignores it
          while the session is locked, so no program can type into the lock

@@ -577,10 +577,12 @@ bool init_config(struct wb_server *server) {
 		return false;
 	xmlDocPtr doc;
 	fs::path rc_file;
-	if (const char *env = getenv("WB_RC_XML"); env && env[0] != '\0') {
-		rc_file = env;
-	} else if (server->config_file != NULL) {
+	/* An explicit --config-file wins over $WB_RC_XML, which the session
+	 * script always sets. */
+	if (server->config_file != NULL) {
 		rc_file = server->config_file;
+	} else if (const char *env = getenv("WB_RC_XML"); env && env[0] != '\0') {
+		rc_file = env;
 	} else {
 		rc_file = default_rc_file();
 	}

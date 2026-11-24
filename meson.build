@@ -138,6 +138,7 @@ if not tests_only
   gtk4 = dependency('gtk4', required: get_option('wbconf'))
 
   subdir('data')
+  subdir('doc')
   subdir('protocol')
   subdir('waybox')
   if gtk4.found()
