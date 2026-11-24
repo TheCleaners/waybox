@@ -9,6 +9,8 @@
    (the window menu) doesn't crash.
 4. A failed start (no usable runtime directory) exits cleanly instead of
    freeing the backend and display twice.
+5. A program whose app_id is the path of a FIFO doesn't freeze waybox
+   (icon lookup must not open client-named paths).
 
 Skips (exit 77) without foot or wlrctl, or a headless display.
 
@@ -166,6 +168,21 @@ def main():
         time.sleep(0.5)
     os.makedirs(os.path.join(workdir, "empty"), exist_ok=True)
     session("nosettings", "", icon_without_settings)
+
+    # 5. A program naming a FIFO as its app_id (icon lookup): waybox must
+    # not open it (reading a FIFO blocks for ever), so a second window
+    # still maps.
+    fifo = os.path.join(workdir, "icon.png")
+    os.mkfifo(fifo)
+
+    def fifo_icon(spawn, wlrctl, logtext):
+        spawn("foot", "-a", fifo)
+        time.sleep(1.2)
+        spawn("foot", "-a", "after-fifo")
+        time.sleep(1.5)
+        if not re.search(r"wb-geom mapped \S+ after-fifo", logtext()):
+            failures.append("fifo icon: waybox stopped responding (it opened the FIFO)")
+    session("fifo", empty_rc, fifo_icon)
 
     # 4. Startup failure (no usable runtime directory, so no socket): a
     # clean exit, not a double free of the backend and display.

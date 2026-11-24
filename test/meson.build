@@ -277,6 +277,18 @@ if python.found() and not get_option('tests_only')
     dependencies: [dependency('wayland-client')],
     )
 
+  # Makes and drops idle inhibitors, for the idle test.
+  idle_inhibit_xml = wl_protocol_dir / 'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml'
+  inhibit_client = executable(
+    'inhibit_client',
+    [
+      'integration' / 'inhibit_client.c',
+      wayland_scanner_client.process(idle_inhibit_xml),
+      wayland_scanner_code.process(idle_inhibit_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # A program with a popup grab, for the lock-screen test.
   popup_client = executable(
     'popup_client',
@@ -329,6 +341,7 @@ if python.found() and not get_option('tests_only')
     ['edge_tiling', 'edge_tiling_test.py', [], 90],
     ['foreign_toplevel', 'foreign_toplevel_test.py', [default_rc], 60],
     ['fullscreen_panel', 'fullscreen_panel_test.py', [layer_client], 60],
+    ['idle_inhibit', 'idle_inhibit_test.py', [inhibit_client], 60],
     ['input_focus', 'input_focus_test.py', [], 60],
     ['input_method', 'input_method_test.py', [ime_client, text_input_client], 90],
     ['key_chain', 'key_chain_test.py', [], 60],

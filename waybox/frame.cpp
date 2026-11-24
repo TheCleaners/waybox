@@ -102,7 +102,15 @@ FrameHit frame_part_at(int ox, int oy, int outer_w, int outer_h,
 		const FrameMetrics &m, const std::vector<FrameButton> &buttons, int left) {
 	FrameInsets in = frame_insets(m);
 
-	/* Corners first (diagonal resize). Coordinates in the invisible grab margin
+	/* Buttons first: the corner zones reach into the end buttons, and a
+	 * click on the close button must close, not resize. */
+	std::vector<Rect> brects = button_rects(outer_w, m, buttons, left);
+	for (size_t i = 0; i < brects.size(); ++i) {
+		if (in_rect(ox, oy, brects[i]))
+			return {FramePart::Button, static_cast<int>(i)};
+	}
+
+	/* Then corners (diagonal resize). Coordinates in the invisible grab margin
 	 * are negative (top/left) or past outer_w/outer_h (bottom/right), so a
 	 * margin point is naturally "near" the corresponding edge here. */
 	bool near_left = ox < m.corner;
@@ -117,13 +125,6 @@ FrameHit frame_part_at(int ox, int oy, int outer_w, int outer_h,
 		return {FramePart::CornerBottomLeft, -1};
 	if (near_bottom && near_right)
 		return {FramePart::CornerBottomRight, -1};
-
-	/* Buttons (win over the titlebar background). */
-	std::vector<Rect> brects = button_rects(outer_w, m, buttons, left);
-	for (size_t i = 0; i < brects.size(); ++i) {
-		if (in_rect(ox, oy, brects[i]))
-			return {FramePart::Button, static_cast<int>(i)};
-	}
 
 	/* Titlebar (drag to move). */
 	if (m.titlebar > 0 && in_rect(ox, oy, titlebar_rect(outer_w, m)))

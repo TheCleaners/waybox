@@ -33,10 +33,12 @@ WB_TEST(default_follows_client_when_ssd_available) {
 }
 
 WB_TEST(toggle_flips_decorated_and_undecorated) {
-	WB_CHECK(toggle_decor(DecorMode::Full) == DecorMode::None);
-	/* Default counts as decorated, so the first toggle hides decorations */
-	WB_CHECK(toggle_decor(DecorMode::Default) == DecorMode::None);
-	WB_CHECK(toggle_decor(DecorMode::None) == DecorMode::Full);
-	/* toggling twice from a decorated state returns to decorated */
-	WB_CHECK(toggle_decor(toggle_decor(DecorMode::Full)) == DecorMode::Full);
+	/* Decided by what's shown: a window in Default mode that asked for no
+	 * frame (a game) gets one on the first press, not the second. */
+	WB_CHECK(toggle_decor(true) == DecorMode::None);
+	WB_CHECK(toggle_decor(false) == DecorMode::Full);
+	bool shown = negotiate_decoration(DecorMode::Default, false, true) ==
+			NegotiatedDecoration::ServerSide;
+	WB_CHECK(negotiate_decoration(toggle_decor(shown), false, true) ==
+			NegotiatedDecoration::ServerSide);
 }

@@ -206,16 +206,20 @@ IconThemeIndex parse_icon_theme_index(std::string_view contents) {
 			if (sec != name)
 				continue;
 			for (const auto &[k, v] : keys) {
+				/* Bounded, so size +/- threshold can't overflow. */
+				auto px = [&](int fallback) {
+					return std::clamp(to_int(v, fallback), 0, 4096);
+				};
 				if (k == "Size")
-					d.size = to_int(v, 0);
+					d.size = px(0);
 				else if (k == "MinSize")
-					d.min_size = to_int(v, 0);
+					d.min_size = px(0);
 				else if (k == "MaxSize")
-					d.max_size = to_int(v, 0);
+					d.max_size = px(0);
 				else if (k == "Threshold")
-					d.threshold = to_int(v, 2);
+					d.threshold = px(2);
 				else if (k == "Scale")
-					d.scale = to_int(v, 1);
+					d.scale = std::clamp(to_int(v, 1), 1, 16);
 				else if (k == "Type")
 					d.type = v == "Fixed" ? IconThemeDir::Type::Fixed
 							: v == "Scalable" ? IconThemeDir::Type::Scalable

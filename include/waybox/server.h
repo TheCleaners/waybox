@@ -108,9 +108,7 @@ struct wb_server {
 	wb::Listener new_xdg_toplevel;
 
 	wb::Listener destroy_inhibit_manager;
-	wb::Listener destroy_inhibitor;
 	wb::Listener new_inhibitor;
-	struct wl_list inhibitors;
 
 	wb::Listener new_input;
 	wb::Listener new_output;

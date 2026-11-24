@@ -175,3 +175,13 @@ WB_TEST(desktop_entry_icon_parsing) {
 			"[Desktop Entry]\nName=x\n").empty());
 	WB_CHECK(wb::desktop_entry_icon("").empty());
 }
+
+WB_TEST(theme_index_sizes_are_bounded) {
+	/* Size + Threshold mustn't overflow in the size matching. */
+	wb::IconThemeIndex idx = wb::parse_icon_theme_index(
+			"[Icon Theme]\nDirectories=big\n\n[big]\nSize=2147483647\n"
+			"Threshold=2147483647\nType=Threshold\nScale=-3\n");
+	WB_CHECK(idx.dirs.size() == 1);
+	WB_CHECK(idx.dirs[0].size <= 4096 && idx.dirs[0].threshold <= 4096);
+	WB_CHECK(idx.dirs[0].scale >= 1);
+}

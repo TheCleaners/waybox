@@ -232,7 +232,12 @@ void FrameView::layout() {
 		return;
 	}
 	Rect tb = titlebar_rect(outer_w_, metrics_);
-	/* (Re)create the titlebar canvas when its size changes. */
+	/* Keep the canvas while its size is unchanged (layout runs on each of
+	 * the window's commits); the setters redraw it when its content does. */
+	if (titlebar_ && titlebar_->width() == tb.width && titlebar_->height() == tb.height) {
+		titlebar_->set_position(tb.x, tb.y);
+		return;
+	}
 	titlebar_ = std::make_unique<SceneCanvas>(
 			bg_ != nullptr ? bg_->node.parent : nullptr, tb.width, tb.height,
 			scale_);
@@ -265,17 +270,20 @@ void FrameView::render_titlebar() {
 		label_right = brects[left_].x - tb_x - metrics_.title_pad;
 
 	int label_x = label_left;
-	int text_h = measure_text(title_, s.label.font).height;
+	TextExtents text = measure_text(title_, s.label.font);
 	/* Round to the nearest pixel (bias down) so the label isn't a pixel high
 	 * when the leftover vertical space is odd. */
-	int text_y = (h - text_h + 1) / 2;
-	if (s.label.justify == Justify::Center) {
-		int tw = measure_text(title_, s.label.font).width;
-		label_x = label_left + (label_right - label_left - tw) / 2;
-		if (label_x < label_left)
-			label_x = label_left;
-	}
-	paint_text(cr, label_x, text_y, title_, s.label.color, s.label.font);
+	int text_y = (h - text.height + 1) / 2;
+	int room = label_right - label_left;
+	if (s.label.justify == Justify::Center)
+		label_x = label_left + (room - text.width) / 2;
+	else if (s.label.justify == Justify::Right)
+		label_x = label_right - text.width;
+	if (label_x < label_left)
+		label_x = label_left;
+	/* A long title is cut with an ellipsis before the buttons. */
+	if (room > 0)
+		paint_text(cr, label_x, text_y, title_, s.label.color, s.label.font, room);
 
 	for (size_t i = 0; i < brects.size() && i < buttons_.size(); ++i) {
 		/* button rects are frame-local; convert to titlebar-canvas-local. */

@@ -81,6 +81,11 @@ WB_TEST(hit_test_corners_edges_titlebar_client) {
 			rects[2].y + rects[2].height / 2, w, h, m, buttons);
 	WB_CHECK(close.part == FramePart::Button);
 	WB_CHECK(close.button == 2);
+	/* the close button's top-right pixel is in the corner zone, but it's
+	 * still the button (not a resize) */
+	wb::FrameHit edge = wb::frame_part_at(rects[2].x + rects[2].width - 1,
+			rects[2].y, w, h, m, buttons);
+	WB_CHECK(edge.part == FramePart::Button && edge.button == 2);
 
 	/* titlebar background (left side, away from corner + buttons) */
 	WB_CHECK(wb::frame_part_at(40, m.border + m.titlebar / 2, w, h, m, buttons)

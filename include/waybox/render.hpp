@@ -43,8 +43,9 @@ void paint_fill(cairo_t *cr, double x, double y, double w, double h,
 		const Paint &paint);
 
 /* Draw one line of text with its top-left at (x, y). */
+/* max_width > 0: cut the text to that width with an ellipsis. */
 void paint_text(cairo_t *cr, double x, double y, std::string_view text,
-		const Color &color, const FontSpec &font);
+		const Color &color, const FontSpec &font, int max_width = 0);
 
 }  // namespace wb
 

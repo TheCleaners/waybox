@@ -23,7 +23,7 @@ static constexpr bool kSsdAvailable = true;
  * decorations. We therefore only wear a frame when the client bound the
  * decoration protocol for this toplevel; for such clients we then honour
  * DecorMode and the client's requested mode. */
-static bool toplevel_wants_ssd(struct wb_toplevel *toplevel) {
+bool toplevel_wants_ssd(struct wb_toplevel *toplevel) {
 	if (toplevel->fullscreen)
 		return false;
 #if WLR_HAS_XWAYLAND
