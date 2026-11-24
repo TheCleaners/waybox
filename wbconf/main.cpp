@@ -309,8 +309,18 @@ void add_font(GtkWidget *grid, int row, const char *label, FontPicker *out,
 	items.push_back(nullptr);
 	GtkWidget *fam = gtk_drop_down_new_from_strings(items.data());
 	gtk_widget_set_hexpand(fam, TRUE);
-	/* Make the long list searchable by typing. */
+	/* Make the long list searchable by typing. The search needs an
+	 * expression naming the text to match (the GtkStringObject's "string");
+	 * without one it matches nothing and the list never filters. Match
+	 * anywhere in the name ("mono" finds "DejaVu Sans Mono"), not just the
+	 * start. */
+	gtk_drop_down_set_expression(GTK_DROP_DOWN(fam),
+			gtk_property_expression_new(GTK_TYPE_STRING_OBJECT, nullptr, "string"));
 	gtk_drop_down_set_enable_search(GTK_DROP_DOWN(fam), TRUE);
+#if GTK_CHECK_VERSION(4, 12, 0)
+	gtk_drop_down_set_search_match_mode(GTK_DROP_DOWN(fam),
+			GTK_STRING_FILTER_MATCH_MODE_SUBSTRING);
+#endif
 	out->family = GTK_DROP_DOWN(fam);
 	gtk_box_append(GTK_BOX(box), fam);
 
