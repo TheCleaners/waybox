@@ -41,8 +41,7 @@ For background, see
   focus and actions as Wayland ones; dialogs open centred over their parent,
   and menus and tooltips appear where the program puts them. Turn it off
   with `<xwayland enabled="no"/>`.
-- **Alt+Tab switcher** with an on-screen list, in most-recently-used or
-  stacking order.
+- **Alt+Tab switcher** with an on-screen list, in most-recently-used order.
 - **Openbox themes** (`themerc`) with per-place fonts.
 - **Edge tiling**: drag a window to a monitor edge to tile it to the left or
   right half, a corner quarter, or maximized at the top, with a preview of
@@ -121,6 +120,7 @@ meson test -C build
 | `-Dsanitize=enabled\|disabled` | Force ASan and UBSan on or off. |
 | `-Dwlroots-version=0.19` | Pick a specific wlroots when several are installed. |
 | `-Dsvg=disabled`, `-Dwbconf=disabled` | Skip the optional pieces. |
+| `-Dman-pages=disabled`, `-Dinfo=disabled` | Skip the manual pages (scdoc) or the Texinfo manual (makeinfo). |
 | `-Dtests_only=true` | Build only the unit tests, which don't need wlroots. |
 
 ## Running
