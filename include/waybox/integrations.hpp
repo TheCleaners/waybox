@@ -51,10 +51,11 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
  * the user's directory first). Sorted by category, then name. */
 std::vector<Integration> load_integrations(const std::vector<std::string> &dirs);
 
-/* The directories to read, user's first: $XDG_DATA_HOME/waybox/integrations,
+/* The directories to read, user's first: $XDG_CONFIG_HOME/waybox/integrations
+ * (beside rc.xml, so installing Waybox into ~/.local can't overwrite them),
  * then each $XDG_DATA_DIRS entry's, then `installed` (the build's). */
 std::vector<std::string> integration_dirs(const std::string &home,
-		const std::string &xdg_data_home, const std::string &xdg_data_dirs,
+		const std::string &xdg_config_home, const std::string &xdg_data_dirs,
 		const std::string &installed);
 
 /* Shell words of a command (spaces, '...' and "..." quotes, backslashes),

@@ -124,17 +124,17 @@ std::vector<Integration> load_integrations(const std::vector<std::string> &dirs)
 }
 
 std::vector<std::string> integration_dirs(const std::string &home,
-		const std::string &xdg_data_home, const std::string &xdg_data_dirs,
+		const std::string &xdg_config_home, const std::string &xdg_data_dirs,
 		const std::string &installed) {
 	std::vector<std::string> dirs;
 	auto add = [&](const std::string &d) {
 		if (!d.empty() && std::find(dirs.begin(), dirs.end(), d) == dirs.end())
 			dirs.push_back(d);
 	};
-	if (!xdg_data_home.empty())
-		add(xdg_data_home + "/waybox/integrations");
+	if (!xdg_config_home.empty())
+		add(xdg_config_home + "/waybox/integrations");
 	else if (!home.empty())
-		add(home + "/.local/share/waybox/integrations");
+		add(home + "/.config/waybox/integrations");
 	std::string data_dirs = xdg_data_dirs.empty() ? "/usr/local/share:/usr/share" : xdg_data_dirs;
 	std::stringstream ss(data_dirs);
 	std::string d;
