@@ -13,6 +13,7 @@
 #include "idle.h"
 #include "waybox/workspace.h"
 #include "waybox/xwayland.h"
+#include "waybox/pointer_constraints.h"
 #include "waybox/server.h"
 #include "waybox/session_lock.h"
 #include "waybox/frame_view.hpp"
@@ -255,6 +256,7 @@ bool wb_start_server(struct wb_server* server) {
 	 */
 	init_xdg_shell(server);
 	init_xwayland(server);  /* after the seat, cursor and config */
+	init_pointer_constraints(server);  /* after the seat and cursor */
 
 	wlr_fractional_scale_manager_v1_create(server->wl_display, 1);
 	wlr_viewporter_create(server->wl_display);
@@ -284,6 +286,7 @@ bool wb_terminate(struct wb_server* server) {
 	finish_session_lock(server);
 	workspace_finish(server);
 	finish_xwayland(server);  /* X11 windows still use the seat and cursor */
+	finish_pointer_constraints(server);
 
 	server->cursor.reset();
 	server->new_xdg_decoration.disconnect(); /* wb_decoration_destroy */

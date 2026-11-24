@@ -28,6 +28,7 @@ wb_src = [
     'menu_parse.cpp',
     'menu_widget.cpp',
     'output.cpp',
+    'pointer_constraints.cpp',
     'scene_buffer.cpp',
     'seat.cpp',
     'server.cpp',

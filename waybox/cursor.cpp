@@ -11,6 +11,7 @@
 #include "waybox/menu_widget.hpp"
 #include "waybox/frame_view.hpp"
 #include "waybox/session_lock.h"
+#include "waybox/pointer_constraints.h"
 
 /* How close (in layout pixels) a dragged window's edge must come to a usable-
  * area or window edge before it snaps. */
@@ -259,7 +260,15 @@ void wb_cursor::on_motion(void *data) {
 	auto *event = static_cast<struct wlr_pointer_motion_event *>(data);
 	if (wb_input_blocked(server, &event->pointer->base))
 		return;
-	wlr_cursor_move(cursor, &event->pointer->base, event->delta_x, event->delta_y);
+	double dx = event->delta_x, dy = event->delta_y;
+	if (!pointer_constraints_motion(server, event->time_msec, &dx, &dy,
+			event->unaccel_dx, event->unaccel_dy)) {
+		/* Locked: the client reads raw motion; the cursor stays put. */
+		wlr_idle_notifier_v1_notify_activity(server->idle_notifier,
+				server->seat->seat);
+		return;
+	}
+	wlr_cursor_move(cursor, &event->pointer->base, dx, dy);
 	process_cursor_motion(server, event->time_msec);
 }
 
@@ -267,6 +276,11 @@ void wb_cursor::on_motion_absolute(void *data) {
 	auto *event = static_cast<struct wlr_pointer_motion_absolute_event *>(data);
 	if (wb_input_blocked(server, &event->pointer->base))
 		return;
+	if (pointer_constraints_locked(server)) {
+		wlr_idle_notifier_v1_notify_activity(server->idle_notifier,
+				server->seat->seat);
+		return;
+	}
 	wlr_cursor_warp_absolute(cursor, &event->pointer->base, event->x, event->y);
 	process_cursor_motion(server, event->time_msec);
 }

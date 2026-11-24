@@ -67,6 +67,7 @@ For background, see
 | Shell | `xdg-shell`, `xdg-decoration`, `layer-shell`, `xdg-activation`, `xdg-toplevel-icon` |
 | Security | `ext-session-lock` (swaylock); virtual keyboard and pointer, ignored while locked by default (`<virtualInput>`) |
 | Taskbars | `wlr-foreign-toplevel-management`, `ext-foreign-toplevel-list`, `ext-workspace` (desktops in Waybar) |
+| Input | `pointer-constraints`, `relative-pointer` (pointer lock for games, held only while the window has keyboard focus) |
 | Clipboard | `primary-selection`, `ext-data-control` |
 | Capture | `ext-image-copy-capture` (grim, screen recorders) |
 | X11 | Xwayland (lazy start, `DISPLAY` exported to the session) |
