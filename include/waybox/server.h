@@ -46,6 +46,10 @@ struct wb_server {
 	struct wlr_compositor *compositor;
 	struct wlr_gamma_control_manager_v1 *gamma_control_manager;
 	struct wlr_output_power_manager_v1 *output_power_manager;
+	/* drm-lease-v1: VR runtimes take a headset's connector (DRM backend
+	 * only; nullptr otherwise). */
+	struct wlr_drm_lease_v1_manager *drm_lease_manager = nullptr;
+	wb::Listener drm_lease_request;
 	wb::Listener output_power_set_mode;
 	struct wlr_idle_inhibit_manager_v1 *idle_inhibit_manager;
 	struct wlr_idle_notifier_v1 *idle_notifier;
