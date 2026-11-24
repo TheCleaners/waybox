@@ -140,12 +140,13 @@ if not tests_only
   # wbconf: an optional GTK4 settings GUI (obconf-style). Built only when GTK4
   # is available, so the compositor still builds on hosts without it.
   gtk4 = dependency('gtk4', required: get_option('wbconf'))
+  json_glib = dependency('json-glib-1.0', required: get_option('wbconf'))
 
   subdir('data')
   subdir('doc')
   subdir('protocol')
   subdir('waybox')
-  if gtk4.found()
+  if gtk4.found() and json_glib.found()
     subdir('wbconf')
   endif
 endif

@@ -394,7 +394,8 @@ Monitor names are those @command{wlr-randr} shows; @code{make},
 @code{model} and @code{serial} attributes match a particular monitor
 whichever connector it is on.  @xref{Configuration}, and waybox(5) for
 every setting.  A mode the monitor refuses falls back to its preferred
-mode, so a mistake can't leave it dark.
+mode, so a mistake can't leave it dark.  @command{wbconf}'s Monitors tab
+edits these settings for the connected monitors.
 
 wlr-randr changes settings for the session, and kanshi switches between
 profiles as monitors come and go.  A monitor either of them changed keeps

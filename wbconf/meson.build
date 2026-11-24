@@ -13,7 +13,7 @@ executable(
   ['main.cpp', files('../waybox/wbconf.cpp'), xml_strict_src, theme_src, style_src, widget_src,
    render_src],
   include_directories: [inc_dir],
-  dependencies: [gtk4, libxml2, cairo, pango, pangocairo],
+  dependencies: [gtk4, json_glib, libxml2, cairo, pango, pangocairo],
   cpp_args: wbconf_args,
   install: true,
 )
