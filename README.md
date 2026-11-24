@@ -34,7 +34,8 @@ For background, see
   `GoToDesktop`, `SendToDesktop` and `ToggleOmnipresent` actions
   (Ctrl+Alt+Left/Right, Shift+Alt+Left/Right and Super+F1–F4 by default),
   and a `<desktop>` app rule. Alt+Tab stays on the current desktop, and
-  focusing a window from a taskbar goes to its desktop.
+  focusing a window from a taskbar goes to its desktop. Panels see and switch
+  desktops through `ext-workspace-v1` (Waybar's `ext/workspaces` module).
 - **Alt+Tab switcher** with an on-screen list, in most-recently-used or
   stacking order.
 - **Openbox themes** (`themerc`) with per-place fonts.
@@ -60,7 +61,7 @@ For background, see
 | Displays | `wlr-output-management` (wlr-randr, kanshi), `wp-fractional-scale` (sharp text in foot and others at 1.25×, 1.5× and so on), `xdg-output`, `gamma-control` |
 | Shell | `xdg-shell`, `xdg-decoration`, `layer-shell`, `xdg-activation`, `xdg-toplevel-icon` |
 | Security | `ext-session-lock` (swaylock); virtual keyboard and pointer, ignored while locked by default (`<virtualInput>`) |
-| Taskbars | `wlr-foreign-toplevel-management`, `ext-foreign-toplevel-list` |
+| Taskbars | `wlr-foreign-toplevel-management`, `ext-foreign-toplevel-list`, `ext-workspace` (desktops in Waybar) |
 | Clipboard | `primary-selection`, `ext-data-control` |
 | Capture | `ext-image-copy-capture` (grim, screen recorders) |
 | Other | `presentation-time`, `viewporter`, `single-pixel-buffer`, `content-type`, `cursor-shape`, `idle-notify`, `idle-inhibit` |

@@ -6,6 +6,7 @@
 #include "waybox/geometry.hpp"
 #include "waybox/xdg_shell.h"
 #include "decoration.h"
+#include "waybox/workspace.h"
 
 static void log_geometry(struct wb_toplevel *toplevel, const char *tag);
 
@@ -384,6 +385,7 @@ static void switch_desktop(struct wb_server *server, int index, bool refocus) {
 		wl_list_for_each(toplevel, &server->toplevels, link)
 			update_desktop_visibility(toplevel);
 		wlr_log(WLR_INFO, "wb-desktop %d", index + 1);
+		workspace_schedule_sync(server);
 	}
 	if (refocus)
 		focus_current_desktop(server);
