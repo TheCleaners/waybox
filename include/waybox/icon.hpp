@@ -1,6 +1,7 @@
 #ifndef WB_ICON_HPP
 #define WB_ICON_HPP
 
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -39,6 +40,51 @@ std::vector<std::string> icon_base_dirs(std::string_view home,
 std::vector<std::string> icon_search_paths(std::string_view name,
 		std::string_view theme, int size,
 		const std::vector<std::string> &base_dirs);
+
+/* One entry of an icon theme's index.theme `Directories=` list. */
+struct IconThemeDir {
+	enum class Type { Fixed, Scalable, Threshold };
+	std::string path;   /* e.g. "48x48/apps" or "categories/24" */
+	int size = 0;
+	int min_size = 0;
+	int max_size = 0;
+	int threshold = 2;
+	int scale = 1;
+	Type type = Type::Threshold;
+};
+
+/* A parsed index.theme: its directories and the themes it inherits from. */
+struct IconThemeIndex {
+	std::vector<std::string> inherits;
+	std::vector<IconThemeDir> dirs;
+};
+
+/* Parse an index.theme file (Icon Theme Specification). Unknown keys are
+ * ignored; directories listed but without a section get the spec defaults. */
+IconThemeIndex parse_icon_theme_index(std::string_view contents);
+
+/* The theme's directories for an icon of `size` px, best first: directories
+ * that match the size, then by the spec's size distance (larger icons first
+ * on ties, since downscaling looks better). Scale>1 (HiDPI) directories come
+ * after all scale-1 ones. */
+std::vector<std::string> icon_theme_dirs_for_size(const IconThemeIndex &index,
+		int size);
+
+/* Returns a theme's parsed index, or null if the theme has none (it is then
+ * searched with the generic <size>x<size>/<context> layout). */
+using IconThemeIndexLookup =
+		std::function<const IconThemeIndex *(std::string_view theme)>;
+
+/*
+ * Spec-following variant: searches `theme`, then the themes it inherits
+ * (depth first, each once), then hicolor, each in its own directory order
+ * from index.theme (so themes with any layout work, e.g. Breeze's
+ * <context>/<size>), then <base>/pixmaps.
+ */
+std::vector<std::string> icon_search_paths(std::string_view name,
+		std::string_view theme, int size,
+		const std::vector<std::string> &base_dirs,
+		const IconThemeIndexLookup &index_of);
 
 /* Convenience: resolve against the real environment is done by the caller; this
  * stays pure. */
