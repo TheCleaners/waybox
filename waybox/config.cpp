@@ -468,6 +468,25 @@ static void parse_xwayland(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><edgeTiling enabled="yes|no" range="N"/>. */
+static void parse_edge_tiling(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:edgeTiling", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *node = object->nodesetval->nodeTab[0];
+		if (node != nullptr) {
+			if (auto v = parse_bool((const char *) get_attribute(node, "enabled")))
+				config->edge_tiling.enabled = *v;
+			const char *range = (const char *) get_attribute(node, "range");
+			if (range[0] != '\0' && atoi(range) >= 0)
+				config->edge_tiling.range = atoi(range);
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
 /* Parse <waybox><titlebar paddingY="N" buttonSize="N" resizeGrab="N"/></waybox>:
  * server-side-decoration sizing. Each attribute is optional; an absent value
  * leaves the field at -1 ("unset"), and frame_metrics() picks a default. */
@@ -664,6 +683,7 @@ bool init_config(struct wb_server *server) {
 	parse_switcher_behavior(config, ctxt);
 	parse_virtual_input(config, ctxt);
 	parse_xwayland(config, ctxt);
+	parse_edge_tiling(config, ctxt);
 	parse_titlebar(config, ctxt);
 
 	server->config = config;

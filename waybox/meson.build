@@ -15,6 +15,7 @@ wb_src = [
   style_src,
   menu_src,
   desktops_src,
+  edge_tiling_src,
   render_src,
   files(
     'action_xml.cpp',

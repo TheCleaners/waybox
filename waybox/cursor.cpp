@@ -1,4 +1,5 @@
 #include <time.h>
+#include <cmath>
 #include <vector>
 
 #include "waybox/cursor.h"
@@ -40,15 +41,95 @@ static void activate_frame_button(struct wb_toplevel *toplevel, int i) {
 	}
 }
 
+/* Hide the edge-tiling preview and forget the zone. */
+static void clear_tile_preview(struct wb_server *server) {
+	server->pending_tile = static_cast<int>(wb::TileZone::None);
+	server->pending_tile_output = nullptr;
+	if (server->tile_preview != nullptr)
+		wlr_scene_node_set_enabled(&server->tile_preview->node, false);
+}
+
 void reset_cursor_mode(struct wb_server *server) {
 	/* Reset the cursor mode to passthrough */
 	server->cursor->cursor_mode = WB_CURSOR_PASSTHROUGH;
 	server->grabbed_toplevel = NULL;
+	clear_tile_preview(server);
+}
+
+/* While moving a window: find the edge zone under the pointer and show
+ * where the window would go, just below the window being dragged. */
+static void update_tile_preview(struct wb_server *server) {
+	struct wb_config *config = server->config;
+	struct wb_toplevel *toplevel = server->grabbed_toplevel;
+	if (config == nullptr || !config->edge_tiling.enabled || toplevel == nullptr ||
+			toplevel->fullscreen) {
+		clear_tile_preview(server);
+		return;
+	}
+	double cx = server->cursor->cursor->x, cy = server->cursor->cursor->y;
+	struct wlr_output *output =
+			wlr_output_layout_output_at(server->output_layout, cx, cy);
+	wb::TileZone zone = wb::TileZone::None;
+	if (output != nullptr) {
+		std::vector<wb::Rect> outputs;
+		wb::Rect here{};
+		struct wb_output *o;
+		wl_list_for_each(o, &server->outputs, link) {
+			struct wlr_box b;
+			wlr_output_layout_get_box(server->output_layout, o->wlr_output, &b);
+			if (wlr_box_empty(&b))
+				continue;
+			outputs.push_back(wb::Rect{b.x, b.y, b.width, b.height});
+			if (o->wlr_output == output)
+				here = outputs.back();
+		}
+		zone = wb::edge_zone(static_cast<int>(cx), static_cast<int>(cy), here,
+				outputs, config->edge_tiling.range);
+	}
+	if (zone == wb::TileZone::None) {
+		clear_tile_preview(server);
+		return;
+	}
+	server->pending_tile = static_cast<int>(zone);
+	server->pending_tile_output = output;
+
+	wb::Rect r = tile_preview_rect(server, output, zone);
+	if (server->tile_preview == nullptr) {
+		/* The theme's active titlebar colour, translucent (premultiplied). */
+		wb::Color c = config->theme.window_active.title_bg.color;
+		const float a = 0.35f;
+		const float rgba[4] = {c.r / 255.0f * a, c.g / 255.0f * a,
+				c.b / 255.0f * a, a};
+		server->tile_preview = wlr_scene_rect_create(server->toplevel_tree,
+				r.width, r.height, rgba);
+	}
+	if (server->tile_preview == nullptr)
+		return;
+	wlr_scene_rect_set_size(server->tile_preview, r.width, r.height);
+	wlr_scene_node_set_position(&server->tile_preview->node, r.x, r.y);
+	if (toplevel->scene_tree->node.parent == server->toplevel_tree)
+		wlr_scene_node_place_below(&server->tile_preview->node,
+				&toplevel->scene_tree->node);
+	wlr_scene_node_set_enabled(&server->tile_preview->node, true);
 }
 
 static void process_cursor_move(struct wb_server *server) {
 	/* Move the grabbed toplevel to the new position. */
 	struct wb_toplevel *toplevel = server->grabbed_toplevel;
+	/* Dragging a tiled or maximized window away gives it back its size,
+	 * keeping the pointer at the same place along the titlebar; only once
+	 * the pointer has really moved, so a click on the titlebar doesn't. */
+	if ((toplevel->tiled || (toplevel->max_horz && toplevel->max_vert)) &&
+			(std::abs(server->cursor->cursor->x - server->move_start_x) > 8 ||
+			 std::abs(server->cursor->cursor->y - server->move_start_y) > 8)) {
+		int old_w = toplevel->geometry.width;
+		double along = old_w > 0 ? server->grab_x / old_w : 0.5;
+		if (toplevel->tiled)
+			untile_toplevel(toplevel, false);
+		else
+			set_toplevel_maximized(toplevel, false, false);
+		server->grab_x = along * toplevel->geometry.width;
+	}
 	if (toplevel->scene_tree->node.type == WLR_SCENE_NODE_TREE) {
 		toplevel->geometry.x = server->cursor->cursor->x - server->grab_x;
 		toplevel->geometry.y = server->cursor->cursor->y - server->grab_y;
@@ -84,6 +165,7 @@ static void process_cursor_move(struct wb_server *server) {
 		constrain_toplevel_to_usable_area(toplevel);
 		position_toplevel(toplevel);
 	}
+	update_tile_preview(server);
 }
 
 static void process_cursor_resize(struct wb_server *server) {
@@ -444,6 +526,13 @@ void wb_cursor::on_button(void *data) {
 
 	wlr_seat_pointer_notify_button(seat, event->time_msec, event->button, event->state);
 	if (event->state == WL_POINTER_BUTTON_STATE_RELEASED) {
+		/* Dropped on an edge zone: tile there. */
+		if (server->cursor->cursor_mode == WB_CURSOR_MOVE &&
+				server->grabbed_toplevel != nullptr &&
+				server->pending_tile != static_cast<int>(wb::TileZone::None))
+			tile_toplevel(server->grabbed_toplevel,
+					static_cast<wb::TileZone>(server->pending_tile),
+					server->pending_tile_output);
 		reset_cursor_mode(server);
 	} else {
 		focus_toplevel(toplevel);

@@ -64,6 +64,11 @@ void wb_reconfigure(struct wb_server *server) {
 	server->switcher_windows.clear();
 	server->switcher_mods = 0;
 	server->active_keychain = nullptr;
+	/* The edge-tiling preview is coloured from the theme: rebuild it. */
+	if (server->tile_preview != nullptr) {
+		wlr_scene_node_destroy(&server->tile_preview->node);
+		server->tile_preview = nullptr;
+	}
 
 	deinit_config(server->config);
 	init_config(server);

@@ -39,6 +39,10 @@
     <virtualInput allow="unlocked"/>
     <!-- Run X11 programs through Xwayland, started on first use. -->
     <xwayland enabled="yes"/>
+    <!-- Drag a window to a monitor edge to tile it: left/right half, a
+         corner quarter, or maximized at the top. range: how close to the
+         edge the pointer must be (pixels). -->
+    <edgeTiling enabled="yes" range="10"/>
     <titlebar paddingY="2" buttonSize="0" resizeGrab="8"/>
   </waybox>
   <!-- Virtual desktops. Names are optional (unnamed ones show as
@@ -139,6 +143,19 @@
     </keybind>
     <keybind key="W-F4">
       <action name="GoToDesktop"><to>4</to></action>
+    </keybind>
+    <!-- Tile the active window: left/right half, maximize, and back. -->
+    <keybind key="W-Left">
+      <action name="SnapToEdge"><direction>left</direction></action>
+    </keybind>
+    <keybind key="W-Right">
+      <action name="SnapToEdge"><direction>right</direction></action>
+    </keybind>
+    <keybind key="W-Up">
+      <action name="SnapToEdge"><direction>up</direction></action>
+    </keybind>
+    <keybind key="W-Down">
+      <action name="SnapToEdge"><direction>down</direction></action>
     </keybind>
     <!-- Keybindings for running applications -->
     <keybind key="W-Return">
