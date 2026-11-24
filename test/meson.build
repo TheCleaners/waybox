@@ -455,6 +455,28 @@ if python.found() and not get_option('tests_only')
     env: integration_env,
     )
 
+  test(
+    'integration_switcher_order',
+    python,
+    args: [
+      files('integration' / 'switcher_order_test.py'),
+      waybox_exe,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
+
+  test(
+    'integration_menu_hover_delay',
+    python,
+    args: [
+      files('integration' / 'menu_hover_delay_test.py'),
+      waybox_exe,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
+
   # A security-context-v1 "sandbox engine" for the sandbox test.
   security_context_xml = wl_protocol_dir / 'staging/security-context/security-context-v1.xml'
   sandbox_client = executable(

@@ -4,6 +4,9 @@
 #include <cstddef>
 #include <functional>
 #include <optional>
+#include <vector>
+
+#include "waybox/style.hpp"  /* SwitcherOrder */
 
 namespace wb {
 
@@ -28,6 +31,23 @@ std::optional<std::size_t> cycle_next(
 		const std::function<bool(std::size_t)> &eligible,
 		std::optional<std::size_t> current,
 		bool reverse);
+
+/* What the Alt+Tab list orders by: one entry per window, given in
+ * most-recently-used order (the focused window first). */
+struct SwitcherEntry {
+	int stack = 0;          /* 0 = topmost */
+	int output_x = 0;       /* its monitor's position in the layout */
+	int output_y = 0;
+	int x = 0;              /* the window's position */
+	int y = 0;
+};
+
+/* The order to list `entries` in (indices into it): as given (MRU); top to
+ * bottom (Stacking); or monitor by monitor, left to right then top to bottom,
+ * and by window position the same way within a monitor (Spatial). Ties keep
+ * the MRU order. */
+std::vector<std::size_t> switcher_order(const std::vector<SwitcherEntry> &entries,
+		SwitcherOrder order);
 
 }  // namespace wb
 
