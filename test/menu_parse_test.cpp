@@ -135,3 +135,32 @@ WB_TEST(parse_pipe_menu_cdata_command) {
 	WB_CHECK(office->items[0].actions.size() == 1);
 	WB_CHECK(office->items[0].actions[0].command == "papers --flag");
 }
+
+WB_TEST(parse_desktop_action_options) {
+	MenuFile f = wb::parse_menu_xml(R"(<?xml version="1.0" encoding="UTF-8"?>
+<openbox_menu xmlns="http://openbox.org/3.4/menu">
+  <menu id="root-menu" label="Root">
+    <item label="Two"><action name="GoToDesktop"><to>2</to></action></item>
+    <item label="Right"><action name="GoToDesktop"><to> right </to><wrap>no</wrap></action></item>
+    <item label="Send"><action name="SendToDesktop"><to>3</to><follow>no</follow></action></item>
+    <item label="Old"><action name="SendToDesktop"><desktop>last</desktop></action></item>
+    <item label="Sticky"><action name="ToggleOmnipresent"/></item>
+  </menu>
+</openbox_menu>
+)");
+	const Menu *root = f.find("root-menu");
+	WB_CHECK(root != nullptr && root->items.size() == 5);
+	if (root == nullptr || root->items.size() != 5)
+		return;
+	const wb::Action &two = root->items[0].actions.at(0);
+	WB_CHECK(two.type == wb::ActionType::GoToDesktop);
+	WB_CHECK(two.to == "2" && two.wrap && two.follow);
+	const wb::Action &right = root->items[1].actions.at(0);
+	WB_CHECK(right.to == "right" && !right.wrap);
+	const wb::Action &send = root->items[2].actions.at(0);
+	WB_CHECK(send.type == wb::ActionType::SendToDesktop);
+	WB_CHECK(send.to == "3" && !send.follow);
+	WB_CHECK(root->items[3].actions.at(0).to == "last");
+	WB_CHECK(root->items[4].actions.at(0).type ==
+			wb::ActionType::ToggleOmnipresent);
+}

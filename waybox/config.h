@@ -5,6 +5,7 @@
 
 #include "waybox/action.hpp"
 #include "waybox/applications.hpp"
+#include "waybox/desktops.hpp"
 #include "waybox/keychain.hpp"
 #include "waybox/menu.hpp"
 #include "waybox/mousebind.hpp"
@@ -61,6 +62,7 @@ struct wb_config {
 	wb::Theme theme;    /* resolved theme (themerc), styles all drawn chrome */
 	wb::MenuBehavior menu_behavior;  /* rc.xml <waybox><menu ...> extensions */
 	wb::SwitcherBehavior switcher_behavior;  /* rc.xml <waybox><switcher ...> */
+	wb::DesktopConfig desktops;  /* rc.xml <desktops> */
 
 	/* rc.xml <waybox><virtualInput allow="unlocked|always|never"/>: when input
 	 * from virtual keyboards/pointers (wtype, wlrctl, on-screen keyboards,

@@ -75,6 +75,7 @@ void wb_reconfigure(struct wb_server *server) {
 			update_toplevel_decoration(toplevel);
 		}
 	}
+	desktops_reconfigured(server);
 	arrange_toplevels(server);
 	wlr_log(WLR_INFO, "%s", _("Reconfigured"));
 }

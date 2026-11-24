@@ -208,6 +208,9 @@ struct wb_toplevel *first_toplevel(struct wb_server *server) {
 	}
 	struct wb_toplevel *toplevel =
 		wl_container_of(server->focus_order.next, toplevel, focus_link);
+	/* The last window focused on another desktop is not the active one. */
+	if (!toplevel_on_current_desktop(toplevel))
+		return NULL;
 	return toplevel;
 }
 
@@ -241,6 +244,8 @@ void lower_toplevel(struct wb_toplevel *toplevel) {
 	wl_list_insert(toplevel->server->toplevels.prev, &toplevel->link);
 }
 
+static void switch_desktop(struct wb_server *server, int index, bool refocus);
+
 void focus_toplevel(struct wb_toplevel *toplevel) {
 	/* Note: this function only deals with keyboard focus (plus the stacking
 	 * raise that conventionally accompanies it). */
@@ -254,6 +259,11 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	if (!toplevel->xdg_toplevel->base->initialized) {
 		return;
 	}
+
+	/* Focusing a window on another desktop (taskbar, activation request,
+	 * Alt+Tab) goes to that desktop, as in Openbox. */
+	if (toplevel->mapped && !toplevel_on_current_desktop(toplevel))
+		switch_desktop(toplevel->server, toplevel->desktop, false);
 
 	struct wlr_surface *surface = toplevel->xdg_toplevel->base->surface;
 	struct wlr_xdg_surface *xdg_surface = wlr_xdg_surface_try_from_wlr_surface(surface);
@@ -305,6 +315,133 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	sync_frame_active(server);
 }
 
+/* ---- Virtual desktops ---- */
+
+int desktop_count(struct wb_server *server) {
+	return server->config ? server->config->desktops.number : 1;
+}
+
+bool toplevel_on_desktop(struct wb_toplevel *toplevel, int desktop) {
+	return toplevel->omnipresent || toplevel->desktop == desktop;
+}
+
+bool toplevel_on_current_desktop(struct wb_toplevel *toplevel) {
+	return toplevel_on_desktop(toplevel, toplevel->server->current_desktop);
+}
+
+/* Windows on other desktops stay mapped (clients keep running and drawing)
+ * but their scene nodes are disabled, so they are neither drawn nor hit by
+ * the pointer, and the actions that check node.enabled skip them. */
+static void update_desktop_visibility(struct wb_toplevel *toplevel) {
+	if (toplevel->scene_tree != NULL)
+		wlr_scene_node_set_enabled(&toplevel->scene_tree->node,
+				toplevel_on_current_desktop(toplevel));
+}
+
+/* Drop keyboard focus from windows (not from a focused layer surface such as
+ * a launcher). */
+static void clear_toplevel_focus(struct wb_server *server) {
+	if (server->seat->focused_layer != NULL)
+		return;
+	struct wlr_seat *seat = server->seat->seat;
+	if (struct wlr_surface *prev = seat->keyboard_state.focused_surface) {
+		if (struct wlr_xdg_toplevel *prev_toplevel =
+				wlr_xdg_toplevel_try_from_wlr_surface(prev))
+			wlr_xdg_toplevel_set_activated(prev_toplevel, false);
+	}
+	seat_focus_surface(server->seat.get(), NULL);
+	update_foreign_activation(server, NULL);
+	sync_frame_active(server);
+}
+
+void focus_current_desktop(struct wb_server *server) {
+	struct wb_toplevel *toplevel;
+	wl_list_for_each(toplevel, &server->focus_order, focus_link) {
+		if (toplevel->mapped && toplevel_on_current_desktop(toplevel) &&
+				!toplevel->xdg_toplevel->requested.minimized) {
+			focus_toplevel(toplevel);
+			return;
+		}
+	}
+	clear_toplevel_focus(server);
+}
+
+static void switch_desktop(struct wb_server *server, int index, bool refocus) {
+	if (index < 0 || index >= desktop_count(server))
+		return;
+	if (index != server->current_desktop) {
+		server->last_desktop = server->current_desktop;
+		server->current_desktop = index;
+		/* A window being dragged comes along (as in Openbox); a resize in
+		 * progress ends. */
+		if (struct wb_toplevel *grabbed = server->grabbed_toplevel) {
+			if (server->cursor->cursor_mode == WB_CURSOR_MOVE)
+				grabbed->desktop = index;
+			else
+				reset_cursor_mode(server);
+		}
+		struct wb_toplevel *toplevel;
+		wl_list_for_each(toplevel, &server->toplevels, link)
+			update_desktop_visibility(toplevel);
+		wlr_log(WLR_INFO, "wb-desktop %d", index + 1);
+	}
+	if (refocus)
+		focus_current_desktop(server);
+	cursor_refresh_focus(server);
+}
+
+void wb_go_to_desktop(struct wb_server *server, int index) {
+	switch_desktop(server, index, true);
+}
+
+void wb_send_to_desktop(struct wb_toplevel *toplevel, int index, bool follow) {
+	struct wb_server *server = toplevel->server;
+	if (index < 0 || index >= desktop_count(server))
+		return;
+	bool was_active = first_toplevel(server) == toplevel;
+	toplevel->omnipresent = false;
+	toplevel->desktop = index;
+	update_desktop_visibility(toplevel);
+	wlr_log(WLR_INFO, "wb-desktop send %s to %d",
+			toplevel->xdg_toplevel->app_id ? toplevel->xdg_toplevel->app_id : "",
+			index + 1);
+	if (follow) {
+		switch_desktop(server, index, false);
+		focus_toplevel(toplevel);
+	} else if (was_active && !toplevel_on_current_desktop(toplevel)) {
+		focus_current_desktop(server);
+	}
+	cursor_refresh_focus(server);
+}
+
+void wb_toggle_omnipresent(struct wb_toplevel *toplevel) {
+	/* Either way the window stays on the desktop being shown. */
+	if (toplevel->omnipresent) {
+		toplevel->omnipresent = false;
+		toplevel->desktop = toplevel->server->current_desktop;
+	} else {
+		toplevel->omnipresent = true;
+	}
+	update_desktop_visibility(toplevel);
+}
+
+void desktops_reconfigured(struct wb_server *server) {
+	int count = desktop_count(server);
+	struct wb_toplevel *toplevel;
+	wl_list_for_each(toplevel, &server->toplevels, link) {
+		if (toplevel->desktop >= count)
+			toplevel->desktop = count - 1;
+	}
+	if (server->last_desktop >= count)
+		server->last_desktop = count - 1;
+	if (server->current_desktop >= count) {
+		switch_desktop(server, count - 1, true);
+	} else {
+		wl_list_for_each(toplevel, &server->toplevels, link)
+			update_desktop_visibility(toplevel);
+	}
+}
+
 struct wlr_output *get_active_output(struct wb_toplevel *toplevel) {
 	double closest_x, closest_y;
 	struct wlr_output *output = NULL;
@@ -322,7 +459,7 @@ static void focus_next_after(struct wb_server *server, struct wb_toplevel *excep
 	wl_list_for_each(toplevel, &server->focus_order, focus_link) {
 		if (toplevel == except)
 			continue;
-		if (toplevel->mapped) {
+		if (toplevel->mapped && toplevel_on_current_desktop(toplevel)) {
 			focus_toplevel(toplevel);
 			return;
 		}
@@ -503,6 +640,19 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 		rule = wb::match_app_rule(config->app_rules, app_id, title);
 	}
 
+	/* New windows open on the desktop being shown, unless a rule says
+	 * otherwise. */
+	struct wb_server *server = toplevel->server;
+	toplevel->desktop = server->current_desktop;
+	toplevel->omnipresent = false;
+	if (rule != nullptr && rule->desktop) {
+		if (*rule->desktop == wb::AppRule::kAllDesktops)
+			toplevel->omnipresent = true;
+		else
+			toplevel->desktop = MIN(*rule->desktop, desktop_count(server) - 1);
+	}
+	update_desktop_visibility(toplevel);
+
 	int width = geo_box.width;
 	int height = geo_box.height;
 	if (rule != nullptr && rule->width)
@@ -516,7 +666,9 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 	std::vector<wb::Rect> others;
 	struct wb_toplevel *other;
 	wl_list_for_each(other, &toplevel->server->toplevels, link) {
-		if (other == toplevel || !other->mapped)
+		if (other == toplevel || !other->mapped ||
+				!(toplevel->omnipresent ||
+				  toplevel_on_desktop(other, toplevel->desktop)))
 			continue;
 		others.push_back(wb::Rect{other->geometry.x, other->geometry.y,
 				other->geometry.width, other->geometry.height});
@@ -557,7 +709,9 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 	 * it activated. */
 	create_foreign_handle(toplevel);
 
-	bool do_focus = !(rule && rule->focus.has_value() && !*rule->focus);
+	/* A window opening on another desktop waits there unfocused. */
+	bool do_focus = !(rule && rule->focus.has_value() && !*rule->focus) &&
+			toplevel_on_current_desktop(toplevel);
 	if (do_focus)
 		focus_toplevel(toplevel);
 

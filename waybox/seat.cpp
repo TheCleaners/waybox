@@ -16,6 +16,7 @@
 
 #include "waybox/seat.h"
 #include "waybox/window_cycle.hpp"
+#include "waybox/desktops.hpp"
 #include "waybox/xdg_shell.h"
 #include "waybox/menu_widget.hpp"
 #include "waybox/switcher_widget.hpp"
@@ -53,7 +54,7 @@ static void cycle_toplevels_dir(struct wb_server *server, bool reverse) {
 	}
 
 	auto eligible = [&order](std::size_t i) {
-		return order[i]->mapped;
+		return order[i]->mapped && toplevel_on_current_desktop(order[i]);
 	};
 	std::optional<std::size_t> next =
 		wb::cycle_next(order.size(), eligible, current, reverse);
@@ -135,7 +136,7 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 	std::vector<struct wb_toplevel *> wins;
 	struct wb_toplevel *t;
 	wl_list_for_each(t, &server->focus_order, focus_link)
-		if (t->mapped)
+		if (t->mapped && toplevel_on_current_desktop(t))
 			wins.push_back(t);
 	if (wins.size() < 2) {  /* nothing meaningful to switch between */
 		if (reverse)
@@ -289,6 +290,29 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		int y = static_cast<int>(server->cursor->cursor->y);
 		if (widget->open(action.command, x, y))
 			server->menu = std::move(widget);
+		break;
+	}
+	case wb::ActionType::GoToDesktop: {
+		if (auto target = wb::desktop_target(action.to,
+				server->current_desktop, server->last_desktop,
+				desktop_count(server), action.wrap))
+			wb_go_to_desktop(server, *target);
+		break;
+	}
+	case wb::ActionType::SendToDesktop: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled)
+			break;
+		if (auto target = wb::desktop_target(action.to,
+				server->current_desktop, server->last_desktop,
+				desktop_count(server), action.wrap))
+			wb_send_to_desktop(toplevel, *target, action.follow);
+		break;
+	}
+	case wb::ActionType::ToggleOmnipresent: {
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel && toplevel->scene_tree->node.enabled)
+			wb_toggle_omnipresent(toplevel);
 		break;
 	}
 	case wb::ActionType::Exit:

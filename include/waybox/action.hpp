@@ -40,13 +40,20 @@ enum class ActionType {
 	Reconfigure,
 	ToggleDecorations,
 	ShowMenu,
+	GoToDesktop,
+	SendToDesktop,
+	ToggleOmnipresent,
 };
 
 /* A parsed action ready to run. `command` is only meaningful for actions whose
- * spec has takes_command == true (currently only Execute). */
+ * spec has takes_command == true (Execute, ShowMenu). `to`, `wrap` and
+ * `follow` are GoToDesktop/SendToDesktop's options (<to>, <wrap>, <follow>). */
 struct Action {
 	ActionType type;
-	std::string command;
+	std::string command{};
+	std::string to{};
+	bool wrap = true;
+	bool follow = true;
 };
 
 /* Registry entry describing one action by its rc.xml name. */

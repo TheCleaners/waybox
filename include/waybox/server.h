@@ -119,6 +119,11 @@ struct wb_server {
 	uint32_t switcher_mods = 0;
 	uint32_t last_key_modifiers = 0;
 
+	/* Virtual desktops (0-based): the one shown, and the one shown before it
+	 * (GoToDesktop's "last"). */
+	int current_desktop = 0;
+	int last_desktop = 0;
+
 	/* ext-session-lock-v1 state (see session_lock.h), or null. */
 	struct wb_session_lock_state *session_lock = nullptr;
 };

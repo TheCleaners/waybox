@@ -14,8 +14,10 @@ wb_src = [
   animation_src,
   style_src,
   menu_src,
+  desktops_src,
   render_src,
   files(
+    'action_xml.cpp',
     'config.cpp',
     'cursor.cpp',
     'decoration.cpp',

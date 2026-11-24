@@ -83,6 +83,7 @@ widget_src = files('waybox/widget.cpp')
 animation_src = files('waybox/animation.cpp')
 style_src = files('waybox/style.cpp')
 menu_src = files('waybox/menu.cpp')
+desktops_src = files('waybox/desktops.cpp')
 
 # tests_only builds just the dependency-free unit tests (no wlroots, no
 # compositor), so they can run sanitized in CI on a stock distro that lacks a

@@ -39,6 +39,12 @@
     <virtualInput allow="unlocked"/>
     <titlebar paddingY="2" buttonSize="0" resizeGrab="8"/>
   </waybox>
+  <!-- Virtual desktops. Names are optional (unnamed ones show as
+       "Desktop N"). -->
+  <desktops>
+    <number>4</number>
+    <!-- <names><name>web</name><name>code</name></names> -->
+  </desktops>
   <!-- Where newly-mapped windows are placed: Smart (avoid overlap, then
        cascade), Center, or UnderMouse. -->
   <placement>
@@ -104,6 +110,33 @@
     <keybind key="C-A-Tab">
       <action name="NextWindow"/>
       <action name="Unshade"/>
+    </keybind>
+    <!-- Keybindings for desktops (Openbox's defaults). <to> is a number,
+         left/right (next/previous), or last; SendToDesktop takes
+         <follow>no</follow> to leave the window there and stay. -->
+    <keybind key="C-A-Left">
+      <action name="GoToDesktop"><to>left</to><wrap>no</wrap></action>
+    </keybind>
+    <keybind key="C-A-Right">
+      <action name="GoToDesktop"><to>right</to><wrap>no</wrap></action>
+    </keybind>
+    <keybind key="S-A-Left">
+      <action name="SendToDesktop"><to>left</to><wrap>no</wrap></action>
+    </keybind>
+    <keybind key="S-A-Right">
+      <action name="SendToDesktop"><to>right</to><wrap>no</wrap></action>
+    </keybind>
+    <keybind key="W-F1">
+      <action name="GoToDesktop"><to>1</to></action>
+    </keybind>
+    <keybind key="W-F2">
+      <action name="GoToDesktop"><to>2</to></action>
+    </keybind>
+    <keybind key="W-F3">
+      <action name="GoToDesktop"><to>3</to></action>
+    </keybind>
+    <keybind key="W-F4">
+      <action name="GoToDesktop"><to>4</to></action>
     </keybind>
     <!-- Keybindings for running applications -->
     <keybind key="W-Return">

@@ -14,6 +14,7 @@
 #include <libxml/xpathInternals.h>
 
 #include "config.h"
+#include "waybox/action_xml.hpp"
 
 /* mousebind.cpp encodes the modifier bits itself so it can stay wlroots-free;
  * verify those values still agree with wlroots here, where both are visible. */
@@ -147,41 +148,6 @@ static xmlChar *get_attribute(xmlNode *node, const char *attr_name) {
 	return (attr && attr->children) ? attr->children->content : empty;
 }
 
-/* Return the text of an action's <command>/<execute> child, or empty. */
-static std::string action_command(xmlNode *action_node) {
-	for (xmlNode *child = action_node->children; child; child = child->next) {
-		if (child->type != XML_ELEMENT_NODE)
-			continue;
-		/* <menu> is Openbox's spelling of ShowMenu's argument
-		 * (<action name="ShowMenu"><menu>root-menu</menu></action>). */
-		if (strcmp((char *) child->name, "command") == 0 ||
-				strcmp((char *) child->name, "execute") == 0 ||
-				strcmp((char *) child->name, "menu") == 0) {
-			if (child->children && child->children->content)
-				return (const char *) child->children->content;
-		}
-	}
-	return {};
-}
-
-/* Walk a keybind's child nodes and append every recognised <action> to `out`,
- * preserving document order. */
-static void collect_actions(xmlNode *first, std::vector<wb::Action> &out) {
-	for (xmlNode *node = first; node; node = node->next) {
-		if (node->type == XML_ELEMENT_NODE &&
-				strcmp((char *) node->name, "action") == 0) {
-			const char *name = (const char *) get_attribute(node, "name");
-			const wb::ActionSpec *spec = wb::action_spec_from_name(name);
-			std::string command =
-				(spec && spec->takes_command) ? action_command(node) : std::string{};
-			if (auto action = wb::make_action(name, command))
-				out.push_back(std::move(*action));
-		} else if (node->children) {
-			collect_actions(node->children, out);
-		}
-	}
-}
-
 /* Parse a "key" attribute like "W-S-M" into a keysym + modifier mask, matching
  * Openbox's syntax. strtok mutates its buffer, so work on a copy (the attribute
  * content belongs to the parsed document). */
@@ -233,11 +199,7 @@ static wb::KeyBinding parse_keybind(xmlNode *node) {
 		if (strcmp((char *) child->name, "keybind") == 0) {
 			binding.children.push_back(parse_keybind(child));
 		} else if (strcmp((char *) child->name, "action") == 0) {
-			const char *name = (const char *) get_attribute(child, "name");
-			const wb::ActionSpec *spec = wb::action_spec_from_name(name);
-			std::string command =
-				(spec && spec->takes_command) ? action_command(child) : std::string{};
-			if (auto action = wb::make_action(name, command))
+			if (auto action = wb::parse_action_xml(child))
 				binding.actions.push_back(std::move(*action));
 		}
 	}
@@ -301,7 +263,7 @@ static void parse_mouse_bindings(struct wb_config *config, xmlXPathContextPtr ct
 				binding.event = *event;
 				binding.button = button->button;
 				binding.modifiers = button->modifiers;
-				collect_actions(mb->children, binding.actions);
+				wb::collect_actions_xml(mb->children, binding.actions, true);
 				if (!binding.actions.empty())
 					config->mouse_bindings.push_back(std::move(binding));
 			}
@@ -361,6 +323,15 @@ static void parse_app_rules(struct wb_config *config, xmlXPathContextPtr ctxt) {
 			rule.iconic = parse_bool(child_text(app, "iconic"));
 			rule.focus = parse_bool(child_text(app, "focus"));
 			rule.decor = parse_bool(child_text(app, "decor"));
+			/* <desktop>N</desktop> (1-based) or "all"; anything else
+			 * (including Openbox's "current") leaves the default. */
+			if (const char *d = child_text(app, "desktop")) {
+				std::string v = d;
+				if (v == "all")
+					rule.desktop = wb::AppRule::kAllDesktops;
+				else if (int n = atoi(d); n >= 1)
+					rule.desktop = n - 1;
+			}
 
 			if (xmlNode *pos = child_node(app, "position")) {
 				if (const char *x = child_text(pos, "x"))
@@ -375,6 +346,33 @@ static void parse_app_rules(struct wb_config *config, xmlXPathContextPtr ctxt) {
 					rule.height = atoi(h);
 			}
 			config->app_rules.push_back(std::move(rule));
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
+/* Parse <desktops><number>N</number><names><name>...</name></names>
+ * </desktops> (Openbox's syntax; layout options are not supported). */
+static void parse_desktops(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:desktops", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *node = object->nodesetval->nodeTab[0];
+		if (const char *n = child_text(node, "number"))
+			config->desktops.number =
+					wb::parse_desktop_count(n, config->desktops.number);
+		if (xmlNode *names = child_node(node, "names")) {
+			for (xmlNode *c = names->children; c; c = c->next) {
+				if (c->type != XML_ELEMENT_NODE ||
+						strcmp((const char *) c->name, "name") != 0)
+					continue;
+				xmlChar *content = xmlNodeGetContent(c);
+				config->desktops.names.emplace_back(
+						content ? (const char *) content : "");
+				xmlFree(content);
+			}
 		}
 	}
 	xmlXPathFreeObject(object);
@@ -615,6 +613,7 @@ bool init_config(struct wb_server *server) {
 	}
 	parse_mouse_bindings(config, ctxt);
 	parse_app_rules(config, ctxt);
+	parse_desktops(config, ctxt);
 
 	if (char *policy = parse_xpath_expr("//ob:placement/ob:policy", ctxt)) {
 		if (auto parsed = wb::placement_policy_from_name(policy))

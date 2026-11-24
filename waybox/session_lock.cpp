@@ -211,14 +211,7 @@ static void end_lock(struct wb_session_lock_state *st) {
 				server->seat->focused_layer->surface);
 		return;
 	}
-	struct wb_toplevel *toplevel;
-	wl_list_for_each(toplevel, &server->focus_order, focus_link) {
-		if (toplevel->mapped) {
-			focus_toplevel(toplevel);
-			return;
-		}
-	}
-	wlr_seat_keyboard_notify_clear_focus(server->seat->seat);
+	focus_current_desktop(server);
 }
 
 static void handle_new_surface(struct wb_session_lock_state *st,
