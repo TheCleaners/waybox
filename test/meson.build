@@ -129,6 +129,13 @@ client_menu_test = executable(
   )
 test('client_menu', client_menu_test)
 
+security_test = executable(
+  'security_test',
+  ['security_test.cpp', 'wb_test_main.cpp', security_src],
+  include_directories: [inc_dir],
+  )
+test('security', security_test)
+
 # Pixel test for the Cairo/Pango painting primitives. Needs cairo/pango, so it
 # is only built in the full build (not tests_only); it links no wlroots.
 if not get_option('tests_only')
@@ -368,6 +375,28 @@ if python.found() and not get_option('tests_only')
       files('integration' / 'pointer_lock_test.py'),
       waybox_exe,
       constraint_client,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
+  # A security-context-v1 "sandbox engine" for the sandbox test.
+  security_context_xml = wl_protocol_dir / 'staging/security-context/security-context-v1.xml'
+  sandbox_client = executable(
+    'sandbox_client',
+    [
+      'integration' / 'sandbox_client.c',
+      wayland_scanner_client.process(security_context_xml),
+      wayland_scanner_code.process(security_context_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+  test(
+    'integration_sandbox',
+    python,
+    args: [
+      files('integration' / 'sandbox_test.py'),
+      waybox_exe,
+      sandbox_client,
     ],
     timeout: 60,
     env: integration_env,

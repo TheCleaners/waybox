@@ -47,6 +47,8 @@ struct wb_server {
 	struct wlr_output_layout *output_layout;
 	struct wlr_xdg_output_manager_v1 *output_manager;
 	struct wlr_renderer *renderer;
+	/* security-context-v1: marks sandboxed clients (see sandbox.h). */
+	struct wlr_security_context_manager_v1 *security_context_manager = nullptr;
 	/* color-management-v1, when the renderer supports it (else null). */
 	struct wlr_color_manager_v1 *color_manager = nullptr;
 	struct wlr_scene *scene;

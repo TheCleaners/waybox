@@ -14,6 +14,7 @@
 #include "waybox/workspace.h"
 #include "waybox/xwayland.h"
 #include "waybox/pointer_constraints.h"
+#include "waybox/sandbox.h"
 #include "waybox/server.h"
 #include "waybox/session_lock.h"
 #include "waybox/frame_view.hpp"
@@ -188,6 +189,7 @@ bool wb_create_backend(struct wb_server* server) {
 
 	wlr_renderer_init_wl_display(server->renderer, server->wl_display);
 	init_color_management(server);
+	init_sandbox(server);
 
 	/* Explicit sync (linux-drm-syncobj-v1): clients pass GPU fences with
 	 * their buffers instead of relying on implicit sync, which NVIDIA's

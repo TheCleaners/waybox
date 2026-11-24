@@ -72,7 +72,7 @@ For background, see
 |---|---|
 | Displays | `wlr-output-management` (wlr-randr, kanshi), `wp-fractional-scale` (sharp text in foot and others at 1.25×, 1.5× and so on), `xdg-output`, `gamma-control` |
 | Shell | `xdg-shell`, `xdg-decoration`, `layer-shell`, `xdg-activation`, `xdg-toplevel-icon` |
-| Security | `ext-session-lock` (swaylock); virtual keyboard and pointer, ignored while locked by default (`<virtualInput>`) |
+| Security | `ext-session-lock` (swaylock); virtual keyboard and pointer, ignored while locked by default (`<virtualInput>`); `security-context` (programs in Flatpak and other sandboxes don't get capture, input injection, background clipboard, window control, layer-shell, locking or output control) |
 | Taskbars | `wlr-foreign-toplevel-management`, `ext-foreign-toplevel-list`, `ext-workspace` (desktops in Waybar) |
 | Input | `pointer-constraints`, `relative-pointer` (pointer lock for games, held only while the window has keyboard focus) |
 | Clipboard | `primary-selection`, `ext-data-control` |

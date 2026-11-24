@@ -46,6 +46,7 @@ complete reference for its settings is the @samp{waybox(5)} manual page.
 * Configuration::       rc.xml, key bindings, rules and themes.
 * Companion programs::  Panels, wallpapers, launchers and the rest.
 * Screen locking::      Locking the screen.
+* Sandboxed programs::  Flatpak and other sandboxes.
 * X11 programs::        Running X11 programs through Xwayland.
 * Monitors and GPUs::   Several monitors, several graphics cards.
 * Index::
@@ -293,6 +294,23 @@ blurred screenshot:
 @example
 grim - | magick - -blur 0x8 /tmp/lock.png && swaylock -i /tmp/lock.png
 @end example
+
+@node Sandboxed programs
+@chapter Sandboxed programs
+@cindex Flatpak
+@cindex sandbox
+
+Flatpak, and other sandboxes that use the security-context protocol, tell
+Waybox which programs they run.  Those programs get what they need for
+their own windows, but not the protocols that would let them watch or
+control the rest of the session: capturing the screen or other windows,
+reading the clipboard in the background, typing or moving the pointer as
+you, listing or controlling other windows, drawing panels or lock
+screens, and changing monitors.  Sandboxed programs share the screen and
+the clipboard through the desktop portals instead, which ask you first.
+
+Panels, lockers, screenshot tools and the like therefore need to be
+installed outside the sandbox.
 
 @node X11 programs
 @chapter X11 programs
