@@ -311,6 +311,16 @@ void init_output(struct wb_server *server) {
 	server->new_output.connect(&server->backend->events.new_output,
 			[server](void *data) { new_output_notify(server, data); });
 
+	/* Outputs added with add_auto, moved by an output-management client, or
+	 * removed change other outputs' positions too: keep every output's layer
+	 * trees (and the usable areas windows are placed in) in step. */
+	server->output_layout_change.connect(&server->output_layout->events.change,
+			[server](void *) {
+		struct wb_output *output;
+		wl_list_for_each(output, &server->outputs, link)
+			arrange_layers(output);
+	});
+
 	server->wlr_output_manager = wlr_output_manager_v1_create(server->wl_display);
 	server->output_configuration_applied.connect(&server->wlr_output_manager->events.apply,
 			[server](void *data) { output_configuration_applied(server, data); });

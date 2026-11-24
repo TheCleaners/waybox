@@ -89,6 +89,7 @@ struct wb_server {
 
 	wb::Listener new_input;
 	wb::Listener new_output;
+	wb::Listener output_layout_change;
 	wb::Listener output_configuration_applied;
 	wb::Listener output_configuration_tested;
 	struct wl_list outputs; /* wb_output::link */
