@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <fcntl.h>
 #include <fstream>
+#include <iterator>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -181,6 +182,28 @@ cairo_surface_t *render_svg(const char *path, int size) {
 
 }  // namespace
 
+/* A theme's parsed index.theme, read from the first base dir that has one
+ * (null if none). Cached for the process: themes rarely change while running. */
+static const IconThemeIndex *theme_index(const std::vector<std::string> &bases,
+		std::string_view theme) {
+	static std::map<std::string, std::unique_ptr<IconThemeIndex>, std::less<>> cache;
+	if (auto it = cache.find(theme); it != cache.end())
+		return it->second.get();
+	std::unique_ptr<IconThemeIndex> index;
+	for (const std::string &base : bases) {
+		std::ifstream in(base + "/" + std::string(theme) + "/index.theme");
+		if (!in)
+			continue;
+		std::string contents((std::istreambuf_iterator<char>(in)),
+				std::istreambuf_iterator<char>());
+		index = std::make_unique<IconThemeIndex>(parse_icon_theme_index(contents));
+		break;
+	}
+	const IconThemeIndex *result = index.get();
+	cache.emplace(std::string(theme), std::move(index));
+	return result;
+}
+
 /* Resolve and load an icon once, caching the surface (or nullptr on miss, so we
  * never retry). PNG is loaded with Cairo; SVG with librsvg when built with it
  * (otherwise SVG candidates are skipped safely). */
@@ -196,8 +219,14 @@ cairo_surface_t *MenuWidget::icon_surface(const std::string &name) {
 	std::vector<std::string> bases = icon_base_dirs(home ? home : "",
 			xdh ? xdh : "", xdd ? xdd : "");
 	cairo_surface_t *loaded = nullptr;
+	auto index_of = [&bases](std::string_view theme) {
+		return theme_index(bases, theme);
+	};
 	for (const std::string &path : icon_search_paths(name, icon_theme_,
-			icon_size_, bases)) {
+			icon_size_, bases, index_of)) {
+		/* Most candidates don't exist: check cheaply before loading. */
+		if (access(path.c_str(), R_OK) != 0)
+			continue;
 		if (ends_with(path, ".png")) {
 			cairo_surface_t *s =
 					cairo_image_surface_create_from_png(path.c_str());
