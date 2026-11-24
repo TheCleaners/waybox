@@ -226,6 +226,30 @@ if python.found() and not get_option('tests_only')
     timeout: 60,
     env: integration_env,
     )
+  # A minimal wlr-layer-shell panel client for the output-hotplug test.
+  layer_shell_xml = meson.project_source_root() / 'protocol' / 'wlr-layer-shell-unstable-v1.xml'
+  xdg_shell_xml = wl_protocol_dir / 'stable/xdg-shell/xdg-shell.xml'
+  layer_client = executable(
+    'layer_client',
+    [
+      'integration' / 'layer_client.c',
+      wayland_scanner_client.process(layer_shell_xml),
+      wayland_scanner_code.process(layer_shell_xml),
+      wayland_scanner_code.process(xdg_shell_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+  test(
+    'integration_output_hotplug',
+    python,
+    args: [
+      files('integration' / 'output_hotplug_test.py'),
+      waybox_exe,
+      layer_client,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
   test(
     'integration_input_focus',
     python,
