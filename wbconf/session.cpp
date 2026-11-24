@@ -97,6 +97,13 @@ bool is_waybox(long pid) {
  * wbconf runs in; outside a Waybox session, every Waybox this user runs.
  * Returns the number signalled. */
 int signal_waybox_reload() {
+	/* The Waybox that started us (it exports its pid), then the one
+	 * serving our Wayland display, and only then any of ours. */
+	if (const char *env = getenv("WAYBOX_PID")) {
+		long pid = strtol(env, nullptr, 10);
+		if (pid > 1 && is_waybox(pid))
+			return kill(static_cast<pid_t>(pid), SIGUSR2) == 0 ? 1 : 0;
+	}
 	if (pid_t pid = session_compositor(); pid > 0 && is_waybox(pid))
 		return kill(pid, SIGUSR2) == 0 ? 1 : 0;
 	int signalled = 0;

@@ -10,7 +10,7 @@ wbconf_args = [
   '-DWB_INTEGRATIONS_DIR="' + get_option('prefix') / get_option('datadir') / 'waybox' / 'integrations' + '"',
 ]
 
-executable(
+wbconf_exe = executable(
   'wbconf',
   ['main.cpp', 'session.cpp', 'monitors.cpp', 'widgets.cpp', 'fonts.cpp',
    'theme_page.cpp', 'integrations_page.cpp', 'settings.cpp', 'settings_view.cpp',

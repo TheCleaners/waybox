@@ -12,7 +12,10 @@ namespace wbconf {
 namespace {
 
 const char *kCss = R"(
-.wb-setting { padding: 6px 12px 10px 0; }
+.wb-setting { padding: 6px 12px 10px 0; border-radius: 6px; }
+.wb-setting:hover { background: alpha(currentColor, 0.04); }
+.wb-setting .wb-gear { opacity: 0; }
+.wb-setting:hover .wb-gear, .wb-gear:checked { opacity: 1; }
 .wb-bar { min-width: 3px; margin-right: 12px; border-radius: 2px; }
 .wb-bar.wb-set { background: @theme_selected_bg_color; }
 .wb-bar.wb-unsaved { background: #e5a50a; }
@@ -21,11 +24,15 @@ const char *kCss = R"(
 .wb-toc row { padding: 4px 10px; }
 )";
 
-/* "Section › " or the category, dimmed, then the title in bold. */
-std::string title_markup(const Ui::SettingRow &r) {
-	const std::string &crumb = r.def->section.empty() ? r.category : r.def->section;
-	char *m = g_markup_printf_escaped("<span alpha=\"65%%\">%s: </span><b>%s</b>",
-			crumb.c_str(), r.def->title.c_str());
+/* The title in bold (with `crumb`, after its section or category, dimmed:
+ * "Pointer: Natural scrolling"). The headings above give the context, in
+ * search results too, so rows don't repeat it. */
+std::string title_markup(const Ui::SettingRow &r, bool crumb) {
+	const std::string &where = r.def->section.empty() ? r.category : r.def->section;
+	char *m = crumb && where != r.def->title
+		? g_markup_printf_escaped("<span alpha=\"65%%\">%s: </span><b>%s</b>",
+				where.c_str(), r.def->title.c_str())
+		: g_markup_printf_escaped("<b>%s</b>", r.def->title.c_str());
 	std::string out = m;
 	g_free(m);
 	return out;
@@ -48,16 +55,7 @@ void refresh_marker(Ui::SettingRow *r) {
 }
 
 void update_status(Ui *ui) {
-	int n = 0;
-	for (auto &r : ui->rows)
-		if (r->value != r->saved)
-			++n;
-	if (n > 0) {
-		char *t = g_strdup_printf(ngettext("%d setting changed, not saved yet",
-				"%d settings changed, not saved yet", n), n);
-		set_status(ui, t);
-		g_free(t);
-	}
+	refresh_save_state(ui);
 }
 
 /* Put a row's value (or its default) into its control. */
@@ -231,6 +229,7 @@ void on_copy_xml(Ui::SettingRow *r) {
 
 GtkWidget *row_menu(Ui::SettingRow *r) {
 	GtkWidget *button = gtk_menu_button_new();
+	gtk_widget_add_css_class(button, "wb-gear");  /* shown on hover */
 	gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(button), "emblem-system-symbolic");
 	gtk_menu_button_set_has_frame(GTK_MENU_BUTTON(button), FALSE);
 	gtk_widget_set_tooltip_text(button, _("More actions"));
@@ -265,7 +264,8 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 		 * if any, goes below. */
 		GtkWidget *c = gtk_check_button_new();
 		GtkWidget *l = gtk_label_new(nullptr);
-		gtk_label_set_markup(GTK_LABEL(l), title_markup(*r).c_str());
+		gtk_label_set_markup(GTK_LABEL(l), title_markup(*r, false).c_str());
+		r->title = GTK_LABEL(l);
 		gtk_label_set_wrap(GTK_LABEL(l), TRUE);
 		gtk_label_set_xalign(GTK_LABEL(l), 0);
 		gtk_check_button_set_child(GTK_CHECK_BUTTON(c), l);
@@ -363,7 +363,8 @@ GtkWidget *add_row(Ui *ui, const wb::SettingDef &d, const std::string &category)
 		}
 	} else {
 		GtkWidget *title = gtk_label_new(nullptr);
-		gtk_label_set_markup(GTK_LABEL(title), title_markup(*r).c_str());
+		gtk_label_set_markup(GTK_LABEL(title), title_markup(*r, false).c_str());
+		r->title = GTK_LABEL(title);
 		gtk_label_set_xalign(GTK_LABEL(title), 0);
 		gtk_label_set_wrap(GTK_LABEL(title), TRUE);
 		gtk_box_append(GTK_BOX(body), title);
@@ -546,6 +547,10 @@ GtkWidget *build_settings_view(Ui *ui) {
 	gtk_widget_set_margin_top(GTK_WIDGET(ui->no_results), 24);
 	gtk_widget_set_visible(GTK_WIDGET(ui->no_results), FALSE);
 	gtk_box_append(GTK_BOX(list), GTK_WIDGET(ui->no_results));
+	/* Room after the last category, so it can scroll to the top too. */
+	GtkWidget *room = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_widget_set_size_request(room, -1, 420);
+	gtk_box_append(GTK_BOX(list), room);
 
 	g_signal_connect(gtk_scrolled_window_get_vadjustment(ui->scroller), "value-changed",
 			G_CALLBACK(on_scrolled), ui);
@@ -576,6 +581,28 @@ void populate_rows(Ui *ui, const wb::RcDocument *doc) {
 		r->saved = doc != nullptr ? doc->get(r->def->rc) : std::nullopt;
 		r->value = r->saved;
 		show_value(ui, r.get());
+	}
+}
+
+void apply_test_values(Ui *ui, const char *spec) {
+	/* "id=value;id=;..." (empty: reset): as if changed in the window. */
+	std::string all = spec;
+	size_t start = 0;
+	while (start < all.size()) {
+		size_t end = all.find(';', start);
+		std::string item = all.substr(start, end == std::string::npos ? std::string::npos
+				: end - start);
+		size_t eq = item.find('=');
+		if (eq != std::string::npos)
+			for (auto &r : ui->rows)
+				if (r->def->id == item.substr(0, eq)) {
+					std::string v = item.substr(eq + 1);
+					r->value = v.empty() ? std::nullopt : std::optional<std::string>(v);
+					show_value(ui, r.get());
+				}
+		if (end == std::string::npos)
+			break;
+		start = end + 1;
 	}
 }
 

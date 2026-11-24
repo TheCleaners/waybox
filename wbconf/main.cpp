@@ -15,17 +15,54 @@
 namespace wbconf {
 
 void set_status(Ui *ui, const std::string &text) {
-	if (ui->status != nullptr)
+	if (ui->status != nullptr) {
 		gtk_label_set_text(ui->status, text.c_str());
+		g_object_set_data(G_OBJECT(ui->status), "wb-unsaved-status", nullptr);
+	}
 }
 
 namespace {
 
-bool unsaved(Ui *ui) {
-	return ui->loaded && (rows_unsaved(ui) || collect(ui) != ui->shown);
+/* How many settings differ from rc.xml: rows, plus each custom editor. */
+int unsaved_count(Ui *ui) {
+	if (!ui->loaded)
+		return 0;
+	int n = 0;
+	for (auto &r : ui->rows)
+		if (r->value != r->saved)
+			++n;
+	wb::WayboxSettings now = collect(ui);
+	n += now.theme_name != ui->shown.theme_name;
+	n += now.outputs != ui->shown.outputs || now.hdr_outputs != ui->shown.hdr_outputs;
+	n += now.startup != ui->shown.startup;
+	return n;
 }
 
+bool unsaved(Ui *ui) {
+	return unsaved_count(ui) > 0;
+}
+
+const char *kUnsavedTag = "wb-unsaved-status";
+
 }  // namespace
+
+void refresh_save_state(Ui *ui) {
+	if (ui->save == nullptr || ui->status == nullptr)
+		return;
+	int n = unsaved_count(ui);
+	gtk_widget_set_sensitive(ui->save, n > 0);
+	bool showing = g_object_get_data(G_OBJECT(ui->status), kUnsavedTag) != nullptr;
+	if (n > 0) {
+		char *t = g_strdup_printf(ngettext("%d change not saved yet",
+				"%d changes not saved yet", n), n);
+		set_status(ui, t);
+		g_free(t);
+		g_object_set_data(G_OBJECT(ui->status), kUnsavedTag, GINT_TO_POINTER(1));
+	} else if (showing) {
+		set_status(ui, "");
+		g_object_set_data(G_OBJECT(ui->status), kUnsavedTag, nullptr);
+	}
+}
 
 void on_save(GtkButton *, gpointer data) {
 	auto *ui = static_cast<Ui *>(data);
@@ -57,6 +94,7 @@ void on_save(GtkButton *, gpointer data) {
 	}
 	ui->shown = now;
 	rows_saved(ui);
+	refresh_save_state(ui);
 	int n = signal_waybox_reload();
 	if (n > 0)
 		set_status(ui, _("Saved and reloaded waybox."));
@@ -82,8 +120,67 @@ void on_reset_all(GtkButton *, gpointer data) {
 	for (auto &row : ui->programs)
 		gtk_switch_set_active(row->on, FALSE);
 	preview_refresh(ui);
-	set_status(ui, _("Reset all settings to defaults (not yet saved)."));
+	refresh_save_state(ui);
 }
+
+namespace {
+
+/* Read rc.xml again, dropping changes not saved. */
+void reload_from_file(Ui *ui) {
+	std::string problem;
+	std::optional<wb::RcDocument> doc = load_document(&problem);
+	if (!doc) {
+		set_status(ui, problem);
+		return;
+	}
+	populate(ui, doc->read(), &*doc);
+	refresh_save_state(ui);
+	set_status(ui, _("Reloaded from rc.xml."));
+}
+
+void on_reload(GtkButton *, gpointer data) {
+	reload_from_file(static_cast<Ui *>(data));
+}
+
+/* Open rc.xml in the default text editor (VS Code's "Open Settings
+ * (JSON)"). */
+void on_open_rc(GtkButton *, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	std::string path = user_rc_path();
+	if (path.empty() || !fs::exists(path)) {
+		set_status(ui, _("There's no rc.xml of your own yet: Save creates it."));
+		return;
+	}
+	GFile *file = g_file_new_for_path(path.c_str());
+	GtkFileLauncher *launcher = gtk_file_launcher_new(file);
+	gtk_file_launcher_launch(launcher, ui->window, nullptr, nullptr, nullptr);
+	g_object_unref(launcher);
+	g_object_unref(file);
+}
+
+gboolean on_shortcut_save(GtkWidget *, GVariant *, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	if (gtk_widget_get_sensitive(ui->save))
+		on_save(nullptr, ui);
+	return TRUE;
+}
+
+gboolean on_shortcut_find(GtkWidget *, GVariant *, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	gtk_widget_grab_focus(GTK_WIDGET(ui->search));
+	return TRUE;
+}
+
+GtkWidget *menu_button_item(const char *label, GCallback cb, Ui *ui, GtkWidget *pop) {
+	GtkWidget *b = gtk_button_new_with_label(label);
+	gtk_button_set_has_frame(GTK_BUTTON(b), FALSE);
+	gtk_widget_set_halign(gtk_button_get_child(GTK_BUTTON(b)), GTK_ALIGN_START);
+	g_signal_connect(b, "clicked", cb, ui);
+	g_signal_connect_swapped(b, "clicked", G_CALLBACK(gtk_popover_popdown), pop);
+	return b;
+}
+
+}  // namespace
 
 gboolean on_close_request(GtkWindow *window, gpointer data) {
 	auto *ui = static_cast<Ui *>(data);
@@ -127,6 +224,35 @@ void build_window(GtkApplication *app, Ui *ui) {
 	/* Typing anywhere searches, as in VS Code. */
 	gtk_search_entry_set_key_capture_widget(ui->search, GTK_WIDGET(ui->window));
 
+	/* Open rc.xml, and a menu for the rest. */
+	GtkWidget *menu = gtk_menu_button_new();
+	gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(menu), "open-menu-symbolic");
+	gtk_widget_set_tooltip_text(menu, _("Menu"));
+	GtkWidget *pop = gtk_popover_new();
+	GtkWidget *pbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+	gtk_box_append(GTK_BOX(pbox), menu_button_item(_("Reload from rc.xml"),
+			G_CALLBACK(on_reload), ui, pop));
+	gtk_box_append(GTK_BOX(pbox), menu_button_item(_("Reset All to Defaults"),
+			G_CALLBACK(on_reset_all), ui, pop));
+	gtk_popover_set_child(GTK_POPOVER(pop), pbox);
+	gtk_menu_button_set_popover(GTK_MENU_BUTTON(menu), pop);
+	gtk_header_bar_pack_end(GTK_HEADER_BAR(header), menu);
+	GtkWidget *open_rc = gtk_button_new_from_icon_name("document-edit-symbolic");
+	gtk_widget_set_tooltip_text(open_rc, _("Open rc.xml in a text editor"));
+	g_signal_connect(open_rc, "clicked", G_CALLBACK(on_open_rc), ui);
+	gtk_header_bar_pack_end(GTK_HEADER_BAR(header), open_rc);
+
+	/* Ctrl+S saves, Ctrl+F searches (Esc in the search clears it). */
+	GtkEventController *keys = gtk_shortcut_controller_new();
+	gtk_shortcut_controller_set_scope(GTK_SHORTCUT_CONTROLLER(keys), GTK_SHORTCUT_SCOPE_GLOBAL);
+	gtk_shortcut_controller_add_shortcut(GTK_SHORTCUT_CONTROLLER(keys), gtk_shortcut_new(
+			gtk_shortcut_trigger_parse_string("<Control>s"),
+			gtk_callback_action_new(on_shortcut_save, ui, nullptr)));
+	gtk_shortcut_controller_add_shortcut(GTK_SHORTCUT_CONTROLLER(keys), gtk_shortcut_new(
+			gtk_shortcut_trigger_parse_string("<Control>f"),
+			gtk_callback_action_new(on_shortcut_find, ui, nullptr)));
+	gtk_widget_add_controller(GTK_WIDGET(ui->window), keys);
+
 	GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 	gtk_window_set_child(ui->window, vbox);
 	gtk_box_append(GTK_BOX(vbox), build_settings_view(ui));
@@ -145,10 +271,6 @@ void build_window(GtkApplication *app, Ui *ui) {
 	gtk_label_set_ellipsize(GTK_LABEL(status), PANGO_ELLIPSIZE_END);
 	ui->status = GTK_LABEL(status);
 	gtk_box_append(GTK_BOX(actions), status);
-
-	GtkWidget *reset = gtk_button_new_with_label(_("Reset All to Defaults"));
-	g_signal_connect(reset, "clicked", G_CALLBACK(on_reset_all), ui);
-	gtk_box_append(GTK_BOX(actions), reset);
 
 	GtkWidget *close = gtk_button_new_with_label(_("Close"));
 	g_signal_connect(close, "clicked", G_CALLBACK(on_close), ui);
@@ -179,6 +301,21 @@ void build_window(GtkApplication *app, Ui *ui) {
 		gtk_box_prepend(GTK_BOX(vbox), banner);
 	}
 	g_signal_connect(ui->window, "close-request", G_CALLBACK(on_close_request), ui);
+	if (const char *set = getenv("WBCONF_TEST_SET"))
+		apply_test_values(ui, set);
+	refresh_save_state(ui);
+	/* The custom editors (theme, monitors, programs) change in many ways:
+	 * check now and then rather than wire every widget. */
+	g_timeout_add(400, [](gpointer data) -> gboolean {
+		auto *ui = static_cast<Ui *>(data);
+		if (ui->window == nullptr)
+			return G_SOURCE_REMOVE;
+		refresh_save_state(ui);
+		return G_SOURCE_CONTINUE;
+	}, ui);
+	g_signal_connect_swapped(ui->window, "destroy", G_CALLBACK(+[](Ui *ui) {
+		ui->window = nullptr;
+	}), ui);
 	/* WBCONF_CATEGORY=id opens at a category, WBCONF_SEARCH=text with a
 	 * search (screenshots, tests). */
 	if (const char *q = getenv("WBCONF_SEARCH"))
