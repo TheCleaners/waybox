@@ -300,6 +300,10 @@ bool wb_start_server(struct wb_server* server) {
 	setenv("WAYBOX_PID", std::to_string(getpid()).c_str(), true);
 
 	wlr_ext_data_control_manager_v1_create(server->wl_display, 1);
+	/* The older wlr protocol, which clipboard managers such as cliphist and
+	 * clipman (and older wl-clipboard) still speak. Privileged, like the
+	 * ext one: sandboxed clients don't see it. */
+	wlr_data_control_manager_v1_create(server->wl_display);
 	wlr_data_device_manager_create(server->wl_display);
 
 	server->foreign_toplevel_list =

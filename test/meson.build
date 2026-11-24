@@ -355,6 +355,18 @@ if python.found() and not get_option('tests_only')
     dependencies: [dependency('wayland-client')],
     )
 
+  # A clipboard manager on the older wlr protocol (as cliphist).
+  wlr_dc_xml = meson.project_source_root() / 'protocol' / 'wlr-data-control-unstable-v1.xml'
+  wlr_dc_client = executable(
+    'wlr_dc_client',
+    [
+      'integration' / 'wlr_dc_client.c',
+      wayland_scanner_client.process(wlr_dc_xml),
+      wayland_scanner_code.process(wlr_dc_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # Makes and drops idle inhibitors, for the idle test.
   idle_inhibit_xml = wl_protocol_dir / 'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml'
   inhibit_client = executable(
@@ -455,6 +467,7 @@ if python.found() and not get_option('tests_only')
     ['window_capture', 'window_capture_test.py', [], 60],
     ['window_menu', 'window_menu_test.py', [], 90],
     ['window_state', 'window_state_test.py', [], 60],
+    ['wlr_data_control', 'wlr_data_control_test.py', [wlr_dc_client], 60],
     ['workspace', 'workspace_test.py', [workspace_client], 60],
     ['xwayland', 'xwayland_test.py', [], 90],
   ]
