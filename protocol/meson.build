@@ -38,6 +38,7 @@ protocols = [
   'wlr-gamma-control-unstable-v1.xml',
   'wlr-layer-shell-unstable-v1.xml',
   'wlr-output-power-management-unstable-v1.xml',
+  'wlr-data-control-unstable-v1.xml',
 ]
 
 client_protocols = [
