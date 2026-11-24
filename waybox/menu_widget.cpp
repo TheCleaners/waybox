@@ -416,6 +416,9 @@ void MenuWidget::start_pipe(const Menu &menu) {
 		sigset_t none;
 		sigemptyset(&none);
 		sigprocmask(SIG_SETMASK, &none, nullptr);
+		/* Own process group, so a timeout can stop the whole command
+		 * (sh -c, the script, and anything it started), not just sh. */
+		setpgid(0, 0);
 		dup2(fds[1], STDOUT_FILENO);
 		int devnull = ::open("/dev/null", O_RDONLY);
 		if (devnull >= 0)
@@ -423,6 +426,7 @@ void MenuWidget::start_pipe(const Menu &menu) {
 		execl("/bin/sh", "/bin/sh", "-c", menu.execute.c_str(), (char *) nullptr);
 		_exit(127);
 	}
+	setpgid(pid, pid);  /* also from the parent, so there is no race */
 	close(fds[1]);
 	fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL) | O_NONBLOCK);
 
@@ -486,9 +490,10 @@ void MenuWidget::stop_pipe(PipeJob *job) {
 	if (job->fd >= 0)
 		close(job->fd);
 	if (job->pid > 0) {
-		/* Done or abandoned either way: make sure it exits, and reap it. */
+		/* Done or abandoned either way: if it is still running, stop its
+		 * whole process group, then reap it. */
 		if (waitpid(job->pid, nullptr, WNOHANG) == 0) {
-			kill(job->pid, SIGKILL);
+			kill(-job->pid, SIGKILL);
 			waitpid(job->pid, nullptr, 0);
 		}
 	}

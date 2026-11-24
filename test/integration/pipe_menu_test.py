@@ -53,8 +53,11 @@ cat <<EOF
 </openbox_pipe_menu>
 EOF
 """)
+    # Like a real generator that starts helpers: the child must be stopped
+    # too, not only the shell waybox started.
+    slow_pid = os.path.join(workdir, "slow.pid")
     with open(slow_script, "w") as f:
-        f.write("#!/bin/sh\nexec sleep 300\n")
+        f.write(f"#!/bin/sh\nsleep 300 &\necho $! > {slow_pid}\nwait\n")
     os.chmod(pipe_script, 0o755)
     os.chmod(slow_script, 0o755)
     with open(os.path.join(cfg, "rc.xml"), "w") as f:
@@ -124,10 +127,19 @@ EOF
         run("wlrctl", "pointer", "click", "right")
         time.sleep(0.4)
 
-    def children_running(script):
-        out = subprocess.run(["pgrep", "-P", str(proc.pid), "-a"],
-                             capture_output=True, text=True).stdout
-        return script in out
+    def slow_child_alive():
+        """Whether the slow script's background child is still running."""
+        try:
+            pid = int(open(slow_pid).read())
+        except (OSError, ValueError):
+            return None  # not started (yet)
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        # Reaped or not, a zombie no longer runs anything.
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().split(") ")[1][0] != "Z"
 
     try:
         # 1. Pipe menu: placeholder, then output; run the piped entry.
@@ -150,7 +162,7 @@ EOF
         key("Down")      # "Slow"
         key("Right")
         for _ in range(30):
-            if children_running(slow_script):
+            if slow_child_alive():
                 break
             time.sleep(0.1)
         else:
@@ -162,8 +174,9 @@ EOF
             failures.append(f"compositor unresponsive while a pipe menu runs "
                             f"({time.time() - t0:.1f}s)")
         time.sleep(5.5)  # past the 5s timeout
-        if children_running(slow_script):
-            failures.append("the slow pipe menu's command is still running after the timeout")
+        if slow_child_alive():
+            failures.append("the slow pipe menu's child process is still running "
+                            "after the timeout")
         if proc.poll() is not None:
             failures.append(f"waybox exited (status {proc.returncode})")
         key("Escape")
