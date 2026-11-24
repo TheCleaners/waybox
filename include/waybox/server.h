@@ -44,6 +44,8 @@ struct wb_server {
 	struct wlr_backend *backend;
 	struct wlr_compositor *compositor;
 	struct wlr_gamma_control_manager_v1 *gamma_control_manager;
+	struct wlr_output_power_manager_v1 *output_power_manager;
+	wb::Listener output_power_set_mode;
 	struct wlr_idle_inhibit_manager_v1 *idle_inhibit_manager;
 	struct wlr_idle_notifier_v1 *idle_notifier;
 	struct wlr_output_layout *output_layout;

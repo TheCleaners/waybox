@@ -408,6 +408,7 @@ bool wb_terminate(struct wb_server* server) {
 	server->new_output.disconnect();
 	server->output_configuration_applied.disconnect();
 	server->output_configuration_tested.disconnect();
+	server->output_power_set_mode.disconnect();
 	server->new_inhibitor.disconnect();
 	server->destroy_inhibit_manager.disconnect();
 	server->new_layer_surface.disconnect();

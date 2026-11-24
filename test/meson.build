@@ -277,6 +277,18 @@ if python.found() and not get_option('tests_only')
     dependencies: [dependency('wayland-client')],
     )
 
+  # Switches outputs off and on (like wlopm), for the output power test.
+  output_power_xml = meson.project_source_root() / 'protocol' / 'wlr-output-power-management-unstable-v1.xml'
+  power_client = executable(
+    'power_client',
+    [
+      'integration' / 'power_client.c',
+      wayland_scanner_client.process(output_power_xml),
+      wayland_scanner_code.process(output_power_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # Makes and drops idle inhibitors, for the idle test.
   idle_inhibit_xml = wl_protocol_dir / 'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml'
   inhibit_client = executable(
@@ -353,6 +365,7 @@ if python.found() and not get_option('tests_only')
     ['mouse_contexts', 'mouse_contexts_test.py', [], 60],
     ['multi_output', 'multi_output_test.py', [layer_client], 60],
     ['output_hotplug', 'output_hotplug_test.py', [layer_client], 60],
+    ['output_power', 'output_power_test.py', [power_client], 60],
     ['output_rules', 'output_rules_test.py', [], 60],
     ['panel_reflow', 'panel_reflow_test.py', [layer_client], 60],
     ['pipe_menu', 'pipe_menu_test.py', [], 60],
