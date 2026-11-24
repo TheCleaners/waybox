@@ -434,6 +434,8 @@ static void parse_switcher_behavior(struct wb_config *config,
 				config->switcher_behavior.show_on_hold = *osd;
 			if (auto w = parse_bool((const char *) get_attribute(node, "wrap")))
 				config->switcher_behavior.wrap = *w;
+			if (auto i = parse_bool((const char *) get_attribute(node, "icons")))
+				config->switcher_behavior.show_icons = *i;
 		}
 	}
 	xmlXPathFreeObject(object);

@@ -330,6 +330,7 @@ WayboxSettings RcDocument::read() const {
 	s.switcher_order = attr_value(sw, "order");
 	s.switcher_osd = to_bool(attr_value(sw, "osd"));
 	s.switcher_wrap = to_bool(attr_value(sw, "wrap"));
+	s.switcher_icons = to_bool(attr_value(sw, "icons"));
 
 	xmlNode *tb = find_path(root, {"waybox", "titlebar"});
 	s.titlebar_pad_y = to_int(attr_value(tb, "paddingY"));
@@ -559,6 +560,8 @@ void apply_fields(xmlNode *root, const WayboxSettings &s, const WayboxSettings *
 		put_attr(root, {"waybox", "switcher"}, "osd", bool_opt_str(s.switcher_osd));
 	if (WB_CHANGED(switcher_wrap))
 		put_attr(root, {"waybox", "switcher"}, "wrap", bool_opt_str(s.switcher_wrap));
+	if (WB_CHANGED(switcher_icons))
+		put_attr(root, {"waybox", "switcher"}, "icons", bool_opt_str(s.switcher_icons));
 
 	if (WB_CHANGED(titlebar_pad_y))
 		put_attr(root, {"waybox", "titlebar"}, "paddingY", int_str(s.titlebar_pad_y));

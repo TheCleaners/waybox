@@ -281,6 +281,7 @@ struct Ui {
 	GtkDropDown *switcher_order = nullptr;  /* mru / stacking / spatial */
 	GtkSwitch *switcher_osd = nullptr;
 	GtkSwitch *switcher_wrap = nullptr;
+	GtkSwitch *switcher_icons = nullptr;
 
 	/* Fonts: a lightweight custom picker per place (family dropdown + size spin
 	 * + bold toggle). We avoid GtkFontDialogButton because GTK's font chooser
@@ -833,6 +834,7 @@ void populate(Ui *ui, const wb::WayboxSettings &s) {
 			index_of(kOrder, s.switcher_order.value_or("mru"), 0));
 	gtk_switch_set_active(ui->switcher_osd, s.switcher_osd.value_or(true));
 	gtk_switch_set_active(ui->switcher_wrap, s.switcher_wrap.value_or(true));
+	gtk_switch_set_active(ui->switcher_icons, s.switcher_icons.value_or(true));
 
 	/* Always show a concrete font (the configured one, else waybox's effective
 	 * default Sans 10) so the picker opens with the current font selected and
@@ -921,6 +923,7 @@ wb::WayboxSettings collect(Ui *ui) {
 	s.switcher_order = kOrder[gtk_drop_down_get_selected(ui->switcher_order)];
 	s.switcher_osd = gtk_switch_get_active(ui->switcher_osd);
 	s.switcher_wrap = gtk_switch_get_active(ui->switcher_wrap);
+	s.switcher_icons = gtk_switch_get_active(ui->switcher_icons);
 
 	s.font_active_window = font_value(&ui->font_active);
 	s.font_inactive_window = font_value(&ui->font_inactive);
@@ -1089,6 +1092,7 @@ void reset_page_widgets(Ui *ui, int page) {
 		gtk_drop_down_set_selected(ui->switcher_order, 0);  /* mru */
 		gtk_switch_set_active(ui->switcher_osd, TRUE);
 		gtk_switch_set_active(ui->switcher_wrap, TRUE);
+		gtk_switch_set_active(ui->switcher_icons, TRUE);
 		break;
 	case 7:  /* Desktops */
 		gtk_spin_button_set_value(ui->desktops_number, 4);
@@ -1355,6 +1359,7 @@ GtkWidget *build_switcher_page(Ui *ui) {
 	ui->switcher_order = add_dropdown(grid, 0, _("Order:"), kOrder);
 	ui->switcher_osd = add_switch(grid, 1, _("Show on-screen display:"));
 	ui->switcher_wrap = add_switch(grid, 2, _("Wrap selection:"));
+	ui->switcher_icons = add_switch(grid, 3, _("Show window icons:"));
 	return page;
 }
 

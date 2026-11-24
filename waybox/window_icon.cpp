@@ -28,8 +28,12 @@ void toplevel_update_icon(struct wb_toplevel *t) {
 		std::string lower = app_id;
 		std::transform(lower.begin(), lower.end(), lower.begin(),
 				[](unsigned char c) { return std::tolower(c); });
+		/* Reverse-DNS app IDs (org.example.App): also their last part,
+		 * which is often the desktop file's or the icon's name. */
+		std::string last = lower.substr(lower.rfind('.') + 1);
 		for (const std::string &name : {t->client_icon_name,
-				wb::desktop_file_icon(app_id), app_id, lower}) {
+				wb::desktop_file_icon(app_id), wb::desktop_file_icon(last),
+				app_id, lower, last}) {
 			if (!name.empty() && (icon = wb::load_themed_icon(name, theme, size)))
 				break;
 		}

@@ -55,6 +55,7 @@ struct WayboxSettings {
 	std::optional<std::string> switcher_order;      /* mru | stacking | spatial */
 	std::optional<bool> switcher_osd;
 	std::optional<bool> switcher_wrap;
+	std::optional<bool> switcher_icons;             /* waybox/switcher@icons */
 
 	/* Per-place fonts (theme/font place="..."). Each is "Family Size" in the
 	 * Pango convention (e.g. "Sans Bold 11"); std::nullopt means unset. */

@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include <cairo.h>
+
 #include "waybox/wlroots.hpp"
 
 #include "waybox/scene_buffer.h"
@@ -35,16 +37,23 @@ public:
 	SwitcherWidget(const SwitcherWidget &) = delete;
 	SwitcherWidget &operator=(const SwitcherWidget &) = delete;
 
-	/* Build the OSD from window labels and place it centred, with `selected`
-	 * initially highlighted. */
-	void open(std::vector<std::string> labels, int selected);
+	/* One row: a window's title and its icon (or null). */
+	struct Entry {
+		std::string label;
+		cairo_surface_t *icon = nullptr;
+	};
+
+	/* Build the OSD from the windows' entries and place it centred, with
+	 * `selected` initially highlighted. The icons are referenced, so they
+	 * stay valid for as long as the OSD shows them. */
+	void open(std::vector<Entry> entries, int selected);
 
 	void select_next();  /* advance one entry (wraps if behavior.wrap) */
 	void select_prev();  /* retreat one entry (wraps if behavior.wrap) */
 
 	int selected() const { return selected_; }
-	std::size_t size() const { return labels_.size(); }
-	bool empty() const { return labels_.empty(); }
+	std::size_t size() const { return entries_.size(); }
+	bool empty() const { return entries_.empty(); }
 
 private:
 	struct wlr_box output_bounds() const;
@@ -56,7 +65,8 @@ private:
 	SwitcherBehavior behavior_;
 	struct wlr_scene_tree *tree_ = nullptr;
 	std::unique_ptr<SceneCanvas> canvas_;
-	std::vector<std::string> labels_;
+	std::vector<Entry> entries_;
+	int icon_size() const;
 	int selected_ = 0;
 	int text_height_ = 0;
 	Rect rect_{0, 0, 0, 0};

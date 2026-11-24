@@ -73,7 +73,6 @@ struct SwitcherStyle {
 	ControlStyle item;
 	TextStyle item_text;
 	SwitcherOrientation orientation = SwitcherOrientation::Vertical;
-	bool show_icons = true;        /* reserved until icon support lands */
 	bool show_thumbnails = false;  /* reserved */
 };
 
@@ -85,6 +84,7 @@ struct SwitcherBehavior {
 	bool current_monitor_only = false;
 	bool include_minimized = true;
 	bool wrap = true;
+	bool show_icons = true;         /* each window's icon beside its title */
 };
 
 /* ---- Adapters: raw Theme -> resolved style (pure) -------------------- */
