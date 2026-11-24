@@ -32,6 +32,8 @@ extern "C" {
 #define static
 #define namespace namespace_
 #define class class_
+/* wlr_input_method_v2_state has a member named delete. */
+#define delete delete_
 
 #include <wlr/backend.h>
 #include <wlr/backend/libinput.h>
@@ -72,6 +74,8 @@ extern "C" {
 #include <wlr/types/wlr_subcompositor.h>
 #include <wlr/types/wlr_viewporter.h>
 #include <wlr/types/wlr_virtual_keyboard_v1.h>
+#include <wlr/types/wlr_text_input_v3.h>
+#include <wlr/types/wlr_input_method_v2.h>
 #include <wlr/types/wlr_virtual_pointer_v1.h>
 #include <wlr/types/wlr_xcursor_manager.h>
 #include <wlr/types/wlr_xdg_activation_v1.h>
@@ -93,6 +97,7 @@ extern "C" {
 #include <wlr/types/wlr_color_representation_v1.h>
 #endif
 
+#undef delete
 #undef class
 #undef namespace
 #undef static

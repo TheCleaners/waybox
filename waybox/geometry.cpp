@@ -95,4 +95,21 @@ Rect maximize_within(const Rect &restore, const Rect &area, bool horz, bool vert
 	return r;
 }
 
+Rect place_ime_popup(const Rect &cursor, int width, int height, const Rect &output) {
+	Rect r{cursor.x, cursor.y + cursor.height, width, height};
+	int bottom = output.y + output.height;
+	int right = output.x + output.width;
+	if (r.y + height > bottom && cursor.y - height >= output.y)
+		r.y = cursor.y - height;  /* flip above the cursor */
+	if (r.x + width > right)
+		r.x = right - width;
+	if (r.y + height > bottom)
+		r.y = bottom - height;
+	if (r.x < output.x)
+		r.x = output.x;
+	if (r.y < output.y)
+		r.y = output.y;
+	return r;
+}
+
 }  // namespace wb

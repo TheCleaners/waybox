@@ -26,6 +26,7 @@ wb_src = [
     'decoration.cpp',
     'frame_view.cpp',
     'idle.cpp',
+    'input_method.cpp',
     'layer_shell.cpp',
     'main.cpp',
     'menu_parse.cpp',

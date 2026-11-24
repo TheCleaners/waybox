@@ -150,3 +150,37 @@ WB_TEST(maximize_within_vertical_only) {
 	/* y/height from area; x/width kept from restore */
 	WB_CHECK(wb::maximize_within(restore, area, false, true) == (Rect{10, 5, 30, 590}));
 }
+
+WB_TEST(ime_popup_below_the_cursor) {
+	Rect out{0, 0, 1920, 1080};
+	WB_CHECK(wb::place_ime_popup(Rect{100, 200, 2, 20}, 300, 120, out) ==
+			(Rect{100, 220, 300, 120}));
+}
+
+WB_TEST(ime_popup_flips_above_near_the_bottom) {
+	Rect out{0, 0, 1920, 1080};
+	WB_CHECK(wb::place_ime_popup(Rect{100, 1000, 2, 20}, 300, 120, out) ==
+			(Rect{100, 880, 300, 120}));
+}
+
+WB_TEST(ime_popup_shifts_left_at_the_right_edge) {
+	Rect out{0, 0, 1920, 1080};
+	WB_CHECK(wb::place_ime_popup(Rect{1800, 200, 2, 20}, 300, 120, out) ==
+			(Rect{1620, 220, 300, 120}));
+}
+
+WB_TEST(ime_popup_on_a_second_output) {
+	/* The output's own origin bounds it, not 0,0. */
+	Rect out{1920, 0, 1280, 1024};
+	WB_CHECK(wb::place_ime_popup(Rect{1900, 10, 2, 20}, 300, 120, out) ==
+			(Rect{1920, 30, 300, 120}));
+	WB_CHECK(wb::place_ime_popup(Rect{3150, 950, 2, 20}, 300, 120, out) ==
+			(Rect{2900, 830, 300, 120}));
+}
+
+WB_TEST(ime_popup_taller_than_the_room_either_side) {
+	/* No room above or below: pinned inside the output, bottom-aligned. */
+	Rect out{0, 0, 800, 200};
+	WB_CHECK(wb::place_ime_popup(Rect{10, 90, 2, 20}, 100, 150, out) ==
+			(Rect{10, 50, 100, 150}));
+}

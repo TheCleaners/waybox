@@ -4,6 +4,7 @@
 #include <optional>
 #include <vector>
 
+#include "waybox/input_method.h"
 #include "waybox/wlroots.hpp"
 #if WLR_HAS_LIBINPUT_BACKEND && defined(HAS_LIBINPUT)
 #include "waybox/wlroots.hpp"
@@ -525,9 +526,12 @@ void wb_keyboard::on_modifiers(void *data) {
 	 * same seat and wlr_seat swaps the underlying wlr_keyboard transparently. */
 	if (wb_input_blocked(server, &keyboard->base))
 		return;
-	wlr_seat_set_keyboard(server->seat->seat, keyboard);
-	wlr_seat_keyboard_notify_modifiers(server->seat->seat,
-		&keyboard->modifiers);
+	/* An input method with a keyboard grab gets the modifiers instead. */
+	if (session_locked(server) || !input_method_modifiers(server, keyboard)) {
+		wlr_seat_set_keyboard(server->seat->seat, keyboard);
+		wlr_seat_keyboard_notify_modifiers(server->seat->seat,
+			&keyboard->modifiers);
+	}
 
 	/* Committing the Alt+Tab cycle: once any of the modifiers that opened the
 	 * switcher is released, focus the selected window and drop the OSD. */
@@ -638,6 +642,12 @@ void wb_keyboard::on_key(void *data) {
 		return;
 	}
 
+	if (!handled && input_method_key(server, keyboard, event)) {
+		/* The input method has the keyboard; what it doesn't use it passes
+		 * on through its virtual keyboard. */
+		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		return;
+	}
 	if (!handled) {
 		/* Pass it along to the focused client. */
 		wlr_seat_set_keyboard(seat, keyboard);
