@@ -157,6 +157,10 @@ void arrange_toplevels(struct wb_server *server);
 void constrain_toplevel_to_usable_area(struct wb_toplevel *toplevel);
 void begin_interactive(struct wb_toplevel *toplevel,
 		enum wb_cursor_mode mode, uint32_t edges);
+/* The corner nearest (x, y), as WLR_EDGE_* bits, for resizing from it. */
+uint32_t nearest_resize_edges(struct wb_toplevel *toplevel, double x, double y);
+/* Whether `toplevel` is still one of the server's windows. */
+bool toplevel_alive(struct wb_server *server, struct wb_toplevel *toplevel);
 
 /* Decoration insets for a toplevel (zero unless it has a server-side frame). */
 wb::FrameInsets toplevel_insets(struct wb_toplevel *toplevel);

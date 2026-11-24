@@ -244,6 +244,29 @@
       <mousebind button="Right" action="Press">
         <action name="ShowMenu"><command>root-menu</command></action>
       </mousebind>
+      <!-- Scroll on the desktop to switch desktops. -->
+      <mousebind button="Up" action="Click">
+        <action name="GoToDesktop"><to>previous</to><wrap>no</wrap></action>
+      </mousebind>
+      <mousebind button="Down" action="Click">
+        <action name="GoToDesktop"><to>next</to><wrap>no</wrap></action>
+      </mousebind>
+    </context>
+    <!-- Title bar: double-click to maximize, middle-click to lower, scroll
+         to shade. (Dragging it moves the window without a binding.) -->
+    <context name="Titlebar">
+      <mousebind button="Left" action="DoubleClick">
+        <action name="ToggleMaximize"/>
+      </mousebind>
+      <mousebind button="Middle" action="Press">
+        <action name="Lower"/>
+      </mousebind>
+      <mousebind button="Up" action="Click">
+        <action name="Shade"/>
+      </mousebind>
+      <mousebind button="Down" action="Click">
+        <action name="Unshade"/>
+      </mousebind>
     </context>
   </mouse>
   <!-- Per-application rules. `class`/`name` match a window's app_id and

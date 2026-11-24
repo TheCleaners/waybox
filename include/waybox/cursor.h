@@ -21,6 +21,8 @@ struct wb_cursor {
 	struct wb_server *server = nullptr;
 
 	enum wb_cursor_mode cursor_mode = WB_CURSOR_PASSTHROUGH;
+	/* Scroll-wheel fractions (value120) not yet making up a whole notch. */
+	int32_t scroll_value120 = 0;
 
 	wb::Listener cursor_motion;
 	wb::Listener cursor_motion_absolute;
@@ -35,6 +37,7 @@ struct wb_cursor {
 	void on_motion(void *data);
 	void on_motion_absolute(void *data);
 	void on_button(void *data);
+	void handle_button(struct wlr_pointer_button_event *event);
 	void on_axis(void *data);
 	void on_frame(void *data);
 	void on_pointer_focus_change(void *data);

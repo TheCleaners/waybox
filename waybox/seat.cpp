@@ -326,6 +326,22 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		}
 		break;
 	}
+	case wb::ActionType::Move:
+	case wb::ActionType::Resize: {
+		/* Start moving or resizing with the pointer, as a titlebar or
+		 * border drag does (resizing from the nearest corner). */
+		struct wb_toplevel *toplevel = first_toplevel(server);
+		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled ||
+				toplevel->fullscreen)
+			break;
+		if (action.type == wb::ActionType::Move)
+			begin_interactive(toplevel, WB_CURSOR_MOVE, 0);
+		else
+			begin_interactive(toplevel, WB_CURSOR_RESIZE,
+					nearest_resize_edges(toplevel, server->cursor->cursor->x,
+							server->cursor->cursor->y));
+		break;
+	}
 	case wb::ActionType::Exit:
 		wl_display_terminate(server->wl_display);
 		break;
