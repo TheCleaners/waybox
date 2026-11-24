@@ -164,3 +164,18 @@ WB_TEST(parse_desktop_action_options) {
 	WB_CHECK(root->items[4].actions.at(0).type ==
 			wb::ActionType::ToggleOmnipresent);
 }
+
+WB_TEST(parse_command_text_is_joined_and_trimmed) {
+	/* Indenting around a CDATA section, and a comment splitting the text,
+	 * don't change the command (Openbox joins and trims it). */
+	MenuFile f = wb::parse_menu_xml(R"(<openbox_menu><menu id="root-menu">
+  <item label="A"><action name="Execute"><command>
+    <![CDATA[foo && bar]]>
+  </command></action></item>
+  <item label="B"><action name="Execute"><execute>foo<!-- x --> bar</execute></action></item>
+</menu></openbox_menu>)");
+	const Menu *root = f.find("root-menu");
+	WB_CHECK(root != nullptr && root->items.size() == 2);
+	WB_CHECK(root->items[0].actions[0].command == "foo && bar");
+	WB_CHECK(root->items[1].actions[0].command == "foo bar");
+}

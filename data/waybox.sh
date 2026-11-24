@@ -29,21 +29,26 @@ _()
     fi
 }
 
+# Quote a path for the --startup command (run with sh -c).
+shell_quote() {
+    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
 # Load the environment variables
-if test -f $WB_USER_CONF_DIR/environment;
+if test -f "$WB_USER_CONF_DIR/environment";
 then
-    . $WB_USER_CONF_DIR/environment;
-elif test -f $WB_SYS_CONF_DIR/environment;
+    . "$WB_USER_CONF_DIR/environment";
+elif test -f "$WB_SYS_CONF_DIR/environment";
 then
-    . $WB_SYS_CONF_DIR/environment
-elif test -f $OB_USER_CONF_DIR/environment;
-then
-    _ "WARNING: Using files from Openbox. These may not work correctly."
-    . $OB_USER_CONF_DIR/environment;
-elif test -f $OB_SYS_CONF_DIR/environment;
+    . "$WB_SYS_CONF_DIR/environment"
+elif test -f "$OB_USER_CONF_DIR/environment";
 then
     _ "WARNING: Using files from Openbox. These may not work correctly."
-    . $OB_SYS_CONF_DIR/environment;
+    . "$OB_USER_CONF_DIR/environment";
+elif test -f "$OB_SYS_CONF_DIR/environment";
+then
+    _ "WARNING: Using files from Openbox. These may not work correctly."
+    . "$OB_SYS_CONF_DIR/environment";
 fi
 
 # Get the autostart script to use
@@ -51,12 +56,12 @@ fi
 # Openbox calls the autostart script from the XDG autostart script, so we don't
 # need to run the autostart script twice if only the Openbox scripts are
 # available
-if test -x $WB_USER_CONF_DIR/autostart;
+if test -x "$WB_USER_CONF_DIR/autostart";
 then
-    WB_AUTOSTART=$WB_USER_CONF_DIR/autostart;
-elif test -x $WB_SYS_CONF_DIR/autostart;
+    WB_AUTOSTART=$(shell_quote "$WB_USER_CONF_DIR/autostart");
+elif test -x "$WB_SYS_CONF_DIR/autostart";
 then
-    WB_AUTOSTART=$WB_SYS_CONF_DIR/autostart
+    WB_AUTOSTART=$(shell_quote "$WB_SYS_CONF_DIR/autostart")
 fi
 
 # And the XDG autostart script
@@ -65,29 +70,29 @@ then
     # Probably what you want instead of my simple shell script.
     # https://gitlab.com/somini/xdg-autostart/
     WB_XDG_AUTOSTART="xdg-autostart"
-elif test -x $WB_USER_CONF_DIR/xdg-autostart;
+elif test -x "$WB_USER_CONF_DIR/xdg-autostart";
 then
-    WB_XDG_AUTOSTART=$WB_USER_CONF_DIR/xdg-autostart;
-elif test -x $WB_SYS_CONF_DIR/xdg-autostart;
+    WB_XDG_AUTOSTART=$(shell_quote "$WB_USER_CONF_DIR/xdg-autostart");
+elif test -x "$WB_SYS_CONF_DIR/xdg-autostart";
 then
-    WB_XDG_AUTOSTART=$WB_SYS_CONF_DIR/xdg-autostart
+    WB_XDG_AUTOSTART=$(shell_quote "$WB_SYS_CONF_DIR/xdg-autostart")
 elif test -x "@libexecdir@/openbox-autostart";
 then
     _ "WARNING: Using files from Openbox. These may not work correctly."
     WB_XDG_AUTOSTART="@libexecdir@/openbox-autostart OPENBOX";
 fi
 
-if test -f $WB_USER_CONF_DIR/menu.xml;
+if test -f "$WB_USER_CONF_DIR/menu.xml";
 then
     WB_MENU_XML=$WB_USER_CONF_DIR/menu.xml
-elif test -f $WB_SYS_CONF_DIR/menu.xml;
+elif test -f "$WB_SYS_CONF_DIR/menu.xml";
 then
     WB_MENU_XML=$WB_SYS_CONF_DIR/menu.xml
-elif test -f $OB_USER_CONF_DIR/menu.xml;
+elif test -f "$OB_USER_CONF_DIR/menu.xml";
 then
     _ "WARNING: Using files from Openbox. These may not work correctly."
     WB_MENU_XML=$OB_USER_CONF_DIR/menu.xml
-elif test -f $OB_SYS_CONF_DIR/menu.xml;
+elif test -f "$OB_SYS_CONF_DIR/menu.xml";
 then
     _ "WARNING: Using files from Openbox. These may not work correctly."
     WB_MENU_XML=$OB_SYS_CONF_DIR/menu.xml;
@@ -97,17 +102,17 @@ else
 fi
 export WB_MENU_XML
 
-if test -f $WB_USER_CONF_DIR/rc.xml;
+if test -f "$WB_USER_CONF_DIR/rc.xml";
 then
     WB_RC_XML=$WB_USER_CONF_DIR/rc.xml
-elif test -f $WB_SYS_CONF_DIR/rc.xml;
+elif test -f "$WB_SYS_CONF_DIR/rc.xml";
 then
     WB_RC_XML=$WB_SYS_CONF_DIR/rc.xml
-elif test -f $OB_USER_CONF_DIR/rc.xml;
+elif test -f "$OB_USER_CONF_DIR/rc.xml";
 then
     _ "WARNING: Using files from Openbox. These may not work correctly."
     WB_RC_XML=$OB_USER_CONF_DIR/rc.xml
-elif test -f $OB_SYS_CONF_DIR/rc.xml;
+elif test -f "$OB_SYS_CONF_DIR/rc.xml";
 then
     _ "WARNING: Using files from Openbox. These may not work correctly."
     WB_RC_XML=$OB_SYS_CONF_DIR/rc.xml;
@@ -129,4 +134,4 @@ export PATH=@bindir@:$PATH
 
 # No need to export these to Waybox
 unset TEXTDOMAIN TEXTDOMAINDIR
-$DBUS_LAUNCH @libexecdir@/waybox --startup "${WB_AUTOSTART:-true}; ${WB_XDG_AUTOSTART:-true}" "$@"
+exec $DBUS_LAUNCH @libexecdir@/waybox --startup "${WB_AUTOSTART:-true}; ${WB_XDG_AUTOSTART:-true}" "$@"

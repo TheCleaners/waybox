@@ -9,7 +9,12 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <sys/stat.h>
 #include <unistd.h>
+
+namespace {
+constexpr off_t kMaxIconFileBytes = 8 * 1024 * 1024;
+}
 
 #ifdef HAVE_RSVG
 #include <librsvg/rsvg.h>
@@ -125,8 +130,12 @@ cairo_surface_t *load_themed_icon(const std::string &name, const std::string &th
 			xdh ? xdh : "", xdd ? xdd : "");
 	auto index_of = [&bases](std::string_view t) { return theme_index(bases, t); };
 	for (const std::string &path : icon_search_paths(name, theme, size, bases, index_of)) {
-		/* Most candidates don't exist: check cheaply before loading. */
-		if (access(path.c_str(), R_OK) != 0)
+		/* Most candidates don't exist: check cheaply before loading. Only
+		 * regular files of sane size: reading a FIFO would block the
+		 * compositor, a huge file would eat memory. */
+		struct stat st;
+		if (stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode) ||
+				st.st_size > kMaxIconFileBytes || access(path.c_str(), R_OK) != 0)
 			continue;
 		if (ends_with(path, ".png")) {
 			cairo_surface_t *s = cairo_image_surface_create_from_png(path.c_str());

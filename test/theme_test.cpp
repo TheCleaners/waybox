@@ -177,3 +177,14 @@ WB_TEST(font_place_names_map_to_places) {
 			FontPlace::OnScreenDisplay);
 	WB_CHECK(!wb::font_place_from_name("Nonsense").has_value());
 }
+
+WB_TEST(theme_sizes_are_bounded) {
+	/* A bad theme can't make negative or gigantic frames, and an int that
+	 * doesn't fit is ignored rather than wrapped. */
+	Theme t = wb::parse_themerc("border.width: -1000\npadding.width: 99999\n"
+			"padding.height: 4294967297\nmenu.overlap.x: -5\n");
+	WB_CHECK(t.border_width == 0);
+	WB_CHECK(t.padding_x == 100);
+	WB_CHECK(t.padding_y == wb::default_theme().padding_y);
+	WB_CHECK(t.menu_overlap_x == -5);
+}

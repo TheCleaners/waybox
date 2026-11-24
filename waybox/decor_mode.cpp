@@ -23,8 +23,8 @@ NegotiatedDecoration negotiate_decoration(DecorMode pref,
 	return NegotiatedDecoration::ClientSide;
 }
 
-DecorMode toggle_decor(DecorMode current) {
-	return current == DecorMode::None ? DecorMode::Full : DecorMode::None;
+DecorMode toggle_decor(bool has_frame_now) {
+	return has_frame_now ? DecorMode::None : DecorMode::Full;
 }
 
 }  // namespace wb

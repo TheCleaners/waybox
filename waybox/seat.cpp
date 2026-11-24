@@ -349,7 +349,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	case wb::ActionType::ToggleDecorations: {
 		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled) {
-			toplevel->decorations = wb::toggle_decor(toplevel->decorations);
+			toplevel->decorations = wb::toggle_decor(toplevel_wants_ssd(toplevel));
 			apply_toplevel_decoration(toplevel);
 		}
 		break;
@@ -828,16 +828,23 @@ static void apply_pointer_config(struct wb_server *server, struct wlr_input_devi
 	}
 	if (libinput_device_config_dwt_is_available(d))
 		libinput_device_config_dwt_set_enabled(d, on(get(&L::dwt),
-				libinput_device_config_dwt_get_default_enabled(d)));
+				libinput_device_config_dwt_get_default_enabled(d) ==
+					LIBINPUT_CONFIG_DWT_ENABLED)
+				? LIBINPUT_CONFIG_DWT_ENABLED : LIBINPUT_CONFIG_DWT_DISABLED);
 	if (libinput_device_config_dwtp_is_available(d))
 		libinput_device_config_dwtp_set_enabled(d, on(get(&L::dwtp),
-				libinput_device_config_dwtp_get_default_enabled(d)));
+				libinput_device_config_dwtp_get_default_enabled(d) ==
+					LIBINPUT_CONFIG_DWTP_ENABLED)
+				? LIBINPUT_CONFIG_DWTP_ENABLED : LIBINPUT_CONFIG_DWTP_DISABLED);
 	if (libinput_device_config_left_handed_is_available(d))
 		libinput_device_config_left_handed_set(d, on(get(&L::left_handed),
 				libinput_device_config_left_handed_get_default(d)));
 	if (libinput_device_config_middle_emulation_is_available(d))
 		libinput_device_config_middle_emulation_set_enabled(d, on(get(&L::middle_emulation),
-				libinput_device_config_middle_emulation_get_default_enabled(d)));
+				libinput_device_config_middle_emulation_get_default_enabled(d) ==
+					LIBINPUT_CONFIG_MIDDLE_EMULATION_ENABLED)
+				? LIBINPUT_CONFIG_MIDDLE_EMULATION_ENABLED
+				: LIBINPUT_CONFIG_MIDDLE_EMULATION_DISABLED);
 	if (libinput_device_config_scroll_has_natural_scroll(d))
 		libinput_device_config_scroll_set_natural_scroll_enabled(d, on(get(&L::natural_scroll),
 				libinput_device_config_scroll_get_default_natural_scroll_enabled(d)));

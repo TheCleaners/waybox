@@ -130,6 +130,8 @@ std::optional<int> to_int(const std::optional<std::string> &s) {
 	try {
 		size_t pos = 0;
 		int v = std::stoi(*s, &pos);
+		if (pos != s->size())  /* "12abc", "1.5" */
+			return std::nullopt;
 		return v;
 	} catch (...) {
 		return std::nullopt;
@@ -765,8 +767,12 @@ std::vector<std::string> installed_theme_names() {
 		std::error_code ec;
 		if (!fs::is_directory(base, ec))
 			continue;
-		for (const fs::directory_entry &e : fs::directory_iterator(base, ec)) {
-			if (!e.is_directory())
+		/* Non-throwing steps: an unreadable entry is skipped, not fatal. */
+		fs::directory_iterator it(base, ec), end;
+		for (; !ec && it != end; it.increment(ec)) {
+			const fs::directory_entry &e = *it;
+			std::error_code eec;
+			if (!e.is_directory(eec))
 				continue;
 			fs::path themerc = e.path() / "openbox-3" / "themerc";
 			if (fs::exists(themerc, ec))

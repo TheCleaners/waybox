@@ -128,7 +128,7 @@ if not tests_only
   render_src = files('waybox/render.cpp')
 
   if libinput.found()
-    add_project_arguments('-DHAS_LIBINPUT', language: 'c')
+    add_project_arguments('-DHAS_LIBINPUT', language: ['c', 'cpp'])
   endif
 
   msgfmt = find_program('msgfmt', required: false)

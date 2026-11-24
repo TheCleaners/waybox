@@ -20,4 +20,6 @@ void init_xdg_decoration(struct wb_server *server);
  * wb::DecorMode preference and the client's requested mode. Safe to call any
  * time the preference changes (map, ToggleDecorations) or on request_mode. */
 void apply_toplevel_decoration(struct wb_toplevel *toplevel);
+/* Whether the window gets a server-side frame under its current settings. */
+bool toplevel_wants_ssd(struct wb_toplevel *toplevel);
 #endif

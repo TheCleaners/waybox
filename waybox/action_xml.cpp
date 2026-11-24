@@ -57,12 +57,12 @@ std::optional<Action> parse_action_xml(xmlNode *action_node) {
 	std::optional<Action> action;
 	for (xmlNode *c = action_node->children; c; c = c->next) {
 		/* <menu> is Openbox's spelling of ShowMenu's argument
-		 * (<action name="ShowMenu"><menu>root-menu</menu></action>). Take
-		 * the raw content so CDATA commands keep their whitespace. */
+		 * (<action name="ShowMenu"><menu>root-menu</menu></action>). All
+		 * the text and CDATA, trimmed (as Openbox): indenting around a
+		 * CDATA section mustn't become the command. */
 		if (spec->takes_command && command.empty() &&
-				(is(c, "command") || is(c, "execute") || is(c, "menu")) &&
-				c->children && c->children->content)
-			command = reinterpret_cast<const char *>(c->children->content);
+				(is(c, "command") || is(c, "execute") || is(c, "menu")))
+			command = text(c);
 	}
 	action = make_action(name, command);
 	if (!action)

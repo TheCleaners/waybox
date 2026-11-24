@@ -93,8 +93,12 @@ void paint_fill(cairo_t *cr, double x, double y, double w, double h,
 }
 
 void paint_text(cairo_t *cr, double x, double y, std::string_view text,
-		const Color &color, const FontSpec &font) {
+		const Color &color, const FontSpec &font, int max_width) {
 	PangoLayout *layout = make_layout(cr, text, font);
+	if (max_width > 0) {
+		pango_layout_set_width(layout, max_width * PANGO_SCALE);
+		pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+	}
 	set_source(cr, color);
 	cairo_move_to(cr, x, y);
 	pango_cairo_show_layout(cr, layout);

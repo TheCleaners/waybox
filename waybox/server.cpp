@@ -290,6 +290,9 @@ bool wb_start_server(struct wb_server* server) {
 
 	wlr_log(WLR_INFO, "%s: WAYLAND_DISPLAY=%s", _("Running Wayland compositor on Wayland display"), socket);
 	setenv("WAYLAND_DISPLAY", socket, true);
+	/* For scripts that signal the compositor (waybox-menu's Exit and
+	 * Reconfigure): pgrep would also find the session's shell wrapper. */
+	setenv("WAYBOX_PID", std::to_string(getpid()).c_str(), true);
 
 	wlr_ext_data_control_manager_v1_create(server->wl_display, 1);
 	wlr_data_device_manager_create(server->wl_display);
@@ -406,8 +409,6 @@ bool wb_terminate(struct wb_server* server) {
 	server->output_configuration_applied.disconnect();
 	server->output_configuration_tested.disconnect();
 	server->new_inhibitor.disconnect();
-	if (server->inhibitors.next != nullptr)  /* set up only if startup got that far */
-		wl_list_remove(&server->inhibitors);
 	server->destroy_inhibit_manager.disconnect();
 	server->new_layer_surface.disconnect();
 

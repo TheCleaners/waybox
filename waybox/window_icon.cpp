@@ -36,14 +36,21 @@ void toplevel_update_icon(struct wb_toplevel *t) {
 			if (icon == nullptr && !name.empty())
 				icon = wb::load_themed_icon(name, theme, size);
 		};
-		themed(t->client_icon_name);
+		/* Names from the client are theme icon names, never paths (a
+		 * program mustn't make waybox open files of its choosing); only
+		 * an installed desktop file's Icon= may be a path. */
+		auto from_client = [&](const std::string &name) {
+			if (name.find('/') == std::string::npos)
+				themed(name);
+		};
+		from_client(t->client_icon_name);
 		if (icon == nullptr)
 			themed(wb::desktop_file_icon(app_id));
-		themed(app_id);
-		themed(lower);
+		from_client(app_id);
+		from_client(lower);
 		if (icon == nullptr && last != lower) {
 			themed(wb::desktop_file_icon(last));
-			themed(last);
+			from_client(last);
 		}
 	}
 	if (t->frame)

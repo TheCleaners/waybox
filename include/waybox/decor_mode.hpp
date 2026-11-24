@@ -40,10 +40,11 @@ NegotiatedDecoration negotiate_decoration(DecorMode pref,
 		bool client_prefers_server_side, bool ssd_available);
 
 /*
- * Flip a window's decoration preference for ToggleDecorations: a decorated
- * window (Full or Default) becomes None, an undecorated one becomes Full.
+ * The new decoration preference for ToggleDecorations, from what the window
+ * shows now (not its stored preference: Default may mean either): a window
+ * with a frame becomes None, one without becomes Full.
  */
-DecorMode toggle_decor(DecorMode current);
+DecorMode toggle_decor(bool has_frame_now);
 
 }  // namespace wb
 

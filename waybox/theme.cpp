@@ -3,6 +3,8 @@
  * library (no wlroots), so it links into the standalone unit test and the
  * tests_only sanitized CI build.
  */
+#include <cerrno>
+#include <climits>
 #include "waybox/theme.hpp"
 
 #include <algorithm>
@@ -215,8 +217,10 @@ std::optional<int> parse_int(std::string_view value) {
 		return std::nullopt;
 	std::string s(value);  /* keep the buffer alive for end-pointer below */
 	char *end = nullptr;
+	errno = 0;
 	long v = std::strtol(s.c_str(), &end, 10);
-	if (end == nullptr || *end != '\0')
+	if (end == nullptr || *end != '\0' || errno == ERANGE ||
+			v < INT_MIN || v > INT_MAX)
 		return std::nullopt;
 	return static_cast<int>(v);
 }
@@ -306,17 +310,19 @@ bool ends_with(std::string_view s, std::string_view suffix) {
 }
 
 void apply_key(Theme &t, std::string_view key, std::string_view value) {
-	auto set_int = [&](int &dst) {
+	/* Sizes are kept to sane bounds: a bad theme mustn't make negative or
+	 * gigantic frames and buffers. */
+	auto set_int = [&](int &dst, int lo = 0, int hi = 100) {
 		if (auto v = parse_int(value))
-			dst = *v;
+			dst = *v < lo ? lo : (*v > hi ? hi : *v);
 	};
 
 	if (key == "border.width") { set_int(t.border_width); return; }
 	if (key == "padding.width") { set_int(t.padding_x); return; }
 	if (key == "padding.height") { set_int(t.padding_y); return; }
 	if (key == "window.handle.width") { set_int(t.handle_width); return; }
-	if (key == "menu.overlap.x" || key == "menu.overlap") { set_int(t.menu_overlap_x); return; }
-	if (key == "menu.overlap.y") { set_int(t.menu_overlap_y); return; }
+	if (key == "menu.overlap.x" || key == "menu.overlap") { set_int(t.menu_overlap_x, -100, 100); return; }
+	if (key == "menu.overlap.y") { set_int(t.menu_overlap_y, -100, 100); return; }
 
 	/* Label justification (themerc window.label.text.justify). */
 	if (key == "window.label.text.justify" ||

@@ -1,71 +1,113 @@
-#!/bin/env python
+#!/usr/bin/env python3
+"""Show Waybox's menu.xml in rofi (rofi -show menu -modes menu:waybox-menu)."""
 
-import os, subprocess, sys
+import json
+import os
 import shlex
+import subprocess
+import sys
 import xml.dom.minidom as dom
+import xml.parsers.expat
 
-def get_waybox_pid(name='waybox'):
-    lines = subprocess.Popen(['pgrep', '-x', name], stdout=subprocess.PIPE).stdout.read().splitlines()
-    if lines:
-        return int(lines[0])
-    else:
-        return 0
+
+def waybox_pid():
+    # Set by waybox for its children (pgrep would also find the session's
+    # shell wrapper). None when not running under waybox.
+    pid = os.getenv('WAYBOX_PID', '')
+    return int(pid) if pid.isdigit() and int(pid) > 1 else None
+
+
+def clean(text):
+    # rofi's row separators can't appear in a field.
+    return text.replace('\0', '').replace('\x1f', '')
+
+
+def row(text, info, **fields):
+    extra = ''.join('\x1f%s\x1f%s' % (k, clean(v)) for k, v in fields.items())
+    print('%s\0info\x1f%s%s' % (clean(text), clean(json.dumps(info)), extra))
+
+
+def text_of(node):
+    return ''.join(c.nodeValue for c in node.childNodes
+                   if c.nodeType in (c.TEXT_NODE, c.CDATA_SECTION_NODE)).strip()
+
+
+def item_command(item):
+    actions = item.getElementsByTagName('action')
+    if not actions:
+        return None
+    name = actions[0].getAttribute('name')
+    if name == 'Execute':
+        for tag in ('execute', 'command'):
+            nodes = actions[0].getElementsByTagName(tag)
+            if nodes and text_of(nodes[0]):
+                return text_of(nodes[0])
+        return None
+    pid = waybox_pid()
+    if pid is None:
+        return None
+    if name == 'Exit':
+        return 'kill -s TERM %d' % pid
+    if name == 'Reconfigure':
+        return 'kill -s USR2 %d' % pid
+    return None
+
 
 def get_menu_items(menu, indent, expand):
     menu_id = menu.getAttribute('id')
-    nonselectable = str(bool(menu_id == '')).lower()
-    print("%s%s ⇢\0info\x1f{\"menu\": \"%s\"}\x1fnonselectable\x1f%s" % (indent, menu.getAttribute('label').replace('_', '') or menu_id, menu_id, nonselectable))
-    indent = indent + " "
-    children = menu.childNodes
-    for i in range(0, children.length):
-        if expand:
-            if children[i].nodeType == dom.Node.ELEMENT_NODE and children[i].tagName == 'item':
-                action = children[i].getElementsByTagName('action')[0].getAttribute('name')
-                cmd = ""
-                icon = children[i].getAttribute('icon')
-                label = children[i].getAttribute('label').replace('_', '')
-                if action == 'Execute':
-                    cmd = children[i].getElementsByTagName('execute')[0].firstChild.nodeValue
-                elif action == 'Exit':
-                    cmd = "kill -s SIGTERM %d" % get_waybox_pid()
-                elif action == 'Reconfigure':
-                    cmd = "kill -s SIGUSR2 %d" % get_waybox_pid()
-                print("%s\0info\x1f{\"exec\": \"%s\"}\x1ficon\x1f%s\x1fdisplay\x1f%s %s" % (cmd, cmd.replace('"', '\\"'), icon, indent, label))
-            elif children[i].nodeType == dom.Node.ELEMENT_NODE and children[i].tagName == 'menu':
-                if children[i].getAttribute('execute') == "":
-                    get_menu_items(children[i], indent, os.getenv('ROFI_RETV') is None)
-                else:
-                    try:
-                        import xml.parsers.expat
-                        lines = subprocess.Popen(shlex.split(children[i].getAttribute('execute')), stdout=subprocess.PIPE).stdout.read()
-                        pipe = dom.parseString(lines)
-                        pipes = pipe.getElementsByTagName('menu')
-                        for j in range(0, pipes.length):
-                            get_menu_items(pipes[j], indent, True)
-                    # If a script doesn't function correctly anymore, don't stop rendering the menu
-                    except xml.parsers.expat.ExpatError:
-                        pass
+    label = menu.getAttribute('label').replace('_', '') or menu_id
+    row('%s%s ⇢' % (indent, label), {'menu': menu_id},
+        nonselectable=str(menu_id == '').lower())
+    indent += ' '
+    if not expand:
+        return
+    for child in menu.childNodes:
+        if child.nodeType != child.ELEMENT_NODE:
+            continue
+        if child.tagName == 'item':
+            cmd = item_command(child)
+            if cmd is None:
+                continue
+            label = child.getAttribute('label').replace('_', '')
+            row(cmd, {'exec': cmd}, icon=child.getAttribute('icon'),
+                display='%s %s' % (indent, label))
+        elif child.tagName == 'menu':
+            if child.getAttribute('execute') == '':
+                get_menu_items(child, indent, os.getenv('ROFI_RETV') is None)
+                continue
+            # A pipe menu: a broken or missing script mustn't stop the menu.
+            try:
+                out = subprocess.run(shlex.split(child.getAttribute('execute')),
+                                     capture_output=True, timeout=10).stdout
+                for m in dom.parseString(out).getElementsByTagName('menu'):
+                    get_menu_items(m, indent, True)
+            except (OSError, ValueError, subprocess.SubprocessError,
+                    xml.parsers.expat.ExpatError):
+                pass
 
-menu_xml = os.getenv("WB_MENU_XML") or "menu.xml"
+
+menu_xml = os.getenv('WB_MENU_XML') or 'menu.xml'
 document = dom.parse(menu_xml)
 
-print("\0message\x1f%s" % os.path.abspath(menu_xml))
-if not (info := os.getenv('ROFI_INFO')) is None:
-    import json
-    obj = json.JSONDecoder().decode(s=info)
-    if 'exec' in info:
-        subprocess.Popen(shlex.split(obj['exec']), stdout=subprocess.PIPE)
+print('\0message\x1f%s' % clean(os.path.abspath(menu_xml)))
+info = os.getenv('ROFI_INFO')
+if info is not None:
+    try:
+        obj = json.loads(info)
+    except ValueError:
+        obj = {}
+    if 'exec' in obj:
+        # Detach: the program outlives this script and rofi.
+        subprocess.Popen(shlex.split(obj['exec']), stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
         sys.exit(0)
     elif 'menu' in obj:
-        # Eh document.getElementById() seems not to work
-        menus = document.getElementsByTagName('menu')
-        for i in range(0, menus.length):
-            if menus[i].getAttribute('id') == obj['menu']:
-                menu = menus[i]
-                if not menu is None:
-                    get_menu_items(menu, "", True)
-                    print("---\0nonselectable\x1ftrue")
+        for menu in document.getElementsByTagName('menu'):
+            if menu.getAttribute('id') == obj['menu']:
+                get_menu_items(menu, '', True)
+                print('---\0nonselectable\x1ftrue')
                 break
 
 root_menu = document.getElementsByTagName('menu')[0]
-get_menu_items(root_menu, "", True)
+get_menu_items(root_menu, '', True)
