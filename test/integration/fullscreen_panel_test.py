@@ -39,8 +39,10 @@ def main():
     workdir = tempfile.mkdtemp(prefix="waybox-fspanel-", dir="/tmp")
     foot_ini = os.path.join(workdir, "foot.ini")
     with open(foot_ini, "w") as f:
-        f.write("[colors-dark]\nbackground=0000ff\nforeground=0000ff\n"
-                "[colors]\nbackground=0000ff\nforeground=0000ff\n")
+        # Only [colors-dark]: foot versions that deprecate [colors] show a
+        # yellow warning bar across the top of the window, where the test
+        # looks for the panel.
+        f.write("[colors-dark]\nbackground=0000ff\nforeground=0000ff\n")
     runtime = os.path.join(workdir, "run")
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
