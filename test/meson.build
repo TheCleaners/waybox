@@ -428,6 +428,11 @@ if python.found() and not get_option('tests_only')
     ['workspace', 'workspace_test.py', [workspace_client], 60],
     ['xwayland', 'xwayland_test.py', [], 90],
   ]
+  # wbconf is built only with GTK 4.
+  if is_variable('wbconf_exe')
+    integration_tests += [['wbconf_save', 'wbconf_save_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+  endif
   # Run alone: every Waybox instance reserves an X display (wlroots tries
   # 33), so with many tests in parallel the one that needs Xwayland could
   # find none left.

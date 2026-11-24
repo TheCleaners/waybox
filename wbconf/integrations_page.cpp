@@ -192,6 +192,12 @@ void on_add_program(GtkButton *, gpointer data) {
  * get a custom row. */
 void populate_programs(Ui *ui, const std::vector<wb::StartupSetting> &startup) {
 	for (auto &row : ui->programs) {
+		/* Reloading: other programs from the last load go (rc.xml's are
+		 * added again below). */
+		if (row->in == nullptr && !row->removed) {
+			row->removed = true;
+			gtk_widget_set_visible(row->box, FALSE);
+		}
 		row->listed = false;
 		row->attrs.clear();
 		if (row->in != nullptr) {

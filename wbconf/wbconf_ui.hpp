@@ -134,6 +134,7 @@ struct Ui {
 		std::optional<std::string> saved;     /* as rc.xml has it */
 		GtkWidget *row = nullptr;             /* the whole row (search hides it) */
 		GtkWidget *bar = nullptr;             /* the "modified" bar */
+		GtkLabel *title = nullptr;            /* "Title", "Category: Title" when searching */
 		GtkCheckButton *check = nullptr;
 		GtkSpinButton *spin = nullptr;
 		GtkDropDown *dropdown = nullptr;
@@ -242,11 +243,16 @@ GtkWidget *build_settings_view(Ui *ui);
 void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc);
 void populate_rows(Ui *ui, const wb::RcDocument *doc);
 void rows_saved(Ui *ui);
+/* WBCONF_TEST_SET: change settings as the window would (tests). */
+void apply_test_values(Ui *ui, const char *spec);
 bool rows_unsaved(Ui *ui);
 void reset_all_rows(Ui *ui);
 /* A setting's value now (or its default), by id. */
 std::string setting_value(Ui *ui, const std::string &id);
 void focus_category(Ui *ui, const std::string &category_id);
+/* Save enabled and the status line counting changes, when anything differs
+ * from rc.xml. */
+void refresh_save_state(Ui *ui);
 
 }  // namespace wbconf
 

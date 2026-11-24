@@ -114,7 +114,22 @@ GtkWidget *build_monitors_block(Ui *ui) {
 		std::string title = info.name;
 		if (!info.description.empty())
 			title += "  " + info.description;
-		GtkWidget *grid = section_grid(section(inner, title.c_str()));
+		/* A framed card per monitor. */
+		GtkWidget *frame = gtk_frame_new(nullptr);
+		GtkWidget *label = gtk_label_new(nullptr);
+		char *markup = g_markup_printf_escaped("<b>%s</b>", title.c_str());
+		gtk_label_set_markup(GTK_LABEL(label), markup);
+		g_free(markup);
+		gtk_frame_set_label_widget(GTK_FRAME(frame), label);
+		gtk_widget_set_halign(frame, GTK_ALIGN_START);
+		GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+		gtk_widget_set_margin_top(card, 10);
+		gtk_widget_set_margin_bottom(card, 12);
+		gtk_widget_set_margin_start(card, 14);
+		gtk_widget_set_margin_end(card, 14);
+		gtk_frame_set_child(GTK_FRAME(frame), card);
+		gtk_box_append(GTK_BOX(inner), frame);
+		GtkWidget *grid = section_grid(card);
 		Ui::Monitor m;
 		m.name = info.name;
 		m.enabled = add_switch(grid, 0, _("On:"));
