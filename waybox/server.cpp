@@ -120,6 +120,21 @@ bool wb_create_backend(struct wb_server* server) {
 
 	wlr_renderer_init_wl_display(server->renderer, server->wl_display);
 
+	/* Explicit sync (linux-drm-syncobj-v1): clients pass GPU fences with
+	 * their buffers instead of relying on implicit sync, which NVIDIA's
+	 * driver does not provide. The scene graph waits on and signals the
+	 * timelines itself. Needs both the renderer and the backend to handle
+	 * timelines (the DRM backend does; headless does not). */
+	if (server->renderer->features.timeline &&
+			server->backend->features.timeline) {
+		int drm_fd = wlr_renderer_get_drm_fd(server->renderer);
+		if (drm_fd >= 0 && wlr_linux_drm_syncobj_manager_v1_create(
+				server->wl_display, 1, drm_fd) != NULL)
+			wlr_log(WLR_INFO, "%s", _("Explicit sync (linux-drm-syncobj-v1) enabled"));
+	} else {
+		wlr_log(WLR_INFO, "%s", _("Explicit sync unavailable with this renderer/backend"));
+	}
+
         /* Autocreates an allocator for us.
          * The allocator is the bridge between the renderer and the backend. It
          * handles the buffer creation, allowing wlroots to render onto the

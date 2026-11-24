@@ -70,6 +70,7 @@ For background, see
 | Clipboard | `primary-selection`, `ext-data-control` |
 | Capture | `ext-image-copy-capture` (grim, screen recorders) |
 | X11 | Xwayland (lazy start, `DISPLAY` exported to the session) |
+| Graphics | `linux-dmabuf` v4, `linux-drm-syncobj` (explicit sync, on the DRM backend) |
 | Other | `presentation-time`, `viewporter`, `single-pixel-buffer`, `content-type`, `cursor-shape`, `idle-notify`, `idle-inhibit` |
 
 ### Robustness
@@ -138,6 +139,12 @@ Default bindings (from [`data/rc.xml`](data/rc.xml)):
 | <kbd>Print</kbd> | Screenshot (grim) |
 | <kbd>Super</kbd>+<kbd>C</kbd> | Reload configuration |
 | <kbd>Ctrl</kbd>+<kbd>Escape</kbd> | Exit Waybox |
+
+### Multiple GPUs
+
+Waybox drives displays on every GPU and draws the desktop on the first one
+it opens. To choose the GPUs, or their order, set `WLR_DRM_DEVICES` (e.g.
+`/dev/dri/card0:/dev/dri/card1`) in `~/.config/waybox/environment`.
 
 ## Configuration
 
