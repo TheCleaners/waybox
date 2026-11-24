@@ -202,107 +202,6 @@ integration_env = {
   'WB_MENU_XML': '',
 }
 if python.found() and not get_option('tests_only')
-  test(
-    'integration_alt_tab',
-    python,
-    args: [
-      files('integration' / 'alt_tab_test.py'),
-      waybox_exe,
-      meson.project_source_root() / 'data' / 'rc.xml',
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_xwayland',
-    python,
-    args: [
-      files('integration' / 'xwayland_test.py'),
-      waybox_exe,
-    ],
-    timeout: 90,
-    env: integration_env,
-    )
-  test(
-    'integration_edge_tiling',
-    python,
-    args: [
-      files('integration' / 'edge_tiling_test.py'),
-      waybox_exe,
-    ],
-    timeout: 90,
-    env: integration_env,
-    )
-  test(
-    'integration_mouse_contexts',
-    python,
-    args: [
-      files('integration' / 'mouse_contexts_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_window_menu',
-    python,
-    args: [
-      files('integration' / 'window_menu_test.py'),
-      waybox_exe,
-    ],
-    timeout: 90,
-    env: integration_env,
-    )
-  test(
-    'integration_window_capture',
-    python,
-    args: [
-      files('integration' / 'window_capture_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_color_management',
-    python,
-    args: [
-      files('integration' / 'color_management_test.py'),
-      waybox_exe,
-    ],
-    timeout: 90,
-    env: integration_env,
-    )
-  test(
-    'integration_desktops',
-    python,
-    args: [
-      files('integration' / 'desktops_test.py'),
-      waybox_exe,
-    ],
-    timeout: 90,
-    env: integration_env,
-    )
-  test(
-    'integration_window_state',
-    python,
-    args: [
-      files('integration' / 'window_state_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_mouse_binding',
-    python,
-    args: [
-      files('integration' / 'mouse_binding_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
   # A minimal ext-session-lock-v1 client for the session-lock test.
   session_lock_xml = wl_protocol_dir / 'staging/ext-session-lock/ext-session-lock-v1.xml'
   lock_client = executable(
@@ -314,29 +213,6 @@ if python.found() and not get_option('tests_only')
     ],
     dependencies: [dependency('wayland-client')],
     )
-  test(
-    'integration_session_lock',
-    python,
-    args: [
-      files('integration' / 'session_lock_test.py'),
-      waybox_exe,
-      lock_client,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_session_lock_virtual_always',
-    python,
-    args: [
-      files('integration' / 'session_lock_test.py'),
-      waybox_exe,
-      lock_client,
-      'always',
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
   # A minimal ext-workspace-v1 client (a panel stand-in) for the workspace test.
   workspace_xml = wl_protocol_dir / 'staging/ext-workspace/ext-workspace-v1.xml'
   workspace_client = executable(
@@ -347,17 +223,6 @@ if python.found() and not get_option('tests_only')
       wayland_scanner_code.process(workspace_xml),
     ],
     dependencies: [dependency('wayland-client')],
-    )
-  test(
-    'integration_workspace',
-    python,
-    args: [
-      files('integration' / 'workspace_test.py'),
-      waybox_exe,
-      workspace_client,
-    ],
-    timeout: 60,
-    env: integration_env,
     )
   # A pointer-constraints / relative-pointer client for the pointer lock test.
   constraints_xml = wl_protocol_dir / 'unstable/pointer-constraints/pointer-constraints-unstable-v1.xml'
@@ -375,17 +240,6 @@ if python.found() and not get_option('tests_only')
       wayland_scanner_code.process(xdg_shell_client_xml),
     ],
     dependencies: [dependency('wayland-client')],
-    )
-  test(
-    'integration_pointer_lock',
-    python,
-    args: [
-      files('integration' / 'pointer_lock_test.py'),
-      waybox_exe,
-      constraint_client,
-    ],
-    timeout: 60,
-    env: integration_env,
     )
   # An input method and a text-input application for the input method test.
   text_input_xml = wl_protocol_dir / 'unstable/text-input/text-input-unstable-v3.xml'
@@ -409,74 +263,6 @@ if python.found() and not get_option('tests_only')
     ],
     dependencies: [dependency('wayland-client')],
     )
-  test(
-    'integration_input_method',
-    python,
-    args: [
-      files('integration' / 'input_method_test.py'),
-      waybox_exe,
-      ime_client,
-      text_input_client,
-    ],
-    timeout: 90,
-    env: integration_env,
-    )
-
-  test(
-    'integration_output_rules',
-    python,
-    args: [
-      files('integration' / 'output_rules_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-
-  test(
-    'integration_config_errors',
-    python,
-    args: [
-      files('integration' / 'config_errors_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-
-  test(
-    'integration_desktop_popup',
-    python,
-    args: [
-      files('integration' / 'desktop_popup_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-
-  test(
-    'integration_switcher_order',
-    python,
-    args: [
-      files('integration' / 'switcher_order_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-
-  test(
-    'integration_menu_hover_delay',
-    python,
-    args: [
-      files('integration' / 'menu_hover_delay_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-
   # A security-context-v1 "sandbox engine" for the sandbox test.
   security_context_xml = wl_protocol_dir / 'staging/security-context/security-context-v1.xml'
   sandbox_client = executable(
@@ -487,17 +273,6 @@ if python.found() and not get_option('tests_only')
       wayland_scanner_code.process(security_context_xml),
     ],
     dependencies: [dependency('wayland-client')],
-    )
-  test(
-    'integration_sandbox',
-    python,
-    args: [
-      files('integration' / 'sandbox_test.py'),
-      waybox_exe,
-      sandbox_client,
-    ],
-    timeout: 60,
-    env: integration_env,
     )
   # A minimal wlr-layer-shell panel client for the output-hotplug test.
   layer_shell_xml = meson.project_source_root() / 'protocol' / 'wlr-layer-shell-unstable-v1.xml'
@@ -512,142 +287,63 @@ if python.found() and not get_option('tests_only')
     ],
     dependencies: [dependency('wayland-client')],
     )
-  test(
-    'integration_fullscreen_panel',
-    python,
-    args: [
-      files('integration' / 'fullscreen_panel_test.py'),
-      waybox_exe,
-      layer_client,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_output_hotplug',
-    python,
-    args: [
-      files('integration' / 'output_hotplug_test.py'),
-      waybox_exe,
-      layer_client,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_multi_output',
-    python,
-    args: [
-      files('integration' / 'multi_output_test.py'),
-      waybox_exe,
-      layer_client,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_panel_reflow',
-    python,
-    args: [
-      files('integration' / 'panel_reflow_test.py'),
-      waybox_exe,
-      layer_client,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_reconfigure',
-    python,
-    args: [
-      files('integration' / 'reconfigure_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_pipe_menu',
-    python,
-    args: [
-      files('integration' / 'pipe_menu_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_input_focus',
-    python,
-    args: [
-      files('integration' / 'input_focus_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_placement',
-    python,
-    args: [
-      files('integration' / 'placement_test.py'),
-      waybox_exe,
-      meson.project_source_root() / 'data' / 'rc.xml',
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_app_rule',
-    python,
-    args: [
-      files('integration' / 'app_rule_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_key_chain',
-    python,
-    args: [
-      files('integration' / 'key_chain_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_foreign_toplevel',
-    python,
-    args: [
-      files('integration' / 'foreign_toplevel_test.py'),
-      waybox_exe,
-      meson.project_source_root() / 'data' / 'rc.xml',
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_menu',
-    python,
-    args: [
-      files('integration' / 'menu_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
-  test(
-    'integration_ssd',
-    python,
-    args: [
-      files('integration' / 'ssd_test.py'),
-      waybox_exe,
-    ],
-    timeout: 60,
-    env: integration_env,
-    )
+
+  # The integration tests: [name, script in integration/, arguments after the
+  # Waybox binary, timeout in seconds]. Each runs with integration_env and
+  # skips (exit 77) without its tools. One line per test, kept sorted, so
+  # branches that each add a test don't conflict here.
+  default_rc = meson.project_source_root() / 'data' / 'rc.xml'
+  integration_tests = [
+    ['alt_tab', 'alt_tab_test.py', [default_rc], 60],
+    ['app_rule', 'app_rule_test.py', [], 60],
+    ['color_management', 'color_management_test.py', [], 90],
+    ['config_errors', 'config_errors_test.py', [], 60],
+    ['desktop_popup', 'desktop_popup_test.py', [], 60],
+    ['desktops', 'desktops_test.py', [], 90],
+    ['edge_tiling', 'edge_tiling_test.py', [], 90],
+    ['foreign_toplevel', 'foreign_toplevel_test.py', [default_rc], 60],
+    ['fullscreen_panel', 'fullscreen_panel_test.py', [layer_client], 60],
+    ['input_focus', 'input_focus_test.py', [], 60],
+    ['input_method', 'input_method_test.py', [ime_client, text_input_client], 90],
+    ['key_chain', 'key_chain_test.py', [], 60],
+    ['menu', 'menu_test.py', [], 60],
+    ['menu_hover_delay', 'menu_hover_delay_test.py', [], 60],
+    ['mouse_binding', 'mouse_binding_test.py', [], 60],
+    ['mouse_contexts', 'mouse_contexts_test.py', [], 60],
+    ['multi_output', 'multi_output_test.py', [layer_client], 60],
+    ['output_hotplug', 'output_hotplug_test.py', [layer_client], 60],
+    ['output_rules', 'output_rules_test.py', [], 60],
+    ['panel_reflow', 'panel_reflow_test.py', [layer_client], 60],
+    ['pipe_menu', 'pipe_menu_test.py', [], 60],
+    ['placement', 'placement_test.py', [default_rc], 60],
+    ['pointer_lock', 'pointer_lock_test.py', [constraint_client], 60],
+    ['reconfigure', 'reconfigure_test.py', [], 60],
+    ['sandbox', 'sandbox_test.py', [sandbox_client], 60],
+    ['session_lock', 'session_lock_test.py', [lock_client], 60],
+    ['session_lock_virtual_always', 'session_lock_test.py', [lock_client, 'always'], 60],
+    ['ssd', 'ssd_test.py', [], 60],
+    ['switcher_order', 'switcher_order_test.py', [], 60],
+    ['window_capture', 'window_capture_test.py', [], 60],
+    ['window_menu', 'window_menu_test.py', [], 90],
+    ['window_state', 'window_state_test.py', [], 60],
+    ['workspace', 'workspace_test.py', [workspace_client], 60],
+    ['xwayland', 'xwayland_test.py', [], 90],
+  ]
+  # Run alone: every Waybox instance reserves an X display (wlroots tries
+  # 33), so with many tests in parallel the one that needs Xwayland could
+  # find none left.
+  run_alone = ['xwayland']
+  foreach t : integration_tests
+    test(
+      'integration_' + t[0],
+      python,
+      args: [files('integration' / t[1]), waybox_exe] + t[2],
+      timeout: t[3],
+      env: integration_env,
+      is_parallel: not run_alone.contains(t[0]),
+      )
+  endforeach
+
 endif
 
 # data/xdg-autostart against fixture autostart directories (needs only sh).
