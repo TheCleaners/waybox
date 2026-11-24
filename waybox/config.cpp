@@ -15,6 +15,7 @@
 
 #include "config.h"
 #include "waybox/action_xml.hpp"
+#include "waybox/xml_strict.hpp"
 
 /* mousebind.cpp encodes the modifier bits itself so it can stay wlroots-free;
  * verify those values still agree with wlroots here, where both are visible. */
@@ -643,43 +644,44 @@ static void parse_fonts(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathFreeObject(object);
 }
 
-bool init_config(struct wb_server *server) {
+/* The rc.xml to read: --config-file, else $WB_RC_XML (which the session
+ * script sets), else the first that exists of the user's and the system's. */
+static fs::path chosen_rc_file(struct wb_server *server) {
+	if (server->config_file != NULL)
+		return server->config_file;
+	if (const char *env = getenv("WB_RC_XML"); env && env[0] != '\0')
+		return env;
+	return default_rc_file();
+}
+
+/* Read one rc.xml into a new config. A file with any XML error is refused
+ * (nullptr, with `problem` saying where), never half-read. */
+static struct wb_config *load_config_file(const fs::path &rc_file, std::string *problem) {
 	struct wb_config *config = new (std::nothrow) wb_config{};
 	if (config == NULL)
-		return false;
-	xmlDocPtr doc;
-	fs::path rc_file;
-	/* An explicit --config-file wins over $WB_RC_XML, which the session
-	 * script always sets. */
-	if (server->config_file != NULL) {
-		rc_file = server->config_file;
-	} else if (const char *env = getenv("WB_RC_XML"); env && env[0] != '\0') {
-		rc_file = env;
-	} else {
-		rc_file = default_rc_file();
-	}
-
-	if (rc_file.empty()) {
-		wlr_log(WLR_ERROR, "%s", _("Unable to determine the configuration file path."));
-		delete config;
-		return false;
-	}
-
+		return nullptr;
 	const std::string rc_file_str = rc_file.string();
-	doc = xmlReadFile(rc_file_str.c_str(), NULL, XML_PARSE_RECOVER);
+	wb::XmlError err;
+	xmlDocPtr doc = wb::read_xml_strict(rc_file_str.c_str(), &err);
+	if (doc == NULL) {
+		if (problem != nullptr) {
+			char line[32] = "";
+			if (err.line > 0)
+				snprintf(line, sizeof(line), ", %s %d", _("line"), err.line);
+			*problem = rc_file_str + line + ": " + err.message;
+		}
+		delete config;
+		return nullptr;
+	}
 	wlr_log(WLR_INFO, "Using config file %s", rc_file_str.c_str());
 	setenv("WAYBOX_CONFIG_FILE", rc_file_str.c_str(), true);
-	if (doc == NULL) {
-		wlr_log(WLR_ERROR, "%s", _("Unable to parse the configuration file. Consult stderr for more information."));
-		delete config;
-		return false;
-	}
 	xmlXPathContextPtr ctxt = xmlXPathNewContext(doc);
 	if (ctxt == NULL) {
-		wlr_log(WLR_INFO, "%s", _("Couldn't create new context!"));
 		xmlFreeDoc(doc);
 		delete config;
-		return(false);
+		if (problem != nullptr)
+			*problem = _("Couldn't create new context!");
+		return nullptr;
 	}
 	if (xmlXPathRegisterNs(ctxt, (const xmlChar *) "ob", (const xmlChar *) "http://openbox.org/3.4/rc") != 0) {
 		wlr_log(WLR_INFO, "%s", _("Couldn't register the namespace"));
@@ -711,14 +713,16 @@ bool init_config(struct wb_server *server) {
 		config->libinput_config.tap = parse_xpath_expr("//ob:mouse//ob:libinput/ob:tap", ctxt);
 		config->libinput_config.tap_button_map = parse_xpath_expr("//ob:mouse//ob:libinput/ob:tapButtonMap", ctxt);
 		config->libinput_config.tap_drag = parse_xpath_expr("//ob:mouse//ob:libinput/ob:tapDrag", ctxt);
-		config->libinput_config.tap_drag = parse_xpath_expr("//ob:mouse//ob:libinput/ob:tapDragLock", ctxt);
+		config->libinput_config.tap_drag_lock = parse_xpath_expr("//ob:mouse//ob:libinput/ob:tapDragLock", ctxt);
 	}
 
 	if (!parse_key_bindings(config, ctxt)) {
 		xmlXPathFreeContext(ctxt);
 		xmlFreeDoc(doc);
-		delete config;
-		return false;
+		deinit_config(config);
+		if (problem != nullptr)
+			*problem = rc_file_str + ": " + _("could not read the key bindings");
+		return nullptr;
 	}
 	parse_mouse_bindings(config, ctxt);
 	parse_app_rules(config, ctxt);
@@ -762,13 +766,87 @@ bool init_config(struct wb_server *server) {
 	parse_outputs(config, ctxt);
 	parse_titlebar(config, ctxt);
 
-	server->config = config;
-
 	xmlXPathFreeContext(ctxt);
 	xmlFreeDoc(doc);
 	xmlCleanupParser();
 
-	return true;
+	return config;
+}
+
+/* Say that rc.xml couldn't be read, and what Waybox does instead: in the
+ * log, and as a desktop notification when notify-send is installed (after
+ * a moment at startup, so the notification daemon is up). */
+static void report_config_problem(const std::string &problem, const char *instead,
+		bool startup) {
+	wlr_log(WLR_ERROR, "%s %s. %s", _("Configuration error:"), problem.c_str(), instead);
+	auto quote = [](const std::string &text) {
+		std::string q = "'";
+		for (char c : text) {
+			if (c == '\'')
+				q += "'\\''";
+			else
+				q += c;
+		}
+		return q + "'";
+	};
+	std::string cmd = std::string("command -v notify-send >/dev/null && { ") +
+			(startup ? "sleep 5; " : "") + "notify-send -a Waybox -u critical " +
+			quote(_("Waybox: rc.xml has an error")) + " " +
+			quote(problem + "\n" + instead) + "; }";
+	wb_spawn(cmd.c_str());
+}
+
+/* A config file that is missing or empty just means "no settings". */
+static bool has_settings(const fs::path &path) {
+	std::error_code ec;
+	return fs::exists(path, ec) && fs::file_size(path, ec) > 0 && !ec;
+}
+
+struct wb_config *load_config(struct wb_server *server, std::string *problem) {
+	fs::path rc_file = chosen_rc_file(server);
+	if (rc_file.empty()) {
+		if (problem != nullptr)
+			*problem = _("Unable to determine the configuration file path.");
+		return nullptr;
+	}
+	return load_config_file(rc_file, problem);
+}
+
+bool init_config(struct wb_server *server) {
+	fs::path rc_file = chosen_rc_file(server);
+	std::string problem;
+	struct wb_config *config = nullptr;
+	if (has_settings(rc_file)) {
+		config = load_config_file(rc_file, &problem);
+	} else {
+		wlr_log(WLR_INFO, "%s %s", _("No settings in"), rc_file.c_str());
+	}
+#ifdef WB_SYSCONFDIR
+	/* A broken user rc.xml: start with the system's instead, rather than
+	 * half of the user's. */
+	fs::path system_rc = fs::path(WB_SYSCONFDIR) / "xdg" / "waybox" / "rc.xml";
+	if (config == nullptr && !problem.empty() && rc_file != system_rc &&
+			has_settings(system_rc)) {
+		std::string ignored;
+		config = load_config_file(system_rc, &ignored);
+	}
+#endif
+	if (!problem.empty())
+		report_config_problem(problem, config != nullptr
+				? _("Using the default configuration until it is fixed.")
+				: _("Using built-in defaults until it is fixed."), true);
+	server->config = config;
+	return config != nullptr;
+}
+
+/* Reconfigure: read rc.xml again. A broken file leaves the current
+ * configuration in place. Returns the new config, or nullptr. */
+struct wb_config *reload_config(struct wb_server *server) {
+	std::string problem;
+	struct wb_config *config = load_config(server, &problem);
+	if (config == nullptr)
+		report_config_problem(problem, _("Keeping the current settings."), false);
+	return config;
 }
 
 void deinit_config(struct wb_config *config) {

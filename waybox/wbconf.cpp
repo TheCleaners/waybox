@@ -21,6 +21,7 @@
 #include <libxml/tree.h>
 
 #include "waybox/theme.hpp"
+#include "waybox/xml_strict.hpp"
 
 namespace wb {
 
@@ -262,55 +263,13 @@ RcDocument::~RcDocument() {
 
 namespace {
 
-/* Parse strictly: no recovery, no network, and errors kept rather than
- * printed. The first error is reported. */
 std::optional<xmlDocPtr> parse_strict(const char *data, int size, const char *path,
 		LoadError *error) {
-	xmlParserCtxtPtr ctxt = xmlNewParserCtxt();
-	if (ctxt == nullptr)
-		return std::nullopt;
-	struct First {
-		LoadError err;
-		bool set = false;
-	} first;
-#if LIBXML_VERSION >= 21300
-	xmlCtxtSetErrorHandler(ctxt, [](void *data, const xmlError *e) {
-		auto *f = static_cast<First *>(data);
-		if (f->set || e == nullptr || e->level < XML_ERR_ERROR)
-			return;
-		f->err.message = e->message ? e->message : "";
-		while (!f->err.message.empty() && f->err.message.back() == '\n')
-			f->err.message.pop_back();
-		f->err.line = e->line;
-		f->set = true;
-	}, &first);
-#endif
-	int options = XML_PARSE_NONET;
-	xmlDocPtr doc = data != nullptr
-		? xmlCtxtReadMemory(ctxt, data, size, path, nullptr, options)
-		: xmlCtxtReadFile(ctxt, path, nullptr, options);
-#if LIBXML_VERSION < 21300
-	/* Older libxml2: no error handler per context; take its last error. */
-	if (const xmlError *e = xmlCtxtGetLastError(ctxt); e != nullptr &&
-			e->level >= XML_ERR_ERROR) {
-		first.err.message = e->message ? e->message : "";
-		while (!first.err.message.empty() && first.err.message.back() == '\n')
-			first.err.message.pop_back();
-		first.err.line = e->line;
-		first.set = true;
-	}
-#endif
-	bool ok = doc != nullptr && ctxt->wellFormed && !first.set &&
-			xmlDocGetRootElement(doc) != nullptr;
-	xmlFreeParserCtxt(ctxt);
-	if (!ok) {
-		if (doc != nullptr)
-			xmlFreeDoc(doc);
-		if (error != nullptr) {
-			*error = first.err;
-			if (error->message.empty())
-				error->message = "not an XML document";
-		}
+	XmlError err;
+	xmlDocPtr doc = read_xml_strict(path, &err, data, size);
+	if (doc == nullptr) {
+		if (error != nullptr)
+			*error = LoadError{err.message, err.line};
 		return std::nullopt;
 	}
 	return doc;
