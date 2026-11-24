@@ -229,7 +229,7 @@ and *?*; omitted attributes match anything.
 ```
 <waybox>
   <menu source="builtin" submenuOpen="hover" hoverDelay="100" wrap="yes" icons="yes"/>
-  <switcher order="mru" osd="yes" wrap="yes"/>
+  <switcher order="mru" osd="yes" wrap="yes" icons="yes"/>
   <edgeTiling enabled="yes" range="10"/>
   <titlebar paddingY="2" buttonSize="0" resizeGrab="8"/>
   <virtualInput allow="unlocked"/>
@@ -256,7 +256,8 @@ and *?*; omitted attributes match anything.
 	bottom), or *spatial* (monitor by monitor, then by position, left to
 	right and top to bottom); Alt+Tab goes to the next window in that order.
 	*osd*: show the list while the modifier is held (otherwise, switch at
-	once). *wrap*: cycling wraps at the ends.
+	once). *wrap*: cycling wraps at the ends. *icons*: each window's icon
+	beside its title (default *yes*).
 
 *<edgeTiling>*
 	Dragging a window to a monitor edge tiles it: the left or right half,

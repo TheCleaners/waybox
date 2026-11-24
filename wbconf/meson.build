@@ -20,6 +20,6 @@ executable(
 
 # Desktop entry so wbconf shows up in application menus / launchers.
 install_data(
-  'wbconf.desktop',
+  'org.waybox.wbconf.desktop',
   install_dir: get_option('datadir') / 'applications',
 )

@@ -190,11 +190,11 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 			? wb::switcher_style_from_theme(server->config->theme)
 			: wb::switcher_style_from_theme(wb::default_theme());
 	auto widget = std::make_unique<wb::SwitcherWidget>(server, style, behavior);
-	std::vector<std::string> labels;
-	labels.reserve(wins.size());
+	std::vector<wb::SwitcherWidget::Entry> rows;
+	rows.reserve(wins.size());
 	for (struct wb_toplevel *w : wins)
-		labels.push_back(toplevel_label(w));
-	widget->open(std::move(labels), sel);
+		rows.push_back({toplevel_label(w), w->icon});
+	widget->open(std::move(rows), sel);
 
 	server->switcher_windows = std::move(wins);
 	server->switcher_mods = trigger;

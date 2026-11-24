@@ -396,3 +396,14 @@ WB_TEST(title_layout_round_trip) {
 	WB_CHECK(RcDocument::from_string(out)->read().title_layout ==
 			std::optional<std::string>("NLSDIMC"));
 }
+
+WB_TEST(switcher_icons_round_trip) {
+	auto doc = RcDocument::from_string(kMinimalRc);
+	WayboxSettings before = doc->read(), s = before;
+	s.switcher_icons = false;
+	doc->apply(s, before);
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("icons=\"no\"") != std::string::npos);
+	WB_CHECK(RcDocument::from_string(out)->read().switcher_icons ==
+			std::optional<bool>(false));
+}
