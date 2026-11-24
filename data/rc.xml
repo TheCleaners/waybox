@@ -31,6 +31,12 @@
   <waybox>
     <menu source="builtin" submenuOpen="hover" hoverDelay="100" wrap="yes" icons="yes"/>
     <switcher order="mru" osd="yes" wrap="yes"/>
+    <!-- Input from virtual keyboards/pointers (wtype, wlrctl, on-screen
+         keyboards, remote-desktop tools): "unlocked" (default) ignores it
+         while the session is locked, so no program can type into the lock
+         screen; "always" allows it (e.g. an on-screen keyboard to unlock a
+         tablet); "never" ignores virtual devices entirely. -->
+    <virtualInput allow="unlocked"/>
     <titlebar paddingY="2" buttonSize="0" resizeGrab="8"/>
   </waybox>
   <!-- Where newly-mapped windows are placed: Smart (avoid overlap, then
@@ -55,6 +61,10 @@
     <keybind key="C-Escape">
       <action name="Exit"/>
     </keybind>
+    <!-- Lock the screen with any ext-session-lock-v1 locker, e.g. swaylock. -->
+    <!-- <keybind key="W-l">
+      <action name="Execute"><execute>swaylock -f</execute></action>
+    </keybind> -->
     <keybind key="W-c">
       <action name="Reconfigure"/>
     </keybind>

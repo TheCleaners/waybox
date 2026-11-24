@@ -39,6 +39,12 @@ For background, see
 - **Bindings and rules**: Openbox key chains, mouse/context bindings,
   Alt+drag to move or resize, and per-application rules (position, size,
   state, focus, decorations).
+- **Screen locking** with swaylock or any other `ext-session-lock-v1` locker.
+  While locked, every output is covered, compositor bindings are off, and
+  only the locker gets input. If the locker crashes, the screen stays locked
+  and blank until a new locker unlocks it. The lock screen is opaque by
+  design; for a blurred-desktop look, give swaylock a blurred screenshot
+  (`grim - | magick - -blur 0x8 /tmp/lock.png && swaylock -i /tmp/lock.png`).
 - **wbconf**: a GTK4 settings tool in the style of obconf, with a live theme
   preview.
 
@@ -48,10 +54,11 @@ For background, see
 |---|---|
 | Displays | `wlr-output-management` (wlr-randr, kanshi), `wp-fractional-scale` (sharp text in foot and others at 1.25×, 1.5× and so on), `xdg-output`, `gamma-control` |
 | Shell | `xdg-shell`, `xdg-decoration`, `layer-shell`, `xdg-activation`, `xdg-toplevel-icon` |
+| Security | `ext-session-lock` (swaylock); virtual keyboard and pointer, ignored while locked by default (`<virtualInput>`) |
 | Taskbars | `wlr-foreign-toplevel-management`, `ext-foreign-toplevel-list` |
 | Clipboard | `primary-selection`, `ext-data-control` |
 | Capture | `ext-image-copy-capture` (grim, screen recorders) |
-| Other | `presentation-time`, `viewporter`, `single-pixel-buffer`, `content-type`, `cursor-shape`, `idle-notify`, `idle-inhibit`, virtual keyboard and pointer |
+| Other | `presentation-time`, `viewporter`, `single-pixel-buffer`, `content-type`, `cursor-shape`, `idle-notify`, `idle-inhibit` |
 
 ### Robustness
 
@@ -171,6 +178,7 @@ limited, so a focused PR with a test is the easiest thing to merge. See
 
 ## Credits
 
-wizbright created Waybox. keithbowes did much of the later wlroots porting and
-protocol work. The original lives at
+[@wizbright](https://github.com/wizbright) created Waybox.
+[@keithbowes](https://github.com/keithbowes) did much of the later wlroots
+porting and protocol work. The original lives at
 [wizbright/waybox](https://github.com/wizbright/waybox).
