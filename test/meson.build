@@ -239,6 +239,16 @@ if python.found() and not get_option('tests_only')
     env: integration_env,
     )
   test(
+    'integration_window_capture',
+    python,
+    args: [
+      files('integration' / 'window_capture_test.py'),
+      waybox_exe,
+    ],
+    timeout: 60,
+    env: integration_env,
+    )
+  test(
     'integration_desktops',
     python,
     args: [

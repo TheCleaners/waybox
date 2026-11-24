@@ -178,6 +178,8 @@ void x11_unmap(struct wb_toplevel *t) {
 	if (!t->mapped)
 		return;
 	unmap_toplevel(t);
+	/* The capture scene shows the surface, which is going away. */
+	drop_window_capture(t);
 	/* Frames belong to a mapped window; the surface tree goes with the
 	 * surface. */
 	t->frame.reset();

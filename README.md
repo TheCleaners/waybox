@@ -76,7 +76,7 @@ For background, see
 | Taskbars | `wlr-foreign-toplevel-management`, `ext-foreign-toplevel-list`, `ext-workspace` (desktops in Waybar) |
 | Input | `pointer-constraints`, `relative-pointer` (pointer lock for games, held only while the window has keyboard focus) |
 | Clipboard | `primary-selection`, `ext-data-control` |
-| Capture | `ext-image-copy-capture` (grim, screen recorders) |
+| Capture | `ext-image-copy-capture` (grim, screen recorders), with whole outputs and single windows as sources (window capture needs wlroots 0.20) |
 | X11 | Xwayland (lazy start, `DISPLAY` exported to the session) |
 | Graphics | `linux-dmabuf` v4, `linux-drm-syncobj` (explicit sync, on the DRM backend) |
 | Other | `presentation-time`, `viewporter`, `single-pixel-buffer`, `content-type`, `cursor-shape`, `idle-notify`, `idle-inhibit` |
