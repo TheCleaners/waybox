@@ -26,6 +26,8 @@ struct wb_output {
 	 * output stays in the layout, with its windows, and is still reported
 	 * as enabled to output-management clients. */
 	bool powered_off = false;
+	/* Switched off by Waybox's own <idle screenOff>: back on with input. */
+	bool idle_off = false;
 	struct wlr_box geometry = {};
 	struct wlr_box usable_area = {};
 
@@ -40,6 +42,9 @@ struct wb_output {
 };
 
 void init_output(struct wb_server *server);
+/* Switch an output off or on for power saving (it stays in the layout).
+ * False if it wasn't (already so, disabled in the settings, or failed). */
+bool output_set_power(struct wb_output *output, bool on);
 /* Set HDR (or SDR) colour state on an output state before committing it. */
 /* Apply rc.xml's <outputs> rule for every output that has one and that no
  * output-management client has configured (on Reconfigure). */

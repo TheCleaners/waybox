@@ -53,12 +53,10 @@ start_polkit_agent()
 }
 start_polkit_agent
 
-# Switch the screens off after 10 minutes without input, and back on at the
-# next key press or mouse move (needs swayidle and wlopm). To lock the
-# screen as well, add for example: timeout 300 'swaylock -f'
-if which swayidle wlopm >/dev/null 2>&1 && ! pgrep -u "$(id -u)" -x swayidle >/dev/null; then
-    swayidle -w timeout 600 'wlopm --off "*"' resume 'wlopm --on "*"' &
-fi
+# To switch the screens off after 10 minutes without input, and back on at
+# the next key press or mouse move, uncomment this (needs swayidle and
+# wlopm). To lock the screen as well, add for example: timeout 300 'swaylock -f'
+#swayidle -w timeout 600 'wlopm --off "*"' resume 'wlopm --on "*"' &
 
 # Load a random wallpaper
 get_random_wallpaper()

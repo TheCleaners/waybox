@@ -32,6 +32,7 @@
 
 namespace wb { class MenuWidget; class SwitcherWidget; class DesktopPopup; }
 struct wb_session_lock_state;
+struct wb_startup_state;
 struct wb_workspace_state;
 
 struct wb_input_method_relay;
@@ -162,6 +163,10 @@ struct wb_server {
 
 	/* ext-session-lock-v1 state (see session_lock.h), or null. */
 	struct wb_session_lock_state *session_lock = nullptr;
+	struct wb_startup_state *startup = nullptr;
+	/* <idle screenOff>: */
+	struct wl_event_source *idle_timer = nullptr;
+	int64_t idle_last_activity_ms = 0;  /* <startup> programs */
 
 	/* Window capture requests (see init_window_capture). */
 	wb::Listener new_window_capture;

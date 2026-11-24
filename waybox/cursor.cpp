@@ -3,6 +3,7 @@
 #include <optional>
 #include <vector>
 
+#include "idle.h"
 #include "waybox/cursor.h"
 #include "config.h"
 #include "waybox/geometry.hpp"
@@ -253,7 +254,7 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 			wlr_cursor_set_xcursor(server->cursor->cursor,
 					server->cursor->xcursor_manager, "default");
 		}
-		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		idle_activity(server, seat);
 		return;
 	}
 
@@ -277,7 +278,7 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 				server->cursor->cursor->y);
 		wlr_cursor_set_xcursor(server->cursor->cursor,
 				server->cursor->xcursor_manager, "default");
-		wlr_idle_notifier_v1_notify_activity(server->idle_notifier,
+		idle_activity(server,
 				server->seat->seat);
 		return;
 	}
@@ -319,7 +320,7 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 			 * re-sends a pointer enter, prompting the client to reassert its own
 			 * cursor (otherwise it would keep the resize cursor we just set). */
 			wlr_seat_pointer_clear_focus(server->seat->seat);
-			wlr_idle_notifier_v1_notify_activity(server->idle_notifier,
+			idle_activity(server,
 					server->seat->seat);
 			return;
 		}
@@ -355,7 +356,7 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 		wlr_seat_pointer_clear_focus(seat);
 	}
 
-	wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+	idle_activity(server, seat);
 }
 
 
@@ -377,7 +378,7 @@ void wb_cursor::on_motion(void *data) {
 	if (!pointer_constraints_motion(server, event->time_msec, &dx, &dy,
 			event->unaccel_dx, event->unaccel_dy)) {
 		/* Locked: the client reads raw motion; the cursor stays put. */
-		wlr_idle_notifier_v1_notify_activity(server->idle_notifier,
+		idle_activity(server,
 				server->seat->seat);
 		return;
 	}
@@ -390,7 +391,7 @@ void wb_cursor::on_motion_absolute(void *data) {
 	if (wb_input_blocked(server, &event->pointer->base))
 		return;
 	if (pointer_constraints_locked(server)) {
-		wlr_idle_notifier_v1_notify_activity(server->idle_notifier,
+		idle_activity(server,
 				server->seat->seat);
 		return;
 	}
@@ -525,7 +526,7 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 					wlr_surface_get_root_surface(surface));
 		wlr_seat_pointer_notify_button(seat, event->time_msec, event->button,
 				event->state);
-		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		idle_activity(server, seat);
 		return;
 	}
 
@@ -540,7 +541,7 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 			server->menu.reset();
 			wb_run_menu_actions(server, std::move(actions));
 		}
-		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		idle_activity(server, seat);
 		return;
 	}
 
@@ -563,7 +564,7 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 				cursor->y, &rh);
 		if (ft == pressed && rh.part == wb::FramePart::Button)
 			activate_frame_button(ft, rh.button);
-		wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+		idle_activity(server, seat);
 		return;
 	}
 
@@ -582,7 +583,7 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 				/* A binding took the press over. In a window (the Client
 				 * context) the click still reaches the program, as in
 				 * Openbox ("Focus, Raise" on a click must not eat it). */
-				wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+				idle_activity(server, seat);
 				return;
 			}
 		}
@@ -619,7 +620,7 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 				if (edges != 0 && event->button == wb::MOUSE_BUTTON_LEFT)
 					begin_interactive(ft, WB_CURSOR_RESIZE, edges);
 			}
-			wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+			idle_activity(server, seat);
 			return;
 		}
 
@@ -638,7 +639,7 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 				begin_interactive(toplevel, WB_CURSOR_RESIZE,
 						nearest_resize_edges(toplevel, cursor->x, cursor->y));
 			}
-			wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+			idle_activity(server, seat);
 			return;
 		}
 
@@ -657,7 +658,7 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 	} else {
 		focus_toplevel(toplevel);
 	}
-	wlr_idle_notifier_v1_notify_activity(server->idle_notifier, seat);
+	idle_activity(server, seat);
 }
 
 void wb_cursor::on_axis(void *data) {

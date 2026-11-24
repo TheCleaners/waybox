@@ -10,6 +10,7 @@
 #include "waybox/menu.hpp"
 #include "waybox/mousebind.hpp"
 #include "waybox/output_rules.hpp"
+#include "waybox/startup.hpp"
 #include "waybox/placement.hpp"
 #include "waybox/style.hpp"
 #include "waybox/theme.hpp"
@@ -90,6 +91,15 @@ struct wb_config {
 	 * position=... transform=... enabled=... adaptiveSync=.../></outputs>:
 	 * per-output settings, matched by connector name or make/model/serial. */
 	std::vector<wb::OutputRule> output_rules;
+
+	/* rc.xml <waybox><startup><program name=... enabled=... restart=...>
+	 * command</program></startup>: programs Waybox starts with the session
+	 * (and starts again if they crash). None unless listed. */
+	std::vector<wb::StartupProgram> startup;
+
+	/* rc.xml <waybox><idle screenOff="seconds"/>: switch the screens off
+	 * after that long without input (0, the default: never). */
+	int idle_screen_off_s = 0;
 
 	/* rc.xml <waybox><edgeTiling enabled="yes|no" range="N"/>: drag a window
 	 * to a monitor edge to tile it (halves, corner quarters, maximize at the

@@ -3,6 +3,8 @@
 #include <unistd.h>
 
 #include "waybox/server.h"
+#include "idle.h"
+#include "startup_supervisor.h"
 #include "waybox/menu_widget.hpp"
 #include "waybox/switcher_widget.hpp"
 #include "waybox/desktop_popup.hpp"
@@ -40,6 +42,9 @@ static int handle_signal(int sig, void *data) {
 			 * reconfigure. */
 		case SIGUSR2:
 			wb_reconfigure(srv);
+			break;
+		case SIGCHLD:
+			startup_reap(srv);
 			break;
 	}
 	return 0;
@@ -106,9 +111,9 @@ int main(int argc, char **argv) {
 		exit(EXIT_FAILURE);
 	}
 
-	struct wl_event_source *signal_sources[4];
+	struct wl_event_source *signal_sources[5];
 	int n_signal_sources = 0;
-	for (int sig : {SIGINT, SIGTERM, SIGUSR1, SIGUSR2}) {
+	for (int sig : {SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGCHLD}) {
 		signal_sources[n_signal_sources++] = wl_event_loop_add_signal(
 				server.wl_event_loop, sig, handle_signal, &server);
 	}
@@ -116,6 +121,8 @@ int main(int argc, char **argv) {
 	if (startup_cmd) {
 		wb_spawn(startup_cmd);
 	}
+	startup_apply(&server);
+	idle_reconfigured(&server);  /* start counting for <idle screenOff> */
 
 	wl_display_run(server.wl_display);
 
