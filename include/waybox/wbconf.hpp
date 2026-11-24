@@ -18,6 +18,16 @@ struct OutputSetting {
 	bool operator==(const OutputSetting &) const = default;
 };
 
+/* One <waybox><startup><program> entry. `name` is what it's known by (its
+ * name attribute, or the command's program); `attrs` its attributes as
+ * written (enabled, restart, name). */
+struct StartupSetting {
+	std::string name;
+	std::string command;
+	std::map<std::string, std::string> attrs;
+	bool operator==(const StartupSetting &) const = default;
+};
+
 /*
  * The waybox settings that wbconf (our obconf-style GUI) reads from and writes
  * to rc.xml. Every field is optional: std::nullopt means "absent from rc.xml",
@@ -83,6 +93,10 @@ struct WayboxSettings {
 	std::map<std::string, std::string> xkb;
 	/* Mouse and touchpad: <mouse><libinput><accelProfile|...>, as written */
 	std::map<std::string, std::string> libinput;
+
+	/* Integrations: programs started with the session, and screen-off */
+	std::vector<StartupSetting> startup;
+	std::optional<int> idle_screen_off;              /* waybox/idle@screenOff (s) */
 
 	/* Advanced */
 	std::optional<bool> xwayland;                    /* waybox/xwayland@enabled */

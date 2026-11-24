@@ -1,0 +1,5 @@
+[Integration]
+Name=mako
+Category=Notifications
+Comment=Notification daemon (settings in ~/.config/mako/config)
+Exec=mako

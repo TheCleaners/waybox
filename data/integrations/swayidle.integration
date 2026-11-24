@@ -1,0 +1,5 @@
+[Integration]
+Name=swayidle
+Category=Idle
+Comment=Runs commands when idle: lock the screen, suspend (screen-off is built in, below)
+Exec=swayidle -w timeout 300 'swaylock -f' before-sleep 'swaylock -f'

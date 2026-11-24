@@ -89,6 +89,7 @@ client_menu_src = files('waybox/client_menu.cpp')
 security_src = files('waybox/security.cpp')
 output_rules_src = files('waybox/output_rules.cpp')
 startup_src = files('waybox/startup.cpp')
+integrations_src = files('waybox/integrations.cpp')
 xml_strict_src = files('waybox/xml_strict.cpp')
 
 # tests_only builds just the dependency-free unit tests (no wlroots, no

@@ -1,0 +1,5 @@
+[Integration]
+Name=fnott
+Category=Notifications
+Comment=Keyboard-driven notification daemon
+Exec=fnott

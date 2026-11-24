@@ -1,0 +1,20 @@
+[Integration]
+Name=swaybg
+Category=Wallpaper
+Comment=Wallpaper image or solid colour
+Exec=swaybg -c '#303030'
+
+[Option image]
+Label=Image
+Flag=-i
+Hint=~/Pictures/wallpaper.png
+
+[Option mode]
+Label=Mode
+Flag=-m
+Hint=fill, fit, stretch, center or tile
+
+[Option colour]
+Label=Colour
+Flag=-c
+Hint=#303030

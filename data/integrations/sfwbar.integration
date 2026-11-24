@@ -1,0 +1,5 @@
+[Integration]
+Name=SFWBar
+Category=Panel
+Comment=Taskbar panel with a start menu
+Exec=sfwbar

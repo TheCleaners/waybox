@@ -1,0 +1,5 @@
+[Integration]
+Name=LXQt PolicyKit agent
+Category=Polkit
+Comment=Asks for your password when a program needs more privileges
+Exec=lxqt-policykit-agent

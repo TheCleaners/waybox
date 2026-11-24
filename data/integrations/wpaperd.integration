@@ -1,0 +1,5 @@
+[Integration]
+Name=wpaperd
+Category=Wallpaper
+Comment=Wallpaper daemon with slideshows (settings in ~/.config/wpaperd)
+Exec=wpaperd

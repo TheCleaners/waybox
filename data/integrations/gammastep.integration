@@ -1,0 +1,15 @@
+[Integration]
+Name=Gammastep
+Category=NightLight
+Comment=Warmer screen colours after sunset
+Exec=gammastep -l 51.5:-0.1
+
+[Option location]
+Label=Location (latitude:longitude)
+Flag=-l
+Hint=51.5:-0.1
+
+[Option temperatures]
+Label=Temperatures (day:night, K)
+Flag=-t
+Hint=6500:4000

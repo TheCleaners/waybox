@@ -1,0 +1,10 @@
+[Integration]
+Name=Waybar
+Category=Panel
+Comment=Panel with workspaces, tray, clock and status modules
+Exec=waybar
+
+[Option config]
+Label=Config file
+Flag=-c
+Hint=~/.config/waybar/config.jsonc

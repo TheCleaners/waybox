@@ -1,0 +1,5 @@
+[Integration]
+Name=SwayNotificationCenter
+Category=Notifications
+Comment=Notification daemon with a notification centre panel
+Exec=swaync

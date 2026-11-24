@@ -6,12 +6,13 @@ wbconf_args = [
   '-DGETTEXT_PACKAGE="' + meson.project_name().to_lower() + '"',
   '-DLOCALEDIR="' + get_option('prefix') / get_option('localedir') + '"',
   '-DUSE_NLS=1',
+  '-DWB_INTEGRATIONS_DIR="' + get_option('prefix') / get_option('datadir') / 'waybox' / 'integrations' + '"',
 ]
 
 executable(
   'wbconf',
   ['main.cpp', files('../waybox/wbconf.cpp'), xml_strict_src, theme_src, style_src, widget_src,
-   render_src],
+   render_src, startup_src, integrations_src],
   include_directories: [inc_dir],
   dependencies: [gtk4, json_glib, libxml2, cairo, pango, pangocairo],
   cpp_args: wbconf_args,

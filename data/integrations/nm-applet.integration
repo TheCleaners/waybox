@@ -1,0 +1,5 @@
+[Integration]
+Name=NetworkManager applet
+Category=Tray
+Comment=Network menu in the panel's tray
+Exec=nm-applet --indicator
