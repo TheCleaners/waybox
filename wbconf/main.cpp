@@ -13,6 +13,7 @@
 #include <gtk/gtk.h>
 
 #include <algorithm>
+#include <cstring>
 #include <csignal>
 #include <cstdlib>
 #include <filesystem>
@@ -24,7 +25,9 @@
 #include <dirent.h>
 #include <libintl.h>
 #include <locale.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include "waybox/wbconf.hpp"
@@ -73,23 +76,71 @@ std::string system_rc_path() {
 }
 
 /* Load the document to edit: the user's file if present, else the system
- * default (so the user inherits its settings), else a blank skeleton. */
-wb::RcDocument load_document() {
+ * default (so the user inherits its settings), else a blank skeleton. A user
+ * file with an error is NOT replaced by the default: nullopt, with the error,
+ * so nothing is saved over it. */
+std::optional<wb::RcDocument> load_document(std::string *problem) {
 	std::error_code ec;
 	std::string up = user_rc_path();
-	if (!up.empty() && fs::exists(up, ec))
-		if (auto d = wb::RcDocument::load_file(up))
-			return std::move(*d);
+	if (!up.empty() && fs::exists(up, ec)) {
+		wb::LoadError err;
+		if (auto d = wb::RcDocument::load_file(up, &err))
+			return d;
+		if (problem != nullptr) {
+			char *msg = g_strdup_printf(_("%s, line %d: %s. Fix it (wbconf won't save "
+					"over it), then reopen wbconf."), up.c_str(), err.line,
+					err.message.c_str());
+			*problem = msg;
+			g_free(msg);
+		}
+		return std::nullopt;
+	}
 	std::string sp = system_rc_path();
 	if (!sp.empty() && fs::exists(sp, ec))
 		if (auto d = wb::RcDocument::load_file(sp))
-			return std::move(*d);
-	return *wb::RcDocument::from_string(kSkeletonRc);
+			return d;
+	return wb::RcDocument::from_string(kSkeletonRc);
 }
 
-/* Ask every waybox process owned by this user to reconfigure (SIGUSR2), the
- * same signal Openbox uses. Returns the number signalled. */
+/* The process at the other end of this session's Wayland socket: the
+ * compositor wbconf is running in. 0 if there is none. */
+pid_t session_compositor() {
+	const char *display = getenv("WAYLAND_DISPLAY");
+	const char *runtime = getenv("XDG_RUNTIME_DIR");
+	if (display == nullptr || display[0] == '\0')
+		return 0;
+	std::string path = display[0] == '/' ? display
+			: (runtime ? std::string(runtime) + "/" + display : std::string());
+	struct sockaddr_un addr = {};
+	addr.sun_family = AF_UNIX;
+	if (path.empty() || path.size() >= sizeof(addr.sun_path))
+		return 0;
+	std::memcpy(addr.sun_path, path.c_str(), path.size() + 1);
+	int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	if (fd < 0)
+		return 0;
+	pid_t pid = 0;
+	struct ucred cred = {};
+	socklen_t len = sizeof(cred);
+	if (connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) == 0 &&
+			getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) == 0)
+		pid = cred.pid;
+	close(fd);
+	return pid;
+}
+
+bool is_waybox(long pid) {
+	std::ifstream comm("/proc/" + std::to_string(pid) + "/comm");
+	std::string name;
+	return std::getline(comm, name) && name == "waybox";
+}
+
+/* Ask Waybox to reconfigure (SIGUSR2, the signal Openbox uses): the one
+ * wbconf runs in; outside a Waybox session, every Waybox this user runs.
+ * Returns the number signalled. */
 int signal_waybox_reload() {
+	if (pid_t pid = session_compositor(); pid > 0 && is_waybox(pid))
+		return kill(pid, SIGUSR2) == 0 ? 1 : 0;
 	int signalled = 0;
 	uid_t me = getuid();
 	DIR *proc = opendir("/proc");
@@ -101,10 +152,7 @@ int signal_waybox_reload() {
 		long pid = strtol(e->d_name, &end, 10);
 		if (end == e->d_name || *end != '\0' || pid <= 0)
 			continue;
-		std::string comm_path = std::string("/proc/") + e->d_name + "/comm";
-		std::ifstream comm(comm_path);
-		std::string name;
-		if (!std::getline(comm, name) || name != "waybox")
+		if (!is_waybox(pid))
 			continue;
 		struct stat st {};
 		std::string dir = std::string("/proc/") + e->d_name;
@@ -175,10 +223,12 @@ struct Ui {
 	GtkWidget *preview = nullptr;
 	GtkNotebook *notebook = nullptr;  /* for "reset this page" */
 
-	/* The settings as loaded, so Save only writes fonts the user changed
-	 * (the font buttons are seeded with a default so the picker pre-selects a
-	 * font, but we must not persist that default unless it was edited). */
-	wb::WayboxSettings original;
+	/* What the widgets showed after loading (or the last save): Save writes
+	 * only what differs from it, so untouched settings, including the
+	 * defaults the widgets display for absent ones, aren't written. */
+	wb::WayboxSettings shown;
+	GtkWidget *save = nullptr;
+	bool loaded = false;  /* false: rc.xml has an error; nothing is saved */
 };
 
 const char *const kPlacement[] = {"Smart", "Center", "UnderMouse", nullptr};
@@ -366,11 +416,17 @@ void font_set(FontPicker *p, const std::optional<std::string> &v) {
 	bool bold = pango_font_description_get_weight(d) >= PANGO_WEIGHT_BOLD;
 	pango_font_description_free(d);
 
-	guint sel = 0;
-	for (guint i = 0; i < p->families.size(); i++) {
-		if (p->families[i] == family) { sel = i; break; }
+	/* A family that isn't installed stays as it is (an extra entry), rather
+	 * than becoming whichever font happens to be first. */
+	auto it = std::find(p->families.begin(), p->families.end(), family);
+	if (it == p->families.end()) {
+		gtk_string_list_append(GTK_STRING_LIST(gtk_drop_down_get_model(p->family)),
+				family.c_str());
+		p->families.push_back(family);
+		it = p->families.end() - 1;
 	}
-	gtk_drop_down_set_selected(p->family, sel);
+	gtk_drop_down_set_selected(p->family,
+			static_cast<guint>(it - p->families.begin()));
 	gtk_spin_button_set_value(p->size, size_pt);
 	gtk_toggle_button_set_active(p->bold, bold);
 }
@@ -505,7 +561,6 @@ void preview_refresh(Ui *ui) {
 }
 
 void populate(Ui *ui, const wb::WayboxSettings &s) {
-	ui->original = s;  /* remember the loaded state (for change detection) */
 	/* Theme list: every installed theme, current one guaranteed present and
 	 * selected (obconf shows the active theme highlighted in the list). */
 	ui->theme_names = wb::installed_theme_names();
@@ -533,9 +588,13 @@ void populate(Ui *ui, const wb::WayboxSettings &s) {
 		if (ui->theme_names[i] == current)
 			sel = static_cast<int>(i);
 	}
-	if (sel >= 0)
-		gtk_list_box_select_row(ui->theme_list,
-				gtk_list_box_get_row_at_index(ui->theme_list, sel));
+	if (sel >= 0) {
+		GtkListBoxRow *selected = gtk_list_box_get_row_at_index(ui->theme_list, sel);
+		gtk_list_box_select_row(ui->theme_list, selected);
+		/* Scroll it into view once the list is laid out (focusing a row does). */
+		g_idle_add_once([](gpointer row) { gtk_widget_grab_focus(GTK_WIDGET(row)); },
+				selected);
+	}
 
 	gtk_spin_button_set_value(ui->pad_y, s.titlebar_pad_y.value_or(2));
 	gtk_spin_button_set_value(ui->button_size, s.titlebar_button_size.value_or(0));
@@ -571,6 +630,7 @@ void populate(Ui *ui, const wb::WayboxSettings &s) {
 	font_set(&ui->font_menu_item, s.font_menu_item.value_or("Sans 10"));
 	font_set(&ui->font_osd, s.font_osd.value_or("Sans 10"));
 
+	ui->shown = collect(ui);
 	preview_refresh(ui);
 }
 
@@ -609,20 +669,6 @@ wb::WayboxSettings collect(Ui *ui) {
 	s.font_menu_header = font_value(&ui->font_menu_header);
 	s.font_menu_item = font_value(&ui->font_menu_item);
 	s.font_osd = font_value(&ui->font_osd);
-
-	/* The font buttons are seeded with the effective default so the picker
-	 * pre-selects a font; don't persist that default unless the user actually
-	 * changed it from what was loaded. */
-	auto keep = [](std::optional<std::string> &v,
-			const std::optional<std::string> &orig) {
-		if (!orig.has_value() && v == std::optional<std::string>("Sans 10"))
-			v = std::nullopt;
-	};
-	keep(s.font_active_window, ui->original.font_active_window);
-	keep(s.font_inactive_window, ui->original.font_inactive_window);
-	keep(s.font_menu_header, ui->original.font_menu_header);
-	keep(s.font_menu_item, ui->original.font_menu_item);
-	keep(s.font_osd, ui->original.font_osd);
 	return s;
 }
 
@@ -641,12 +687,22 @@ void on_save(GtkButton *, gpointer data) {
 	std::error_code ec;
 	fs::create_directories(fs::path(path).parent_path(), ec);
 
-	wb::RcDocument doc = load_document();
-	doc.apply(collect(ui));
-	if (!doc.save_file(path)) {
-		set_status(ui, std::string(_("Failed to write ")) + path);
+	/* Re-read the file (it may have changed since wbconf opened it) and
+	 * write only what was changed here. */
+	std::string problem;
+	std::optional<wb::RcDocument> doc = load_document(&problem);
+	if (!doc) {
+		set_status(ui, problem);
 		return;
 	}
+	wb::WayboxSettings now = collect(ui);
+	doc->apply(now, ui->shown);
+	std::string err;
+	if (!doc->save_file(path, &err)) {
+		set_status(ui, std::string(_("Not saved: ")) + err);
+		return;
+	}
+	ui->shown = now;
 	int n = signal_waybox_reload();
 	if (n > 0)
 		set_status(ui, _("Saved and reloaded waybox."));
@@ -722,6 +778,30 @@ void on_reset_all(GtkButton *, gpointer data) {
 	set_status(ui, _("Reset all settings to defaults (not yet saved)."));
 }
 
+/* Closing with unsaved changes asks first. */
+gboolean on_close_request(GtkWindow *window, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	if (!ui->loaded || collect(ui) == ui->shown)
+		return FALSE;  /* close */
+	GtkAlertDialog *dialog = gtk_alert_dialog_new("%s", _("Discard unsaved changes?"));
+	const char *buttons[] = {_("Cancel"), _("Discard"), nullptr};
+	gtk_alert_dialog_set_buttons(dialog, buttons);
+	gtk_alert_dialog_set_cancel_button(dialog, 0);
+	gtk_alert_dialog_set_default_button(dialog, 0);
+	gtk_alert_dialog_choose(dialog, window, nullptr,
+			[](GObject *source, GAsyncResult *result, gpointer data) {
+		auto *ui = static_cast<Ui *>(data);
+		int button = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source), result,
+				nullptr);
+		if (button == 1) {
+			ui->shown = collect(ui);  /* nothing left to lose */
+			gtk_window_destroy(ui->window);
+		}
+	}, ui);
+	g_object_unref(dialog);
+	return TRUE;  /* keep it open until answered */
+}
+
 GtkWidget *build_theme_page(Ui *ui) {
 	GtkWidget *page = make_page();
 	GtkWidget *content = section(page, _("Theme"));
@@ -730,6 +810,8 @@ GtkWidget *build_theme_page(Ui *ui) {
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller),
 			GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
 	gtk_widget_set_vexpand(scroller, TRUE);
+	/* Room for several themes next to the preview. */
+	gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(scroller), 160);
 
 	GtkWidget *list = gtk_list_box_new();
 	gtk_list_box_set_selection_mode(GTK_LIST_BOX(list), GTK_SELECTION_BROWSE);
@@ -907,10 +989,27 @@ void build_window(GtkApplication *app, Ui *ui) {
 	gtk_widget_add_css_class(save, "suggested-action");
 	g_signal_connect(save, "clicked", G_CALLBACK(on_save), ui);
 	gtk_box_append(GTK_BOX(actions), save);
+	ui->save = save;
 
 	gtk_box_append(GTK_BOX(vbox), actions);
 
-	populate(ui, load_document().read());
+	std::string problem;
+	std::optional<wb::RcDocument> doc = load_document(&problem);
+	populate(ui, doc ? doc->read() : wb::WayboxSettings{});
+	ui->loaded = doc.has_value();
+	if (!ui->loaded) {
+		/* A full-width banner above the tabs; Save stays off. */
+		gtk_widget_set_sensitive(save, FALSE);
+		GtkWidget *banner = gtk_label_new(problem.c_str());
+		gtk_label_set_wrap(GTK_LABEL(banner), TRUE);
+		gtk_label_set_xalign(GTK_LABEL(banner), 0);
+		gtk_widget_add_css_class(banner, "error");
+		gtk_widget_set_margin_top(banner, 8);
+		gtk_widget_set_margin_start(banner, 12);
+		gtk_widget_set_margin_end(banner, 12);
+		gtk_box_prepend(GTK_BOX(vbox), banner);
+	}
+	g_signal_connect(ui->window, "close-request", G_CALLBACK(on_close_request), ui);
 	gtk_window_present(ui->window);
 }
 

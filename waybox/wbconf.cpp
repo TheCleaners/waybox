@@ -10,8 +10,14 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <cerrno>
+
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <libxml/parser.h>
+#include <libxml/xmlversion.h>
 #include <libxml/tree.h>
 
 #include "waybox/theme.hpp"
@@ -131,16 +137,35 @@ std::optional<bool> to_bool(const std::optional<std::string> &s) {
 
 const char *bool_str(bool b) { return b ? "yes" : "no"; }
 
+/* Other names the compositor accepts for a font place (case-insensitively):
+ * Openbox has active and inactive OSD fonts, waybox one. */
+std::vector<std::string> place_aliases(const char *place) {
+	if (std::strcmp(place, "ActiveOnScreenDisplay") == 0)
+		return {"activeonscreendisplay", "inactiveonscreendisplay", "onscreendisplay"};
+	std::string lower = place;
+	std::transform(lower.begin(), lower.end(), lower.begin(),
+			[](unsigned char c) { return std::tolower(c); });
+	return {lower};
+}
+
 /* The <theme><font place="P"> element, or nullptr. */
 xmlNode *find_font(xmlNode *root, const char *place) {
 	xmlNode *theme = child_named(root, "theme");
 	if (theme == nullptr)
 		return nullptr;
-	for (xmlNode *c = theme->children; c != nullptr; c = c->next) {
-		if (!is_element(c, "font"))
-			continue;
-		if (auto p = attr_value(c, "place"); p && *p == place)
-			return c;
+	std::vector<std::string> names = place_aliases(place);
+	for (const std::string &name : names) {
+		for (xmlNode *c = theme->children; c != nullptr; c = c->next) {
+			if (!is_element(c, "font"))
+				continue;
+			auto p = attr_value(c, "place");
+			if (!p)
+				continue;
+			std::transform(p->begin(), p->end(), p->begin(),
+					[](unsigned char ch) { return std::tolower(ch); });
+			if (*p == name)
+				return c;
+		}
 	}
 	return nullptr;
 }
@@ -186,16 +211,19 @@ void parse_font(const std::string &spec, std::string &family, std::string &size,
 
 	bold = false;
 	size.clear();
+	/* Only a final number is the size: "3270 Nerd Font 11" is the family
+	 * "3270 Nerd Font". */
+	if (!tokens.empty() && tokens.back().find_first_not_of("0123456789") ==
+			std::string::npos) {
+		size = tokens.back();
+		tokens.pop_back();
+	}
 	std::vector<std::string> fam;
 	for (const std::string &t : tokens) {
 		std::string lo = t;
 		std::transform(lo.begin(), lo.end(), lo.begin(),
 				[](unsigned char c) { return std::tolower(c); });
-		bool numeric = !t.empty() &&
-				t.find_first_not_of("0123456789") == std::string::npos;
-		if (numeric) {
-			size = t;  /* last numeric token wins */
-		} else if (lo == "bold") {
+		if (lo == "bold") {
 			bold = true;
 		} else if (lo == "regular" || lo == "normal" || lo == "italic" ||
 				lo == "oblique" || lo == "light" || lo == "medium") {
@@ -232,25 +260,78 @@ RcDocument::~RcDocument() {
 		xmlFreeDoc(static_cast<xmlDocPtr>(doc_));
 }
 
-std::optional<RcDocument> RcDocument::load_file(const std::string &path) {
-	xmlDocPtr doc = xmlReadFile(path.c_str(), nullptr, XML_PARSE_RECOVER);
-	if (doc == nullptr || xmlDocGetRootElement(doc) == nullptr) {
+namespace {
+
+/* Parse strictly: no recovery, no network, and errors kept rather than
+ * printed. The first error is reported. */
+std::optional<xmlDocPtr> parse_strict(const char *data, int size, const char *path,
+		LoadError *error) {
+	xmlParserCtxtPtr ctxt = xmlNewParserCtxt();
+	if (ctxt == nullptr)
+		return std::nullopt;
+	struct First {
+		LoadError err;
+		bool set = false;
+	} first;
+#if LIBXML_VERSION >= 21300
+	xmlCtxtSetErrorHandler(ctxt, [](void *data, const xmlError *e) {
+		auto *f = static_cast<First *>(data);
+		if (f->set || e == nullptr || e->level < XML_ERR_ERROR)
+			return;
+		f->err.message = e->message ? e->message : "";
+		while (!f->err.message.empty() && f->err.message.back() == '\n')
+			f->err.message.pop_back();
+		f->err.line = e->line;
+		f->set = true;
+	}, &first);
+#endif
+	int options = XML_PARSE_NONET;
+	xmlDocPtr doc = data != nullptr
+		? xmlCtxtReadMemory(ctxt, data, size, path, nullptr, options)
+		: xmlCtxtReadFile(ctxt, path, nullptr, options);
+#if LIBXML_VERSION < 21300
+	/* Older libxml2: no error handler per context; take its last error. */
+	if (const xmlError *e = xmlCtxtGetLastError(ctxt); e != nullptr &&
+			e->level >= XML_ERR_ERROR) {
+		first.err.message = e->message ? e->message : "";
+		while (!first.err.message.empty() && first.err.message.back() == '\n')
+			first.err.message.pop_back();
+		first.err.line = e->line;
+		first.set = true;
+	}
+#endif
+	bool ok = doc != nullptr && ctxt->wellFormed && !first.set &&
+			xmlDocGetRootElement(doc) != nullptr;
+	xmlFreeParserCtxt(ctxt);
+	if (!ok) {
 		if (doc != nullptr)
 			xmlFreeDoc(doc);
+		if (error != nullptr) {
+			*error = first.err;
+			if (error->message.empty())
+				error->message = "not an XML document";
+		}
 		return std::nullopt;
 	}
-	return RcDocument(static_cast<void *>(doc));
+	return doc;
 }
 
-std::optional<RcDocument> RcDocument::from_string(const std::string &xml) {
-	xmlDocPtr doc = xmlReadMemory(xml.c_str(), static_cast<int>(xml.size()),
-			"rc.xml", nullptr, XML_PARSE_RECOVER);
-	if (doc == nullptr || xmlDocGetRootElement(doc) == nullptr) {
-		if (doc != nullptr)
-			xmlFreeDoc(doc);
+}  // namespace
+
+std::optional<RcDocument> RcDocument::load_file(const std::string &path,
+		LoadError *error) {
+	auto doc = parse_strict(nullptr, 0, path.c_str(), error);
+	if (!doc)
 		return std::nullopt;
-	}
-	return RcDocument(static_cast<void *>(doc));
+	return RcDocument(static_cast<void *>(*doc));
+}
+
+std::optional<RcDocument> RcDocument::from_string(const std::string &xml,
+		LoadError *error) {
+	auto doc = parse_strict(xml.c_str(), static_cast<int>(xml.size()), "rc.xml", error);
+	if (!doc)
+		return std::nullopt;
+	return RcDocument(static_cast<void *>(*doc));
 }
 
 WayboxSettings RcDocument::read() const {
@@ -351,8 +432,8 @@ void put_font(xmlNode *root, const char *place,
 	if (font == nullptr) {
 		font = xmlNewNode(theme->ns, xc("font"));
 		xmlAddChild(theme, font);
+		xmlSetProp(font, xc("place"), xc(place));
 	}
-	xmlSetProp(font, xc("place"), xc(place));
 	auto set_child = [&](const char *name, const std::string &text) {
 		xmlNode *c = child_named(font, name);
 		if (c == nullptr) {
@@ -369,39 +450,75 @@ void put_font(xmlNode *root, const char *place,
 
 }  // namespace
 
+namespace {
+
+/* Write `s` into the document. With a `base`, only the fields that differ
+ * from it; without, every field (std::nullopt ones are removed). */
+void apply_fields(xmlNode *root, const WayboxSettings &s, const WayboxSettings *base) {
+#define WB_CHANGED(field) (base == nullptr || s.field != base->field)
+	if (WB_CHANGED(theme_name))
+		put_text(root, {"theme", "name"}, s.theme_name);
+	if (WB_CHANGED(placement_policy))
+		put_text(root, {"placement", "policy"}, s.placement_policy);
+	if (WB_CHANGED(margin_top))
+		put_text(root, {"margins", "top"}, int_str(s.margin_top));
+	if (WB_CHANGED(margin_bottom))
+		put_text(root, {"margins", "bottom"}, int_str(s.margin_bottom));
+	if (WB_CHANGED(margin_left))
+		put_text(root, {"margins", "left"}, int_str(s.margin_left));
+	if (WB_CHANGED(margin_right))
+		put_text(root, {"margins", "right"}, int_str(s.margin_right));
+
+	if (WB_CHANGED(menu_source))
+		put_attr(root, {"waybox", "menu"}, "source", s.menu_source);
+	if (WB_CHANGED(menu_submenu_open))
+		put_attr(root, {"waybox", "menu"}, "submenuOpen", s.menu_submenu_open);
+	if (WB_CHANGED(menu_hover_delay))
+		put_attr(root, {"waybox", "menu"}, "hoverDelay", int_str(s.menu_hover_delay));
+	if (WB_CHANGED(menu_wrap))
+		put_attr(root, {"waybox", "menu"}, "wrap", bool_opt_str(s.menu_wrap));
+	if (WB_CHANGED(menu_icons))
+		put_attr(root, {"waybox", "menu"}, "icons", bool_opt_str(s.menu_icons));
+
+	if (WB_CHANGED(switcher_order))
+		put_attr(root, {"waybox", "switcher"}, "order", s.switcher_order);
+	if (WB_CHANGED(switcher_osd))
+		put_attr(root, {"waybox", "switcher"}, "osd", bool_opt_str(s.switcher_osd));
+	if (WB_CHANGED(switcher_wrap))
+		put_attr(root, {"waybox", "switcher"}, "wrap", bool_opt_str(s.switcher_wrap));
+
+	if (WB_CHANGED(titlebar_pad_y))
+		put_attr(root, {"waybox", "titlebar"}, "paddingY", int_str(s.titlebar_pad_y));
+	if (WB_CHANGED(titlebar_button_size))
+		put_attr(root, {"waybox", "titlebar"}, "buttonSize",
+				int_str(s.titlebar_button_size));
+	if (WB_CHANGED(titlebar_resize_grab))
+		put_attr(root, {"waybox", "titlebar"}, "resizeGrab",
+				int_str(s.titlebar_resize_grab));
+
+	if (WB_CHANGED(font_active_window))
+		put_font(root, "ActiveWindow", s.font_active_window);
+	if (WB_CHANGED(font_inactive_window))
+		put_font(root, "InactiveWindow", s.font_inactive_window);
+	if (WB_CHANGED(font_menu_header))
+		put_font(root, "MenuHeader", s.font_menu_header);
+	if (WB_CHANGED(font_menu_item))
+		put_font(root, "MenuItem", s.font_menu_item);
+	if (WB_CHANGED(font_osd))
+		put_font(root, "ActiveOnScreenDisplay", s.font_osd);
+#undef WB_CHANGED
+}
+
+}  // namespace
+
 void RcDocument::apply(const WayboxSettings &s) {
-	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
-	if (root == nullptr)
-		return;
+	if (xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_)))
+		apply_fields(root, s, nullptr);
+}
 
-	put_text(root, {"theme", "name"}, s.theme_name);
-	put_text(root, {"placement", "policy"}, s.placement_policy);
-	put_text(root, {"margins", "top"}, int_str(s.margin_top));
-	put_text(root, {"margins", "bottom"}, int_str(s.margin_bottom));
-	put_text(root, {"margins", "left"}, int_str(s.margin_left));
-	put_text(root, {"margins", "right"}, int_str(s.margin_right));
-
-	put_attr(root, {"waybox", "menu"}, "source", s.menu_source);
-	put_attr(root, {"waybox", "menu"}, "submenuOpen", s.menu_submenu_open);
-	put_attr(root, {"waybox", "menu"}, "hoverDelay", int_str(s.menu_hover_delay));
-	put_attr(root, {"waybox", "menu"}, "wrap", bool_opt_str(s.menu_wrap));
-	put_attr(root, {"waybox", "menu"}, "icons", bool_opt_str(s.menu_icons));
-
-	put_attr(root, {"waybox", "switcher"}, "order", s.switcher_order);
-	put_attr(root, {"waybox", "switcher"}, "osd", bool_opt_str(s.switcher_osd));
-	put_attr(root, {"waybox", "switcher"}, "wrap", bool_opt_str(s.switcher_wrap));
-
-	put_attr(root, {"waybox", "titlebar"}, "paddingY", int_str(s.titlebar_pad_y));
-	put_attr(root, {"waybox", "titlebar"}, "buttonSize",
-			int_str(s.titlebar_button_size));
-	put_attr(root, {"waybox", "titlebar"}, "resizeGrab",
-			int_str(s.titlebar_resize_grab));
-
-	put_font(root, "ActiveWindow", s.font_active_window);
-	put_font(root, "InactiveWindow", s.font_inactive_window);
-	put_font(root, "MenuHeader", s.font_menu_header);
-	put_font(root, "MenuItem", s.font_menu_item);
-	put_font(root, "ActiveOnScreenDisplay", s.font_osd);
+void RcDocument::apply(const WayboxSettings &s, const WayboxSettings &unchanged) {
+	if (xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_)))
+		apply_fields(root, s, &unchanged);
 }
 
 std::string RcDocument::to_string() const {
@@ -417,9 +534,64 @@ std::string RcDocument::to_string() const {
 	return out;
 }
 
-bool RcDocument::save_file(const std::string &path) const {
-	return xmlSaveFormatFileEnc(path.c_str(), static_cast<xmlDocPtr>(doc_),
-			"UTF-8", 0) != -1;
+bool RcDocument::save_file(const std::string &path, std::string *error) const {
+	namespace fs = std::filesystem;
+	auto fail = [error](const std::string &what) {
+		if (error != nullptr)
+			*error = what;
+		return false;
+	};
+	std::error_code ec;
+	/* Follow a symlink to the real file, so the link survives the rename. */
+	fs::path target = fs::exists(path, ec) ? fs::canonical(path, ec) : fs::path(path);
+	if (ec)
+		target = path;
+	struct stat st {};
+	bool existed = ::stat(target.c_str(), &st) == 0;
+
+	if (existed) {
+		fs::path backup = target;
+		backup += ".bak";
+		fs::copy_file(target, backup, fs::copy_options::overwrite_existing, ec);
+		if (ec)
+			return fail("could not keep a backup at " + backup.string() + ": " + ec.message());
+	}
+
+	std::string text = to_string();
+	fs::path tmp = target;
+	tmp += ".tmp";
+	int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
+			existed ? (st.st_mode & 07777) : 0644);
+	if (fd < 0)
+		return fail("could not write " + tmp.string() + ": " + std::strerror(errno));
+	const char *p = text.data();
+	size_t left = text.size();
+	while (left > 0) {
+		ssize_t n = ::write(fd, p, left);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			std::string why = std::strerror(errno);
+			::close(fd);
+			::unlink(tmp.c_str());
+			return fail("could not write " + tmp.string() + ": " + why);
+		}
+		p += n;
+		left -= static_cast<size_t>(n);
+	}
+	if (existed)
+		(void) ::fchmod(fd, st.st_mode & 07777);
+	if (::fsync(fd) != 0 || ::close(fd) != 0) {
+		std::string why = std::strerror(errno);
+		::unlink(tmp.c_str());
+		return fail("could not write " + tmp.string() + ": " + why);
+	}
+	if (::rename(tmp.c_str(), target.c_str()) != 0) {
+		std::string why = std::strerror(errno);
+		::unlink(tmp.c_str());
+		return fail("could not replace " + target.string() + ": " + why);
+	}
+	return true;
 }
 
 std::vector<std::string> installed_theme_names() {

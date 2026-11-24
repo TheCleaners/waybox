@@ -141,3 +141,124 @@ WB_TEST(round_trips_fonts) {
 	doc2->apply(r);
 	WB_CHECK(doc2->to_string().find("place=\"ActiveWindow\"") == std::string::npos);
 }
+
+/* ---- Safety: strict loading, writing only what changed, safe saving ---- */
+
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <sys/stat.h>
+#include <unistd.h>
+
+WB_TEST(strict_load_refuses_broken_xml) {
+	/* Each of these "parses" in libxml2's recover mode, dropping or changing
+	 * part of the file; saving that would lose the user's config. */
+	const char *broken[] = {
+		/* a forgotten closing quote */
+		"<openbox_config><keyboard><keybind key=\"W-y><action name=\"Close\"/>"
+		"</keybind></keyboard><mouse><context name=\"Root\"/></mouse></openbox_config>",
+		/* an unescaped & in a command */
+		"<openbox_config><keyboard><keybind key=\"W-x\"><action name=\"Execute\">"
+		"<command>a && b</command></action></keybind></keyboard></openbox_config>",
+		/* not XML */
+		"not xml at all",
+		/* truncated */
+		"<openbox_config><keyboard>",
+	};
+	for (const char *xml : broken) {
+		wb::LoadError err;
+		WB_CHECK(!RcDocument::from_string(xml, &err).has_value());
+		WB_CHECK(!err.message.empty());
+	}
+	wb::LoadError err;
+	RcDocument::from_string("<a>\n<b>\n</a>", &err);
+	WB_CHECK(err.line >= 2);
+}
+
+static const char *kUserRc =
+		"<?xml version=\"1.0\"?>\n"
+		"<openbox_config xmlns=\"http://openbox.org/3.4/rc\">\n"
+		"  <placement><policy>Centre</policy></placement>\n"
+		"  <theme>\n"
+		"    <name>Clearlooks</name>\n"
+		"    <font place=\"OnScreenDisplay\"><name>3270 Nerd Font</name><size>11</size></font>\n"
+		"  </theme>\n"
+		"</openbox_config>\n";
+
+WB_TEST(apply_writes_only_what_changed) {
+	auto doc = RcDocument::from_string(kUserRc);
+	WB_CHECK(doc.has_value());
+	/* What an editor shows: the file's values, defaults for the rest. */
+	WayboxSettings shown = doc->read();
+	shown.placement_policy = "Smart";  /* "Centre" isn't in its list */
+	shown.margin_top = 0;
+	shown.titlebar_pad_y = 2;
+	shown.menu_wrap = true;
+	WayboxSettings edited = shown;
+	edited.margin_left = 7;
+	doc->apply(edited, shown);
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("<left>7</left>") != std::string::npos);
+	/* Untouched: neither the shown defaults nor the value it couldn't show. */
+	WB_CHECK(out.find("<policy>Centre</policy>") != std::string::npos);
+	WB_CHECK(out.find("<top>") == std::string::npos);
+	WB_CHECK(out.find("paddingY") == std::string::npos);
+	WB_CHECK(out.find("wrap") == std::string::npos);
+	WB_CHECK(out.find("<name>3270 Nerd Font</name>") != std::string::npos);
+}
+
+WB_TEST(fonts_keep_numbers_in_family_and_their_place) {
+	auto doc = RcDocument::from_string(kUserRc);
+	WayboxSettings s = doc->read();
+	/* The OSD font under another accepted place name is found... */
+	WB_CHECK(s.font_osd == std::optional<std::string>("3270 Nerd Font 11"));
+	/* ...and written back into the same element. */
+	WayboxSettings before = s;
+	s.font_osd = "3270 Nerd Font Bold 12";
+	doc->apply(s, before);
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("<name>3270 Nerd Font</name>") != std::string::npos);
+	WB_CHECK(out.find("<size>12</size>") != std::string::npos);
+	WB_CHECK(out.find("ActiveOnScreenDisplay") == std::string::npos);
+	size_t first = out.find("<font ");
+	WB_CHECK(first != std::string::npos && out.find("<font ", first + 1) == std::string::npos);
+}
+
+static std::string slurp(const std::filesystem::path &p) {
+	std::ifstream in(p);
+	std::stringstream ss;
+	ss << in.rdbuf();
+	return ss.str();
+}
+
+WB_TEST(save_keeps_a_backup_the_symlink_and_the_mode) {
+	namespace fs = std::filesystem;
+	char tmpl[] = "/tmp/wbconf-test-XXXXXX";
+	WB_CHECK(mkdtemp(tmpl) != nullptr);
+	fs::path dir = tmpl;
+	fs::path real = dir / "dotfiles" / "rc.xml";
+	fs::create_directories(real.parent_path());
+	{
+		std::ofstream(real) << kUserRc;
+	}
+	::chmod(real.c_str(), 0600);
+	fs::path link = dir / "rc.xml";
+	fs::create_symlink(real, link);
+
+	auto doc = RcDocument::load_file(link.string());
+	WB_CHECK(doc.has_value());
+	WayboxSettings before = doc->read(), s = before;
+	s.margin_top = 9;
+	doc->apply(s, before);
+	std::string err;
+	WB_CHECK(doc->save_file(link.string(), &err));
+	WB_CHECK(err.empty());
+
+	WB_CHECK(fs::is_symlink(link));                       /* the link survives */
+	WB_CHECK(slurp(real).find("<top>9</top>") != std::string::npos);
+	WB_CHECK(slurp(fs::path(real.string() + ".bak")) == kUserRc);  /* old file kept */
+	struct stat st {};
+	WB_CHECK(::stat(real.c_str(), &st) == 0 && (st.st_mode & 0777) == 0600);
+	WB_CHECK(!fs::exists(real.string() + ".tmp"));
+	fs::remove_all(dir);
+}

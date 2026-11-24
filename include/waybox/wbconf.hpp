@@ -50,7 +50,16 @@ struct WayboxSettings {
 	std::optional<std::string> font_inactive_window; /* place="InactiveWindow" */
 	std::optional<std::string> font_menu_header;     /* place="MenuHeader" */
 	std::optional<std::string> font_menu_item;       /* place="MenuItem" */
-	std::optional<std::string> font_osd;             /* place="OnScreenDisplay" */
+	std::optional<std::string> font_osd;             /* place="ActiveOnScreenDisplay"
+	                                                  * (or Inactive.../OnScreenDisplay) */
+
+	bool operator==(const WayboxSettings &) const = default;
+};
+
+/* Why rc.xml couldn't be loaded: libxml2's message and the line it's on. */
+struct LoadError {
+	std::string message;
+	int line = 0;
 };
 
 /*
@@ -66,10 +75,14 @@ public:
 	RcDocument &operator=(const RcDocument &) = delete;
 	~RcDocument();
 
-	/* Parse rc.xml from a file or an in-memory string. Returns nullopt if the
-	 * document cannot be parsed or has no root element. */
-	static std::optional<RcDocument> load_file(const std::string &path);
-	static std::optional<RcDocument> from_string(const std::string &xml);
+	/* Parse rc.xml from a file or an in-memory string. Strict: a document
+	 * with any XML error is refused (nullopt, with the error in `error`),
+	 * never repaired, since saving a repaired document would silently drop
+	 * whatever the parser skipped. */
+	static std::optional<RcDocument> load_file(const std::string &path,
+			LoadError *error = nullptr);
+	static std::optional<RcDocument> from_string(const std::string &xml,
+			LoadError *error = nullptr);
 
 	/* The settings currently present in the document. */
 	WayboxSettings read() const;
@@ -77,10 +90,18 @@ public:
 	/* Write the settings into the document: each engaged field is created or
 	 * updated, each std::nullopt field is removed (so the default applies). */
 	void apply(const WayboxSettings &settings);
+	/* The same, but only for the fields that differ from `unchanged` (what
+	 * the editor started from): settings the user didn't touch are left as
+	 * the file has them, absent ones stay absent. */
+	void apply(const WayboxSettings &settings, const WayboxSettings &unchanged);
 
 	/* Serialise the whole document back to XML / to a file. */
 	std::string to_string() const;
-	bool save_file(const std::string &path) const;
+	/* Save safely: the previous file is kept as PATH.bak, and the new one is
+	 * written to a temporary file and renamed over the old (so a crash or a
+	 * full disk can't leave half a file). A symlinked rc.xml (dotfile
+	 * managers) is followed: its target is replaced, the link kept. */
+	bool save_file(const std::string &path, std::string *error = nullptr) const;
 
 private:
 	explicit RcDocument(void *doc) : doc_(doc) {}
