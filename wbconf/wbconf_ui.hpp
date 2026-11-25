@@ -188,6 +188,10 @@ struct Ui {
 		GtkWidget *fill = nullptr, *undo = nullptr;
 		GtkLook saved;
 		bool built = false;
+		/* rc.xml's <cursor>, which the pointer controls show (and write) for
+		 * every program, not only GTK's: applied whichever of the page and
+		 * the settings comes first. */
+		std::optional<std::string> rc_cursor_theme, rc_cursor_size;
 	} gtk;
 
 	/* Programs started from elsewhere: the autostart script's start lines

@@ -72,6 +72,17 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 
 	populate_monitors(ui, s.outputs);
 	populate_hdr(ui, s.hdr_outputs);
+	/* The pointer: rc.xml's <cursor> over GTK's own value. */
+	ui->gtk.rc_cursor_theme = s.cursor_theme;
+	ui->gtk.rc_cursor_size = s.cursor_size;
+	if (ui->gtk.cursor != nullptr && s.cursor_theme && !s.cursor_theme->empty()) {
+		select_value(ui->gtk.cursor, ui->gtk.cursor_values, *s.cursor_theme);
+		ui->gtk.saved.cursor = *s.cursor_theme;
+	}
+	if (ui->gtk.size != nullptr && s.cursor_size && atoi(s.cursor_size->c_str()) >= 8) {
+		gtk_spin_button_set_value(ui->gtk.size, atoi(s.cursor_size->c_str()));
+		ui->gtk.saved.size = atoi(s.cursor_size->c_str());
+	}
 
 	populate_programs(ui, s.startup);
 	populate_bindings(ui, doc);
@@ -108,6 +119,17 @@ wb::WayboxSettings collect(Ui *ui) {
 			s.outputs.push_back(*rule);
 	for (const wb::OutputSetting &o : ui->other_outputs)
 		s.outputs.push_back(o);
+
+	/* The pointer controls (Appearance > Applications) write <cursor> too:
+	 * Waybox draws the pointer for most programs. */
+	s.cursor_theme = ui->gtk.rc_cursor_theme;
+	s.cursor_size = ui->gtk.rc_cursor_size;
+	if (ui->gtk.cursor != nullptr) {
+		std::string theme = selected_value(ui->gtk.cursor, ui->gtk.cursor_values);
+		if (!theme.empty())
+			s.cursor_theme = theme;
+		s.cursor_size = std::to_string(gtk_spin_button_get_value_as_int(ui->gtk.size));
+	}
 
 	std::vector<std::string> hdr;
 	for (const Ui::Monitor &m : ui->monitors)

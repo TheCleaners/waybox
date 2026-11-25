@@ -683,6 +683,7 @@ if python.found() and not get_option('tests_only')
     ['app_rule', 'app_rule_test.py', [], 60],
     ['bell', 'bell_test.py', [bell_client, vpointer_client], 60],
     ['bell_styles', 'bell_styles_test.py', [bell_client, waybox_msg], 60],
+    ['cursor_theme', 'cursor_theme_test.py', [], 60],
     ['color_management', 'color_management_test.py', [], 90],
     ['config_errors', 'config_errors_test.py', [], 60],
     ['desktop_popup', 'desktop_popup_test.py', [], 60],

@@ -124,6 +124,8 @@ struct WayboxSettings {
 	 * never does: left out, and left as it is) */
 	std::vector<OutputSetting> outputs;
 	std::optional<std::string> hdr_outputs;          /* waybox/hdr@outputs */
+	std::optional<std::string> cursor_theme;         /* waybox/cursor@theme */
+	std::optional<std::string> cursor_size;          /* waybox/cursor@size */
 
 	/* Keyboard: <keyboard><xkb><layout|variant|model|options> */
 	std::map<std::string, std::string> xkb;

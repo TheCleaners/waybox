@@ -94,6 +94,7 @@ void wb_reconfigure(struct wb_server *server) {
 	deinit_config(server->config);
 	server->config = fresh;
 	seat_reconfigure_input(server);  /* keymap, <libinput> */
+	wb_cursor_apply_theme(server);   /* <cursor> */
 	shortcuts_inhibit_update(server);  /* <shortcutsInhibit allow> */
 
 	/* Existing frames were styled from the old theme: rebuild them from the
@@ -340,6 +341,7 @@ bool wb_create_backend(struct wb_server* server) {
 
 bool wb_start_server(struct wb_server* server) {
 	init_config(server);
+	wb_cursor_apply_theme(server);  /* <cursor>, before anything shows it */
 	/* Initialise the toplevel list before the backend starts, since bringing
 	 * up outputs can trigger arrange_toplevels() before xdg-shell is set up. */
 	wl_list_init(&server->toplevels);

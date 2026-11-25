@@ -115,6 +115,11 @@ struct wb_config {
 	 * command=/>: what a program ringing the bell does. Nothing unless set
 	 * (a Lua "bell" policy may decide instead, ring by ring). */
 	wb::BellStyle bell_style;
+	/* rc.xml <waybox><cursor theme="Adwaita" size="32"/>: the pointer's
+	 * theme and size (else XCURSOR_THEME, XCURSOR_SIZE as Waybox was
+	 * started, else the default theme at 24). */
+	std::string cursor_theme;
+	int cursor_size = 0;  /* 0: not set */
 	/* rc.xml <waybox><scripts budget="10"><script>...: Lua scripts to load
 	 * (after $XDG_CONFIG_HOME/waybox/init.lua); budget: milliseconds a call
 	 * may run. */

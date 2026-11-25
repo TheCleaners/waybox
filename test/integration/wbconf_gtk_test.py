@@ -89,7 +89,8 @@ def main():
                 WBCONF_SCHEMA_DIR=schema, WAYBOX_PID=str(proc.pid),
                 XDG_DATA_HOME=datahome,
                 XDG_DATA_DIRS=fake + ":" + os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share"),
-                WBCONF_TEST_SET="gtk.icons=TestIcons;gtk.fill=1;gtk.scheme=prefer-dark")
+                WBCONF_TEST_SET="gtk.icons=TestIcons;gtk.fill=1;gtk.scheme=prefer-dark;"
+                                "gtk.size=40")
     failures = []
     app = None
     try:
@@ -109,9 +110,18 @@ def main():
             for want in ("Inherits=Adwaita,hicolor", "Hidden=true", "X-Waybox-Stand-In=true"):
                 if want not in text:
                     failures.append(f"the stand-in lacks {want!r}:\n{text}")
+        # The pointer size: GTK's setting and Waybox's <cursor> both, and
+        # Waybox uses it at once (Save reloads it).
+        rc_text = open(os.path.join(cfg, "waybox", "rc.xml")).read()
+        if 'size="40"' not in rc_text or "<cursor" not in rc_text:
+            failures.append(f"rc.xml has no <cursor size=40>:\n{rc_text}")
+        log.flush()
+        if "wb-cursor theme" not in open(log_path).read() or \
+                "size 40" not in open(log_path).read():
+            failures.append("Waybox didn't take the new pointer size")
         out = open(ini).read()
         for want in ("gtk-icon-theme-name=TestIcons", "gtk-application-prefer-dark-theme=true",
-                     "gtk-enable-animations=true"):
+                     "gtk-enable-animations=true", "gtk-cursor-theme-size=40"):
             if want not in out:
                 failures.append(f"settings.ini lacks {want!r}:\n{out}")
     except RuntimeError as e:
