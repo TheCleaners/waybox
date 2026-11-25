@@ -717,6 +717,17 @@ void wb_cursor::button_event(struct wlr_pointer_button_event *event) {
 
 void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 	struct wlr_seat *seat = server->seat->seat;
+	/* A release owed to a program goes to it whatever Waybox does with it
+	 * below; a later notify of the same release is then skipped. */
+	bool owed = event->state == WL_POINTER_BUTTON_STATE_RELEASED &&
+			client_buttons.erase(event->button) > 0;
+	auto release_owed = [&]() {
+		if (owed) {
+			wlr_seat_pointer_notify_button(seat, event->time_msec, event->button,
+					WL_POINTER_BUTTON_STATE_RELEASED);
+			owed = false;
+		}
+	};
 
 	/* Count every press and release, whatever path handles it below. */
 	if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
@@ -736,8 +747,13 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 				event->state == WL_POINTER_BUTTON_STATE_PRESSED)
 			seat_focus_surface(server->seat.get(),
 					wlr_surface_get_root_surface(surface));
+		if (event->state == WL_POINTER_BUTTON_STATE_PRESSED)
+			client_buttons.insert(event->button);
+		else if (!owed)
+			goto locked_done;  /* not ours to release */
 		wlr_seat_pointer_notify_button(seat, event->time_msec, event->button,
 				event->state);
+	locked_done:
 		idle_activity(server, seat);
 		return;
 	}
@@ -746,6 +762,7 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 	 * event. Selecting an entry dismisses the menu and yields its actions, run
 	 * only AFTER the widget is destroyed (no reentrancy). */
 	if (server->menu != nullptr) {
+		release_owed();
 		bool dismiss = server->menu->on_button(event->button,
 				event->state == WL_POINTER_BUTTON_STATE_PRESSED);
 		if (dismiss) {
@@ -765,8 +782,10 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 	/* Release of a held titlebar button: clear the pressed visual and, if the
 	 * pointer is still over that same button, run its action (activate on
 	 * release, like a normal push button). */
+	/* (Only the button that pressed it: the left one.) */
 	if (event->state == WL_POINTER_BUTTON_STATE_RELEASED &&
-			server->frame_pressed != nullptr) {
+			server->frame_pressed != nullptr && event->button == wb::MOUSE_BUTTON_LEFT) {
+		release_owed();
 		struct wb_toplevel *pressed = server->frame_pressed;
 		server->frame_pressed = nullptr;
 		if (pressed->frame)
@@ -857,7 +876,13 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 
 	}
 
-	wlr_seat_pointer_notify_button(seat, event->time_msec, event->button, event->state);
+	/* A release whose press went to Waybox (a frame, a binding, a menu):
+	 * the program never saw the press, so it doesn't get the release
+	 * either; what follows (ending a move) still happens. */
+	if (event->state == WL_POINTER_BUTTON_STATE_PRESSED)
+		client_buttons.insert(event->button);
+	if (event->state == WL_POINTER_BUTTON_STATE_PRESSED || owed)
+		wlr_seat_pointer_notify_button(seat, event->time_msec, event->button, event->state);
 	if (event->state == WL_POINTER_BUTTON_STATE_PRESSED && this->buttons_down == 1 &&
 			seat->pointer_state.focused_surface != nullptr) {
 		/* The first button down: the surface under it keeps the pointer

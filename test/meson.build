@@ -599,6 +599,7 @@ if python.found() and not get_option('tests_only')
     ['ssd', 'ssd_test.py', [], 60],
     ['stalls', 'stalls_test.py', [], 60],
     ['startup_programs', 'startup_programs_test.py', [], 60],
+    ['stuck_button', 'stuck_button_test.py', [touch_client, vpointer_client], 60],
     ['switcher_icons', 'switcher_icons_test.py', [], 60],
     ['switcher_order', 'switcher_order_test.py', [], 60],
     ['tags', 'tags_test.py', [tag_client], 60],

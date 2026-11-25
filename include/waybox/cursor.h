@@ -1,6 +1,7 @@
 #ifndef _WB_CURSOR_H
 #define _WB_CURSOR_H
 #include <map>
+#include <set>
 #include "waybox/wlroots.hpp"
 
 #include <memory>
@@ -35,6 +36,11 @@ struct wb_cursor {
 	/* Buttons physically held, counted here: wlroots' own count misses the
 	 * releases Waybox keeps from clients (over a menu, a frame button). */
 	int buttons_down = 0;
+	/* Buttons whose press reached a program: their release must reach it
+	 * too, even when Waybox takes the release itself (a menu opened
+	 * meanwhile, a titlebar button). wlroots counts each press it passes
+	 * on, and a button never released stays held for every program. */
+	std::set<uint32_t> client_buttons;
 	void end_grab() {
 		grab_surface = nullptr;
 		grab_surface_destroy.disconnect();
