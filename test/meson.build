@@ -476,6 +476,19 @@ if python.found() and not get_option('tests_only')
     dependencies: [dependency('wayland-client')],
     )
 
+  # Prints its preferred fractional scale and output enters.
+  scale_client = executable(
+    'scale_client',
+    [
+      'integration' / 'scale_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml),
+      wayland_scanner_client.process(wl_protocol_dir / 'staging/fractional-scale/fractional-scale-v1.xml'),
+      wayland_scanner_code.process(wl_protocol_dir / 'staging/fractional-scale/fractional-scale-v1.xml'),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # Touchscreen test windows: with and without wl_touch.
   touch_client = executable(
     'touch_client',
@@ -591,6 +604,7 @@ if python.found() and not get_option('tests_only')
     ['pointer_grab', 'pointer_grab_test.py', [constraint_client, layer_client, vpointer_client], 60],
     ['pointer_lock', 'pointer_lock_test.py', [constraint_client], 60],
     ['reconfigure', 'reconfigure_test.py', [], 60],
+    ['render_reset', 'render_reset_test.py', [scale_client, touch_client], 60],
     ['robustness', 'robustness_test.py', [layer_client, nested_popup_client], 90],
     ['sandbox', 'sandbox_test.py', [sandbox_client], 60],
     ['session_lock', 'session_lock_test.py', [lock_client], 60],

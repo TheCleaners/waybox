@@ -135,6 +135,8 @@ struct wb_server {
 
 	wb::Listener new_input;
 	wb::Listener new_output;
+	/* The GPU was reset: the renderer is recreated (server.cpp). */
+	wb::Listener renderer_lost;
 	wb::Listener output_layout_change;
 	wb::Listener output_configuration_applied;
 	wb::Listener output_configuration_tested;
@@ -218,6 +220,8 @@ void wb_run_menu_actions(struct wb_server *server, std::vector<wb::Action> actio
  * over the window, else at the window's corner). */
 void wb_show_client_menu(struct wb_server *server);
 void wb_spawn(const char *cmd);
+/* Tests only (WAYBOX_TEST_GPU_RESET=1): as if the GPU was reset. */
+bool wb_test_renderer_lost(struct wb_server *server);
 /* Reload rc.xml/menu.xml/theme and restyle existing window frames. */
 void wb_reconfigure(struct wb_server *server);
 

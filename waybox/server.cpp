@@ -126,6 +126,92 @@ void wb_reconfigure(struct wb_server *server) {
 /* Colour management (color-management-v1, color-representation-v1): clients
  * describe their colour spaces, and the scene converts them for each
  * output. Needs a renderer that applies colour transforms (Vulkan). */
+/* The renderer: Vulkan by default when Waybox drives real displays (a DRM
+ * backend), since colour management and HDR need it. Nested and headless
+ * sessions keep wlroots' choice, since there Vulkan may pick another GPU
+ * than the one the output buffers come from. WLR_RENDERER overrides
+ * either; without Vulkan, the usual choice. */
+static struct wlr_renderer *create_renderer(struct wb_server *server) {
+	struct wlr_renderer *renderer = nullptr;
+	if (getenv("WLR_RENDERER") == nullptr &&
+			wlr_backend_get_drm_fd(server->backend) >= 0) {
+		setenv("WLR_RENDERER", "vulkan", 1);
+		renderer = wlr_renderer_autocreate(server->backend);
+		unsetenv("WLR_RENDERER");
+		if (renderer == nullptr)
+			wlr_log(WLR_INFO, "%s", _("Vulkan renderer unavailable; using the default"));
+	}
+	if (renderer == nullptr)
+		renderer = wlr_renderer_autocreate(server->backend);
+	return renderer;
+}
+
+static void watch_renderer(struct wb_server *server);
+
+/* A GPU reset (some drivers on resume, a hang recovered): wlroots says
+ * the renderer is lost, and everything drawn with it is gone. As sway
+ * does: a new renderer and allocator, given to the compositor (new
+ * buffers) and every output, then the old ones go. Window captures were
+ * made with the old ones: they end (capturing programs ask again). */
+static void renderer_lost(struct wb_server *server) {
+	wlr_log(WLR_INFO, "%s", _("The GPU was reset: re-creating the renderer"));
+	struct wlr_renderer *renderer = create_renderer(server);
+	if (renderer == nullptr) {
+		wlr_log(WLR_ERROR, "%s", _("Failed to re-create the renderer"));
+		return;
+	}
+	struct wlr_allocator *allocator = wlr_allocator_autocreate(server->backend, renderer);
+	if (allocator == nullptr) {
+		wlr_log(WLR_ERROR, "%s", _("Failed to re-create the allocator"));
+		wlr_renderer_destroy(renderer);
+		return;
+	}
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link)
+		drop_window_capture(t);
+	struct wlr_renderer *old_renderer = server->renderer;
+	struct wlr_allocator *old_allocator = server->allocator;
+	server->renderer = renderer;
+	server->allocator = allocator;
+	watch_renderer(server);  /* (off the old one) */
+	wlr_compositor_set_renderer(server->compositor, renderer);
+	struct wb_output *output;
+	wl_list_for_each(output, &server->outputs, link)
+		wlr_output_init_render(output->wlr_output, allocator, renderer);
+	wlr_allocator_destroy(old_allocator);
+	wlr_renderer_destroy(old_renderer);
+	/* What windows showed was on the GPU, and is gone: ask each to draw
+	 * again (a configure; toolkits redraw on it). */
+	wl_list_for_each(t, &server->toplevels, link)
+		if (t->mapped && t->kind == wb_view_kind::Xdg && t->xdg_toplevel != nullptr)
+			wlr_xdg_surface_schedule_configure(t->xdg_toplevel->base);
+	wlr_log(WLR_INFO, "wb-renderer re-created");
+}
+
+/* The work runs once the signal is over: the old renderer can't be
+ * destroyed while it's emitting "lost" (its listener list isn't empty
+ * then). Several "lost" in a row make one re-creation. */
+static struct wl_event_source *renderer_lost_idle = nullptr;
+
+static void watch_renderer(struct wb_server *server) {
+	server->renderer_lost.connect(&server->renderer->events.lost, [server](void *) {
+		if (renderer_lost_idle != nullptr)
+			return;
+		renderer_lost_idle = wl_event_loop_add_idle(server->wl_event_loop, [](void *data) {
+			renderer_lost_idle = nullptr;
+			renderer_lost(static_cast<struct wb_server *>(data));
+		}, server);
+	});
+}
+
+bool wb_test_renderer_lost(struct wb_server *server) {
+	const char *on = getenv("WAYBOX_TEST_GPU_RESET");
+	if (on == nullptr || strcmp(on, "1") != 0 || server->renderer == nullptr)
+		return false;
+	wl_signal_emit_mutable(&server->renderer->events.lost, nullptr);
+	return true;
+}
+
 static void init_color_management(struct wb_server *server) {
 #if WLR_CHECK_VERSION(0, 20, 0)
 	if (!server->renderer->features.input_color_transform) {
@@ -191,21 +277,7 @@ bool wb_create_backend(struct wb_server* server) {
          * can also specify a renderer using the WLR_RENDERER env var.
          * The renderer is responsible for defining the various pixel formats it
          * supports for shared memory, this configures that for clients. */
-	/* The Vulkan renderer by default when Waybox drives real displays (a
-	 * DRM backend): colour management and HDR need it. Nested and
-	 * headless sessions keep wlroots' choice, since there Vulkan may pick
-	 * another GPU than the one the output buffers come from. WLR_RENDERER
-	 * overrides either; without Vulkan, fall back to the usual choice. */
-	if (getenv("WLR_RENDERER") == nullptr &&
-			wlr_backend_get_drm_fd(server->backend) >= 0) {
-		setenv("WLR_RENDERER", "vulkan", 1);
-		server->renderer = wlr_renderer_autocreate(server->backend);
-		unsetenv("WLR_RENDERER");
-		if (server->renderer == nullptr)
-			wlr_log(WLR_INFO, "%s", _("Vulkan renderer unavailable; using the default"));
-	}
-	if (server->renderer == nullptr)
-		server->renderer = wlr_renderer_autocreate(server->backend);
+	server->renderer = create_renderer(server);
 	if (server->renderer == NULL) {
 		wlr_log(WLR_ERROR, "%s", _("Failed to create renderer"));
 		return false;
@@ -242,6 +314,7 @@ bool wb_create_backend(struct wb_server* server) {
 
 	server->compositor =
 		wlr_compositor_create(server->wl_display, 5, server->renderer);
+	watch_renderer(server);
 	server->subcompositor = wlr_subcompositor_create(server->wl_display);
 	server->output_layout = wlr_output_layout_create(server->wl_display);
 	server->seat.reset(wb_seat_create(server));
@@ -431,6 +504,11 @@ bool wb_terminate(struct wb_server* server) {
 	server->output_layout_change.disconnect();  /* before its signal is freed */
 	wlr_output_layout_destroy(server->output_layout);
 	wlr_allocator_destroy(server->allocator);
+	server->renderer_lost.disconnect();  /* the renderer asserts on it */
+	if (renderer_lost_idle != nullptr) {
+		wl_event_source_remove(renderer_lost_idle);
+		renderer_lost_idle = nullptr;
+	}
 	wlr_renderer_destroy(server->renderer);
 
 	server->new_input.disconnect();
