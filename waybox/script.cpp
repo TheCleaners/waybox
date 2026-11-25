@@ -500,7 +500,8 @@ int wb_on(lua_State *L) {
 	const char *name = luaL_checkstring(L, 1);
 	luaL_checktype(L, 2, LUA_TFUNCTION);
 	static const std::set<std::string> known = {"window.new", "window.close",
-		"window.focus", "window.title", "desktop.switch", "output.added", "output.removed"};
+		"window.focus", "window.title", "desktop.switch", "output.added", "output.removed",
+		"bell"};
 	if (known.count(name) == 0)
 		return luaL_error(L, "unknown event: %s", name);
 	lua_pushvalue(L, 2);
@@ -793,7 +794,7 @@ int wb_spawn(lua_State *L) {
 /* wb.policy(name, fn): "place", "rules" or "layout"; nil removes it. */
 int wb_policy(lua_State *L) {
 	std::string name = luaL_checkstring(L, 1);
-	if (name != "place" && name != "rules" && name != "layout")
+	if (name != "place" && name != "rules" && name != "layout" && name != "bell")
 		return luaL_error(L, "unknown policy: %s", name.c_str());
 	if (auto old = g->policies.find(name); old != g->policies.end()) {
 		luaL_unref(L, LUA_REGISTRYINDEX, old->second);
@@ -1182,10 +1183,14 @@ int dispatch(void *) {
 		std::vector<int> refs = h->second;  /* a handler may add or drop handlers */
 		for (int ref : refs) {
 			call(ref, [&e](lua_State *L) {
-				if (e.name.rfind("window.", 0) == 0) {
-					struct wb_toplevel *t = window_by_id(e.window_id);
+				if (e.name.rfind("window.", 0) == 0 || e.name == "bell") {
+					/* A bell from no window: nil, and a table of "". */
+					struct wb_toplevel *t = e.window_id.empty() ? nullptr
+							: window_by_id(e.window_id);
 					if (t != nullptr) {
 						push_window(L, t);
+					} else if (e.window_id.empty()) {
+						lua_pushnil(L);
 					} else {
 						/* Gone: a handle that reads nil (its id kept). */
 						size_t len = e.window_id.size() + 1;
@@ -1274,6 +1279,19 @@ void script_window_event(struct wb_toplevel *t, const char *change) {
 	enqueue(std::move(e));
 }
 
+void script_bell_event(struct wb_server *, struct wb_toplevel *t) {
+	if (g == nullptr)
+		return;
+	Event e;
+	e.name = "bell";
+	if (t != nullptr && t->foreign_toplevel_handle != nullptr) {
+		e.window_id = t->foreign_toplevel_handle->identifier;
+		e.app_id = view_app_id(t) ? view_app_id(t) : "";
+		e.title = view_title(t) ? view_title(t) : "";
+	}
+	enqueue(std::move(e));
+}
+
 void script_desktop_event(struct wb_server *server) {
 	if (g == nullptr)
 		return;
@@ -1345,6 +1363,53 @@ std::optional<bool> bool_field(lua_State *L, int t, const char *k) {
 }
 
 }  // namespace
+
+bool script_bell(struct wb_server *, struct wb_toplevel *t, ScriptBell *out) {
+	if (g == nullptr || g->policies.count("bell") == 0)
+		return false;
+	bool got = false;
+	call_policy(g->policies["bell"], [t](lua_State *L) {
+		push_window(L, t);
+		return 1;
+	}, 1, [&](lua_State *L) {
+		if (lua_isboolean(L, -1) && !lua_toboolean(L, -1)) {
+			got = true;
+			out->silent = true;
+			return;
+		}
+		if (!lua_istable(L, -1))
+			return;  /* nil (or anything else): rc.xml decides */
+		got = true;
+		int tbl = lua_gettop(L);
+		for (const char *k : {"flash", "color", "duration", "count", "width"}) {
+			lua_getfield(L, tbl, k);
+			if (lua_type(L, -1) == LUA_TNUMBER) {
+				/* 200, not "200.0" (Lua 5.1 has only doubles); out of
+				 * range: clamped later. */
+				double d = lua_tonumber(L, -1);
+				out->over[k] = d == d ? std::to_string(static_cast<long>(
+						std::clamp(d, -1e9, 1e9))) : "x";
+			} else if (lua_type(L, -1) == LUA_TSTRING) {
+				size_t len = 0;
+				const char *v = lua_tolstring(L, -1, &len);
+				out->over[k] = std::string(v, std::min<size_t>(len, 64));
+			} else if (lua_type(L, -1) == LUA_TBOOLEAN && strcmp(k, "flash") == 0) {
+				out->over[k] = lua_toboolean(L, -1) ? "yes" : "no";
+			}
+			lua_pop(L, 1);
+		}
+		lua_getfield(L, tbl, "command");
+		if (lua_type(L, -1) == LUA_TSTRING) {
+			size_t len = 0;
+			const char *v = lua_tolstring(L, -1, &len);
+			out->command = std::string(v, std::min<size_t>(len, 4096));
+		}
+		else if (lua_type(L, -1) == LUA_TBOOLEAN && !lua_toboolean(L, -1))
+			out->command = "";
+		lua_pop(L, 1);
+	}, "the bell policy");
+	return got;
+}
 
 bool script_rules(struct wb_server *, const ScriptWindow &w, wb::AppRule *out) {
 	if (g == nullptr || g->policies.count("rules") == 0)
@@ -1615,6 +1680,8 @@ void init_scripts(struct wb_server *server) {
 void finish_scripts(struct wb_server *) {}
 void scripts_reap(struct wb_server *) {}
 bool script_rules(struct wb_server *, const ScriptWindow &, wb::AppRule *) { return false; }
+bool script_bell(struct wb_server *, struct wb_toplevel *, ScriptBell *) { return false; }
+void script_bell_event(struct wb_server *, struct wb_toplevel *) {}
 std::optional<wb::Rect> script_place(struct wb_server *, const ScriptWindow &, const wb::Rect &,
 		const wb::Rect &) { return std::nullopt; }
 void script_request_layout(struct wb_server *) {}

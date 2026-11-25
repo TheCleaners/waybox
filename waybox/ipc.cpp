@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "ipc.h"
+#include "bell.h"
 #include "script.h"
 #include "waybox/seat.h"
 #include "waybox/session_lock.h"
@@ -215,6 +216,28 @@ Value handle(Client *c, const Value &req) {
 			return error("no test touchscreen");
 		return Object{{"ok", true}};
 	}
+	/* Ring the bell, as the focused window would (wbconf's Test): with
+	 * "flash", "color", "duration", "count", "width", "command", those
+	 * settings over rc.xml's, as a preview (no policy, no event). */
+	if (cmd == "bell") {
+		ScriptBell preview;
+		bool any = false;
+		for (const char *k : {"flash", "color", "duration", "count", "width"})
+			if (const Value *v = req.get(k)) {
+				any = true;
+				if (v->string() != nullptr)
+					preview.over[k] = v->string()->substr(0, 64);
+				else if (v->number() != nullptr)
+					preview.over[k] = std::to_string(static_cast<long>(
+							std::clamp(*v->number(), -1e9, 1e9)));
+			}
+		if (const Value *v = req.get("command"); v != nullptr && v->string() != nullptr) {
+			any = true;
+			preview.command = v->string()->substr(0, 4096);
+		}
+		std::string shown = bell_ring(server, first_toplevel(server), any ? &preview : nullptr);
+		return Object{{"ok", true}, {"shown", shown}};
+	}
 	/* Each monitor's name, large, on it (wbconf's Identify). */
 	if (cmd == "identify") {
 		const Value *ms = req.get("ms");
@@ -286,10 +309,12 @@ Value handle(Client *c, const Value &req) {
 		return Object{{"ok", true}};
 	}
 	if (cmd == "subscribe") {
-		static const std::set<std::string> known = {"window", "desktop", "output", "config"};
+		static const std::set<std::string> known = {"window", "desktop", "output", "config",
+				"bell"};
 		const Value *ev = req.get("events");
 		if (ev == nullptr || ev->array() == nullptr)
-			return error("subscribe needs \"events\": [\"window\", \"desktop\", \"output\", \"config\"]");
+			return error("subscribe needs \"events\": [\"window\", \"desktop\", \"output\", "
+					"\"config\", \"bell\"]");
 		for (const Value &e : *ev->array()) {
 			if (e.string() == nullptr || known.count(*e.string()) == 0)
 				return error("unknown event: " + wb::json::dump(e));
@@ -485,6 +510,15 @@ void ipc_desktop_event(struct wb_server *server) {
 		return;
 	send_event(server, "desktop", Object{{"change", "switch"},
 			{"desktop", desktop_json(server, server->current_desktop)}});
+}
+
+void ipc_bell_event(struct wb_server *server, struct wb_toplevel *t, const std::string &shown) {
+	if (server->ipc == nullptr)
+		return;
+	Object body{{"shown", shown}};
+	if (t != nullptr && t->mapped)
+		body["window"] = window_json(t);
+	send_event(server, "bell", body);
 }
 
 void ipc_output_event(struct wb_server *server, struct wlr_output *output, const char *change) {

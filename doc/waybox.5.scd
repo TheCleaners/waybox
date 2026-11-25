@@ -314,9 +314,23 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 
 *<bell>*
 	What a program ringing the bell (a terminal's \\a, a toolkit's error
-	beep) does; nothing unless set. *flash*: briefly flash the window that
-	rang (or the monitor under the pointer). *command*: run it (through
-	*sh*), at most once per quick burst of rings.
+	beep) does; nothing unless set.
+	- *flash*: *yes* (or *window*) flashes the window that rang; *border*
+	  only its edges, *width* pixels thick (1 to 64, default 4); *screen*
+	  the whole monitor; *osd* shows a note naming the window instead of
+	  flashing; *no*. A ring from no window flashes the monitor under the
+	  pointer.
+	- *color*: *#rrggbb* or *#rrggbbaa* (default *#ffffff80*).
+	- *duration*: milliseconds each flash lasts, 50 to 2000 (default 150);
+	  for *osd*, how long the note shows, up to 10000 (default 1500).
+	- *count*: flashes per ring, 1 to 5 (default 1).
+	- *command*: run it (through *sh*), at most once per quick burst of
+	  rings.
+
+	Flashes never start more than 3 times a second, whatever the settings:
+	a ring while the bell is still showing, or too soon after its last
+	flash, isn't shown (its command still runs, as above). A Lua *bell*
+	policy can decide ring by ring (see *waybox-lua*(5)).
 
 *<hdr>*
 	*outputs* lists outputs (by name, separated by spaces) to drive in

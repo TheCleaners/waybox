@@ -9,3 +9,4 @@ wbconf/main.cpp
 wbconf/option_widgets.cpp
 wbconf/pages/wallpaper.cpp
 wbconf/monitor_arranger.cpp
+wbconf/settings_view.cpp

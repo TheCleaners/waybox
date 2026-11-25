@@ -76,6 +76,8 @@ def answers(req):
     if r == "get_windows":
         return {"ok": True, "windows": [{"id": "a", "app_id": "foot", "focused": False},
                                         {"id": "b", "app_id": "kgx", "focused": True}]}
+    if r == "bell":
+        return {"ok": True, "shown": req.get("flash", "window")}
     if r == "identify":
         if req.get("output") == "NOPE":
             return {"ok": False, "error": "no such monitor"}
@@ -102,6 +104,9 @@ try:
     with waybox.connect(fake.path) as wb:
         check(wb.version() == "1.2.3", "version")
         check(wb.identify() == 2, "identify")
+        check(wb.bell(flash="border", width=6) == "border", "bell")
+        check(fake.requests[-1] == {"request": "bell", "flash": "border", "width": 6},
+              f"bell request: {fake.requests[-1]}")
         check(wb.identify("DP-1", ms=500) == 1, "identify one")
         check(fake.requests[-1] == {"request": "identify", "output": "DP-1", "ms": 500},
               f"identify request: {fake.requests[-1]}")
