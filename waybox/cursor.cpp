@@ -662,9 +662,11 @@ void wb_cursor::on_pointer_focus_change(void *data) {
 }
 
 /* The mouse-binding context under the pointer, and the window there (if
- * any). std::nullopt where bindings don't apply: a panel or other
- * layer-shell surface (its own clicks are its business) and the titlebar
- * buttons (which work on their own). */
+ * any). Desktop on a surface in the background or bottom layer (a
+ * desktop-icon program, or a wallpaper that takes input): Openbox's desktop
+ * window. std::nullopt where bindings don't apply: a panel or other
+ * layer-shell surface, popups (its own clicks are its business), and the
+ * titlebar buttons (which work on their own). */
 static std::optional<wb::MouseContext> pointer_context(struct wb_server *server,
 		struct wb_toplevel **window) {
 	*window = nullptr;
@@ -694,8 +696,16 @@ static std::optional<wb::MouseContext> pointer_context(struct wb_server *server,
 		*window = toplevel;
 		return wb::MouseContext::Client;
 	}
-	if (surface != nullptr)
+	if (surface != nullptr) {
+		/* (A layer surface's popups are surfaces of their own: no layer.) */
+		struct wlr_layer_surface_v1 *layer = wlr_layer_surface_v1_try_from_wlr_surface(
+				wlr_surface_get_root_surface(surface));
+		if (layer != nullptr &&
+				(layer->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND ||
+				 layer->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM))
+			return wb::MouseContext::Desktop;
 		return std::nullopt;  /* a panel, a popup or an X11 menu */
+	}
 	return wb::MouseContext::Root;
 }
 

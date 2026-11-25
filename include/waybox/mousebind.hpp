@@ -26,7 +26,8 @@ enum class MouseContext {
 	Titlebar,  /* a server-side titlebar (reachable once SSD lands) */
 	Icon,      /* the window icon in the titlebar (<titleLayout> N) */
 	Frame,     /* a window's frame/border */
-	Desktop,   /* the desktop, distinct from Root in Openbox */
+	Desktop,   /* a desktop surface: the background or bottom layer (desktop
+	            * icons); a Desktop binding also covers Root, as in Openbox */
 	Top,       /* resize edges */
 	Bottom,
 	Left,
@@ -80,8 +81,8 @@ std::optional<MouseButtonSpec> parse_mouse_button(std::string_view spec);
 
 /* Whether a binding's context covers where the pointer is: the same
  * context, Frame for anywhere on a window (its client area, titlebar or
- * borders), and Desktop and Root for each other (both are the empty
- * desktop in Waybox). */
+ * borders), and Desktop for the empty desktop (Root) as well as desktop
+ * surfaces; Root covers only the empty desktop, as in Openbox. */
 bool mouse_context_matches(MouseContext binding, MouseContext actual);
 
 /* Whether a binding fires for the given context/button/modifiers/event.
