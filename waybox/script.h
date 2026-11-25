@@ -3,6 +3,11 @@
 
 #include <cstdint>
 
+#include <optional>
+#include <string>
+
+#include "waybox/applications.hpp"
+#include "waybox/geometry.hpp"
 #include "waybox/server.h"
 
 /*
@@ -22,6 +27,22 @@ void scripts_reload(struct wb_server *server);
 void script_window_event(struct wb_toplevel *toplevel, const char *change);
 void script_desktop_event(struct wb_server *server);
 void script_output_event(struct wb_server *server, const char *name, const char *change);
+
+/* Policy hooks (wb.policy), called while Waybox decides: a script gives a
+ * decision, nil leaves it to Waybox. No actions run during them. */
+struct ScriptWindow {
+	std::string app_id, title, tag;
+	int width = 0, height = 0;
+	bool dialog = false, xwayland = false;
+};
+/* wb.policy("rules"): the keys it set, over rc.xml's rule. */
+bool script_rules(struct wb_server *server, const ScriptWindow &w, wb::AppRule *out);
+/* wb.policy("place"): where (and how big) the new window goes. */
+std::optional<wb::Rect> script_place(struct wb_server *server, const ScriptWindow &w,
+		const wb::Rect &area, const wb::Rect &proposed);
+/* wb.policy("layout"): windows changed: lay them out again (on idle,
+ * once for several changes). */
+void script_request_layout(struct wb_server *server);
 
 /* SIGCHLD: programs scripts started (wb.spawn) that have ended. */
 void scripts_reap(struct wb_server *server);

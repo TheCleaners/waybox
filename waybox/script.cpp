@@ -111,6 +111,9 @@ struct State {
 	struct wl_event_source *reload_idle = nullptr;
 	int depth = 0;
 	bool reload_pending = false;
+	bool in_policy = false;            /* deciding: no actions */
+	std::map<std::string, int> policies;
+	struct wl_event_source *layout_idle = nullptr;
 	double deadline = 0;
 	int budget_ms = 10;
 };
@@ -172,8 +175,47 @@ bool call(int ref, const std::function<int(lua_State *)> &push, const char *what
 	return ok;
 }
 
+/* As call(), with `nresults` results that `read` takes (before they go).
+ * During it, actions are refused (a policy decides, it doesn't act). */
+bool call_policy(int ref, const std::function<int(lua_State *)> &push, int nresults,
+		const std::function<void(lua_State *)> &read, const char *what) {
+	if (g == nullptr || g->L == nullptr || ref == LUA_NOREF || g->depth >= kMaxDepth)
+		return false;
+	lua_State *L = g->L;
+	wb::StallScope timing("script-policy");
+	lua_pushcfunction(L, traceback);
+	int base = lua_gettop(L);
+	lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+	int n = push ? push(L) : 0;
+	if (g->depth == 0)
+		g->deadline = wb::monotonic_ms() + g->budget_ms;
+	++g->depth;
+	bool was = g->in_policy;
+	g->in_policy = true;
+	int rc = lua_pcall(L, n, nresults, base);
+	g->in_policy = was;
+	--g->depth;
+	if (rc != 0) {
+		const char *msg = lua_tostring(L, -1);
+		std::string m = msg ? msg : "(no message)";
+		wlr_log(WLR_ERROR, "wb-script error in %s: %s", what, m.c_str());
+		if (m.find(kTooLong) != std::string::npos && ++g->strikes[ref] >= kStrikes) {
+			wlr_log(WLR_ERROR, "wb-script %s turned off: it kept running too long", what);
+			forget(ref);
+		}
+		lua_settop(L, base - 1);
+		return false;
+	}
+	g->strikes.erase(ref);
+	read(L);
+	lua_settop(L, base - 1);
+	return true;
+}
+
 /* A callback that's turned off: out of every list, and released. */
 void forget(int ref) {
+	for (auto it = g->policies.begin(); it != g->policies.end();)
+		it = it->second == ref ? g->policies.erase(it) : std::next(it);
 	for (auto &[name, refs] : g->handlers)
 		refs.erase(std::remove(refs.begin(), refs.end(), ref), refs.end());
 	g->bindings.erase(std::remove_if(g->bindings.begin(), g->bindings.end(),
@@ -249,6 +291,10 @@ bool run_named_action(lua_State *L, const char *name, int params, struct wb_topl
 	struct wb_server *server = g->server;
 	if (session_locked(server))
 		return false;  /* as bindings: nothing behind the lock screen */
+	if (g->in_policy) {
+		wlr_log(WLR_ERROR, "wb-script: no actions in a policy (%s)", name);
+		return false;
+	}
 	struct wb_toplevel *saved = server->action_window;
 	server->action_window = target;
 	wb::run_action(*action, server);
@@ -266,7 +312,7 @@ int window_action(lua_State *L) {
 
 int window_focus(lua_State *L) {
 	struct wb_toplevel *t = window_by_id(window_id_arg(L, 1));
-	if (t != nullptr && !session_locked(g->server))
+	if (t != nullptr && !session_locked(g->server) && !g->in_policy)
 		focus_toplevel(t);
 	lua_pushboolean(L, t != nullptr);
 	return 1;
@@ -375,7 +421,7 @@ int window_move_to_desktop(lua_State *L) {
 int window_set_geometry(lua_State *L) {
 	struct wb_toplevel *t = window_by_id(window_id_arg(L, 1));
 	luaL_checktype(L, 2, LUA_TTABLE);
-	if (t == nullptr || t->fullscreen || session_locked(g->server)) {
+	if (t == nullptr || t->fullscreen || session_locked(g->server) || g->in_policy) {
 		lua_pushboolean(L, 0);
 		return 1;
 	}
@@ -711,6 +757,30 @@ int wb_spawn(lua_State *L) {
 	return 1;
 }
 
+/* wb.policy(name, fn): "place", "rules" or "layout"; nil removes it. */
+int wb_policy(lua_State *L) {
+	std::string name = luaL_checkstring(L, 1);
+	if (name != "place" && name != "rules" && name != "layout")
+		return luaL_error(L, "unknown policy: %s", name.c_str());
+	if (auto old = g->policies.find(name); old != g->policies.end()) {
+		luaL_unref(L, LUA_REGISTRYINDEX, old->second);
+		g->policies.erase(old);
+	}
+	if (!lua_isnil(L, 2)) {
+		luaL_checktype(L, 2, LUA_TFUNCTION);
+		lua_pushvalue(L, 2);
+		g->policies[name] = luaL_ref(L, LUA_REGISTRYINDEX);
+	}
+	if (name == "layout")
+		script_request_layout(g->server);
+	return 0;
+}
+
+int wb_relayout(lua_State *) {
+	script_request_layout(g->server);
+	return 0;
+}
+
 /* wb.go_to_desktop(n) */
 int wb_go_to_desktop(lua_State *L) {
 	lua_Integer n = luaL_checkinteger(L, 1);
@@ -726,6 +796,7 @@ const luaL_Reg wb_functions[] = {
 	{"desktop", wb_desktop}, {"outputs", wb_outputs}, {"action", wb_action},
 	{"bind", wb_bind}, {"timer", wb_timer}, {"every", wb_every}, {"cancel", wb_cancel},
 	{"log", wb_log}, {"spawn", wb_spawn}, {"go_to_desktop", wb_go_to_desktop},
+	{"policy", wb_policy}, {"relayout", wb_relayout},
 	{nullptr, nullptr},
 };
 
@@ -856,6 +927,8 @@ void close_state() {
 		wl_event_source_remove(g->idle);
 	if (g->reload_idle != nullptr)
 		wl_event_source_remove(g->reload_idle);
+	if (g->layout_idle != nullptr)
+		wl_event_source_remove(g->layout_idle);
 	if (g->L != nullptr)
 		lua_close(g->L);
 	delete g;
@@ -954,6 +1027,8 @@ void scripts_reload(struct wb_server *server) {
 void script_window_event(struct wb_toplevel *t, const char *change) {
 	if (g == nullptr || t->foreign_toplevel_handle == nullptr)
 		return;
+	if (strcmp(change, "new") == 0 || strcmp(change, "close") == 0)
+		script_request_layout(t->server);
 	static const std::map<std::string, std::string> names = {
 		{"new", "window.new"}, {"close", "window.close"}, {"focus", "window.focus"},
 		{"title", "window.title"},
@@ -972,19 +1047,218 @@ void script_window_event(struct wb_toplevel *t, const char *change) {
 void script_desktop_event(struct wb_server *server) {
 	if (g == nullptr)
 		return;
+	script_request_layout(server);
 	Event e;
 	e.name = "desktop.switch";
 	e.desktop = server->current_desktop + 1;
 	enqueue(std::move(e));
 }
 
-void script_output_event(struct wb_server *, const char *name, const char *change) {
+void script_output_event(struct wb_server *server, const char *name, const char *change) {
 	if (g == nullptr)
 		return;
+	script_request_layout(server);
 	Event e;
 	e.name = std::string("output.") + change;
 	e.output = name;
 	enqueue(std::move(e));
+}
+
+namespace {
+
+void push_window_table(lua_State *L, const ScriptWindow &w) {
+	lua_newtable(L);
+	lua_pushstring(L, w.app_id.c_str());
+	lua_setfield(L, -2, "app_id");
+	lua_pushstring(L, w.title.c_str());
+	lua_setfield(L, -2, "title");
+	lua_pushstring(L, w.tag.c_str());
+	lua_setfield(L, -2, "tag");
+	lua_pushinteger(L, w.width);
+	lua_setfield(L, -2, "width");
+	lua_pushinteger(L, w.height);
+	lua_setfield(L, -2, "height");
+	lua_pushboolean(L, w.dialog);
+	lua_setfield(L, -2, "dialog");
+	lua_pushboolean(L, w.xwayland);
+	lua_setfield(L, -2, "xwayland");
+}
+
+void push_rect(lua_State *L, const wb::Rect &r) {
+	lua_newtable(L);
+	lua_pushinteger(L, r.x);
+	lua_setfield(L, -2, "x");
+	lua_pushinteger(L, r.y);
+	lua_setfield(L, -2, "y");
+	lua_pushinteger(L, r.width);
+	lua_setfield(L, -2, "width");
+	lua_pushinteger(L, r.height);
+	lua_setfield(L, -2, "height");
+}
+
+std::optional<int> int_field(lua_State *L, int t, const char *k) {
+	lua_getfield(L, t, k);
+	std::optional<int> v;
+	if (lua_isnumber(L, -1))
+		v = static_cast<int>(std::clamp<lua_Number>(lua_tonumber(L, -1), -100000, 100000));
+	lua_pop(L, 1);
+	return v;
+}
+
+std::optional<bool> bool_field(lua_State *L, int t, const char *k) {
+	lua_getfield(L, t, k);
+	std::optional<bool> v;
+	if (lua_isboolean(L, -1))
+		v = lua_toboolean(L, -1) != 0;
+	lua_pop(L, 1);
+	return v;
+}
+
+}  // namespace
+
+bool script_rules(struct wb_server *, const ScriptWindow &w, wb::AppRule *out) {
+	if (g == nullptr || g->policies.count("rules") == 0)
+		return false;
+	bool got = false;
+	call_policy(g->policies["rules"], [&w](lua_State *L) {
+		push_window_table(L, w);
+		return 1;
+	}, 1, [&](lua_State *L) {
+		if (!lua_istable(L, -1))
+			return;
+		int t = lua_gettop(L);
+		got = true;
+		lua_getfield(L, t, "desktop");
+		if (lua_isstring(L, -1) && strcmp(lua_tostring(L, -1), "all") == 0)
+			out->desktop = wb::AppRule::kAllDesktops;
+		else if (lua_isnumber(L, -1) && lua_tointeger(L, -1) >= 1)
+			out->desktop = static_cast<int>(std::min<lua_Integer>(lua_tointeger(L, -1), 1000)) - 1;
+		lua_pop(L, 1);
+		out->maximized = bool_field(L, t, "maximized");
+		out->fullscreen = bool_field(L, t, "fullscreen");
+		out->iconic = bool_field(L, t, "minimized");
+		out->focus = bool_field(L, t, "focus");
+		out->decor = bool_field(L, t, "decor");
+		out->x = int_field(L, t, "x");
+		out->y = int_field(L, t, "y");
+		if (auto v = int_field(L, t, "width"); v && *v >= 1)
+			out->width = v;
+		if (auto v = int_field(L, t, "height"); v && *v >= 1)
+			out->height = v;
+	}, "the rules policy");
+	return got;
+}
+
+std::optional<wb::Rect> script_place(struct wb_server *, const ScriptWindow &w,
+		const wb::Rect &area, const wb::Rect &proposed) {
+	if (g == nullptr || g->policies.count("place") == 0)
+		return std::nullopt;
+	std::optional<wb::Rect> placed;
+	call_policy(g->policies["place"], [&](lua_State *L) {
+		push_window_table(L, w);
+		push_rect(L, area);
+		push_rect(L, proposed);
+		return 3;
+	}, 1, [&](lua_State *L) {
+		if (!lua_istable(L, -1))
+			return;
+		int t = lua_gettop(L);
+		wb::Rect r = proposed;
+		r.x = int_field(L, t, "x").value_or(r.x);
+		r.y = int_field(L, t, "y").value_or(r.y);
+		r.width = std::max(1, int_field(L, t, "width").value_or(r.width));
+		r.height = std::max(1, int_field(L, t, "height").value_or(r.height));
+		placed = r;
+	}, "the place policy");
+	return placed;
+}
+
+namespace {
+
+/* One layout call per output, for the current desktop: the windows on it
+ * that float (not maximized, fullscreen, tiled to an edge, minimized, or a
+ * dialog), and its usable area. The script returns {[w.id] = {x=, y=,
+ * width=, height=}}; windows it leaves out stay where they are. */
+void run_layout(struct wb_server *server) {
+	if (g == nullptr || g->policies.count("layout") == 0)
+		return;
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link) {
+		std::vector<struct wb_toplevel *> windows;
+		struct wb_toplevel *t;
+		wl_list_for_each(t, &server->toplevels, link) {  /* top first */
+			if (!t->mapped || t->minimized || t->fullscreen || t->tiled ||
+					(t->max_horz && t->max_vert) || view_parent(t) != nullptr ||
+					!toplevel_on_current_desktop(t) ||
+					t->foreign_toplevel_handle == nullptr ||
+					get_active_output(t) != o->wlr_output)
+				continue;
+			windows.push_back(t);
+		}
+		std::reverse(windows.begin(), windows.end());  /* oldest on top of the stack last */
+		struct wlr_box ob;
+		wlr_output_layout_get_box(server->output_layout, o->wlr_output, &ob);
+		wb::Rect area{ob.x + o->usable_area.x, ob.y + o->usable_area.y,
+				o->usable_area.width, o->usable_area.height};
+		std::map<std::string, wb::Rect> placed;
+		bool ok = call_policy(g->policies["layout"], [&](lua_State *L) {
+			lua_newtable(L);
+			int i = 1;
+			for (struct wb_toplevel *w : windows) {
+				push_window(L, w);
+				lua_rawseti(L, -2, i++);
+			}
+			push_rect(L, area);
+			lua_pushstring(L, o->wlr_output->name);
+			lua_pushinteger(L, server->current_desktop + 1);
+			return 4;
+		}, 1, [&](lua_State *L) {
+			if (!lua_istable(L, -1))
+				return;
+			int t = lua_gettop(L);
+			lua_pushnil(L);
+			while (lua_next(L, t) != 0) {
+				if (lua_type(L, -2) == LUA_TSTRING && lua_istable(L, -1)) {
+					int e = lua_gettop(L);
+					auto x = int_field(L, e, "x"), y = int_field(L, e, "y");
+					auto w = int_field(L, e, "width"), h = int_field(L, e, "height");
+					if (x && y && w && h && *w >= 1 && *h >= 1)
+						placed[lua_tostring(L, -2)] = wb::Rect{*x, *y, *w, *h};
+				}
+				lua_pop(L, 1);
+			}
+		}, "the layout policy");
+		if (!ok)
+			continue;
+		for (struct wb_toplevel *w : windows) {
+			auto it = placed.find(w->foreign_toplevel_handle->identifier);
+			if (it == placed.end())
+				continue;
+			const wb::Rect &r = it->second;
+			w->geometry.x = r.x;
+			w->geometry.y = r.y;
+			if (r.width != w->geometry.width || r.height != w->geometry.height) {
+				w->geometry.width = std::min(r.width, 32767);
+				w->geometry.height = std::min(r.height, 32767);
+				view_set_size(w, w->geometry.width, w->geometry.height);
+			}
+			position_toplevel(w);
+		}
+		wlr_log(WLR_DEBUG, "wb-layout %s: %zu of %zu window(s)", o->wlr_output->name,
+				placed.size(), windows.size());
+	}
+}
+
+}  // namespace
+
+void script_request_layout(struct wb_server *server) {
+	if (g == nullptr || g->policies.count("layout") == 0 || g->layout_idle != nullptr)
+		return;
+	g->layout_idle = wl_event_loop_add_idle(server->wl_event_loop, [](void *data) {
+		g->layout_idle = nullptr;
+		run_layout(static_cast<struct wb_server *>(data));
+		wlr_log(WLR_INFO, "%s", "wb-layout done");
+	}, server);
 }
 
 void scripts_reap(struct wb_server *) {
@@ -1057,6 +1331,10 @@ void init_scripts(struct wb_server *server) {
 }
 void finish_scripts(struct wb_server *) {}
 void scripts_reap(struct wb_server *) {}
+bool script_rules(struct wb_server *, const ScriptWindow &, wb::AppRule *) { return false; }
+std::optional<wb::Rect> script_place(struct wb_server *, const ScriptWindow &, const wb::Rect &,
+		const wb::Rect &) { return std::nullopt; }
+void script_request_layout(struct wb_server *) {}
 void scripts_reload(struct wb_server *) {}
 void script_window_event(struct wb_toplevel *, const char *) {}
 void script_desktop_event(struct wb_server *) {}

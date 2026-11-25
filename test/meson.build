@@ -590,6 +590,7 @@ if python.found() and not get_option('tests_only')
     ['lock_popup', 'lock_popup_test.py', [popup_client, lock_client], 60],
     ['keymap_reconfigure', 'keymap_reconfigure_test.py', [], 60],
     ['lua', 'lua_test.py', [touch_client, meson.project_source_root() / 'data' / 'scripts'], 60],
+    ['lua_policy', 'lua_policy_test.py', [touch_client, meson.project_source_root() / 'data' / 'scripts'], 60],
     ['menu', 'menu_test.py', [], 60],
     ['menu_hover_delay', 'menu_hover_delay_test.py', [], 60],
     ['minimize', 'minimize_test.py', [touch_client, layer_client], 60],
