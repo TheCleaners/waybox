@@ -57,6 +57,7 @@ namespace fs = std::filesystem;
 struct MonitorInfo {
 	std::string name;         /* connector */
 	std::string description;  /* make, model */
+	std::string make, model, serial;  /* each may be "" */
 	std::vector<std::string> modes;  /* "WxH@HZ" */
 	/* As it is now: what "Automatic" shows in the arranger. */
 	bool enabled = true;
@@ -313,6 +314,9 @@ void arranger_changed(Ui *ui);   /* a monitor's settings changed: redraw */
 void arranger_select(Ui *ui, int index);
 /* For tests: drop monitor NAME at logical x,y, as a drag would. */
 bool arranger_test_drop(Ui *ui, const std::string &name, int x, int y);
+/* For tests and screenshots: a monitor's make, model or description. */
+void arranger_test_describe(Ui *ui, const std::string &what, const std::string &name,
+		const std::string &text);
 /* After saving changed monitor settings: keep them, or (unanswered) go
  * back to `before`'s. */
 void ask_keep_monitors(Ui *ui, const wb::WayboxSettings &before);

@@ -1,5 +1,7 @@
 #include "wbconf_ui.hpp"
 
+#include "waybox/monitor_layout.hpp"
+
 namespace wbconf {
 
 /* "60" for 60.000, "59.997" otherwise. */
@@ -42,8 +44,18 @@ std::optional<std::vector<MonitorInfo>> query_monitors(std::string *why) {
 						? json_object_get_string_member_with_default(o, key, nullptr) : nullptr;
 				return v != nullptr ? v : "";
 			};
-			m.name = str("name");
-			m.description = str("description");
+			/* Valid UTF-8 whatever the monitor's EDID says. */
+			auto valid = [](const std::string &s) {
+				char *v = g_utf8_make_valid(s.c_str(), static_cast<gssize>(s.size()));
+				std::string out = v;
+				g_free(v);
+				return out;
+			};
+			m.name = valid(str("name"));
+			m.description = valid(str("description"));
+			m.make = valid(str("make"));
+			m.model = valid(str("model"));
+			m.serial = valid(str("serial"));
 			m.enabled = json_object_get_boolean_member_with_default(o, "enabled", TRUE);
 			m.scale = json_object_get_double_member_with_default(o, "scale", 1);
 			if (std::string t = str("transform"); !t.empty())
@@ -133,8 +145,10 @@ GtkWidget *build_monitors_block(Ui *ui) {
 	ui->monitors.reserve(monitors->size());
 	for (const MonitorInfo &info : *monitors) {
 		std::string title = info.name;
-		if (!info.description.empty())
-			title += "  " + info.description;
+		std::string caption = wb::monitor_caption(info.make, info.model, info.description,
+				info.name);
+		if (!caption.empty())
+			title += "  " + caption;
 		/* A framed card per monitor. */
 		GtkWidget *frame = gtk_frame_new(nullptr);
 		GtkWidget *label = gtk_label_new(nullptr);
