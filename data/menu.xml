@@ -16,9 +16,9 @@
 -->
 
 <menu id="root-menu" label="Waybox">
-  <item label="Terminal" icon="foot">
+  <item label="Terminal" icon="utilities-terminal">
     <action name="Execute">
-      <execute>foot</execute>
+      <execute>$TERMINAL</execute>
     </action>
   </item>
   <item label="Run" icon="system-run">
