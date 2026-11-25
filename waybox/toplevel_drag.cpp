@@ -85,8 +85,9 @@ void handle_attach(struct wl_client *, struct wl_resource *resource,
 	if (xdg == nullptr)
 		return;  /* its role is gone: nothing to carry */
 	d->toplevel = xdg;
-	d->x_offset = x_offset;
-	d->y_offset = y_offset;
+	/* A hint within the window: a wild one (INT32_MIN) would overflow. */
+	d->x_offset = std::clamp(x_offset, -65535, 65535);
+	d->y_offset = std::clamp(y_offset, -65535, 65535);
 	d->toplevel_destroy.connect(&xdg->events.destroy, [d](void *) { detach(d); });
 	/* An existing window starts following now. */
 	toplevel_drag_motion(d->server);

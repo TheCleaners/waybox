@@ -297,13 +297,15 @@ void new_managed(struct wb_server *server, struct wlr_xwayland_surface *xs) {
 	});
 	t->request_configure.connect(&xs->events.request_configure,
 			[t](void *data) { x11_request_configure(t, data); });
+	/* Only from a held button (a press on its own titlebar), and not when
+	 * fullscreen: as for Wayland windows. */
 	t->request_move.connect(&xs->events.request_move, [t](void *) {
-		if (t->mapped)
+		if (t->mapped && !t->fullscreen && t->server->cursor->buttons_down > 0)
 			begin_interactive(t, WB_CURSOR_MOVE, 0);
 	});
 	t->request_resize.connect(&xs->events.request_resize, [t](void *data) {
 		auto *ev = static_cast<struct wlr_xwayland_resize_event *>(data);
-		if (t->mapped)
+		if (t->mapped && !t->fullscreen && t->server->cursor->buttons_down > 0)
 			begin_interactive(t, WB_CURSOR_RESIZE, ev->edges);
 	});
 	t->request_maximize.connect(&xs->events.request_maximize, [t](void *) {

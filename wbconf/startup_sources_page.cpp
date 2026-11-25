@@ -8,6 +8,34 @@
 
 namespace wbconf {
 
+/* Written to a copy next to it, then put in its place: a crash or a full
+ * disk midway never leaves half a file. The file keeps its permissions
+ * (a script stays executable). */
+bool write_file_atomic(const std::string &path, const std::string &text, std::string *error) {
+	std::string tmp = path + ".wbconf-new";
+	{
+		std::ofstream f(tmp, std::ios::trunc);
+		f << text;
+		f.close();
+		if (!f) {
+			*error = path + ": " + strerror(errno);
+			std::error_code ec;
+			fs::remove(tmp, ec);
+			return false;
+		}
+	}
+	std::error_code ec;
+	auto st = fs::status(path, ec);
+	if (!ec && fs::exists(st))
+		fs::permissions(tmp, st.permissions(), ec);
+	if (rename(tmp.c_str(), path.c_str()) != 0) {
+		*error = path + ": " + strerror(errno);
+		fs::remove(tmp, ec);
+		return false;
+	}
+	return true;
+}
+
 namespace {
 
 std::string config_home() {
@@ -23,14 +51,7 @@ std::string read_file(const std::string &path) {
 }
 
 bool write_file(const std::string &path, const std::string &text, std::string *error) {
-	std::ofstream f(path, std::ios::trunc);
-	f << text;
-	f.close();
-	if (!f) {
-		*error = path + ": " + strerror(errno);
-		return false;
-	}
-	return true;
+	return write_file_atomic(path, text, error);
 }
 
 /* The desktops autostart entries are matched against, as xdg-autostart

@@ -704,9 +704,11 @@ void wb_keyboard::on_key(void *data) {
 						handled = true;
 					}
 		} else {
-			for (int i = 0; i < nsyms; i++) {
+			/* The first binding that runs ends it: a binding can free the
+			 * keymap `syms` points into (Reconfigure), and a later keysym
+			 * mustn't undo `handled`. */
+			for (int i = 0; i < nsyms && !handled; i++)
 				handled = handle_keybinding(server, syms[i], modifiers);
-			}
 		}
 	} else if (server->menu != nullptr || server->switcher != nullptr) {
 		/* Swallow key releases too while a menu or the switcher OSD is up.

@@ -12,7 +12,7 @@ The second part skips without Xwayland or python-xlib; the whole test skips
 (exit 77) without foot, wlrctl, wtype, grim, magick, wlr-randr or a
 headless display.
 
-Usage: edge_tiling_test.py <waybox-binary>
+Usage: edge_tiling_test.py <waybox-binary> <vpointer_client>
 """
 import os
 import queue
@@ -42,10 +42,10 @@ def need(tool):
 
 
 def main():
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 3:
         print(__doc__)
         sys.exit(2)
-    waybox = sys.argv[1]
+    waybox, vptr_bin = sys.argv[1:]
     for tool in ("foot", "wlrctl", "wtype", "grim", "magick", "wlr-randr"):
         need(tool)
     have_x11 = shutil.which("Xwayland") is not None
@@ -225,9 +225,22 @@ def main():
             w, h, x, y = geoms("mapped")[-1]
             time.sleep(0.5)
 
+            # As a client-drawn titlebar does: the move is asked for while
+            # the button pressed on the window is held, and dropped by
+            # letting it go.
+            vptr = subprocess.Popen([vptr_bin], env=cenv, text=True,
+                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+
+            def held(cmd):
+                vptr.stdin.write(cmd + "\n")
+                vptr.stdin.flush()
+                vptr.stdout.readline()  # "ok"
+                time.sleep(0.2)
+
             def start_move(px, py):
                 pointer("move", "-9000", "-9000")
                 pointer("move", str(px), str(py))
+                held("press")
                 send("move drag")
                 time.sleep(0.5)
 
@@ -241,7 +254,7 @@ def main():
                    f"no preview in the theme colour over the left half: {probe}")
             expect(colour_at(ow - 40, 40)[0] < 30, "preview outside the left half")
             n_tiles = len(geoms("tile-left"))
-            pointer("click", "left")  # drop
+            held("release")  # drop
             time.sleep(0.5)
             tiles = geoms("tile-left")
             expect(len(tiles) > n_tiles, "dropping on the left edge did not tile")
@@ -255,7 +268,9 @@ def main():
             n_untile = len(geoms("untile"))
             start_move(100, oh // 2)
             pointer("move", "300", "0")
-            pointer("click", "left")
+            held("release")
+            vptr.stdin.close()
+            vptr.wait(timeout=5)
             time.sleep(0.5)
             untiles = geoms("untile")
             expect(len(untiles) > n_untile and untiles[-1][:2] == (w, h),

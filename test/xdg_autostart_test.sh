@@ -5,7 +5,10 @@
 script=$1
 t=$(mktemp -d) || exit 1
 trap 'rm -rf -- "$t"' EXIT
-mkdir -p "$t/home/autostart" "$t/sys/autostart" "$t/out" "$t/bin"
+mkdir -p "$t/home/autostart" "$t/sys/autostart" "$t/out" "$t/bin" "$t/cwd"
+# Run from a folder with a file named like the desktop: a pattern in a
+# .desktop value must not expand to it.
+: > "$t/cwd/Waybox"
 out=$t/out
 
 entry() {  # entry <dir> <name> <extra lines...>
@@ -34,6 +37,12 @@ entry sys cond-gsettings-false "AutostartCondition=GSettings org.test disabled-k
 entry sys cond-unless-exists "AutostartCondition=unless-exists nothing-here"
 entry sys cond-if-exists "AutostartCondition=if-exists nothing-here"
 entry sys cond-unknown "AutostartCondition=GNOME3 if-session gnome"
+entry sys only-pattern "OnlyShowIn=W*;"
+# A user file name with a space must not hide a system one it ends with.
+printf '[Desktop Entry]\nType=Application\nExec=touch %s/spaced\n' "$out" \
+	> "$t/home/autostart/a b.desktop"
+printf '[Desktop Entry]\nType=Application\nExec=touch %s/b-sys\n' "$out" \
+	> "$t/sys/autostart/b.desktop"
 # Shadowing: the user copy (Hidden) wins over the system copy.
 entry sys shadowed
 entry home shadowed "Hidden=true"
@@ -58,8 +67,8 @@ chmod +x "$t/bin/gsettings"
 
 run() {
 	rm -f "$out"/*
-	env XDG_CONFIG_HOME="$t/home" XDG_CONFIG_DIRS="$t/sys" PATH="$t/bin:$PATH" \
-		XDG_CURRENT_DESKTOP=Waybox "$@" sh "$script"
+	(cd "$t/cwd" && env XDG_CONFIG_HOME="$t/home" XDG_CONFIG_DIRS="$t/sys" \
+		PATH="$t/bin:$PATH" XDG_CURRENT_DESKTOP=Waybox "$@" sh "$script")
 	sleep 0.5  # entries are started in the background
 }
 
@@ -91,6 +100,9 @@ expect no shadowed "user Hidden copy shadows the system one"
 expect yes actions "main Exec runs, %U removed"
 expect no action-ran "[Desktop Action] Exec must not run"
 expect no "actions %U" "field code must not reach the command"
+expect no only-pattern "a * in OnlyShowIn isn't a file pattern"
+expect yes spaced "a file name with a space"
+expect yes b-sys "not hidden by a name ending the same after a space"
 
 run env WB_AUTOSTART_ENVIRONMENT=all
 expect yes only-gnome "WB_AUTOSTART_ENVIRONMENT=all ignores OnlyShowIn"

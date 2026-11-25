@@ -40,26 +40,33 @@ entry_key() {
 }
 
 # True if the ;-separated list $1 contains one of the current desktop names.
+# (No globbing: the values come from .desktop files, and a "*" in them
+# must not turn into file names.)
 lists_current_desktop() {
 	old_ifs=$IFS
+	set -f
 	IFS=:
 	for desktop in $desktops; do
 		IFS=';'
 		for listed in $1; do
 			if [ -n "$desktop" ] && [ "$listed" = "$desktop" ]; then
 				IFS=$old_ifs
+				set +f
 				return 0
 			fi
 		done
 		IFS=:
 	done
 	IFS=$old_ifs
+	set +f
 	return 1
 }
 
 # True if the AutostartCondition $1 holds (unknown conditions do not).
 condition_holds() {
+	set -f
 	set -- $1
+	set +f
 	case "$1" in
 	GSettings)
 		[ $# -ge 3 ] && command -v gsettings >/dev/null 2>&1 &&
@@ -108,7 +115,8 @@ should_start() {
 	return 0
 }
 
-seen=" "
+# File names already seen, between "/" (which no file name contains).
+seen="/"
 # Split on ":" only the expanded value (a literal ":" in the for list would
 # not be split).
 search_dirs="$config_home:$config_dirs"
@@ -121,9 +129,9 @@ for dir in $search_dirs; do
 		name=${file##*/}
 		# The first directory that has this file name wins.
 		case "$seen" in
-		*" $name "*) continue ;;
+		*"/$name/"*) continue ;;
 		esac
-		seen="$seen$name "
+		seen="$seen$name/"
 
 		should_start "$file" || continue
 		cmd=$(entry_key "$file" Exec | sed -e 's/%[fFuUdDnNickvm]//g' -e 's/%%/%/g')

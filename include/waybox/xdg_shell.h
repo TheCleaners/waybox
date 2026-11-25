@@ -190,6 +190,8 @@ void begin_interactive(struct wb_toplevel *toplevel,
 uint32_t nearest_resize_edges(struct wb_toplevel *toplevel, double x, double y);
 /* Whether `toplevel` is still one of the server's windows. */
 bool toplevel_alive(struct wb_server *server, struct wb_toplevel *toplevel);
+/* Shown if it's on the current desktop and not minimized, else hidden. */
+void toplevel_update_visibility(struct wb_toplevel *toplevel);
 
 /* Decoration insets for a toplevel (zero unless it has a server-side frame). */
 wb::FrameInsets toplevel_insets(struct wb_toplevel *toplevel);
