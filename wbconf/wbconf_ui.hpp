@@ -58,6 +58,12 @@ struct MonitorInfo {
 	std::string name;         /* connector */
 	std::string description;  /* make, model */
 	std::vector<std::string> modes;  /* "WxH@HZ" */
+	/* As it is now: what "Automatic" shows in the arranger. */
+	bool enabled = true;
+	int width = 0, height = 0;  /* the current mode */
+	int x = 0, y = 0;
+	double scale = 1;
+	std::string transform = "normal";
 };
 
 /* ---- A lightweight font picker: family + size + bold ----------------- */
@@ -116,8 +122,22 @@ struct Ui {
 		GtkEntry *position = nullptr;
 		GtkDropDown *transform = nullptr;
 		std::map<std::string, std::string> kept;  /* attributes not shown here */
+		MonitorInfo info;
+		GtkWidget *card = nullptr;      /* its settings, shown when selected */
+		GtkLabel *looks_like = nullptr;  /* its size on the desktop */
 	};
 	std::vector<Monitor> monitors;
+	/* The arranger (monitor_arranger.cpp): monitors as boxes to drag. */
+	struct {
+		GtkWidget *area = nullptr;
+		GtkCheckButton *advanced = nullptr;  /* every monitor's settings */
+		int selected = -1;                   /* in monitors */
+		int dragging = -1;
+		int drag_x = 0, drag_y = 0;          /* where it's dragged to (logical) */
+		int start_x = 0, start_y = 0;
+		/* Canvas = (logical - origin) * scale + margin; kept while dragging. */
+		double scale = 0.1, origin_x = 0, origin_y = 0, margin_x = 0, margin_y = 0;
+	} arranger;
 	/* Rules for monitors that aren't connected now: passed through as is. */
 	std::vector<wb::OutputSetting> other_outputs;
 
@@ -287,6 +307,16 @@ std::optional<wb::RcDocument> load_document(std::string *problem);
 pid_t session_compositor();
 bool is_waybox(long pid);
 int signal_waybox_reload();
+/* The monitor arranger (monitor_arranger.cpp). */
+GtkWidget *build_arranger(Ui *ui);
+void arranger_changed(Ui *ui);   /* a monitor's settings changed: redraw */
+void arranger_select(Ui *ui, int index);
+/* For tests: drop monitor NAME at logical x,y, as a drag would. */
+bool arranger_test_drop(Ui *ui, const std::string &name, int x, int y);
+/* After saving changed monitor settings: keep them, or (unanswered) go
+ * back to `before`'s. */
+void ask_keep_monitors(Ui *ui, const wb::WayboxSettings &before);
+void populate_hdr(Ui *ui, const std::optional<std::string> &hdr_outputs);
 std::string running_waybox_version();
 std::string format_hz(double hz);
 std::optional<std::vector<MonitorInfo>> query_monitors(std::string *why);

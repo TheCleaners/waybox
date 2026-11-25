@@ -71,16 +71,7 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 	}
 
 	populate_monitors(ui, s.outputs);
-
-	ui->hdr_loaded = s.hdr_outputs;
-	ui->hdr_others.clear();
-	std::vector<std::string> hdr = split_names(s.hdr_outputs.value_or(""));
-	for (const std::string &n : hdr)
-		if (ui->hdr.count(n) == 0)
-			ui->hdr_others.push_back(n);
-	for (auto &[name, check] : ui->hdr)
-		gtk_check_button_set_active(check,
-				std::find(hdr.begin(), hdr.end(), name) != hdr.end());
+	populate_hdr(ui, s.hdr_outputs);
 
 	populate_programs(ui, s.startup);
 	populate_bindings(ui, doc);
@@ -92,6 +83,18 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 }
 
 /* What the custom editors hold now. */
+void populate_hdr(Ui *ui, const std::optional<std::string> &hdr_outputs) {
+	ui->hdr_loaded = hdr_outputs;
+	ui->hdr_others.clear();
+	std::vector<std::string> hdr = split_names(hdr_outputs.value_or(""));
+	for (const std::string &n : hdr)
+		if (ui->hdr.count(n) == 0)
+			ui->hdr_others.push_back(n);
+	for (auto &[name, check] : ui->hdr)
+		gtk_check_button_set_active(check,
+				std::find(hdr.begin(), hdr.end(), name) != hdr.end());
+}
+
 wb::WayboxSettings collect(Ui *ui) {
 	wb::WayboxSettings s;
 	if (GtkListBoxRow *r = gtk_list_box_get_selected_row(ui->theme_list)) {

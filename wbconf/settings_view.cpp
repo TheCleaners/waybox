@@ -7,6 +7,8 @@
  */
 #include "wbconf_ui.hpp"
 
+#include "waybox/monitor_layout.hpp"
+
 namespace wbconf {
 
 namespace {
@@ -777,6 +779,10 @@ void apply_test_values(Ui *ui, const char *spec) {
 					wallpaper_test_choose(p->page.get(), item.substr(prefix.size() + 1));
 			}
 		}
+		/* "arrange.NAME=X,Y": drop that monitor at X,Y in the arranger. */
+		if (eq != std::string::npos && item.rfind("arrange.", 0) == 0)
+			if (auto p = wb::parse_position(item.substr(eq + 1)))
+				arranger_test_drop(ui, item.substr(8, eq - 8), p->first, p->second);
 		/* "configure.ID=1": click that program's Configure… button. */
 		if (eq != std::string::npos && item.rfind("configure.", 0) == 0)
 			for (auto &p : ui->programs)

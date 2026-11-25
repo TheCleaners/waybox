@@ -37,13 +37,32 @@ std::optional<std::vector<MonitorInfo>> query_monitors(std::string *why) {
 			if (o == nullptr || !json_object_has_member(o, "name"))
 				continue;
 			MonitorInfo m;
-			m.name = json_object_get_string_member(o, "name");
-			if (json_object_has_member(o, "description"))
-				m.description = json_object_get_string_member(o, "description");
+			auto str = [o](const char *key) -> std::string {
+				const char *v = json_object_has_member(o, key)
+						? json_object_get_string_member_with_default(o, key, nullptr) : nullptr;
+				return v != nullptr ? v : "";
+			};
+			m.name = str("name");
+			m.description = str("description");
+			m.enabled = json_object_get_boolean_member_with_default(o, "enabled", TRUE);
+			m.scale = json_object_get_double_member_with_default(o, "scale", 1);
+			if (std::string t = str("transform"); !t.empty())
+				m.transform = t;
+			if (JsonObject *pos = json_object_has_member(o, "position")
+					? json_object_get_object_member(o, "position") : nullptr) {
+				m.x = static_cast<int>(json_object_get_int_member_with_default(pos, "x", 0));
+				m.y = static_cast<int>(json_object_get_int_member_with_default(pos, "y", 0));
+			}
 			if (json_object_has_member(o, "modes")) {
 				JsonArray *modes = json_object_get_array_member(o, "modes");
 				for (guint j = 0; j < json_array_get_length(modes); j++) {
 					JsonObject *md = json_array_get_object_element(modes, j);
+					if (md == nullptr)
+						continue;
+					if (json_object_get_boolean_member_with_default(md, "current", FALSE)) {
+						m.width = static_cast<int>(json_object_get_int_member(md, "width"));
+						m.height = static_cast<int>(json_object_get_int_member(md, "height"));
+					}
 					std::string v = std::to_string(json_object_get_int_member(md, "width")) +
 							"x" + std::to_string(json_object_get_int_member(md, "height"));
 					double hz = json_object_get_double_member(md, "refresh");
@@ -94,6 +113,7 @@ void populate_monitors(Ui *ui, const std::vector<wb::OutputSetting> &outputs) {
 		select_value(m.transform, kTransforms, take("transform"));
 		m.kept = attrs;
 	}
+	arranger_changed(ui);
 }
 
 /* One block per connected monitor. */
@@ -109,6 +129,7 @@ GtkWidget *build_monitors_block(Ui *ui) {
 		gtk_box_append(GTK_BOX(inner), msg);
 		return inner;
 	}
+	gtk_box_append(GTK_BOX(inner), build_arranger(ui));
 	ui->monitors.reserve(monitors->size());
 	for (const MonitorInfo &info : *monitors) {
 		std::string title = info.name;
@@ -132,6 +153,8 @@ GtkWidget *build_monitors_block(Ui *ui) {
 		GtkWidget *grid = section_grid(card);
 		Ui::Monitor m;
 		m.name = info.name;
+		m.info = info;
+		m.card = frame;
 		m.enabled = add_switch(grid, 0, _("On:"));
 		m.modes.push_back("");
 		for (const std::string &v : info.modes)
@@ -153,9 +176,151 @@ GtkWidget *build_monitors_block(Ui *ui) {
 				_("HDR10 (Vulkan renderer and an HDR monitor)"));
 		grid_control(grid, 5, hdr);
 		ui->hdr[info.name] = GTK_CHECK_BUTTON(hdr);
+		m.looks_like = GTK_LABEL(gtk_label_new(""));
+		gtk_label_set_xalign(m.looks_like, 0);
+		gtk_widget_add_css_class(GTK_WIDGET(m.looks_like), "dim-label");
+		grid_label(grid, 6, _("Size on the desktop:"));
+		grid_control(grid, 6, GTK_WIDGET(m.looks_like));
+		/* Any change shows in the arranger. */
+		g_signal_connect_swapped(m.enabled, "notify::active", G_CALLBACK(arranger_changed), ui);
+		for (GtkDropDown *dd : {m.mode, m.scale, m.transform})
+			g_signal_connect_swapped(dd, "notify::selected", G_CALLBACK(arranger_changed), ui);
+		g_signal_connect_swapped(m.position, "changed", G_CALLBACK(arranger_changed), ui);
 		ui->monitors.push_back(std::move(m));
 	}
+	arranger_select(ui, 0);
+	arranger_changed(ui);
 	return inner;
+}
+
+}  // namespace wbconf
+
+namespace wbconf {
+
+namespace {
+
+/* Monitor settings back to `before`'s: written, shown, and Waybox told. */
+void revert_monitors(Ui *ui, const wb::WayboxSettings &before) {
+	std::string problem;
+	std::optional<wb::RcDocument> doc = load_document(&problem);
+	if (!doc) {
+		set_status(ui, problem);
+		return;
+	}
+	wb::WayboxSettings back = ui->shown;
+	back.outputs = before.outputs;
+	back.hdr_outputs = before.hdr_outputs;
+	doc->apply(back, ui->shown);
+	std::string err;
+	if (!doc->save_file(user_rc_path(), &err)) {
+		set_status(ui, std::string(_("Could not put the monitor settings back: ")) + err);
+		return;
+	}
+	populate_monitors(ui, back.outputs);
+	populate_hdr(ui, back.hdr_outputs);
+	ui->shown = collect(ui);
+	signal_waybox_reload();
+	refresh_save_state(ui);
+	set_status(ui, _("The previous monitor settings are back."));
+}
+
+struct KeepDialog {
+	Ui *ui;
+	wb::WayboxSettings before;
+	GtkWindow *window = nullptr;
+	GtkLabel *label = nullptr;
+	guint timer = 0;
+	int left = 15;
+	bool done = false;
+};
+
+void finish(KeepDialog *k, bool keep) {
+	if (k->done)
+		return;
+	k->done = true;
+	if (k->timer != 0)
+		g_source_remove(k->timer);
+	k->timer = 0;
+	if (!keep)
+		revert_monitors(k->ui, k->before);
+	else
+		set_status(k->ui, _("Kept the new monitor settings."));
+	if (k->window != nullptr)
+		gtk_window_destroy(k->window);
+	delete k;
+}
+
+void show_left(KeepDialog *k) {
+	char *t = g_strdup_printf(ngettext("Keep these monitor settings? Going back to the "
+			"previous ones in %d second.", "Keep these monitor settings? Going back to the "
+			"previous ones in %d seconds.", k->left), k->left);
+	gtk_label_set_text(k->label, t);
+	g_free(t);
+}
+
+}  // namespace
+
+void ask_keep_monitors(Ui *ui, const wb::WayboxSettings &before) {
+	/* Tests answer with WBCONF_TEST_CHOICE=monitors-keep|monitors-revert,
+	 * and shorten the wait with WBCONF_KEEP_SECONDS. */
+	if (ui->test_choice == "monitors-keep" || ui->test_choice == "monitors-revert") {
+		if (ui->test_choice == "monitors-revert")
+			revert_monitors(ui, before);
+		return;
+	}
+	auto *k = new KeepDialog{ui, before};
+	if (const char *s = getenv("WBCONF_KEEP_SECONDS"); s != nullptr && atoi(s) > 0)
+		k->left = std::min(atoi(s), 120);
+	k->window = GTK_WINDOW(gtk_window_new());
+	gtk_window_set_title(k->window, _("Monitor Settings"));
+	gtk_window_set_transient_for(k->window, ui->window);
+	gtk_window_set_modal(k->window, TRUE);
+	gtk_window_set_resizable(k->window, FALSE);
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+	gtk_widget_set_margin_top(box, 18);
+	gtk_widget_set_margin_bottom(box, 18);
+	gtk_widget_set_margin_start(box, 18);
+	gtk_widget_set_margin_end(box, 18);
+	k->label = GTK_LABEL(gtk_label_new(""));
+	gtk_label_set_wrap(k->label, TRUE);
+	gtk_label_set_max_width_chars(k->label, 40);
+	gtk_box_append(GTK_BOX(box), GTK_WIDGET(k->label));
+	GtkWidget *buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+	gtk_widget_set_halign(buttons, GTK_ALIGN_END);
+	GtkWidget *revert = gtk_button_new_with_mnemonic(_("_Revert"));
+	GtkWidget *keep = gtk_button_new_with_mnemonic(_("_Keep"));
+	gtk_widget_add_css_class(keep, "suggested-action");
+	gtk_box_append(GTK_BOX(buttons), revert);
+	gtk_box_append(GTK_BOX(buttons), keep);
+	gtk_box_append(GTK_BOX(box), buttons);
+	gtk_window_set_child(k->window, box);
+	g_signal_connect_swapped(revert, "clicked", G_CALLBACK(+[](KeepDialog *k) {
+		finish(k, false);
+	}), k);
+	g_signal_connect_swapped(keep, "clicked", G_CALLBACK(+[](KeepDialog *k) {
+		finish(k, true);
+	}), k);
+	/* Closed without an answer: as Revert. */
+	g_signal_connect_swapped(k->window, "close-request", G_CALLBACK(+[](KeepDialog *k) {
+		k->window = nullptr;  /* closing it already */
+		finish(k, false);
+		return FALSE;
+	}), k);
+	show_left(k);
+	/* The countdown goes on whether or not the dialog can be seen: a mode
+	 * the monitor can't show must come back by itself. */
+	k->timer = g_timeout_add_seconds(1, [](gpointer data) -> gboolean {
+		auto *k = static_cast<KeepDialog *>(data);
+		if (--k->left <= 0) {
+			k->timer = 0;
+			finish(k, false);
+			return G_SOURCE_REMOVE;
+		}
+		show_left(k);
+		return G_SOURCE_CONTINUE;
+	}, k);
+	gtk_window_present(k->window);
+	gtk_widget_grab_focus(revert);
 }
 
 }  // namespace wbconf

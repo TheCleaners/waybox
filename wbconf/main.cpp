@@ -91,6 +91,7 @@ void on_save(GtkButton *, gpointer data) {
 		if (r->def->type != wb::SettingType::Custom && r->value != r->saved)
 			doc->set(r->def->rc, r->value);
 	wb::WayboxSettings now = collect(ui);
+	wb::WayboxSettings before = ui->shown;
 	doc->apply(now, ui->shown);
 	apply_bindings(ui, *doc);
 	std::string err;
@@ -117,7 +118,11 @@ void on_save(GtkButton *, gpointer data) {
 	int n = signal_waybox_reload();
 	if (n > 0)
 		set_status(ui, _("Saved and reloaded waybox."));
-	else
+	/* Monitors changed and in use: keep them, or have the old ones back
+	 * if no one answers (a mode the monitor can't show hides the dialog). */
+	if (n > 0 && (now.outputs != before.outputs || now.hdr_outputs != before.hdr_outputs))
+		ask_keep_monitors(ui, before);
+	else if (n <= 0)
 		set_status(ui, std::string(_("Saved to ")) + path + " " +
 				_("(no running waybox to reload)."));
 }

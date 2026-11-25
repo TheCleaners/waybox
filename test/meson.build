@@ -157,6 +157,14 @@ integrations_test = executable(
   )
 test('integrations', integrations_test)
 
+# wbconf's monitor arranger: sizes, snapping, placing.
+monitor_layout_test = executable(
+  'monitor_layout_test',
+  ['monitor_layout_test.cpp', 'wb_test_main.cpp', monitor_layout_src],
+  include_directories: [inc_dir],
+  )
+test('monitor_layout', monitor_layout_test)
+
 # Openbox's If/ForEach conditions: matching, desktops, targets.
 conditions_test = executable(
   'conditions_test',
@@ -749,6 +757,8 @@ if python.found() and not get_option('tests_only')
     integration_tests += [['wbconf_options', 'wbconf_options_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_wallpaper', 'wbconf_wallpaper_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_monitors', 'wbconf_monitors_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
   endif
   # Run alone (Xwayland, and edge_tiling, which starts an X11 window):
