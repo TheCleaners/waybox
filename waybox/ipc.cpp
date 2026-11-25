@@ -19,6 +19,7 @@
 
 #include "config.h"
 #include "ipc.h"
+#include "waybox/seat.h"
 #include "waybox/session_lock.h"
 #include "version.h"
 #include "waybox/action.hpp"
@@ -181,6 +182,17 @@ struct wb_toplevel *find_window(struct wb_server *server, const std::string &sel
 Value handle(Client *c, const Value &req) {
 	struct wb_server *server = c->server;
 	std::string cmd = req.str("request");
+	/* Only with WAYBOX_TEST_TOUCH=1 (the tests' fake touchscreen). */
+	if (cmd == "test_touch") {
+		auto num = [&req](const char *k) {
+			const Value *v = req.get(k);
+			return v != nullptr && v->number() != nullptr ? *v->number() : 0.0;
+		};
+		if (!seat_test_touch(server, req.str("event"), static_cast<int32_t>(num("id")),
+				num("x"), num("y")))
+			return error("no test touchscreen");
+		return Object{{"ok", true}};
+	}
 	if (cmd == "get_version")
 		return Object{{"ok", true}, {"name", "waybox"}, {"version", WB_BUILD_VERSION},
 				{"release", PACKAGE_VERSION}};

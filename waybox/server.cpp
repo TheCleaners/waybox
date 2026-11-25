@@ -250,6 +250,7 @@ bool wb_create_backend(struct wb_server* server) {
 		wlr_log(WLR_ERROR, "%s", _("Failed to create cursor"));
 		return false;
 	}
+	seat_init_test_touch(server);
 
 	server->output_manager = wlr_xdg_output_manager_v1_create(server->wl_display,
 				server->output_layout);
@@ -414,6 +415,7 @@ bool wb_terminate(struct wb_server* server) {
 	finish_input_method(server);
 
 	server->desktop_popup.reset();  /* its timer is on the event loop */
+	seat_finish_test_touch(server);
 	server->cursor.reset();
 	server->new_xdg_decoration.disconnect(); /* wb_decoration_destroy */
 	deinit_config(server->config);

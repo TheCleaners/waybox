@@ -941,6 +941,29 @@ static void handle_new_pointer(struct wb_server *server, struct wlr_input_device
 	wlr_cursor_attach_input_device(server->cursor->cursor, device);
 }
 
+static void update_seat_capabilities(struct wb_server *server);
+
+static void handle_new_touch(struct wb_server *server, struct wlr_input_device *device) {
+	wlr_cursor_attach_input_device(server->cursor->cursor, device);
+	/* A touchscreen built into a monitor says which: touches map onto it,
+	 * not onto the whole layout. */
+	struct wlr_touch *touch = wlr_touch_from_input_device(device);
+	if (touch->output_name != nullptr) {
+		struct wb_output *o;
+		wl_list_for_each(o, &server->outputs, link)
+			if (strcmp(o->wlr_output->name, touch->output_name) == 0)
+				wlr_cursor_map_input_to_output(server->cursor->cursor, device, o->wlr_output);
+	}
+	++server->seat->touch_devices;
+	auto *gone = new wb::Listener;
+	gone->connect(&device->events.destroy, [server, gone](void *) {
+		--server->seat->touch_devices;
+		update_seat_capabilities(server);
+		gone->disconnect();
+		delete gone;
+	});
+}
+
 /* Advertise the seat's input capabilities to clients. waybox always owns a
  * cursor, so POINTER is always advertised; KEYBOARD is advertised once at least
  * one keyboard exists. This must run whenever an input device is added through
@@ -953,8 +976,10 @@ static void update_seat_capabilities(struct wb_server *server) {
 	 * a keyboard appears means a window focused before then (headless, or a
 	 * keyboard plugged in later) misses wl_keyboard.enter and the first keys
 	 * typed race the client binding its wl_keyboard. */
-	wlr_seat_set_capabilities(server->seat->seat,
-			WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD);
+	uint32_t caps = WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD;
+	if (server->seat->touch_devices > 0)
+		caps |= WL_SEAT_CAPABILITY_TOUCH;
+	wlr_seat_set_capabilities(server->seat->seat, caps);
 }
 
 static void new_input_notify(struct wb_server *server, void *data) {
@@ -967,6 +992,10 @@ static void new_input_notify(struct wb_server *server, void *data) {
 		case WLR_INPUT_DEVICE_POINTER:
 			wlr_log(WLR_INFO, "%s: %s", _("New pointer detected"), device->name);
 			handle_new_pointer(server, device);
+			break;
+		case WLR_INPUT_DEVICE_TOUCH:
+			wlr_log(WLR_INFO, "%s: %s", _("New touchscreen detected"), device->name);
+			handle_new_touch(server, device);
 			break;
 		default:
 			wlr_log(WLR_INFO, "%s: %s", _("Unsupported input device detected"), device->name);
@@ -1009,6 +1038,56 @@ void seat_set_focus_layer(struct wb_seat *seat, struct wlr_layer_surface_v1 *lay
 	if (layer->current.layer > ZWLR_LAYER_SHELL_V1_LAYER_TOP) {
 		seat->focused_layer = layer;
 	}
+}
+
+namespace {
+const struct wlr_touch_impl test_touch_impl = {.name = "waybox-test-touch"};
+}
+
+void seat_init_test_touch(struct wb_server *server) {
+	const char *on = getenv("WAYBOX_TEST_TOUCH");
+	if (on == nullptr || strcmp(on, "1") != 0)
+		return;
+	auto *t = new wlr_touch{};
+	wlr_touch_init(t, &test_touch_impl, "waybox-test-touch");
+	server->seat->test_touch = t;
+	wlr_log(WLR_INFO, "%s", "Test touchscreen (WAYBOX_TEST_TOUCH=1)");
+	handle_new_touch(server, &t->base);
+	update_seat_capabilities(server);
+}
+
+void seat_finish_test_touch(struct wb_server *server) {
+	if (server->seat == nullptr || server->seat->test_touch == nullptr)
+		return;
+	struct wlr_touch *t = server->seat->test_touch;
+	server->seat->test_touch = nullptr;
+	wlr_touch_finish(t);  /* its destroy: off the cursor, the count down */
+	delete t;
+}
+
+bool seat_test_touch(struct wb_server *server, const std::string &what, int32_t id,
+		double x, double y) {
+	struct wlr_touch *t = server->seat->test_touch;
+	if (t == nullptr)
+		return false;
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	uint32_t ms = static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000);
+	if (what == "down") {
+		struct wlr_touch_down_event e = {t, ms, id, x, y};
+		wl_signal_emit_mutable(&t->events.down, &e);
+	} else if (what == "motion") {
+		struct wlr_touch_motion_event e = {t, ms, id, x, y};
+		wl_signal_emit_mutable(&t->events.motion, &e);
+	} else if (what == "up") {
+		struct wlr_touch_up_event e = {t, ms, id};
+		wl_signal_emit_mutable(&t->events.up, &e);
+	} else if (what == "frame") {
+		wl_signal_emit_mutable(&t->events.frame, t);
+	} else {
+		return false;
+	}
+	return true;
 }
 
 struct wb_seat *wb_seat_create(struct wb_server *server) {
@@ -1076,6 +1155,12 @@ struct wb_seat *wb_seat_create(struct wb_server *server) {
 		if (wlr_seat_validate_pointer_grab_serial(seat->seat, event->origin,
 				event->serial)) {
 			wlr_seat_start_pointer_drag(seat->seat, event->drag, event->serial);
+			return;
+		}
+		struct wlr_touch_point *point = nullptr;
+		if (wlr_seat_validate_touch_grab_serial(seat->seat, event->origin,
+				event->serial, &point)) {
+			wlr_seat_start_touch_drag(seat->seat, event->drag, event->serial, point);
 			return;
 		}
 		wlr_log(WLR_DEBUG, "%s", "Refused a drag without a button held");

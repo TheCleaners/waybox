@@ -416,6 +416,107 @@ void cursor_refresh_focus(struct wb_server *server) {
 			static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000));
 }
 
+/* ---- Touch ---------------------------------------------------------- */
+
+void wb_cursor::touch_button(uint32_t time, bool pressed) {
+	struct wlr_pointer_button_event ev = {};
+	ev.time_msec = time;
+	ev.button = wb::MOUSE_BUTTON_LEFT;
+	ev.state = pressed ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED;
+	button_event(&ev);
+	wlr_seat_pointer_notify_frame(server->seat->seat);
+}
+
+void wb_cursor::init_touch() {
+	touch_down.connect(&cursor->events.touch_down, [this](void *data) {
+		auto *e = static_cast<struct wlr_touch_down_event *>(data);
+		if (wb_input_blocked(server, &e->touch->base))
+			return;
+		struct wlr_seat *seat = server->seat->seat;
+		double lx, ly, sx = 0, sy = 0;
+		wlr_cursor_absolute_to_layout_coords(cursor, &e->touch->base, e->x, e->y, &lx, &ly);
+		idle_activity(server, seat);
+		struct wlr_surface *surface = nullptr;
+		struct wb_toplevel *toplevel = nullptr;
+		if (session_locked(server)) {
+			surface = session_lock_surface_at(server, lx, ly, &sx, &sy);
+		} else if (server->menu == nullptr && cursor_mode == WB_CURSOR_PASSTHROUGH) {
+			toplevel = get_toplevel_at(server, lx, ly, &surface, &sx, &sy);
+			/* A frame over the point: Waybox's, so a pointer. */
+			wb::FrameHit fh;
+			if (toplevel_frame_at(server, lx, ly, &fh) != nullptr)
+				surface = nullptr;
+		}
+		if (surface != nullptr && wlr_surface_accepts_touch(surface, seat)) {
+			if (toplevel != nullptr && !session_locked(server))
+				focus_toplevel(toplevel);
+			touch_points[e->touch_id] = {lx - sx, ly - sy, false};
+			wlr_seat_touch_notify_down(seat, surface, e->time_msec, e->touch_id, sx, sy);
+			return;
+		}
+		/* Waybox's own UI, or no touch support: the first finger is a
+		 * pointer, pressing its left button where it touched. */
+		if (emulating != -1)
+			return;
+		emulating = e->touch_id;
+		touch_points[e->touch_id] = {0, 0, true};
+		wlr_cursor_warp_closest(cursor, nullptr, lx, ly);
+		process_cursor_motion(server, e->time_msec);
+		touch_button(e->time_msec, true);
+	});
+	touch_motion.connect(&cursor->events.touch_motion, [this](void *data) {
+		auto *e = static_cast<struct wlr_touch_motion_event *>(data);
+		auto p = touch_points.find(e->touch_id);
+		if (p == touch_points.end() || wb_input_blocked(server, &e->touch->base))
+			return;
+		double lx, ly;
+		wlr_cursor_absolute_to_layout_coords(cursor, &e->touch->base, e->x, e->y, &lx, &ly);
+		idle_activity(server, server->seat->seat);
+		if (p->second.emulated) {
+			wlr_cursor_warp_closest(cursor, nullptr, lx, ly);
+			process_cursor_motion(server, e->time_msec);
+			wlr_seat_pointer_notify_frame(server->seat->seat);
+			return;
+		}
+		wlr_seat_touch_notify_motion(server->seat->seat, e->time_msec, e->touch_id,
+				lx - p->second.off_x, ly - p->second.off_y);
+	});
+	touch_up.connect(&cursor->events.touch_up, [this](void *data) {
+		auto *e = static_cast<struct wlr_touch_up_event *>(data);
+		auto p = touch_points.find(e->touch_id);
+		if (p == touch_points.end())
+			return;
+		bool emulated = p->second.emulated;
+		touch_points.erase(p);
+		idle_activity(server, server->seat->seat);
+		if (emulated) {
+			emulating = -1;
+			touch_button(e->time_msec, false);
+			return;
+		}
+		wlr_seat_touch_notify_up(server->seat->seat, e->time_msec, e->touch_id);
+	});
+	touch_cancel.connect(&cursor->events.touch_cancel, [this](void *data) {
+		auto *e = static_cast<struct wlr_touch_cancel_event *>(data);
+		auto p = touch_points.find(e->touch_id);
+		if (p == touch_points.end())
+			return;
+		bool emulated = p->second.emulated;
+		touch_points.erase(p);
+		if (emulated) {
+			emulating = -1;
+			touch_button(e->time_msec, false);
+			return;
+		}
+		if (struct wlr_touch_point *point =
+				wlr_seat_touch_get_point(server->seat->seat, e->touch_id))
+			wlr_seat_touch_notify_cancel(server->seat->seat, point->client);
+	});
+	touch_frame.connect(&cursor->events.touch_frame, [this](void *) {
+		wlr_seat_touch_notify_frame(server->seat->seat);
+	});
+}
+
 void wb_cursor::init_gestures() {
 	gestures = wlr_pointer_gestures_v1_create(server->wl_display);
 	struct wlr_seat *seat = server->seat->seat;
@@ -590,6 +691,10 @@ void wb_cursor::on_button(void *data) {
 	auto *event = static_cast<struct wlr_pointer_button_event *>(data);
 	if (wb_input_blocked(server, &event->pointer->base))
 		return;
+	button_event(event);
+}
+
+void wb_cursor::button_event(struct wlr_pointer_button_event *event) {
 	/* Release, Click and DoubleClick bindings run after everything else a
 	 * release does (e.g. ending the move a titlebar press started). */
 	std::optional<wb::ClickTracker::Pressed> pressed;
@@ -856,7 +961,8 @@ wb_cursor::~wb_cursor() {
 	request_cursor.disconnect();
 	request_set_shape.disconnect();
 	for (wb::Listener *l : {&swipe_begin, &swipe_update, &swipe_end, &pinch_begin,
-			&pinch_update, &pinch_end, &hold_begin, &hold_end})
+			&pinch_update, &pinch_end, &hold_begin, &hold_end, &touch_down, &touch_up,
+			&touch_motion, &touch_cancel, &touch_frame})
 		l->disconnect();
 
 	if (xcursor_manager != nullptr) {
@@ -903,6 +1009,7 @@ std::unique_ptr<wb_cursor> wb_cursor_create(struct wb_server *server) {
 			[c](void *data) { c->on_request_set_shape(data); });
 
 	c->init_gestures();
+	c->init_touch();
 
 	wlr_cursor_attach_output_layout(c->cursor, server->output_layout);
 	return cursor;

@@ -1,5 +1,6 @@
 #ifndef _WB_CURSOR_H
 #define _WB_CURSOR_H
+#include <map>
 #include "waybox/wlroots.hpp"
 
 #include <memory>
@@ -49,6 +50,20 @@ struct wb_cursor {
 	wb::Listener request_set_shape;
 	/* Touchpad gestures, passed on to the window under the pointer
 	 * (pointer-gestures: pinch to zoom, swipe back and forward). */
+	/* Touchscreens: each touch point goes to the surface it began on, as
+	 * touch; on Waybox's own UI (frames, menus, the desktop) or a program
+	 * without touch support, the first finger works as a pointer with its
+	 * left button (see cursor.cpp). */
+	struct TouchPoint {
+		double off_x = 0, off_y = 0;  /* layout minus surface coordinates */
+		bool emulated = false;
+	};
+	std::map<int32_t, TouchPoint> touch_points;
+	int32_t emulating = -1;               /* the touch id working as a pointer */
+	wb::Listener touch_down, touch_up, touch_motion, touch_cancel, touch_frame;
+	void init_touch();
+	void touch_button(uint32_t time, bool pressed);
+	void button_event(struct wlr_pointer_button_event *event);
 	struct wlr_pointer_gestures_v1 *gestures = nullptr;
 	wb::Listener swipe_begin, swipe_update, swipe_end;
 	wb::Listener pinch_begin, pinch_update, pinch_end;

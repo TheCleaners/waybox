@@ -18,6 +18,11 @@ struct wb_seat {
 	/* Pointer devices, so Reconfigure can apply changed <libinput>
 	 * settings to them. */
 	std::vector<struct wb_pointer *> pointers;
+	/* Touchscreens attached: the seat offers touch while there are any. */
+	int touch_devices = 0;
+	/* WAYBOX_TEST_TOUCH=1 at start: a fake touchscreen for the tests,
+	 * driven over IPC (test_touch). Never there otherwise. */
+	struct wlr_touch *test_touch = nullptr;
 
 	wb::Listener request_set_primary_selection;
 	wb::Listener request_set_selection;
@@ -55,6 +60,13 @@ bool wb_input_is_virtual(struct wlr_input_device *device);
 /* True if input from `device` must be dropped under the <virtualInput>
  * policy (see config.h). */
 bool wb_input_blocked(struct wb_server *server, struct wlr_input_device *device);
+/* The test touchscreen (only with WAYBOX_TEST_TOUCH=1): "down", "motion",
+ * "up" or "frame" for a touch point at (x, y) in 0..1 of the layout.
+ * False without it. */
+void seat_init_test_touch(struct wb_server *server);   /* after the cursor */
+void seat_finish_test_touch(struct wb_server *server); /* before the cursor goes */
+bool seat_test_touch(struct wb_server *server, const std::string &what, int32_t id,
+		double x, double y);
 void seat_focus_surface(struct wb_seat *seat, struct wlr_surface *surface);
 void seat_set_focus_layer(struct wb_seat *seat, struct wlr_layer_surface_v1 *layer);
 
