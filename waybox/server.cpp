@@ -434,6 +434,10 @@ bool wb_start_server(struct wb_server* server) {
 
 	wlr_ext_image_copy_capture_manager_v1_create(server->wl_display, 1);
 	wlr_ext_output_image_capture_source_manager_v1_create(server->wl_display, 1);
+	/* wlr-screencopy: the older capture protocol, for tools that only know
+	 * it (some screen recorders, older grim and wayvnc). Sandboxed
+	 * programs don't get it (security.cpp). */
+	wlr_screencopy_manager_v1_create(server->wl_display);
 	init_window_capture(server);
 	create_idle_manager(server);
 

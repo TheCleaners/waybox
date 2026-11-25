@@ -522,6 +522,18 @@ if python.found() and not get_option('tests_only')
     dependencies: [dependency('wayland-client')],
     )
 
+  # wlr-screencopy: one capture of the output.
+  screencopy_xml = meson.project_source_root() / 'protocol' / 'wlr-screencopy-unstable-v1.xml'
+  screencopy_client = executable(
+    'screencopy_client',
+    [
+      'integration' / 'screencopy_client.c',
+      wayland_scanner_client.process(screencopy_xml),
+      wayland_scanner_code.process(screencopy_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # Session restore: a window that gets a session and names itself in it.
   session_xml = meson.project_source_root() / 'protocol' / 'xdg-session-management-v1.xml'
   session_client = executable(
@@ -654,7 +666,7 @@ if python.found() and not get_option('tests_only')
     ['pipe_menu', 'pipe_menu_test.py', [], 60],
     ['apps_menu', 'apps_menu_test.py', [], 60],
     ['session_restore', 'session_restore_test.py', [session_client], 90],
-    ['warp_alpha', 'warp_alpha_test.py', [warp_alpha_client], 60],
+    ['warp_alpha', 'warp_alpha_test.py', [warp_alpha_client, screencopy_client], 60],
     ['placement', 'placement_test.py', [default_rc], 60],
     ['pointer_grab', 'pointer_grab_test.py', [constraint_client, layer_client, vpointer_client], 60],
     ['pointer_lock', 'pointer_lock_test.py', [constraint_client], 60],

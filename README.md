@@ -77,7 +77,7 @@ For background, see
 | Taskbars | `wlr-foreign-toplevel-management`, `ext-foreign-toplevel-list`, `ext-workspace` (desktops in Waybar) |
 | Input | touchscreens (touch for programs that use it; elsewhere, and on titlebars and menus, a finger works as the pointer), `pointer-gestures` (touchpad swipe, pinch and hold reach the window under the pointer), `pointer-constraints`, `relative-pointer` (pointer lock for games, held only while the window has keyboard focus), `pointer-warp` (a window with the pointer in it may move it within itself); `text-input-v3` and `input-method-v2` (input methods such as fcitx5 and ibus, with their candidate popups at the text cursor; wbconf can start one and set the variables programs need: `<waybox><inputMethod>`) |
 | Clipboard | `primary-selection`, `ext-data-control`, `wlr-data-control` (clipboard managers such as cliphist and clipman) |
-| Capture | `ext-image-copy-capture` (grim, screen recorders), with whole outputs and single windows as sources (window capture needs wlroots 0.20) |
+| Capture | `ext-image-copy-capture` (grim, screen recorders), with whole outputs and single windows as sources (window capture needs wlroots 0.20); `wlr-screencopy` for older tools |
 | X11 | Xwayland (lazy start, `DISPLAY` exported to the session) |
 | Graphics | `alpha-modifier` (a program sets a surface's opacity), `linux-dmabuf` v4, `linux-drm-syncobj` (explicit sync, on the DRM backend), `drm-lease` (VR headsets for SteamVR and Monado; headsets are kept off the desktop), `tearing-control` (fullscreen games with vsync off; opt-in: `<waybox><tearing allow="yes"/>`) |
 | Colour | `color-management`, `color-representation`, and HDR10 output (`<waybox><hdr>`), with the Vulkan renderer (the default on real displays) and wlroots 0.20 |

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Integration test: pointer-warp-v1 and alpha-modifier-v1.
+"""Integration test: pointer-warp-v1, alpha-modifier-v1 and wlr-screencopy.
 
 pointer-warp: a window with the pointer in it moves the pointer (it gets
 the motion); refused with a wrong serial, to a point outside the window,
 and once the pointer has left it.
 alpha-modifier: a red window at opacity 0 shows what's behind it; at 1, red.
+wlr-screencopy: a capture of the output is its size, and red where that
+window is.
 Skips (77) without wlrctl, grim, magick or a headless display.
 
-Usage: warp_alpha_test.py <waybox> <warp_alpha_client>
+Usage: warp_alpha_test.py <waybox> <warp_alpha_client> <screencopy_client>
 """
 import json
 import os
@@ -99,10 +101,10 @@ def pixel(env, x, y):
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print(__doc__)
         sys.exit(2)
-    waybox, client_bin = sys.argv[1:]
+    waybox, client_bin, screencopy_bin = sys.argv[1:]
     for tool in ("wlrctl", "grim", "magick"):
         if shutil.which(tool) is None:
             print(f"SKIP: {tool} not found", file=sys.stderr)
@@ -204,6 +206,15 @@ def main():
                 failures.append(f"an opaque window isn't red: {px}")
             if not want_red and px != bg:
                 failures.append(f"a window at opacity 0 isn't see-through: {px} (background {bg})")
+            if want_red:
+                cx, cy = w["x"] + 150, w["y"] + 100
+                r = subprocess.run([screencopy_bin, str(cx), str(cy)], env=cenv,
+                                   capture_output=True, text=True, timeout=10)
+                lines = r.stdout.split("\n")
+                if f"size {out['width']} {out['height']}" not in lines:
+                    failures.append(f"screencopy: wrong size or no capture: {r.stdout!r}")
+                if f"pixel {cx} {cy} 255 0 0" not in lines:
+                    failures.append(f"screencopy: not red where the window is: {r.stdout!r}")
             a.proc.kill()
             a.proc.wait()
             time.sleep(0.3)
