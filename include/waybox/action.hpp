@@ -46,6 +46,7 @@ enum class ActionType {
 	SnapToEdge,
 	Move,
 	Resize,
+	Focus,
 	/* Not an rc.xml action: calls a function a script gave a menu entry
 	 * (script_callback; see wb.show_menu in waybox-lua(5)). */
 	ScriptCall,

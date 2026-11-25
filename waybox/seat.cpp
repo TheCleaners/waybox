@@ -337,6 +337,14 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 			set_toplevel_shaded(toplevel, action.type == wb::ActionType::Shade);
 		break;
 	}
+	case wb::ActionType::Focus: {
+		/* Openbox's Focus: keyboard focus to the window. focus_toplevel()
+		 * raises it, brings it back if minimized, and shows its desktop. */
+		struct wb_toplevel *toplevel = action_target(server);
+		if (toplevel != nullptr && toplevel->mapped)
+			focus_toplevel(toplevel);
+		break;
+	}
 	case wb::ActionType::Raise: {
 		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)

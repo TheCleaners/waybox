@@ -196,4 +196,13 @@ if not get_option('tests_only')
   )
 endif
 
+# The Python module for the scripting socket (python/waybox): standard
+# library only, installed where the system's Python 3 finds modules.
+py_installation = import('python').find_installation('python3',
+  required: get_option('python'))
+if py_installation.found() and not get_option('python').disabled()
+  py_installation.install_sources('python/waybox/__init__.py', subdir: 'waybox')
+endif
+python_src_dir = meson.project_source_root() / 'python'
+
 subdir('test')

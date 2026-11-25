@@ -199,6 +199,22 @@ waybox-msg action Close window=app_id:foot
 waybox-msg subscribe window,desktop    # one event per line, as they happen
 ```
 
+From Python, the `waybox` module (installed with Waybox, standard library
+only):
+
+```python
+import waybox
+
+with waybox.connect() as wb:
+    for w in wb.windows():
+        print(w["app_id"], w["title"])
+    wb.focus("app_id:foot")
+    wb.go_to_desktop(2)
+
+for event in waybox.subscribe(["window"]):
+    print(event["change"], event["window"]["app_id"])
+```
+
 Only the user running Waybox can connect. See [`waybox/ipc.h`](waybox/ipc.h)
 for the requests.
 
