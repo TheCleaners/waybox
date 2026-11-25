@@ -21,6 +21,10 @@ struct wb_seat {
 
 	wb::Listener request_set_primary_selection;
 	wb::Listener request_set_selection;
+	/* Drag-and-drop between clients: starting one, and its icon. */
+	wb::Listener request_start_drag;
+	wb::Listener start_drag;
+	wb::Listener drag_destroy;
 
 	~wb_seat();
 };

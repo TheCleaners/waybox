@@ -284,6 +284,7 @@ bool wb_start_server(struct wb_server* server) {
 	 * layers. */
 	server->toplevel_tree = wlr_scene_tree_create(&server->scene->tree);
 	server->unmanaged_tree = wlr_scene_tree_create(&server->scene->tree);
+	server->drag_icon_tree = wlr_scene_tree_create(&server->scene->tree);
 
 	const char *socket = wl_display_add_socket_auto(server->wl_display);
 	/* On failure the caller runs wb_terminate(), which frees the backend
