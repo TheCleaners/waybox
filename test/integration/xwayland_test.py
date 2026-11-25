@@ -145,6 +145,17 @@ def main():
         if not cond:
             failures.append(what)
 
+    def settle(check, timeout=10.0):
+        """Wait until check() holds (Xwayland can be slow to hand a window
+        over on a busy machine); whether it did."""
+        end = time.time() + timeout
+        while True:
+            if check():
+                return True
+            if time.time() >= end:
+                return False
+            time.sleep(0.1)
+
     def keys(*args):
         subprocess.run(["wtype", *args], env=cenv, capture_output=True)
         time.sleep(0.6)
@@ -162,7 +173,7 @@ def main():
         client.stdin.write(cmd + "\n")
         client.stdin.flush()
 
-    def wait_line(prefix, timeout=8.0):
+    def wait_line(prefix, timeout=15.0):
         end = time.time() + timeout
         while time.time() < end:
             try:
@@ -198,7 +209,8 @@ def main():
         # 2. A managed window: mapped, focused, framed.
         send("window main 400 300 0000ff")
         expect(wait_line("mapped main") is not None, "X11 window never mapped")
-        time.sleep(1.0)
+        settle(lambda: last_mapped() is not None and focused() == "main")
+        time.sleep(0.3)  # drawn
         geom = last_mapped()
         if geom is None:
             raise RuntimeError("no wb-geom mapped for the X11 window")
@@ -212,7 +224,7 @@ def main():
         # 3. A dialog opens centred over its parent.
         send("window dlg 120 80 00ff00 main")
         expect(wait_line("mapped dlg") is not None, "dialog never mapped")
-        time.sleep(1.0)
+        settle(lambda: focused() == "dlg" and colour_at(cx, cy) == GREEN)
         expect(colour_at(cx, cy) == GREEN,
                f"dialog not centred over its parent: {colour_at(cx, cy)}")
         expect(focused() == "dlg", f"dialog not focused ({focused()})")
@@ -220,7 +232,7 @@ def main():
         # 4. Override-redirect (menu) windows: drawn at their own position.
         send("override menu 900 500 60 40 ffff00")
         expect(wait_line("mapped menu") is not None, "menu never mapped")
-        time.sleep(0.8)
+        settle(lambda: colour_at(930, 520) == YELLOW)
         expect(colour_at(930, 520) == YELLOW, f"menu not drawn: {colour_at(930, 520)}")
         send("destroy menu")
         time.sleep(0.8)
@@ -277,7 +289,7 @@ def main():
         n_full = logtext().count("wb-geom fullscreen-on")
         send(f"borderless game 0 0 {ow} {oh} ff00ff")
         expect(wait_line("mapped game") is not None, "borderless window never mapped")
-        time.sleep(1.0)
+        settle(lambda: logtext().count("wb-geom fullscreen-on") > n_full)
         full = re.findall(r"wb-geom fullscreen-on (\d+)x(\d+)\+(-?\d+)\+(-?\d+)",
                           logtext())
         expect(len(full) > n_full and tuple(map(int, full[-1])) == (ow, oh, 0, 0),
@@ -286,7 +298,7 @@ def main():
         # 9. Override-redirect switched off before mapping: an ordinary window.
         send("ortoggle toggled 300 200 00ffff")
         expect(wait_line("mapped toggled") is not None, "toggled window never mapped")
-        time.sleep(1.0)
+        settle(lambda: focused() == "toggled")
         expect(focused() == "toggled",
                f"toggled window not managed and focused ({focused()})")
         if proc.poll() is not None:
