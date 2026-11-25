@@ -26,6 +26,18 @@
 
 namespace {
 
+/* The surface's first buffer can come (over Wayland) before Xwayland links
+ * it to its window (over X11): the two aren't synchronised. wlroots 0.20.2
+ * and older then only map it at its next commit, and a window that
+ * doesn't redraw (a plain dialog) never shows. Map it now, as later
+ * wlroots does (a no-op there: it's mapped already). True if this did. */
+bool map_if_drawn(struct wlr_surface *surface) {
+	if (surface->mapped || !wlr_surface_has_buffer(surface))
+		return false;
+	wlr_surface_map(surface);
+	return true;
+}
+
 /* ---- Override-redirect (unmanaged) windows ---- */
 
 struct Unmanaged {
@@ -85,7 +97,7 @@ void unmanaged_associate(Unmanaged *u) {
 	struct wlr_surface *surface = u->xsurface->surface;
 	u->map.connect(&surface->events.map, [u](void *) { unmanaged_map(u); });
 	u->unmap.connect(&surface->events.unmap, [u](void *) { unmanaged_unmap(u); });
-	if (surface->mapped)
+	if (!map_if_drawn(surface) && surface->mapped)  /* (mapping calls it) */
 		unmanaged_map(u);
 }
 
@@ -240,7 +252,7 @@ void managed_associate(struct wb_toplevel *t) {
 	t->map.connect(&surface->events.map, [t](void *) { x11_map(t); });
 	t->unmap.connect(&surface->events.unmap, [t](void *) { x11_unmap(t); });
 	t->commit.connect(&surface->events.commit, [t](void *) { x11_commit(t); });
-	if (surface->mapped)
+	if (!map_if_drawn(surface) && surface->mapped)  /* (mapping calls it) */
 		x11_map(t);
 }
 
