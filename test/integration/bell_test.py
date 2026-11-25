@@ -4,9 +4,10 @@
 1. Without a <bell> setting, a ring is received and does nothing else.
 2. With <bell flash="yes" command="...">: a ring from a window flashes
    that window, one with no window flashes the screen; the command runs,
-   once for a quick burst of rings.
+   once for a quick burst of rings. The flash is only drawn: the pointer
+   over the window stays on it (it used to land on the flash instead).
 
-Usage: bell_test.py <waybox> <bell_client>
+Usage: bell_test.py <waybox> <bell_client> <vpointer_client>
 """
 import os
 import queue
@@ -64,7 +65,7 @@ class Client:
 
 
 
-def run(waybox, client_bin, workdir, bell_xml):
+def run(waybox, client_bin, workdir, bell_xml, vptr_bin=None):
     """One Waybox with that <bell> (or none); the log and what the
     command left."""
     cfg = os.path.join(workdir, "config")
@@ -73,7 +74,7 @@ def run(waybox, client_bin, workdir, bell_xml):
     with open(os.path.join(cfg, "waybox", "rc.xml"), "w") as f:
         f.write(f"""<?xml version="1.0" encoding="UTF-8"?>
 <openbox_config xmlns="http://openbox.org/3.4/rc">
-  <waybox>{bell_xml}</waybox>
+  <waybox>{bell_xml}<virtualInput allow="always"/></waybox>
 </openbox_config>
 """)
     runtime = os.path.join(workdir, "run")
@@ -108,6 +109,25 @@ def run(waybox, client_bin, workdir, bell_xml):
             problem = f"the window never showed: {client.seen}"
         else:
             time.sleep(0.3)
+            if vptr_bin is not None:
+                # The pointer onto the window, a ring, and a nudge during
+                # the flash: the window keeps the pointer.
+                ptr = Client([vptr_bin], dict(env, WAYLAND_DISPLAY=sock), stdin=True)
+                ptr.send("move -5000 -5000")
+                ptr.send("move 60 60")
+                time.sleep(0.2)
+                client.seen.clear()
+                client.proc.stdin.write("window\n")
+                client.proc.stdin.flush()
+                client.wait_for("rang")
+                ptr.send("move 2 2")
+                ptr.send("move 2 2")
+                seen = client.drain(0.2)
+                ptr.proc.kill()
+                ptr.proc.wait()
+                if "pointer-leave" in seen:
+                    problem = "the pointer left the window for the bell's flash"
+                time.sleep(0.3)
             for what in ("window", "window", "window", "none"):
                 client.proc.stdin.write(what + "\n")
                 client.proc.stdin.flush()
@@ -132,10 +152,10 @@ def run(waybox, client_bin, workdir, bell_xml):
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print(__doc__)
         sys.exit(2)
-    waybox, client_bin = sys.argv[1:]
+    waybox, client_bin, vptr_bin = sys.argv[1:]
     workdir = tempfile.mkdtemp(prefix="waybox-bell-", dir="/tmp")
     failures = []
     marker = os.path.join(workdir, "rung")
@@ -152,10 +172,10 @@ def main():
         failures.append("the bell flashed without being set to")
 
     log, problem = run(waybox, client_bin, workdir,
-                       f'<bell flash="yes" command="echo x &gt;&gt; {marker}"/>')
+                       f'<bell flash="yes" command="echo x &gt;&gt; {marker}"/>', vptr_bin)
     if problem:
         failures.append(f"set: {problem}")
-    if log.count("wb-bell flash window") != 3:
+    if log.count("wb-bell flash window") != 4:
         failures.append(f"a ring from a window didn't flash it ({log.count('wb-bell flash window')})")
     if "wb-bell flash output" not in log:
         failures.append("a ring with no window didn't flash the screen")

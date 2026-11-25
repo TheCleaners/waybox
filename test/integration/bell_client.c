@@ -2,7 +2,8 @@
  * xdg-system-bell test client: a 200x100 window (app_id bell-test). Once
  * shown it prints "configured"; each line on stdin rings the bell:
  * "window" for its window, "none" for no window. Prints "rang" after
- * each, once the compositor has it.
+ * each, once the compositor has it. Also prints "pointer-enter" and
+ * "pointer-leave" as the pointer comes and goes.
  */
 #define _GNU_SOURCE
 #include <poll.h>
@@ -21,6 +22,7 @@ static struct wl_compositor *compositor;
 static struct wl_shm *shm;
 static struct xdg_wm_base *wm_base;
 static struct xdg_system_bell_v1 *bell;
+static struct wl_seat *seat;
 static struct wl_surface *surface;
 static int configured;
 
@@ -36,6 +38,20 @@ static struct wl_buffer *make_buffer(int W, int H) {
 	close(fd);
 	return b;
 }
+
+static void p_enter(void *d, struct wl_pointer *p, uint32_t serial, struct wl_surface *s,
+		wl_fixed_t x, wl_fixed_t y) { printf("pointer-enter\n"); fflush(stdout); }
+static void p_leave(void *d, struct wl_pointer *p, uint32_t serial, struct wl_surface *s) {
+	printf("pointer-leave\n");
+	fflush(stdout);
+}
+static void p_motion(void *d, struct wl_pointer *p, uint32_t t, wl_fixed_t x, wl_fixed_t y) {}
+static void p_button(void *d, struct wl_pointer *p, uint32_t serial, uint32_t t,
+		uint32_t button, uint32_t state) {}
+static void p_axis(void *d, struct wl_pointer *p, uint32_t t, uint32_t a, wl_fixed_t v) {}
+static const struct wl_pointer_listener pointer_listener = {
+	.enter = p_enter, .leave = p_leave, .motion = p_motion, .button = p_button, .axis = p_axis,
+};
 
 static void wm_ping(void *d, struct xdg_wm_base *b, uint32_t serial) { xdg_wm_base_pong(b, serial); }
 static const struct xdg_wm_base_listener wm_listener = { .ping = wm_ping };
@@ -64,6 +80,8 @@ static void reg_global(void *d, struct wl_registry *r, uint32_t name,
 		shm = wl_registry_bind(r, name, &wl_shm_interface, 1);
 	else if (strcmp(iface, xdg_wm_base_interface.name) == 0)
 		wm_base = wl_registry_bind(r, name, &xdg_wm_base_interface, 1);
+	else if (strcmp(iface, wl_seat_interface.name) == 0)
+		seat = wl_registry_bind(r, name, &wl_seat_interface, 1);
 	else if (strcmp(iface, xdg_system_bell_v1_interface.name) == 0)
 		bell = wl_registry_bind(r, name, &xdg_system_bell_v1_interface, 1);
 }
@@ -86,6 +104,8 @@ int main(void) {
 		return 3;
 	}
 	xdg_wm_base_add_listener(wm_base, &wm_listener, NULL);
+	if (seat != NULL)
+		wl_pointer_add_listener(wl_seat_get_pointer(seat), &pointer_listener, NULL);
 	surface = wl_compositor_create_surface(compositor);
 	struct xdg_surface *xs = xdg_wm_base_get_xdg_surface(wm_base, surface);
 	xdg_surface_add_listener(xs, &xs_listener, NULL);

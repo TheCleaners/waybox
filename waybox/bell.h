@@ -10,4 +10,8 @@
 void init_bell(struct wb_server *server);
 void finish_bell(struct wb_server *server);
 
+/* Flashes are only drawn: hit tests (what's under the pointer) leave them
+ * out, by turning them off around the search. */
+void bell_flashes_set_enabled(bool enabled);
+
 #endif

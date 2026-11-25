@@ -1,3 +1,4 @@
+#include "bell.h"
 #include "toplevel_drag.h"
 #include "waybox/window_icon.h"
 #include "waybox/desktop_popup.hpp"
@@ -108,14 +109,24 @@ static void destroy_foreign_handle(struct wb_toplevel *toplevel) {
 	toplevel->wlr_foreign_handle = NULL;
 }
 
+/* What's under a point, for input: the scene's topmost node there,
+ * leaving out what is only drawn (bell flashes). */
+static struct wlr_scene_node *input_node_at(struct wb_server *server, double lx,
+		double ly, double *sx, double *sy) {
+	bell_flashes_set_enabled(false);
+	struct wlr_scene_node *node =
+		wlr_scene_node_at(&server->scene->tree.node, lx, ly, sx, sy);
+	bell_flashes_set_enabled(true);
+	return node;
+}
+
 struct wb_toplevel *get_toplevel_at(
 		struct wb_server *server, double lx, double ly,
 		struct wlr_surface **surface, double *sx, double *sy) {
 	/* This returns the topmost node in the scene at the given layout coords.
 	 * we only care about surface nodes as we are specifically looking for a
 	 * surface in the surface tree of a wb_toplevel. */
-	struct wlr_scene_node *node =
-		wlr_scene_node_at(&server->scene->tree.node, lx, ly, sx, sy);
+	struct wlr_scene_node *node = input_node_at(server, lx, ly, sx, sy);
 	if (node == NULL || node->type != WLR_SCENE_NODE_BUFFER) {
 		return NULL;
 	}
@@ -158,8 +169,7 @@ struct wb_toplevel *get_toplevel_at(
 struct wb_toplevel *toplevel_frame_at(struct wb_server *server, double lx,
 		double ly, wb::FrameHit *hit) {
 	double sx, sy;
-	struct wlr_scene_node *node =
-		wlr_scene_node_at(&server->scene->tree.node, lx, ly, &sx, &sy);
+	struct wlr_scene_node *node = input_node_at(server, lx, ly, &sx, &sy);
 	if (node == NULL)
 		return NULL;
 
