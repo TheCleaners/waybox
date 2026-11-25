@@ -118,10 +118,10 @@ def main():
 
     vk = Waybox(waybox, workdir, "vulkan", "vulkan", nodes[0])
     try:
-        if vk.sock is None or "Colour management enabled" not in vk.logtext():
+        if vk.sock is None or "Color management enabled" not in vk.logtext():
             log = vk.logtext()
             vk.stop()
-            reason = ("wlroots < 0.20" if "Colour management" not in log
+            reason = ("wlroots < 0.20" if "Color management" not in log
                       else "no working Vulkan renderer")
             print(f"SKIP: {reason}", file=sys.stderr)
             sys.stderr.write(log[-1500:])
