@@ -174,6 +174,24 @@ the screens off when idle. The shipped
 [`rc.xml`](data/rc.xml) is commented throughout. To edit settings in a GUI,
 run `wbconf` or open it from the root menu.
 
+### Scripting
+
+With `<waybox><ipc enabled="yes"/>`, Waybox listens on a socket
+(`$WAYBOX_SOCK`) for one JSON object per line: list windows, desktops and
+outputs, run any rc.xml action, and subscribe to events (windows opening,
+closing, focused or retitled; desktop switches; outputs; reloads).
+`waybox-msg` does it from the shell:
+
+```sh
+waybox-msg get_windows | jq -r '.windows[] | .app_id + "  " + .title'
+waybox-msg action GoToDesktop to=2
+waybox-msg action Close window=app_id:foot
+waybox-msg subscribe window,desktop    # one event per line, as they happen
+```
+
+Only the user running Waybox can connect. See [`waybox/ipc.h`](waybox/ipc.h)
+for the requests.
+
 ## Screenshots
 
 Shown with the Onyx-Citrus Openbox theme. The tour and these stills come

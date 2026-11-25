@@ -34,6 +34,7 @@ namespace wb { class MenuWidget; class SwitcherWidget; class DesktopPopup; }
 struct wb_session_lock_state;
 struct wb_startup_state;
 struct wb_shortcuts_inhibit_state;
+struct wb_ipc_state;
 struct wb_workspace_state;
 
 struct wb_input_method_relay;
@@ -57,6 +58,7 @@ struct wb_server {
 	struct wb_shortcuts_inhibit_state *shortcuts_inhibit_state = nullptr;
 	wb::Listener new_shortcuts_inhibitor;
 	wb::Listener keyboard_focus_change;
+	struct wb_ipc_state *ipc = nullptr;  /* the scripting socket (ipc.cpp) */
 	wb::Listener drm_lease_request;
 	wb::Listener output_power_set_mode;
 	struct wlr_idle_inhibit_manager_v1 *idle_inhibit_manager;

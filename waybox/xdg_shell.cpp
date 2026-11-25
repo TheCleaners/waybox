@@ -7,6 +7,7 @@
 #include "waybox/frame_view.hpp"
 #include "waybox/geometry.hpp"
 #include "waybox/xdg_shell.h"
+#include "ipc.h"
 #include "decoration.h"
 #include "waybox/workspace.h"
 #include "waybox/menu_widget.hpp"
@@ -351,6 +352,8 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	 */
 	seat_focus_surface(server->seat.get(), surface);
 	sync_frame_active(server);
+	if (toplevel->mapped)
+		ipc_window_event(toplevel, "focus");
 }
 
 /* ---- Virtual desktops ---- */
@@ -437,6 +440,7 @@ static void switch_desktop(struct wb_server *server, int index, bool refocus) {
 		wl_list_for_each(toplevel, &server->toplevels, link)
 			update_desktop_visibility(toplevel);
 		wlr_log(WLR_INFO, "wb-desktop %d", index + 1);
+		ipc_desktop_event(server);
 		workspace_schedule_sync(server);
 		show_desktop_popup(server, index);
 	}
@@ -817,6 +821,10 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 		view_set_size(toplevel, toplevel->geometry.width,
 				toplevel->geometry.height);
 	log_geometry(toplevel, "mapped");
+	ipc_window_event(toplevel, "new");
+	/* It took the keyboard before it counted as shown: say so now. */
+	if (do_focus)
+		ipc_window_event(toplevel, "focus");
 	if (toplevel->foreign_toplevel_handle != nullptr)
 		wlr_log(WLR_INFO, "wb-toplevel %s id %s", view_app_id(toplevel),
 				toplevel->foreign_toplevel_handle->identifier);
@@ -887,6 +895,8 @@ static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
 }
 
 void unmap_toplevel(struct wb_toplevel *toplevel) {
+	if (toplevel->mapped)
+		ipc_window_event(toplevel, "close");
 	toplevel->mapped = false;
 	if (toplevel->server->grabbed_toplevel == toplevel)
 		reset_cursor_mode(toplevel->server);  /* only a drag of this window */
@@ -1055,6 +1065,8 @@ void toplevel_title_changed(struct wb_toplevel *toplevel) {
 				toplevel->wlr_foreign_handle, view_title(toplevel));
 	if (toplevel->frame)
 		toplevel->frame->set_title(view_title(toplevel));
+	if (toplevel->mapped)
+		ipc_window_event(toplevel, "title");
 }
 
 static void xdg_toplevel_set_app_id(struct wb_toplevel *toplevel, void *) {

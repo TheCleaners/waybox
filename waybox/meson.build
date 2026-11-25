@@ -20,6 +20,7 @@ wb_src = [
   security_src,
   output_rules_src,
   startup_src,
+  json_src,
   xml_strict_src,
   render_src,
   files(
@@ -33,6 +34,7 @@ wb_src = [
     'idle.cpp',
     'startup_supervisor.cpp',
     'shortcuts_inhibit.cpp',
+    'ipc.cpp',
     'input_method.cpp',
     'layer_shell.cpp',
     'main.cpp',

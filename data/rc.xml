@@ -60,6 +60,10 @@
          game asks to keep them on). Unset or 0: never.
     <idle screenOff="600"/>
     -->
+    <!-- The scripting socket ($WAYBOX_SOCK; see waybox-msg): list windows,
+         run actions, follow events. Off unless set.
+    <ipc enabled="yes"/>
+    -->
     <!-- A focused VM viewer or remote desktop may take the keyboard
          shortcuts (Super+Escape takes them back); "no" never lets it.
     <shortcutsInhibit allow="yes"/>
