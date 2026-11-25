@@ -24,7 +24,7 @@
     <font place="MenuItem"><name>Sans</name><size>10</size><weight>normal</weight></font>
     <font place="ActiveOnScreenDisplay"><name>Sans</name><size>10</size><weight>bold</weight></font>
   </theme> -->
-  <!-- waybox-only extensions (Openbox ignores this block). Menu behaviour:
+  <!-- waybox-only extensions (Openbox ignores this block). Menu behavior:
        submenuOpen="hover|click", wrap (keyboard navigation wraps at the
        ends), icons (show per-item icons from the icon theme, when
        available). source selects the built-in native menu ("builtin", the

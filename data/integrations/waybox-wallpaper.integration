@@ -19,7 +19,7 @@ Type=number
 Min=1
 
 [Option colour]
-Label=Colour
+Label=Color
 Flag=-c
 Hint=#303030
 Type=color

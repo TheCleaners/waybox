@@ -100,8 +100,8 @@ only; entries limited to other desktops (_OnlyShowIn_) are skipped.
 *WLR_RENDERER*
 	The renderer: *vulkan*, *gles2* or *pixman*. On real displays Waybox
 	uses *vulkan*, falling back to *gles2* when Vulkan is unavailable;
-	nested and headless sessions use wlroots' usual choice. Colour
-	management (programs describing their colour spaces, such as video
+	nested and headless sessions use wlroots' usual choice. Color
+	management (programs describing their color spaces, such as video
 	players and image editors) and HDR need *vulkan*.
 
 *WLR_DRM_DEVICES*

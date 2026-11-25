@@ -188,7 +188,7 @@ any action.
 	the menu shows a note instead.
 
 *wb.osd(*_text_*,* _ms_*)*
-	Shows _text_ centred on the monitor under the pointer for _ms_
+	Shows _text_ centered on the monitor under the pointer for _ms_
 	milliseconds (default 1500), in the style of the desktop popup; showing
 	again replaces it, and *""* hides it.
 
@@ -201,7 +201,7 @@ any action.
 
 *wb.api_version*
 	1. Additions keep it; changes or removals raise it, with the old
-	behaviour kept for one release.
+	behavior kept for one release.
 
 # MENUS
 
@@ -218,7 +218,7 @@ A menu is a list of items, each a table:
 	by id (menu.xml's or a provider's).
 
 *{ separator = true, label = "..." }*
-	A separator, labelled if there's a label.
+	A separator, labeled if there's a label.
 
 Entry functions run once the menu has closed.
 

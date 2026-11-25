@@ -1,7 +1,7 @@
 [Integration]
 Name=wlsunset
 Category=NightLight
-Comment=Warmer screen colours after sunset
+Comment=Warmer screen colors after sunset
 Exec=wlsunset -l 51.5 -L -0.1
 Version=wlsunset -v
 
