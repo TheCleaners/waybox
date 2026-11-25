@@ -1,4 +1,5 @@
 #include "decoration.h"
+#include "waybox/titlebar_draw.hpp"
 #include "waybox/window_icon.h"
 #include "waybox/xdg_shell.h"
 
@@ -50,33 +51,10 @@ bool toplevel_wants_ssd(struct wb_toplevel *toplevel) {
  * sizing the titlebar to the label font. */
 static wb::FrameMetrics frame_metrics(const wb::Theme &theme,
 		const wb::FrameStyle &style, const struct wb_config *config) {
-	wb::FrameMetrics m;
-	m.border = theme.border_width > 0 ? theme.border_width : 1;
-	int text_h = wb::measure_text("Ag", style.label.font).height;
-	/* Compact by default: one pixel tighter than the theme padding per side
-	 * (Openbox's default frame feels a touch more compact). Overridable. */
-	int pad_y = (config != nullptr && config->titlebar.pad_y >= 0)
-			? config->titlebar.pad_y
-			: std::max(theme.padding_y - 1, 1);
-	m.titlebar = text_h + 2 * pad_y;
-	if (m.titlebar < 16)
-		m.titlebar = 16;
-	/* Square button: explicit config wins; otherwise a fraction of the titlebar
-	 * so the glyph stays comfortably inside it (and scales with the font). */
-	if (config != nullptr && config->titlebar.button_size > 0)
-		m.button = config->titlebar.button_size;
-	else
-		m.button = (m.titlebar * 2) / 3;
-	if (m.button < 10)
-		m.button = 10;
-	m.title_pad = theme.padding_x > 0 ? theme.padding_x : 4;
-	m.button_spacing = 2;
-	m.corner = 10;
-	/* Invisible margin that widens the border/corner resize grab area. */
-	m.resize_grab = (config != nullptr && config->titlebar.resize_grab >= 0)
-			? config->titlebar.resize_grab
-			: 8;
-	return m;
+	return wb::frame_metrics_for(theme, style,
+			config != nullptr ? config->titlebar.pad_y : -1,
+			config != nullptr ? config->titlebar.button_size : 0,
+			config != nullptr ? config->titlebar.resize_grab : -1);
 }
 
 void update_toplevel_decoration(struct wb_toplevel *toplevel) {

@@ -22,14 +22,25 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 	while ((row = gtk_list_box_get_row_at_index(ui->theme_list, 0)) != nullptr)
 		gtk_list_box_remove(ui->theme_list, GTK_WIDGET(row));
 	int sel = -1;
+	ui->theme_thumbs.clear();
 	for (size_t i = 0; i < ui->theme_names.size(); ++i) {
+		/* The name over a thumbnail of the theme's titlebars. */
+		GtkWidget *item = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+		gtk_widget_set_margin_top(item, 4);
+		gtk_widget_set_margin_bottom(item, 4);
+		gtk_widget_set_margin_start(item, 6);
+		gtk_widget_set_margin_end(item, 6);
 		GtkWidget *label = gtk_label_new(ui->theme_names[i].c_str());
 		gtk_widget_set_halign(label, GTK_ALIGN_START);
-		gtk_widget_set_margin_top(label, 4);
-		gtk_widget_set_margin_bottom(label, 4);
-		gtk_widget_set_margin_start(label, 6);
-		gtk_widget_set_margin_end(label, 6);
-		gtk_list_box_append(ui->theme_list, label);
+		gtk_box_append(GTK_BOX(item), label);
+		GtkWidget *thumb = gtk_drawing_area_new();
+		gtk_widget_set_size_request(thumb, 220, 52);
+		g_object_set_data_full(G_OBJECT(thumb), "wb-theme",
+				g_strdup(ui->theme_names[i].c_str()), g_free);
+		gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(thumb), thumb_draw, ui, nullptr);
+		gtk_box_append(GTK_BOX(item), thumb);
+		ui->theme_thumbs.push_back(thumb);
+		gtk_list_box_append(ui->theme_list, item);
 		if (ui->theme_names[i] == current)
 			sel = static_cast<int>(i);
 	}

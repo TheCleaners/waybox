@@ -180,6 +180,23 @@ if not get_option('tests_only')
     )
 endif
 
+# Drawing titlebars (Waybox's frames and wbconf's previews); Cairo and Pango.
+if not get_option('tests_only')
+  titlebar_draw_test = executable(
+    'titlebar_draw_test',
+    ['titlebar_draw_test.cpp', 'wb_test_main.cpp', titlebar_draw_src, frame_src,
+     geometry_src, render_src, theme_src, style_src, widget_src],
+    include_directories: [inc_dir],
+    dependencies: [cairo, pango, pangocairo],
+    )
+  test('titlebar_draw', titlebar_draw_test,
+    env: {
+      # Pango and fontconfig caches live for the whole process.
+      'LSAN_OPTIONS': 'suppressions=' + meson.current_source_dir() / 'lsan.supp',
+    },
+    )
+endif
+
 # Parser test for menu.xml; links libxml2, so full-build only (like render).
 if not get_option('tests_only')
   menu_parse_test = executable(

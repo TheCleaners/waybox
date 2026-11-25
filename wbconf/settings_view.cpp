@@ -166,7 +166,6 @@ void read_value(Ui *ui, Ui::SettingRow *r) {
 		v = font_value(&r->font);
 		if (v && *v == (d.def.empty() ? "Sans 10" : d.def) && !r->saved)
 			v.reset();
-		preview_refresh(ui);
 		break;
 	case wb::SettingType::Lines: {
 		GtkTextBuffer *b = gtk_text_view_get_buffer(r->text);
@@ -187,6 +186,7 @@ void read_value(Ui *ui, Ui::SettingRow *r) {
 	r->value = v;
 	refresh_marker(r);
 	update_status(ui);
+	preview_refresh(ui);  /* fonts, button order, titlebar sizes */
 }
 
 void on_changed(Ui::SettingRow *r) {
@@ -759,6 +759,13 @@ void reset_all_rows(Ui *ui) {
 		show_value(ui, r.get());
 	}
 	update_status(ui);
+}
+
+std::optional<std::string> setting_if_set(Ui *ui, const std::string &id) {
+	for (auto &r : ui->rows)
+		if (r->def->id == id)
+			return r->value;
+	return std::nullopt;
 }
 
 std::string setting_value(Ui *ui, const std::string &id) {
