@@ -359,6 +359,8 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 			return build_program_block(ui, d.widget.substr(8));
 		if (d.widget == "programs-other")
 			return build_other_programs_block(ui);
+		if (d.widget.rfind("binding:", 0) == 0)
+			return build_binding_block(ui, d.widget.substr(8));
 		return wrapped_label(_("(This setting's editor isn't available.)"), true);
 	}
 	return nullptr;
@@ -499,6 +501,8 @@ void on_search(GtkSearchEntry *entry, gpointer data) {
 					return p->listed || gtk_switch_get_active(p->on);
 			return false;
 		}
+		if (widget.rfind("binding:", 0) == 0)
+			return binding_set(ui, widget.substr(8));
 		if (widget == "programs-other") {
 			for (auto &p : ui->programs)
 				if (p->in == nullptr && !p->removed)
@@ -706,6 +710,13 @@ void apply_test_values(Ui *ui, const char *spec) {
 		std::string item = all.substr(start, end == std::string::npos ? std::string::npos
 				: end - start);
 		size_t eq = item.find('=');
+		/* "bind.ID=KEY": turn on that program's key binding. */
+		if (eq != std::string::npos && item.rfind("bind.", 0) == 0)
+			for (auto &b : ui->bindings)
+				if (b->in->id == item.substr(5, eq - 5)) {
+					gtk_switch_set_active(b->on, TRUE);
+					gtk_editable_set_text(GTK_EDITABLE(b->key), item.substr(eq + 1).c_str());
+				}
 		if (eq != std::string::npos)
 			for (auto &r : ui->rows)
 				if (r->def->id == item.substr(0, eq)) {

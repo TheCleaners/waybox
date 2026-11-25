@@ -35,6 +35,7 @@ int unsaved_count(Ui *ui) {
 	n += now.theme_name != ui->shown.theme_name;
 	n += now.outputs != ui->shown.outputs || now.hdr_outputs != ui->shown.hdr_outputs;
 	n += now.startup != ui->shown.startup;
+	n += bindings_unsaved(ui);
 	return n;
 }
 
@@ -87,6 +88,7 @@ void on_save(GtkButton *, gpointer data) {
 			doc->set(r->def->rc, r->value);
 	wb::WayboxSettings now = collect(ui);
 	doc->apply(now, ui->shown);
+	apply_bindings(ui, *doc);
 	std::string err;
 	if (!doc->save_file(path, &err)) {
 		set_status(ui, std::string(_("Not saved: ")) + err);
@@ -94,6 +96,7 @@ void on_save(GtkButton *, gpointer data) {
 	}
 	ui->shown = now;
 	rows_saved(ui);
+	bindings_saved(ui);
 	refresh_save_state(ui);
 	int n = signal_waybox_reload();
 	if (n > 0)
@@ -119,6 +122,8 @@ void on_reset_all(GtkButton *, gpointer data) {
 	ui->hdr_others.clear();
 	for (auto &row : ui->programs)
 		gtk_switch_set_active(row->on, FALSE);
+	for (auto &b : ui->bindings)
+		gtk_switch_set_active(b->on, FALSE);
 	preview_refresh(ui);
 	refresh_save_state(ui);
 }

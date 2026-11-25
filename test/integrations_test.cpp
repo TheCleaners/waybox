@@ -110,3 +110,11 @@ WB_TEST(integrations_load_user_first_sorted) {
 	WB_CHECK(dirs.size() == 4 && dirs[0] == "/h/.config/waybox/integrations" &&
 			dirs[2] == "/b/waybox/integrations" && dirs[3] == "/inst");
 }
+
+WB_TEST(integration_binding_kind_and_key) {
+	auto in = wb::parse_integration("bemoji",
+			"[Integration]\nName=bemoji\nCategory=Pickers\nExec=bemoji -t -n\n"
+			"Kind=binding\nKey=W-period\n");
+	WB_CHECK(in && in->binding && in->key == "W-period");
+	WB_CHECK(!wb::parse_integration("mako", "[Integration]\nName=mako\nExec=mako\n")->binding);
+}

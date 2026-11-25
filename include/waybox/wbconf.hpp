@@ -162,6 +162,16 @@ public:
 	std::optional<std::string> get(const RcLocation &at) const;
 	void set(const RcLocation &at, const std::optional<std::string> &value);
 
+	/* <keyboard><keybind key="K"> bindings whose one action is Execute, as
+	 * (key, command), in file order. */
+	std::vector<std::pair<std::string, std::string>> execute_keybinds() const;
+	/* Every key with a <keybind>, whatever it does. */
+	std::vector<std::string> keybind_keys() const;
+	/* Bind `key` to run `command` (an Execute keybind, replacing what the
+	 * key had), or with nullopt remove `key`'s binding if it's an Execute
+	 * one. Other bindings and their comments stay as they are. */
+	void set_keybind(const std::string &key, const std::optional<std::string> &command);
+
 	/* Serialise the whole document back to XML / to a file. */
 	std::string to_string() const;
 	/* Save safely: the previous file is kept as PATH.bak, and the new one is

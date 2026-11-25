@@ -1,0 +1,8 @@
+[Integration]
+Name=Clipboard history picker
+Category=Pickers
+Comment=Pick an earlier copy to paste again (needs cliphist running: see Clipboard)
+Exec=sh -c 'cliphist list | wofi --dmenu | cliphist decode | wl-copy'
+Binary=cliphist
+Kind=binding
+Key=W-v

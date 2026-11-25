@@ -15,6 +15,7 @@ Skips (exit 77) without wtype, or a headless display.
 Usage: wbconf_save_test.py <waybox> <wbconf> <schema-dir>
 """
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -45,6 +46,18 @@ def main():
         print("SKIP: wtype not found", file=sys.stderr)
         sys.exit(SKIP)
     workdir = tempfile.mkdtemp(prefix="waybox-wbsave-", dir="/tmp")
+    # A picker's integration file, for its key binding.
+    idir = os.path.join(workdir, "share", "waybox", "integrations")
+    os.makedirs(idir)
+    with open(os.path.join(idir, "bemoji.integration"), "w") as f:
+        f.write("[Integration]\nName=bemoji\nCategory=Pickers\nExec=bemoji -t -n\n"
+                "Kind=binding\nKey=W-period\n")
+    # wbconf only offers installed pickers: a stand-in on PATH.
+    bindir = os.path.join(workdir, "bin")
+    os.makedirs(bindir)
+    with open(os.path.join(bindir, "bemoji"), "w") as f:
+        f.write("#!/bin/sh\n")
+    os.chmod(os.path.join(bindir, "bemoji"), 0o755)
     cfg = os.path.join(workdir, "config")
     os.makedirs(os.path.join(cfg, "waybox"))
     rc_path = os.path.join(cfg, "waybox", "rc.xml")
@@ -81,7 +94,10 @@ def main():
                 WBCONF_SCHEMA_DIR=schema, WAYBOX_PID=str(proc.pid),
                 WBCONF_TEST_SET="waybox.xwayland.enabled=no;"
                                 "desktops.number=6;"
-                                "mouse.libinput.naturalScroll=")
+                                "mouse.libinput.naturalScroll=;"
+                                "bind.bemoji=W-period",
+                XDG_DATA_DIRS=os.path.join(workdir, "share"),
+                PATH=bindir + ":" + os.environ.get("PATH", ""))
     failures = []
     app = None
     try:
@@ -100,6 +116,9 @@ def main():
             failures.append("a new setting wasn't written")
         if "naturalScroll" in out or "<mouse>" in out:
             failures.append("a reset setting (or the element it left empty) is still there")
+        if not re.search(r'<keybind key="W-period">\s*<action name="Execute">\s*'
+                         r'<command>bemoji -t -n</command>', out):
+            failures.append("a picker's key binding wasn't written")
         for kept in ("<!-- my own notes -->", "<name>Clearlooks</name>",
                      '<switcher icons="no"/>'):
             if kept not in out:

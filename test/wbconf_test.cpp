@@ -477,3 +477,35 @@ WB_TEST(startup_emptied_is_removed) {
 	doc2->apply(b2, b2);
 	WB_CHECK(doc2->to_string().find("waybox") == std::string::npos);
 }
+
+WB_TEST(execute_keybinds_read_and_set) {
+	auto doc = RcDocument::from_string(
+			"<?xml version=\"1.0\"?>\n"
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\">\n"
+			"  <keyboard>\n"
+			"    <!-- mine -->\n"
+			"    <keybind key=\"W-Return\"><action name=\"Execute\"><command>foot</command></action></keybind>\n"
+			"    <keybind key=\"A-Tab\"><action name=\"NextWindow\"/></keybind>\n"
+			"    <keybind key=\"W-e\"><action name=\"Execute\"><execute>thunar</execute></action>"
+			"<action name=\"Focus\"/></keybind>\n"
+			"  </keyboard>\n"
+			"</openbox_config>\n");
+	auto binds = doc->execute_keybinds();
+	WB_CHECK(binds.size() == 1);  /* W-e has two actions; A-Tab isn't Execute */
+	WB_CHECK(binds[0].first == "W-Return" && binds[0].second == "foot");
+
+	doc->set_keybind("W-period", "bemoji -t -n");           /* new */
+	doc->set_keybind("W-Return", "alacritty");               /* changed */
+	doc->set_keybind("A-Tab", std::nullopt);                 /* not Execute: kept */
+	doc->set_keybind("W-x", std::nullopt);                   /* absent: nothing */
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("<!-- mine -->") != std::string::npos);
+	WB_CHECK(out.find("NextWindow") != std::string::npos);
+	WB_CHECK(out.find("thunar") != std::string::npos);
+	auto again = RcDocument::from_string(out)->execute_keybinds();
+	WB_CHECK(again.size() == 2);
+	WB_CHECK(again[0] == std::make_pair(std::string("W-Return"), std::string("alacritty")));
+	WB_CHECK(again[1] == std::make_pair(std::string("W-period"), std::string("bemoji -t -n")));
+	doc->set_keybind("W-period", std::nullopt);
+	WB_CHECK(doc->to_string().find("W-period") == std::string::npos);
+}

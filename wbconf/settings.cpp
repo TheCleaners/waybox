@@ -72,6 +72,7 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 				std::find(hdr.begin(), hdr.end(), name) != hdr.end());
 
 	populate_programs(ui, s.startup);
+	populate_bindings(ui, doc);
 	populate_rows(ui, doc);
 
 	ui->shown = collect(ui);
