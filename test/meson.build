@@ -397,6 +397,16 @@ if python.found() and not get_option('tests_only')
     ['integration' / 'fixes_client.c'],
     dependencies: [dependency('wayland-client')],
     )
+  # pointer-gestures: subscribing to swipe, pinch and hold.
+  gestures_client = executable(
+    'gestures_client',
+    [
+      'integration' / 'gestures_client.c',
+      wayland_scanner_client.process(wl_protocol_dir / 'unstable/pointer-gestures/pointer-gestures-unstable-v1.xml'),
+      wayland_scanner_code.process(wl_protocol_dir / 'unstable/pointer-gestures/pointer-gestures-unstable-v1.xml'),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
 
   # Makes and drops idle inhibitors, for the idle test.
   idle_inhibit_xml = wl_protocol_dir / 'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml'
@@ -474,7 +484,6 @@ if python.found() and not get_option('tests_only')
     ['desktops', 'desktops_test.py', [], 90],
     ['dnd', 'dnd_test.py', [dnd_client, vpointer_client], 60],
     ['edge_tiling', 'edge_tiling_test.py', [], 90],
-    ['fixes', 'fixes_test.py', [fixes_client], 60],
     ['foreign_toplevel', 'foreign_toplevel_test.py', [default_rc], 60],
     ['fullscreen_panel', 'fullscreen_panel_test.py', [layer_client], 60],
     ['ibus_real', 'ibus_real_test.py', [text_input_client], 60],
@@ -506,6 +515,7 @@ if python.found() and not get_option('tests_only')
     ['session_lock', 'session_lock_test.py', [lock_client], 60],
     ['session_lock_virtual_always', 'session_lock_test.py', [lock_client, 'always'], 60],
     ['shortcuts_inhibit', 'shortcuts_inhibit_test.py', [kbinhibit_client], 60],
+    ['small_protocols', 'small_protocols_test.py', [fixes_client, gestures_client], 60],
     ['ssd', 'ssd_test.py', [], 60],
     ['startup_programs', 'startup_programs_test.py', [], 60],
     ['switcher_icons', 'switcher_icons_test.py', [], 60],

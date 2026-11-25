@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Integration test for wl_fixes: offered at version 2; destroy_registry
+"""Integration test for small protocols. wl_fixes: offered at version 2; destroy_registry
 frees a registry with the connection still fine; ack_global_remove goes
 through to libwayland (acknowledging a global that wasn't removed is the
 protocol's invalid_ack_remove error).
 
-Usage: fixes_test.py <waybox> <fixes_client>
+With a second client given, pointer-gestures too: offered at version 3,
+and a client can subscribe to swipe, pinch and hold on its pointer.
+
+Usage: small_protocols_test.py <waybox> <fixes_client> [<gestures_client>]
 """
 import os
 import shutil
@@ -18,11 +21,12 @@ SKIP = 77
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (3, 4):
         print(__doc__)
         sys.exit(2)
-    waybox, client = sys.argv[1:]
-    workdir = tempfile.mkdtemp(prefix="waybox-fixes-", dir="/tmp")
+    waybox, client = sys.argv[1:3]
+    gestures = sys.argv[3] if len(sys.argv) == 4 else None
+    workdir = tempfile.mkdtemp(prefix="waybox-protocols-", dir="/tmp")
     runtime = os.path.join(workdir, "run")
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
@@ -58,6 +62,11 @@ def main():
         failures.append(f"destroy_registry failed: {out}")
     if "ack-error wl_fixes 0" not in out:
         failures.append(f"ack_global_remove didn't reach libwayland: {out}")
+    if gestures:
+        out = subprocess.run([gestures], env=dict(env, WAYLAND_DISPLAY=sock),
+                             capture_output=True, text=True, timeout=10).stdout.strip()
+        if out != "gestures 3":
+            failures.append(f"pointer-gestures isn't offered at version 3: {out!r}")
     time.sleep(0.3)
     if proc.poll() is not None:
         failures.append("waybox exited")
@@ -77,7 +86,7 @@ def main():
             print(f"FAIL: {f}", file=sys.stderr)
         return 1
     shutil.rmtree(workdir, ignore_errors=True)
-    print("integration wl_fixes: OK")
+    print("integration small protocols: OK")
     return 0
 
 

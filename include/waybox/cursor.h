@@ -47,6 +47,13 @@ struct wb_cursor {
 	wb::Listener pointer_focus_change;
 	wb::Listener request_cursor;
 	wb::Listener request_set_shape;
+	/* Touchpad gestures, passed on to the window under the pointer
+	 * (pointer-gestures: pinch to zoom, swipe back and forward). */
+	struct wlr_pointer_gestures_v1 *gestures = nullptr;
+	wb::Listener swipe_begin, swipe_update, swipe_end;
+	wb::Listener pinch_begin, pinch_update, pinch_end;
+	wb::Listener hold_begin, hold_end;
+	void init_gestures();
 
 	/* wl_signal handlers (wired to the listeners above as lambdas). */
 	void on_motion(void *data);
