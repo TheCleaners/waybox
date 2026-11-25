@@ -34,6 +34,7 @@ void ipc_window_event(struct wb_toplevel *toplevel, const char *change);
 void ipc_desktop_event(struct wb_server *server);
 void ipc_output_event(struct wb_server *server, struct wlr_output *output, const char *change);
 /* A bell rang (from `t`, or no window), and what it showed. */
-void ipc_bell_event(struct wb_server *server, struct wb_toplevel *t, const std::string &shown);
+void ipc_bell_event(struct wb_server *server, struct wb_toplevel *t, const std::string &shown,
+		int skipped);
 
 #endif

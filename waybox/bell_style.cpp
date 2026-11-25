@@ -114,6 +114,22 @@ std::vector<Blink> blink_schedule(const BellStyle &style) {
 	return out;
 }
 
+bool BellPacer::ready(uint32_t now) const {
+	if (!any_)
+		return true;
+	if (static_cast<int32_t>(now - busy_until_) < 0)
+		return false;
+	return now - last_onset_ >= static_cast<uint32_t>(kBellMinPeriodMs);
+}
+
+bool RingGate::pass(uint32_t now) {
+	if (any_ && now - last_ < static_cast<uint32_t>(kBellMinPeriodMs))
+		return false;
+	any_ = true;
+	last_ = now;
+	return true;
+}
+
 bool BellPacer::allow(uint32_t now, const std::vector<Blink> &schedule) {
 	if (schedule.empty())
 		return false;

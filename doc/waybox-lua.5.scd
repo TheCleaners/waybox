@@ -56,7 +56,8 @@ a slow file hold Waybox up for as long as they take. To run a program, use
 :[ the output's name
 |  _bell_
 :[ the window that rang (or *nil*), and a table with its *id*, *app_id* and
-   *title* ("" when no window rang); after Waybox has shown it (or not)
+   *title* ("" when no window rang), and *skipped*: rings before it that
+   came too soon to count; after Waybox has shown it (or not)
 
 Events are delivered just after the change that caused them is over, never in
 the middle of it.
@@ -99,7 +100,10 @@ again replaces the function; *nil* removes it.
 	key by key: *flash* ("window", "border", "screen", "osd", "no"),
 	*color*, *duration*, *count*, *width*, *command* (*false* or "" for
 	none); or *nil* to leave it to rc.xml. The same limits apply as in
-	rc.xml: flashes never come more than 3 times a second.
+	rc.xml: flashes never come more than 3 times a second. A ring too
+	soon after the last that counted (or while it still shows) doesn't
+	reach the policy at all, so a program ringing in a loop can't keep a
+	script busy.
 
 ```
 wb.policy("bell", function(w)

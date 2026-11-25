@@ -16,7 +16,10 @@ filling the screen's top left corner.
 3. waybox-msg subscribe bell: a real ring from the window gives an event
    with the window and what was shown.
 4. Lua: a "bell" policy gives the window a red border and silences rings
-   from no window; a "bell" event handler sees both rings.
+   from no window; a "bell" event handler sees both rings. Then a flood:
+   100 rings, about 200 a second, and one more after a pause: the
+   policy runs at most about 3 times a second, not 100 times, and the
+   events account for every ring (events + skipped = rings).
 5. (With wbconf's path and schema: only this.) wbconf's Test, with the
    bell set to a border in wbconf and not saved: Waybox flashes a border,
    with the settings on screen, not rc.xml's.
@@ -40,13 +43,14 @@ SKIP = 77
 
 LUA = """
 wb.policy("bell", function(w)
+  wb.log("policy-call")
   if w then
     return {flash = "border", color = "#ff0000ff", duration = 900, width = 6}
   end
   return false
 end)
 wb.on("bell", function(w, info)
-  wb.log("bell-event [" .. info.app_id .. "]")
+  wb.log("bell-event [" .. info.app_id .. "] skipped=" .. info.skipped)
 end)
 """
 
@@ -294,6 +298,36 @@ def main():
             failures.append("the policy's false didn't silence a ring from no window")
         if "bell-event [bell-test]" not in text or "bell-event []" not in text:
             failures.append("the bell event handler didn't see both rings")
+
+        # The flood.
+        time.sleep(0.5)
+        log.flush()
+        calls0 = open(log_path).read().count("policy-call")
+        events0 = open(log_path).read().count("bell-event [")
+        start_t = time.time()
+        for _ in range(100):  # ~200 a second: as fast as the client takes them
+            client.stdin.write("window\n")
+            client.stdin.flush()
+            if lines.wait_for("rang") is None:
+                failures.append("the flood's rings didn't all go")
+                break
+            time.sleep(0.005)
+        took = time.time() - start_t
+        time.sleep(0.6)
+        client.stdin.write("window\n")
+        client.stdin.flush()
+        lines.wait_for("rang")
+        time.sleep(0.5)
+        log.flush()
+        text = open(log_path).read()
+        calls = text.count("policy-call") - calls0
+        allowed = 2 + int(took * 3) + 1  # the first, ~3 a second, and the last
+        if calls > allowed:
+            failures.append(f"the policy ran {calls} times for 101 rings in {took:.2f}s")
+        import re
+        events = [int(n) for n in re.findall(r"bell-event \[[^]]*\] skipped=(\d+)", text)][events0:]
+        if len(events) + sum(events) != 101:
+            failures.append(f"events {len(events)} + skipped {sum(events)} != 101 rings")
     except (OSError, ValueError, KeyError, IndexError) as e:
         failures.append(f"{type(e).__name__}: {e}")
     finally:

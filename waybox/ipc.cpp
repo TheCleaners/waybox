@@ -512,10 +512,12 @@ void ipc_desktop_event(struct wb_server *server) {
 			{"desktop", desktop_json(server, server->current_desktop)}});
 }
 
-void ipc_bell_event(struct wb_server *server, struct wb_toplevel *t, const std::string &shown) {
+void ipc_bell_event(struct wb_server *server, struct wb_toplevel *t, const std::string &shown,
+		int skipped) {
 	if (server->ipc == nullptr)
 		return;
-	Object body{{"shown", shown}};
+	/* skipped: rings since the last event that came too soon to count. */
+	Object body{{"shown", shown}, {"skipped", skipped}};
 	if (t != nullptr && t->mapped)
 		body["window"] = window_json(t);
 	send_event(server, "bell", body);

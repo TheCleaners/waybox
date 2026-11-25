@@ -66,6 +66,7 @@ struct Event {
 	std::string app_id, title;
 	int desktop = 0;
 	std::string output;
+	int skipped = 0;         /* bell */
 };
 
 struct Timer {
@@ -1206,6 +1207,10 @@ int dispatch(void *) {
 					lua_setfield(L, -2, "app_id");
 					lua_pushstring(L, e.title.c_str());
 					lua_setfield(L, -2, "title");
+					if (e.name == "bell") {
+						lua_pushinteger(L, e.skipped);
+						lua_setfield(L, -2, "skipped");
+					}
 					return 2;
 				}
 				if (e.name == "desktop.switch") {
@@ -1279,11 +1284,12 @@ void script_window_event(struct wb_toplevel *t, const char *change) {
 	enqueue(std::move(e));
 }
 
-void script_bell_event(struct wb_server *, struct wb_toplevel *t) {
+void script_bell_event(struct wb_server *, struct wb_toplevel *t, int skipped) {
 	if (g == nullptr)
 		return;
 	Event e;
 	e.name = "bell";
+	e.skipped = skipped;
 	if (t != nullptr && t->foreign_toplevel_handle != nullptr) {
 		e.window_id = t->foreign_toplevel_handle->identifier;
 		e.app_id = view_app_id(t) ? view_app_id(t) : "";
@@ -1681,7 +1687,7 @@ void finish_scripts(struct wb_server *) {}
 void scripts_reap(struct wb_server *) {}
 bool script_rules(struct wb_server *, const ScriptWindow &, wb::AppRule *) { return false; }
 bool script_bell(struct wb_server *, struct wb_toplevel *, ScriptBell *) { return false; }
-void script_bell_event(struct wb_server *, struct wb_toplevel *) {}
+void script_bell_event(struct wb_server *, struct wb_toplevel *, int) {}
 std::optional<wb::Rect> script_place(struct wb_server *, const ScriptWindow &, const wb::Rect &,
 		const wb::Rect &) { return std::nullopt; }
 void script_request_layout(struct wb_server *) {}
