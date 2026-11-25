@@ -733,6 +733,11 @@ void apply_test_values(Ui *ui, const char *spec) {
 		if (eq != std::string::npos && (item.rfind("script.", 0) == 0 ||
 				item.rfind("xdg.", 0) == 0))
 			source_test_value(ui, item.substr(0, eq), item.substr(eq + 1));
+		/* "program.ID=on|off": a known program's "start with the session". */
+		if (eq != std::string::npos && item.rfind("program.", 0) == 0)
+			for (auto &p : ui->programs)
+				if (p->in != nullptr && p->in->id == item.substr(8, eq - 8))
+					gtk_switch_set_active(p->on, item.substr(eq + 1) == "on");
 		/* "bind.ID=KEY": turn on that program's key binding. */
 		if (eq != std::string::npos && item.rfind("bind.", 0) == 0)
 			for (auto &b : ui->bindings)

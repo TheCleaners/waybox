@@ -79,3 +79,57 @@ WB_TEST(switching_autostart_writes_hidden) {
 	WB_CHECK(wb::autostart_set_enabled("[Desktop Entry]\nExec=foo\nHidden=false\n", false) ==
 			"[Desktop Entry]\nExec=foo\nHidden=true\n");
 }
+
+WB_TEST(script_starters_direct_function_and_elsewhere) {
+	const char *script = R"SH(#!/bin/sh
+mako &
+#swaybg -c '#000' &
+pick() {
+    ls ~/wallpapers | shuf -n 1
+}
+load_wallpaper() {
+    if which hyprpaper >/dev/null 2>&1; then
+        hyprpaper &
+    elif which swaybg >/dev/null 2>&1; then
+        swaybg -m fill -i "$(pick)" &
+    fi
+}
+load_wallpaper &
+if true; then
+    waybar &
+fi
+command -v kanshi >/dev/null 2>&1 && kanshi &
+)SH";
+	/* Through a function: the line calling it. */
+	wb::ScriptStarters s = wb::script_starters(script, "swaybg");
+	WB_CHECK(s.lines.size() == 1);
+	WB_CHECK(s.lines[0].line == 13 && s.lines[0].program == "load_wallpaper");
+	WB_CHECK(s.functions.size() == 1 && s.functions[0] == "load_wallpaper");
+	WB_CHECK(!s.elsewhere);
+	/* Its own line. */
+	s = wb::script_starters(script, "mako");
+	WB_CHECK(s.lines.size() == 1 && s.lines[0].line == 1 && s.functions.empty());
+	WB_CHECK(!s.elsewhere);
+	s = wb::script_starters(script, "kanshi");
+	WB_CHECK(s.lines.size() == 1 && s.lines[0].line == 17);
+	/* In an if block: no line to switch. */
+	s = wb::script_starters(script, "waybar");
+	WB_CHECK(s.lines.empty() && s.elsewhere);
+	/* Not started (or only in a comment). */
+	s = wb::script_starters(script, "swayidle");
+	WB_CHECK(s.lines.empty() && !s.elsewhere);
+	/* A function that runs it, called inside an if block: elsewhere. */
+	s = wb::script_starters("#!/bin/sh\nf() {\n  wlsunset &\n}\nif true; then f; fi\n",
+			"wlsunset");
+	WB_CHECK(s.lines.empty() && s.elsewhere);
+}
+
+WB_TEST(script_start_command_strips) {
+	WB_CHECK(wb::script_start_command("mako &") == "mako");
+	WB_CHECK(wb::script_start_command("  swaybg -c '#000' -m fill -i ~/a.jpg &  ") ==
+			"swaybg -c '#000' -m fill -i ~/a.jpg");
+	WB_CHECK(wb::script_start_command("command -v kanshi >/dev/null 2>&1 && kanshi &") ==
+			"kanshi");
+	WB_CHECK(wb::script_start_command("which x && x --opt 'a && b' &") == "x --opt 'a && b'");
+	WB_CHECK(wb::script_start_command("foo") == "foo");
+}

@@ -71,6 +71,11 @@ struct FontPicker {
 /* ---- Widget set, bound to a WayboxSettings on save ------------------- */
 
 struct Ui {
+	/* Built and shown: a switch changing now is the user's (or a test's). */
+	bool ready = false;
+	/* WBCONF_TEST_CHOICE: "waybox", "waybox+stop" or "script", in place of
+	 * asking when a program the script starts is turned on. */
+	std::string test_choice;
 	GtkWindow *window = nullptr;
 	GtkLabel *status = nullptr;
 
@@ -154,6 +159,12 @@ struct Ui {
 		GtkLabel *status = nullptr;
 		bool syncing = false;
 		bool removed = false;
+		/* Turned on while the autostart script starts it too: asked
+		 * once; with "stop it", its running copies go when saving. */
+		bool asked = false;
+		bool stop_on_save = false;
+		std::vector<pid_t> stop_pids;  /* the copies shown when asked */
+		bool via_function = false;  /* the script starts it from a function */
 	};
 	std::vector<wb::Integration> integrations;
 	std::vector<std::unique_ptr<ProgramRow>> programs;
@@ -279,9 +290,12 @@ struct ProcessInfo {
 	pid_t pid;
 	uid_t uid;
 	std::string name;  /* at most 15 characters */
+	pid_t ppid = 0;
 };
 std::vector<ProcessInfo> list_processes();
 std::string process_name(pid_t pid);
+/* Its arguments (argv), or none if it's gone or not ours to read. */
+std::vector<std::string> process_args(pid_t pid);
 std::set<std::string> running_processes();
 bool is_running(Ui *ui, const std::string &binary);
 bool installed(const std::string &binary);
@@ -296,6 +310,9 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 void on_add_program(GtkButton *, gpointer data);
 void populate_programs(Ui *ui, const std::vector<wb::StartupSetting> &startup);
 std::vector<wb::StartupSetting> collect_programs(Ui *ui);
+/* Saving: the running copies of programs moved from the autostart script
+ * that the user chose to stop (before Waybox reloads and starts its own). */
+void stop_moved_programs(Ui *ui);
 wb::WayboxSettings collect(Ui *ui);
 void set_status(Ui *ui, const std::string &text);
 void on_save(GtkButton *, gpointer data);

@@ -1,6 +1,18 @@
 #include "wbconf_ui.hpp"
 
+#include <sstream>
+
+#include <fstream>
+
+#include <unistd.h>
+
+#include <filesystem>
+
+#include <csignal>
+
 namespace wbconf {
+
+namespace fs = std::filesystem;
 
 /* ---- Integrations ------------------------------------------------------ */
 
@@ -67,11 +79,286 @@ void program_status(Ui *ui, Ui::ProgramRow *row) {
 		gtk_widget_remove_css_class(GTK_WIDGET(row->status), "warning");
 }
 
+/* ---- moving a program from the autostart script to Waybox -------------- */
+
+std::string program_binary(Ui::ProgramRow *row) {
+	return row->in ? row->in->binary
+		: wb::startup_name("", gtk_editable_get_text(GTK_EDITABLE(row->command)));
+}
+
+/* The user's running copies of `binary`. */
+std::vector<pid_t> running_copies(const std::string &binary) {
+	std::vector<pid_t> out;
+	uid_t me = getuid();
+	std::string name = binary.substr(0, 15);
+	for (const ProcessInfo &p : list_processes())
+		if (p.uid == me && p.name == name)
+			out.push_back(p.pid);
+	return out;
+}
+
+/* Let Waybox start it: the script's lines that start it switched off
+ * (saved with the rest); `stop`: its running copies go when saving. */
+/* The command Waybox should run in its place: a line of its own's command,
+ * with its arguments; otherwise (a function) the row's. */
+std::string proposed_command(Ui::ProgramRow *row, const wb::ScriptStarters &starters) {
+	if (starters.lines.size() == 1 && !starters.lines[0].function)
+		return wb::script_start_command(starters.lines[0].command);
+	return gtk_editable_get_text(GTK_EDITABLE(row->command));
+}
+
+void move_to_waybox(Ui *ui, Ui::ProgramRow *row, const wb::ScriptStarters &starters, bool stop,
+		const std::vector<pid_t> &running, const std::string &command) {
+	if (!command.empty())
+		gtk_editable_set_text(GTK_EDITABLE(row->command), command.c_str());
+	for (const wb::ScriptEntry &e : starters.lines)
+		for (auto &r : ui->source_rows)
+			if (r->script && r->line == e.line && r->on != nullptr)
+				gtk_switch_set_active(r->on, FALSE);
+	row->stop_on_save = stop && !running.empty();
+	row->stop_pids = row->stop_on_save ? running : std::vector<pid_t>{};
+	row->via_function = !starters.functions.empty();
+	program_status(ui, row);
+	refresh_save_state(ui);
+}
+
+void leave_to_script(Ui *ui, Ui::ProgramRow *row) {
+	row->stop_on_save = false;
+	row->stop_pids.clear();
+	gtk_switch_set_active(row->on, FALSE);  /* asked already: not again */
+	program_status(ui, row);
+}
+
+struct MoveDialog {
+	Ui *ui = nullptr;
+	Ui::ProgramRow *row = nullptr;
+	wb::ScriptStarters starters;
+	GtkWindow *window = nullptr;
+	GtkCheckButton *stop = nullptr;
+	GtkEntry *command = nullptr;
+	std::vector<pid_t> running;
+	bool decided = false;
+};
+
+void move_dialog_answer(MoveDialog *d, bool to_waybox) {
+	if (d->decided)
+		return;
+	d->decided = true;
+	if (to_waybox)
+		move_to_waybox(d->ui, d->row, d->starters,
+				d->stop != nullptr && gtk_check_button_get_active(d->stop), d->running,
+				gtk_editable_get_text(GTK_EDITABLE(d->command)));
+	else
+		leave_to_script(d->ui, d->row);
+	gtk_window_destroy(d->window);
+}
+
+/* Turned on, but the autostart script starts it too: which should? */
+void ask_move(Ui *ui, Ui::ProgramRow *row, const wb::ScriptStarters &starters) {
+	std::string binary = program_binary(row);
+	std::vector<pid_t> running = running_copies(binary);
+	if (!ui->test_choice.empty()) {
+		if (ui->test_choice.rfind("waybox", 0) == 0)
+			move_to_waybox(ui, row, starters, ui->test_choice == "waybox+stop", running,
+					proposed_command(row, starters));
+		else
+			leave_to_script(ui, row);
+		return;
+	}
+	auto *d = new MoveDialog;
+	d->ui = ui;
+	d->row = row;
+	d->starters = starters;
+	d->running = running;
+	GtkWidget *win = gtk_window_new();
+	d->window = GTK_WINDOW(win);
+	gtk_window_set_transient_for(d->window, ui->window);
+	gtk_window_set_modal(d->window, TRUE);
+	gtk_window_set_resizable(d->window, FALSE);
+	gtk_window_set_title(d->window, _("Started Twice"));
+	g_object_set_data_full(G_OBJECT(win), "wb-move", d,
+			[](gpointer p) { delete static_cast<MoveDialog *>(p); });
+
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+	gtk_widget_set_margin_top(box, 18);
+	gtk_widget_set_margin_bottom(box, 18);
+	gtk_widget_set_margin_start(box, 18);
+	gtk_widget_set_margin_end(box, 18);
+	gtk_window_set_child(d->window, box);
+	auto label = [box](const std::string &text, const char *css = nullptr) {
+		GtkWidget *l = gtk_label_new(text.c_str());
+		gtk_label_set_wrap(GTK_LABEL(l), TRUE);
+		gtk_label_set_max_width_chars(GTK_LABEL(l), 60);
+		gtk_label_set_xalign(GTK_LABEL(l), 0);
+		if (css != nullptr)
+			gtk_widget_add_css_class(l, css);
+		gtk_box_append(GTK_BOX(box), l);
+		return l;
+	};
+	char *head = g_strdup_printf(_("%s is also started by your autostart script"),
+			binary.c_str());
+	label(head, "title-4");
+	g_free(head);
+	label(_("Letting Waybox start it switches off the script's lines below when you "
+			"save; Waybox then starts it with the session and restarts it if it "
+			"crashes. The lines stay in the script, commented out."));
+	for (const wb::ScriptEntry &e : starters.lines) {
+		char *where = g_strdup_printf(_("Line %d:"), e.line + 1);
+		label(std::string(where) + " " + e.command, "monospace");
+		g_free(where);
+		if (e.function) {
+			char *note = g_strdup_printf(_("This runs %s, a function of the script that "
+					"starts it: switching the line off stops everything %s does."),
+					e.program.c_str(), e.program.c_str());
+			label(note, "dim-label");
+			g_free(note);
+		}
+	}
+	if (starters.elsewhere)
+		label(_("The script also starts it in a way wbconf can't switch off (inside an "
+				"if block, for example): edit the script to stop that too."), "warning");
+
+	/* What Waybox will run instead, which the user can change here. */
+	label(_("Waybox will run:"));
+	d->command = GTK_ENTRY(gtk_entry_new());
+	gtk_editable_set_text(GTK_EDITABLE(d->command), proposed_command(row, starters).c_str());
+	gtk_widget_add_css_class(GTK_WIDGET(d->command), "monospace");
+	gtk_box_append(GTK_BOX(box), GTK_WIDGET(d->command));
+	if (!starters.functions.empty()) {
+		char *note = g_strdup_printf(_("%s may do more than this command does (pick a "
+				"random image, or change it now and then, for example): check the "
+				"command before letting Waybox start it."), starters.functions[0].c_str());
+		label(note, "warning");
+		g_free(note);
+		/* Others of its kind might do what the function did. */
+		if (row->in != nullptr) {
+			std::string others;
+			for (const wb::Integration &in : ui->integrations)
+				if (in.category == row->in->category && in.id != row->in->id)
+					others += (others.empty() ? "" : ", ") + in.name;
+			if (!others.empty()) {
+				char *alt = g_strdup_printf(_("Other programs of this kind, in Integrations: "
+						"%s."), others.c_str());
+				label(alt, "dim-label");
+				g_free(alt);
+			}
+		}
+	}
+	if (!running.empty()) {
+		std::string pids;
+		for (pid_t p : running)
+			pids += (pids.empty() ? "" : ", ") + std::to_string(p);
+		char *text = starters.functions.empty()
+			? g_strdup_printf(ngettext(
+				"Also stop the running %s (process %s) when saving",
+				"Also stop the running %s (processes %s) when saving",
+				running.size()), binary.c_str(), pids.c_str())
+			: g_strdup_printf(ngettext(
+				"Also stop the running %s (process %s), and the script's %s if it's "
+				"still running, when saving",
+				"Also stop the running %s (processes %s), and the script's %s if it's "
+				"still running, when saving",
+				running.size()), binary.c_str(), pids.c_str(),
+				starters.functions[0].c_str());
+		d->stop = GTK_CHECK_BUTTON(gtk_check_button_new());
+		GtkWidget *stop_label = gtk_label_new(text);
+		gtk_label_set_wrap(GTK_LABEL(stop_label), TRUE);
+		gtk_label_set_max_width_chars(GTK_LABEL(stop_label), 56);
+		gtk_label_set_xalign(GTK_LABEL(stop_label), 0);
+		gtk_check_button_set_child(d->stop, stop_label);
+		g_free(text);
+		gtk_check_button_set_active(d->stop, TRUE);
+		gtk_widget_set_tooltip_text(GTK_WIDGET(d->stop), _("Otherwise the copy the script "
+				"started keeps running until you log out, next to Waybox's."));
+		gtk_box_append(GTK_BOX(box), GTK_WIDGET(d->stop));
+	}
+	GtkWidget *buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+	gtk_widget_set_halign(buttons, GTK_ALIGN_END);
+	gtk_box_append(GTK_BOX(box), buttons);
+	GtkWidget *keep = gtk_button_new_with_label(_("Leave It to the Script"));
+	GtkWidget *move = gtk_button_new_with_label(_("Let Waybox Start It"));
+	gtk_widget_add_css_class(move, "suggested-action");
+	gtk_box_append(GTK_BOX(buttons), keep);
+	gtk_box_append(GTK_BOX(buttons), move);
+	g_signal_connect_swapped(keep, "clicked", G_CALLBACK(+[](MoveDialog *d) {
+		move_dialog_answer(d, false);
+	}), d);
+	g_signal_connect_swapped(move, "clicked", G_CALLBACK(+[](MoveDialog *d) {
+		move_dialog_answer(d, true);
+	}), d);
+	/* Closed some other way: as if left to the script. */
+	g_signal_connect_swapped(win, "close-request", G_CALLBACK(+[](MoveDialog *d) -> gboolean {
+		if (!d->decided) {
+			d->decided = true;
+			leave_to_script(d->ui, d->row);
+		}
+		return FALSE;
+	}), d);
+	gtk_window_set_default_widget(d->window, move);
+	gtk_window_present(d->window);
+}
+
+void stop_moved_programs(Ui *ui) {
+	std::string script_name = fs::path(ui->script_path).filename().string().substr(0, 15);
+	uid_t me = getuid();
+	for (auto &row : ui->programs) {
+		if (!row->stop_on_save)
+			continue;
+		row->stop_on_save = false;
+		if (row->removed || !gtk_switch_get_active(row->on))
+			continue;
+		std::string name = program_binary(row.get()).substr(0, 15);
+		std::vector<pid_t> pids = std::move(row->stop_pids);
+		row->stop_pids.clear();
+		std::vector<ProcessInfo> all = list_processes();
+		for (const ProcessInfo &p : all) {
+			/* Only the copies shown when asked, if still the same program
+			 * (a process id can be reused). */
+			if (p.uid != me || p.name != name ||
+					std::find(pids.begin(), pids.end(), p.pid) == pids.end())
+				continue;
+			/* Started from a function of the script: the background shell
+			 * running it goes first, or it could start another. It's the
+			 * script's: named after it (Linux), or running its file (the
+			 * BSDs name it after the shell). A function's line ends in
+			 * "&", so that shell is never the script itself; and a
+			 * terminal's shell never matches. */
+			if (row->via_function && !script_name.empty())
+				for (const ProcessInfo &parent : all) {
+					if (parent.pid != p.ppid || parent.uid != me || parent.pid <= 1)
+						continue;
+					std::vector<std::string> args = process_args(parent.pid);
+					bool runs_script = std::find(args.begin(), args.end(), ui->script_path) !=
+							args.end();
+					if (parent.name == script_name || runs_script)
+						kill(parent.pid, SIGTERM);
+				}
+			kill(p.pid, SIGTERM);
+		}
+	}
+}
+
 void on_program_toggled(GObject *, GParamSpec *, gpointer data) {
 	auto *row = static_cast<Ui::ProgramRow *>(data);
 	Ui *ui = static_cast<Ui *>(g_object_get_data(G_OBJECT(row->on), "wb-ui"));
 	gtk_widget_set_visible(row->details, gtk_switch_get_active(row->on));
 	program_status(ui, row);
+	if (!gtk_switch_get_active(row->on)) {
+		row->stop_on_save = false;
+		return;
+	}
+	if (!ui->ready || row->asked || row->listed || ui->script_path.empty())
+		return;
+	/* The script the session runs (the user's, else the default): the
+	 * one whose lines the Startup view switches. */
+	std::ifstream f(ui->script_path);
+	std::stringstream text;
+	text << f.rdbuf();
+	wb::ScriptStarters starters = wb::script_starters(text.str(), program_binary(row));
+	if (starters.lines.empty() && !starters.elsewhere)
+		return;
+	row->asked = true;
+	ask_move(ui, row, starters);
 }
 
 /* Options and the command line stay in step, both ways. */
