@@ -265,6 +265,48 @@ void raise_toplevel(struct wb_toplevel *toplevel) {
 	raise_with_children(toplevel, 0);
 }
 
+/* The window a dialog (of a dialog...) belongs to; the window itself if it
+ * isn't one. */
+static struct wb_toplevel *family_root(struct wb_toplevel *t) {
+	for (int depth = 0; t != nullptr && depth < 8; ++depth) {
+		struct wb_toplevel *parent = view_parent(t);
+		if (parent == nullptr)
+			break;
+		t = parent;
+	}
+	return t;
+}
+
+/* As in Openbox: a fullscreen window (with its dialogs) is above panels and
+ * other windows only while it is the active window. Once another window is
+ * focused (one that just opened, one picked with Alt+Tab), the fullscreen
+ * one is stacked with ordinary windows, so the focused window is seen;
+ * focused again, it is back on top. */
+static void update_fullscreen_layers(struct wb_server *server) {
+	struct wb_toplevel *root = family_root(first_toplevel(server));
+	bool moved = false;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link) {
+		if (!t->mapped || t->scene_tree == nullptr)
+			continue;
+		struct wb_toplevel *r = family_root(t);
+		struct wlr_scene_tree *target = server->toplevel_tree;
+		if (r != nullptr && r == root && r->fullscreen) {
+			struct wlr_output *wo = get_active_output(r);
+			if (wo != nullptr && wo->data != nullptr)
+				target = static_cast<struct wb_output *>(wo->data)->layers.shell_fullscreen;
+		}
+		if (t->scene_tree->node.parent != target) {
+			wlr_scene_node_reparent(&t->scene_tree->node, target);
+			moved = true;
+		}
+	}
+	/* A window moved down lands on top of the ordinary ones: the active
+	 * window (and its dialogs) back above it. */
+	if (moved && root != nullptr)
+		raise_with_children(root, 0);
+}
+
 /* Lower a toplevel to the bottom of the stacking order, without touching
  * focus. */
 void lower_toplevel(struct wb_toplevel *toplevel) {
@@ -343,6 +385,7 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	wl_list_remove(&toplevel->focus_link);
 	wl_list_insert(&server->focus_order, &toplevel->focus_link);
 	raise_toplevel(toplevel);
+	update_fullscreen_layers(server);
 	/* Activate the new surface */
 	view_set_activated(toplevel, true);
 	update_foreign_activation(server, toplevel);
@@ -1250,25 +1293,16 @@ void set_toplevel_fullscreen(struct wb_toplevel *toplevel, bool fullscreen) {
 		struct wlr_output *wlr_output = get_active_output(toplevel);
 		struct wb_output *output = static_cast<struct wb_output *>(
 				wlr_output ? wlr_output->data : NULL);
-		if (output != NULL) {
+		if (output != NULL)
 			toplevel->geometry = output->geometry;  /* layout box: pos + size */
-			/* Lift the window into the fullscreen layer so it covers panels
-			 * (the top layer), which ordinary toplevels sit below. */
-			if (toplevel->scene_tree != NULL)
-				wlr_scene_node_reparent(&toplevel->scene_tree->node,
-						output->layers.shell_fullscreen);
-		}
-		raise_toplevel(toplevel);
 	} else {
 		toplevel->geometry = toplevel->restore_fullscreen;
-		/* Return to the ordinary toplevel container (below the panel layers),
-		 * its dialogs with it. */
-		if (toplevel->scene_tree != NULL) {
-			wlr_scene_node_reparent(&toplevel->scene_tree->node,
-					toplevel->server->toplevel_tree);
-			raise_toplevel(toplevel);
-		}
 	}
+	/* Into the fullscreen layer (over the panels) if it's the active
+	 * window, else among ordinary windows; its dialogs with it. */
+	update_fullscreen_layers(toplevel->server);
+	if (toplevel == family_root(first_toplevel(toplevel->server)))
+		raise_toplevel(toplevel);
 
 	view_set_fullscreen(toplevel, fullscreen);
 	if (toplevel->wlr_foreign_handle != NULL)
