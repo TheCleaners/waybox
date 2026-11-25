@@ -79,6 +79,7 @@ inc_dir = include_directories('include')
 # Defined here (always processed) so the unit tests can build in tests_only mode
 # without configuring the full compositor.
 action_src = files('waybox/action.cpp')
+conditions_src = files('waybox/conditions.cpp')
 window_cycle_src = files('waybox/window_cycle.cpp')
 geometry_src = files('waybox/geometry.cpp')
 mousebind_src = files('waybox/mousebind.cpp')

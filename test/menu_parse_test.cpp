@@ -1,5 +1,6 @@
 #include "wb_test.hpp"
 
+#include "waybox/conditions.hpp"
 #include "waybox/menu.hpp"
 
 using wb::Menu;
@@ -210,4 +211,64 @@ WB_TEST(parse_applications_menu_type) {
 	WB_CHECK(root != nullptr && root->items.size() == 1);
 	WB_CHECK(root->items[0].kind == MenuItem::Kind::Submenu);
 	WB_CHECK(root->items[0].submenu_id == "applications");
+}
+
+WB_TEST(parse_if_and_foreach) {
+	/* Openbox's conditional actions, as a menu item or binding has them. */
+	MenuFile f = wb::parse_menu_xml(R"(<openbox_menu><menu id="root-menu">
+  <item label="Max"><action name="If">
+    <title type="regex">Firefox$</title><maximized>no</maximized>
+    <then><action name="Maximize"/><action name="Raise"/></then>
+    <else><action name="Unmaximize"/></else>
+  </action></item>
+  <item label="Each"><action name="ForEach">
+    <query target="focus"><class>foot</class></query>
+    <query><desktop>current</desktop><shaded>yes</shaded></query>
+    <then><action name="If"><fullscreen>yes</fullscreen><then><action name="Stop"/></then></action></then>
+    <none><action name="Execute"><command>notify-send none</command></action></none>
+  </action></item>
+</menu></openbox_menu>)");
+	const Menu *root = f.find("root-menu");
+	WB_CHECK(root != nullptr && root->items.size() == 2);
+	const wb::Action &a = root->items[0].actions.at(0);
+	WB_CHECK(a.type == wb::ActionType::If && a.conditional != nullptr);
+	const wb::Conditional &c = *a.conditional;
+	WB_CHECK(c.queries.size() == 1);  /* the conditions in the action itself */
+	WB_CHECK(c.queries[0].title.set && c.queries[0].title.kind == wb::TextMatch::Kind::Regex);
+	WB_CHECK(c.queries[0].maximized == false);
+	WB_CHECK(c.then_actions.size() == 2 && c.then_actions[0].type == wb::ActionType::Maximize);
+	WB_CHECK(c.else_actions.size() == 1 && c.else_actions[0].type == wb::ActionType::Unmaximize);
+
+	const wb::Action &e = root->items[1].actions.at(0);
+	WB_CHECK(e.type == wb::ActionType::ForEach && e.conditional != nullptr);
+	const wb::Conditional &ec = *e.conditional;
+	WB_CHECK(ec.queries.size() == 2);
+	WB_CHECK(ec.queries[0].focus_target && ec.queries[0].cls.pattern == "foot");
+	WB_CHECK(!ec.queries[1].focus_target);
+	WB_CHECK(ec.queries[1].desktop == wb::Query::Desktop::Current && ec.queries[1].shaded == true);
+	/* Nested: an If in a ForEach branch, with a Stop in it. */
+	WB_CHECK(ec.then_actions.size() == 1 && ec.then_actions[0].conditional != nullptr);
+	WB_CHECK(ec.then_actions[0].conditional->then_actions.at(0).type == wb::ActionType::Stop);
+	WB_CHECK(ec.none_actions.size() == 1 && ec.none_actions[0].command == "notify-send none");
+}
+
+WB_TEST(parse_if_nesting_is_bounded) {
+	/* Twenty nested Ifs: past the limit they're dropped, nothing breaks. */
+	std::string xml = "<openbox_menu><menu id=\"root-menu\"><item label=\"Deep\">";
+	for (int i = 0; i < 20; ++i)
+		xml += "<action name=\"If\"><then>";
+	xml += "<action name=\"Raise\"/>";
+	for (int i = 0; i < 20; ++i)
+		xml += "</then></action>";
+	xml += "</item></menu></openbox_menu>";
+	MenuFile f = wb::parse_menu_xml(xml);
+	const Menu *root = f.find("root-menu");
+	WB_CHECK(root != nullptr && root->items.size() == 1);
+	int depth = 0;
+	const wb::Action *a = root->items[0].actions.empty() ? nullptr : &root->items[0].actions[0];
+	while (a != nullptr && a->conditional != nullptr) {
+		++depth;
+		a = a->conditional->then_actions.empty() ? nullptr : &a->conditional->then_actions[0];
+	}
+	WB_CHECK(depth == 16);
 }
