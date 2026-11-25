@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import wbtest
 
 SKIP = 77
 
@@ -95,6 +96,7 @@ def main():
         log = open(lp, "w")
         proc = subprocess.Popen([waybox, "--debug"], env=env, stdout=log,
                                 stderr=subprocess.STDOUT)
+        wbtest.reap_on_exit(proc)
         for _ in range(50):
             time.sleep(0.1)
             if proc.poll() is not None:

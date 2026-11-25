@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import wbtest
 
 SKIP = 77
 
@@ -73,6 +74,7 @@ def main():
     proc = subprocess.Popen([waybox, "--debug", "--startup",
                              f"sh -c 'echo \"$XMODIFIERS\" > {autostart_env}'"],
                             env=env, stdout=log, stderr=subprocess.STDOUT)
+    wbtest.reap_on_exit(proc)
     failures = []
 
     def text():
@@ -126,6 +128,7 @@ def main():
     lp2 = os.path.join(workdir, "waybox-exit.log")
     log2 = open(lp2, "w")
     proc2 = subprocess.Popen([waybox, "--debug"], env=env, stdout=log2, stderr=subprocess.STDOUT)
+    wbtest.reap_on_exit(proc2)
     time.sleep(1.5)
     proc2.send_signal(signal.SIGTERM)
     try:
