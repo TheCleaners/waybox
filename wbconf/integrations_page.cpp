@@ -431,6 +431,51 @@ void on_program_toggled(GObject *, GParamSpec *, gpointer data) {
 	ask_move(ui, row, starters);
 }
 
+/* Configure=: the program's own settings tool, started apart from wbconf
+ * (it stays open when wbconf closes). No shell: the command's words. */
+bool configure_installed(const wb::Integration *in) {
+	if (in == nullptr || in->configure.empty())
+		return false;
+	std::vector<std::string> words = wb::split_command(in->configure);
+	return !words.empty() && installed(words[0]);
+}
+
+void open_configure(const wb::Integration *in) {
+	std::vector<std::string> words = wb::split_command(in->configure);
+	if (words.empty())
+		return;
+	std::vector<char *> argv;
+	for (std::string &w : words)
+		argv.push_back(w.data());
+	argv.push_back(nullptr);
+	GPid pid = 0;
+	GError *error = nullptr;
+	if (!g_spawn_async(nullptr, argv.data(), nullptr,
+			static_cast<GSpawnFlags>(G_SPAWN_SEARCH_PATH | G_SPAWN_DO_NOT_REAP_CHILD),
+			[](gpointer) { setsid(); }, nullptr, &pid, &error)) {
+		g_warning("can't start %s: %s", in->configure.c_str(), error->message);
+		g_clear_error(&error);
+		return;
+	}
+	g_child_watch_add(pid, [](GPid pid, gint, gpointer) { g_spawn_close_pid(pid); }, nullptr);
+}
+
+GtkWidget *configure_button(const wb::Integration *in) {
+	GtkWidget *b = gtk_button_new_with_label(_("Configure…"));
+	char *tip = g_strdup_printf(_("Open %s"), in->configure.c_str());
+	gtk_widget_set_tooltip_text(b, tip);
+	g_free(tip);
+	gtk_widget_set_halign(b, GTK_ALIGN_START);
+	g_object_set_data(G_OBJECT(b), "wb-integration", const_cast<wb::Integration *>(in));
+	g_signal_connect(b, "clicked", G_CALLBACK(+[](GtkButton *b, gpointer) {
+		auto *in = static_cast<const wb::Integration *>(
+				g_object_get_data(G_OBJECT(b), "wb-integration"));
+		if (in != nullptr)
+			open_configure(in);
+	}), nullptr);
+	return b;
+}
+
 /* Options and the command line stay in step, both ways. */
 void on_option_changed(Ui::ProgramRow *row) {
 	if (row->syncing || row->in == nullptr)
@@ -511,6 +556,12 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 	GtkWidget *body = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
 	gtk_widget_set_margin_start(body, 52);
 	gtk_box_append(GTK_BOX(box), body);
+	/* Its own settings tool: there whether it's on or not (azote, say, is
+	 * where its wallpaper is chosen before it's started). */
+	if (configure_installed(in)) {
+		row->configure = configure_button(in);
+		gtk_box_append(GTK_BOX(body), row->configure);
+	}
 	row->status = GTK_LABEL(gtk_label_new(""));
 	gtk_label_set_xalign(row->status, 0);
 	gtk_label_set_wrap(row->status, TRUE);
@@ -893,16 +944,36 @@ void set_env_text(Ui *ui, const std::string &text) {
 	gtk_text_buffer_set_text(gtk_text_view_get_buffer(ui->im.env), text.c_str(), -1);
 }
 
+/* The chosen framework's settings tool, if it has one installed. */
+void update_im_configure(Ui *ui) {
+	if (ui->im.configure == nullptr)
+		return;
+	guint idx = gtk_drop_down_get_selected(ui->im.choice);
+	const wb::Integration *in = idx >= 1 && idx <= ui->im.frameworks.size()
+			? ui->im.frameworks[idx - 1] : nullptr;
+	bool show = configure_installed(in);
+	if (show) {
+		g_object_set_data(G_OBJECT(ui->im.configure), "wb-integration",
+				const_cast<wb::Integration *>(in));
+		char *tip = g_strdup_printf(_("Open %s"), in->configure.c_str());
+		gtk_widget_set_tooltip_text(ui->im.configure, tip);
+		g_free(tip);
+	}
+	gtk_widget_set_visible(ui->im.configure, show);
+}
+
 /* The dropdown changed: show (and for a framework, fill) the details. */
 void on_im_choice(Ui *ui) {
 	guint idx = gtk_drop_down_get_selected(ui->im.choice);
 	size_t n = ui->im.frameworks.size();
 	gtk_widget_set_visible(ui->im.details, idx != 0);
+	update_im_configure(ui);
 	if (ui->im.updating || idx == 0 || idx > n)
 		return;
 	const wb::Integration *in = ui->im.frameworks[idx - 1];
 	gtk_editable_set_text(GTK_EDITABLE(ui->im.command), in->exec.c_str());
 	set_env_text(ui, env_text(in->env));
+	update_im_configure(ui);
 }
 
 }  // namespace
@@ -926,6 +997,13 @@ GtkWidget *build_input_method_block(Ui *ui) {
 	gtk_box_append(GTK_BOX(box), GTK_WIDGET(ui->im.choice));
 
 	ui->im.details = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+	{
+		/* Pointing at whichever framework is chosen (update_im_configure). */
+		static const wb::Integration none;
+		ui->im.configure = configure_button(&none);
+		gtk_widget_set_visible(ui->im.configure, FALSE);
+		gtk_box_append(GTK_BOX(ui->im.details), ui->im.configure);
+	}
 	ui->im.command = GTK_ENTRY(gtk_entry_new());
 	gtk_entry_set_placeholder_text(ui->im.command, _("Command, e.g. fcitx5 --replace"));
 	gtk_widget_set_size_request(GTK_WIDGET(ui->im.command), 360, -1);

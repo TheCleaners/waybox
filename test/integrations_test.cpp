@@ -268,3 +268,11 @@ Flag=-s
 	WB_CHECK(wb::write_options(*in, "prog --tray -q", {{"quiet", "on"}, {"size", "3"}}) ==
 			"prog --tray -q -s 3");
 }
+
+WB_TEST(integration_configure_tool) {
+	auto in = wb::parse_integration("waypaper", "[Integration]\nName=Waypaper\n"
+			"Exec=waypaper --restore\nBinary=waypaper\nConfigure=waypaper --folder ~/Pictures\n");
+	WB_CHECK(in.has_value() && in->configure == "waypaper --folder ~/Pictures");
+	auto none = wb::parse_integration("x", "[Integration]\nName=x\nExec=x\n");
+	WB_CHECK(none.has_value() && none->configure.empty());
+}

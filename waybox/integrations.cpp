@@ -119,6 +119,7 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
 			else if (key == "Exec") in.exec = value;
 			else if (key == "Binary") in.binary = value;
 			else if (key == "Version") in.version_command = value;
+			else if (key == "Configure") in.configure = value;
 			else if (key == "Kind") {
 				in.binding = value == "binding";
 				in.input_method = value == "inputmethod";

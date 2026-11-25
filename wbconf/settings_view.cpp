@@ -764,6 +764,12 @@ void apply_test_values(Ui *ui, const char *spec) {
 				}
 			}
 		}
+				/* "configure.ID=1": click that program's Configure… button. */
+		if (eq != std::string::npos && item.rfind("configure.", 0) == 0)
+			for (auto &p : ui->programs)
+				if (p->in != nullptr && p->in->id == item.substr(10, eq - 10) &&
+						p->configure != nullptr)
+					g_signal_emit_by_name(p->configure, "clicked");
 				/* "bind.ID=KEY": turn on that program's key binding. */
 		if (eq != std::string::npos && item.rfind("bind.", 0) == 0)
 			for (auto &b : ui->bindings)

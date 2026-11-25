@@ -178,6 +178,7 @@ struct Ui {
 		GtkWidget *box = nullptr;
 		GtkWidget *details = nullptr;  /* options and command: shown when on */
 		GtkLabel *status = nullptr;
+		GtkWidget *configure = nullptr;  /* Configure=: its settings tool */
 		bool syncing = false;
 		bool removed = false;
 		/* Turned on while the autostart script starts it too: asked
@@ -219,6 +220,7 @@ struct Ui {
 		GtkEntry *command = nullptr;
 		GtkTextView *env = nullptr;   /* NAME=VALUE, one per line */
 		GtkWidget *details = nullptr;
+		GtkWidget *configure = nullptr;  /* the framework's settings tool */
 		bool updating = false;
 	} im;
 
