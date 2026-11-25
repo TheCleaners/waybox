@@ -245,16 +245,20 @@ namespace {
  * the pointer (the drop target): hidden from the scene's hit tests for the
  * rest of the motion, shown again before anything is drawn. */
 struct HideCarried {
-	struct wlr_scene_node *node = nullptr;
+	struct wb_server *server = nullptr;
+	struct wb_toplevel *window = nullptr;
 	explicit HideCarried(struct wb_toplevel *t) {
 		if (t != nullptr && t->scene_tree != nullptr && t->scene_tree->node.enabled) {
-			node = &t->scene_tree->node;
-			wlr_scene_node_set_enabled(node, false);
+			server = t->server;
+			window = t;
+			wlr_scene_node_set_enabled(&t->scene_tree->node, false);
 		}
 	}
+	/* Shown again by the usual rule (a binding run meanwhile may have
+	 * minimized it or switched desktops), if it's still there at all. */
 	~HideCarried() {
-		if (node != nullptr)
-			wlr_scene_node_set_enabled(node, true);
+		if (window != nullptr && toplevel_alive(server, window))
+			toplevel_update_visibility(window);
 	}
 	HideCarried(const HideCarried &) = delete;
 	HideCarried &operator=(const HideCarried &) = delete;

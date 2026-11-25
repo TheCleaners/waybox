@@ -41,7 +41,7 @@ static bool allowed(struct wb_server *server) {
 }
 
 void shortcuts_inhibit_update(struct wb_server *server) {
-	if (server->shortcuts_inhibit == nullptr)
+	if (server->shortcuts_inhibit == nullptr || server->shortcuts_inhibit_state == nullptr)
 		return;
 	struct wlr_surface *focused = server->seat->seat->keyboard_state.focused_surface;
 	bool grab = false;
@@ -74,7 +74,7 @@ void shortcuts_inhibit_update(struct wb_server *server) {
 }
 
 bool shortcuts_inhibited(struct wb_server *server) {
-	if (server->shortcuts_inhibit == nullptr)
+	if (server->shortcuts_inhibit == nullptr || server->shortcuts_inhibit_state == nullptr)
 		return false;
 	struct wlr_surface *focused = server->seat->seat->keyboard_state.focused_surface;
 	struct wlr_keyboard_shortcuts_inhibitor_v1 *in;
@@ -85,7 +85,7 @@ bool shortcuts_inhibited(struct wb_server *server) {
 }
 
 bool shortcuts_inhibit_toggle(struct wb_server *server) {
-	if (server->shortcuts_inhibit == nullptr)
+	if (server->shortcuts_inhibit == nullptr || server->shortcuts_inhibit_state == nullptr)
 		return false;
 	struct wlr_surface *focused = server->seat->seat->keyboard_state.focused_surface;
 	auto &escaped = server->shortcuts_inhibit_state->escaped;

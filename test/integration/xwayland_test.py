@@ -21,7 +21,7 @@ a solid red active titlebar, and grim to check what is on screen:
 Skips (exit 77) without Xwayland, python-xlib, wtype, grim, magick or a
 headless display.
 
-Usage: xwayland_test.py <waybox-binary>
+Usage: xwayland_test.py <waybox-binary> <vpointer_client>
 """
 import os
 import queue
@@ -57,10 +57,10 @@ def need(tool):
 
 
 def main():
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 3:
         print(__doc__)
         sys.exit(2)
-    waybox = sys.argv[1]
+    waybox, vptr_bin = sys.argv[1:]
     for tool in ("Xwayland", "wtype", "wlrctl", "grim", "magick", "wlr-randr"):
         need(tool)
     try:
@@ -250,18 +250,27 @@ def main():
             line = wait_line(f"where {name}")
             return tuple(map(int, line.split()[2:4])) if line else None
         before = where("main")
-        subprocess.run(["wlrctl", "pointer", "move", "-9000", "-9000"], env=cenv,
-                       capture_output=True)
-        subprocess.run(["wlrctl", "pointer", "move", str(x + 50), str(y + 50)],
-                       env=cenv, capture_output=True)
+        # As a client-drawn titlebar does: the move is asked for while the
+        # button pressed on the window is held (without a button, it isn't
+        # started).
+        vptr = subprocess.Popen([vptr_bin], env=cenv, text=True, stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE)
+
+        def ptr(cmd):
+            vptr.stdin.write(cmd + "\n")
+            vptr.stdin.flush()
+            vptr.stdout.readline()  # "ok"
+        ptr("move -9000 -9000")
+        ptr(f"move {x + 50} {y + 50}")
+        ptr("press")
         time.sleep(0.3)
         send("move main")
         time.sleep(0.5)
-        subprocess.run(["wlrctl", "pointer", "move", "150", "80"], env=cenv,
-                       capture_output=True)
+        ptr("move 150 80")
         time.sleep(0.3)
-        subprocess.run(["wlrctl", "pointer", "click", "left"], env=cenv,
-                       capture_output=True)  # ends the move
+        ptr("release")  # ends the move
+        vptr.stdin.close()
+        vptr.wait(timeout=5)
         time.sleep(0.5)
         after = where("main")
         if before is None or after is None:
@@ -271,6 +280,17 @@ def main():
             # Within edge-snapping distance (16px) of the pointer's motion.
             expect(abs(dx - 150) <= 20 and abs(dy - 80) <= 20,
                    f"X server position not updated after a move: {before} -> {after}")
+
+        # A move asked for with no button held isn't started: the window
+        # stays where it is as the pointer moves.
+        send("move main")
+        time.sleep(0.4)
+        subprocess.run(["wlrctl", "pointer", "move", "60", "40"], env=cenv,
+                       capture_output=True)
+        time.sleep(0.4)
+        still = where("main")
+        expect(still == after, f"a move with no button held moved the window: "
+               f"{after} -> {still}")
 
         # 7. Fullscreen request; Close asks the client to close.
         send("fullscreen main")

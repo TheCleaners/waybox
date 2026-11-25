@@ -207,7 +207,8 @@ Value handle(Client *c, const Value &req) {
 			const Value *v = req.get(k);
 			return v != nullptr && v->number() != nullptr ? *v->number() : 0.0;
 		};
-		if (!seat_test_touch(server, req.str("event"), static_cast<int32_t>(num("id")),
+		if (!seat_test_touch(server, req.str("event"),
+				static_cast<int32_t>(std::clamp(num("id"), -1e6, 1e6)),
 				num("x"), num("y")))
 			return error("no test touchscreen");
 		return Object{{"ok", true}};

@@ -576,7 +576,7 @@ if python.found() and not get_option('tests_only')
     ['dialogs', 'dialogs_test.py', [dialog_client], 60],
     ['desktops', 'desktops_test.py', [], 90],
     ['dnd', 'dnd_test.py', [dnd_client, vpointer_client], 60],
-    ['edge_tiling', 'edge_tiling_test.py', [], 90],
+    ['edge_tiling', 'edge_tiling_test.py', [vpointer_client], 90],
     ['foreign_toplevel', 'foreign_toplevel_test.py', [default_rc], 60],
     ['fullscreen_panel', 'fullscreen_panel_test.py', [layer_client], 60],
     ['ibus_real', 'ibus_real_test.py', [text_input_client], 60],
@@ -627,7 +627,7 @@ if python.found() and not get_option('tests_only')
     ['window_state', 'window_state_test.py', [], 60],
     ['wlr_data_control', 'wlr_data_control_test.py', [wlr_dc_client], 60],
     ['workspace', 'workspace_test.py', [workspace_client], 60],
-    ['xwayland', 'xwayland_test.py', [], 90],
+    ['xwayland', 'xwayland_test.py', [vpointer_client], 90],
   ]
   # wbconf is built only with GTK 4.
   if is_variable('wbconf_exe')

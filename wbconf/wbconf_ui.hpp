@@ -333,6 +333,7 @@ int gtk_unsaved(Ui *ui);
 bool save_gtk(Ui *ui, std::string *error);
 void gtk_test_value(Ui *ui, const std::string &key, const std::string &value);
 void load_startup_sources(Ui *ui);
+bool write_file_atomic(const std::string &path, const std::string &text, std::string *error);
 std::vector<wb::SettingDef> startup_source_settings(Ui *ui);
 GtkWidget *build_script_block(Ui *ui);
 GtkWidget *build_xdg_block(Ui *ui);

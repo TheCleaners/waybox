@@ -18,15 +18,30 @@ namespace {
 
 const char *kSchema = "org.gnome.desktop.interface";
 
-GSettings *interface_settings() {
+bool have_interface_schema() {
 	GSettingsSchemaSource *src = g_settings_schema_source_get_default();
 	if (src == nullptr)
-		return nullptr;
+		return false;
 	GSettingsSchema *schema = g_settings_schema_source_lookup(src, kSchema, TRUE);
 	if (schema == nullptr)
-		return nullptr;
+		return false;
 	g_settings_schema_unref(schema);
-	return g_settings_new(kSchema);
+	return true;
+}
+
+GSettings *interface_settings() {
+	return have_interface_schema() ? g_settings_new(kSchema) : nullptr;
+}
+
+/* GLib aborts on a key the schema doesn't have (color-scheme only came
+ * with GNOME 42's schemas). */
+bool has_key(GSettings *s, const char *key) {
+	GSettingsSchema *schema = nullptr;
+	g_object_get(s, "settings-schema", &schema, nullptr);
+	bool ok = schema != nullptr && g_settings_schema_has_key(schema, key);
+	if (schema != nullptr)
+		g_settings_schema_unref(schema);
+	return ok;
 }
 
 std::string data_home() {
@@ -115,6 +130,8 @@ Ui::GtkLook read_look() {
 	Ui::GtkLook l;
 	if (GSettings *s = interface_settings()) {
 		auto str = [s](const char *key) {
+			if (!has_key(s, key))
+				return std::string();
 			gchar *v = g_settings_get_string(s, key);
 			std::string out = v ? v : "";
 			g_free(v);
@@ -123,7 +140,7 @@ Ui::GtkLook read_look() {
 		l.icons = str("icon-theme");
 		l.theme = str("gtk-theme");
 		l.cursor = str("cursor-theme");
-		l.size = g_settings_get_int(s, "cursor-size");
+		l.size = has_key(s, "cursor-size") ? g_settings_get_int(s, "cursor-size") : 24;
 		l.scheme = str("color-scheme");
 		g_object_unref(s);
 		return l;
@@ -387,11 +404,16 @@ bool save_gtk(Ui *ui, std::string *error) {
 		return true;
 	Ui::GtkLook l = current_look(ui);
 	if (GSettings *s = interface_settings()) {
-		g_settings_set_string(s, "icon-theme", l.icons.c_str());
-		g_settings_set_string(s, "gtk-theme", l.theme.c_str());
-		g_settings_set_string(s, "cursor-theme", l.cursor.c_str());
-		g_settings_set_int(s, "cursor-size", l.size);
-		g_settings_set_string(s, "color-scheme", l.scheme.c_str());
+		auto set = [s](const char *key, const std::string &v) {
+			if (has_key(s, key))
+				g_settings_set_string(s, key, v.c_str());
+		};
+		set("icon-theme", l.icons);
+		set("gtk-theme", l.theme);
+		set("cursor-theme", l.cursor);
+		if (has_key(s, "cursor-size"))
+			g_settings_set_int(s, "cursor-size", l.size);
+		set("color-scheme", l.scheme);
 		g_settings_sync();
 		g_object_unref(s);
 	}
@@ -403,7 +425,7 @@ bool save_gtk(Ui *ui, std::string *error) {
 		{"gtk-application-prefer-dark-theme", l.scheme == "prefer-dark" ? "true"
 				: l.scheme == "prefer-light" ? "false" : ""},
 	};
-	bool have_gsettings = interface_settings() != nullptr;
+	bool have_gsettings = have_interface_schema();
 	for (const char *v : {"gtk-3.0", "gtk-4.0"}) {
 		fs::path p = fs::path(config_home()) / v / "settings.ini";
 		std::error_code ec;
@@ -414,12 +436,8 @@ bool save_gtk(Ui *ui, std::string *error) {
 		std::stringstream ss;
 		ss << in.rdbuf();
 		fs::create_directories(p.parent_path(), ec);
-		std::ofstream out(p, std::ios::trunc);
-		out << ini_set(ss.str(), keys);
-		if (!out) {
-			*error = p.string();
+		if (!write_file_atomic(p.string(), ini_set(ss.str(), keys), error))
 			return false;
-		}
 	}
 	ui->gtk.saved = l;
 	return true;

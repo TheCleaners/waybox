@@ -432,12 +432,18 @@ bool toplevel_on_current_desktop(struct wb_toplevel *toplevel) {
 /* Windows on other desktops stay mapped (clients keep running and drawing)
  * but their scene nodes are disabled, so they are neither drawn nor hit by
  * the pointer, and the actions that check node.enabled skip them. */
+void toplevel_update_visibility(struct wb_toplevel *toplevel);
+
 static void update_desktop_visibility(struct wb_toplevel *toplevel) {
 	/* Minimized windows are hidden the same way (not moved off screen,
 	 * where re-fitting them to a new panel or monitor brought them back). */
 	if (toplevel->scene_tree != NULL)
 		wlr_scene_node_set_enabled(&toplevel->scene_tree->node,
 				toplevel_on_current_desktop(toplevel) && !toplevel->minimized);
+}
+
+void toplevel_update_visibility(struct wb_toplevel *toplevel) {
+	update_desktop_visibility(toplevel);
 }
 
 /* Drop keyboard focus from windows (not from a focused layer surface such as
