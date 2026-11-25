@@ -101,6 +101,48 @@ std::vector<std::string> process_args(pid_t pid) {
 	return out;
 }
 
+std::optional<std::string> process_env(pid_t pid, const std::string &name) {
+	std::string raw;
+#if defined(__FreeBSD__) || defined(__DragonFly__)
+	int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ENV, static_cast<int>(pid)};
+	size_t len = 0;
+	if (sysctl(mib, 4, nullptr, &len, nullptr, 0) != 0 || len == 0)
+		return std::nullopt;
+	raw.resize(len);
+	if (sysctl(mib, 4, raw.data(), &len, nullptr, 0) != 0)
+		return std::nullopt;
+	raw.resize(len);
+#else
+	std::ifstream f("/proc/" + std::to_string(pid) + "/environ", std::ios::binary);
+	if (!f)
+		return std::nullopt;
+	raw.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+#endif
+	std::string prefix = name + "=";
+	size_t start = 0;
+	while (start < raw.size()) {
+		size_t end = raw.find('\0', start);
+		if (end == std::string::npos)
+			end = raw.size();
+		if (raw.compare(start, prefix.size(), prefix) == 0)
+			return raw.substr(start + prefix.size(), end - start - prefix.size());
+		start = end + 1;
+	}
+	return std::string();  /* readable, not set */
+}
+
+bool in_this_session(pid_t pid) {
+	/* Its Wayland display, as ours (one session's programs, not another's:
+	 * a nested Waybox's, or the one around it). Unreadable: not ours. */
+	for (const char *var : {"WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"}) {
+		const char *mine = getenv(var);
+		auto theirs = process_env(pid, var);
+		if (!theirs || *theirs != (mine != nullptr ? mine : ""))
+			return false;
+	}
+	return true;
+}
+
 std::string process_name(pid_t pid) {
 #if defined(__FreeBSD__) || defined(__DragonFly__)
 	int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, static_cast<int>(pid)};

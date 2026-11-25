@@ -773,6 +773,8 @@ if python.found() and not get_option('tests_only')
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_outputs', 'wbconf_outputs_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_output_manager', 'wbconf_output_manager_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', fake_daemon], 60]]
     integration_tests += [['bell_wbconf', 'bell_styles_test.py',
         [bell_client, waybox_msg, wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['identify', 'identify_test.py',

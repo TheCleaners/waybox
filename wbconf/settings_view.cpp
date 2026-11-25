@@ -871,6 +871,9 @@ void apply_test_values(Ui *ui, const char *spec) {
 		/* "bell-test=1": click the bell's Test. */
 		if (eq != std::string::npos && item.substr(0, eq) == "bell-test")
 			ring_bell_test(ui);
+		/* "output-manager-stop=1": the Monitors notice's Stop. */
+		if (eq != std::string::npos && item.substr(0, eq) == "output-manager-stop")
+			output_manager_test_stop(ui);
 		/* "identify=1": click Identify. */
 		if (eq != std::string::npos && item.substr(0, eq) == "identify" &&
 				ui->arranger.identify != nullptr)

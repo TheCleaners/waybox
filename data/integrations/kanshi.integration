@@ -3,3 +3,4 @@ Name=kanshi
 Category=Displays
 Comment=Monitor profiles for docking and undocking (settings in ~/.config/kanshi/config)
 Exec=kanshi
+Manages=outputs

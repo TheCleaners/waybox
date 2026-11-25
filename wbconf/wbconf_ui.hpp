@@ -155,6 +155,8 @@ struct Ui {
 		GtkWidget *area = nullptr;
 		GtkCheckButton *advanced = nullptr;  /* every monitor's settings */
 		GtkWidget *identify = nullptr;
+		GtkWidget *manager_notice = nullptr;  /* kanshi & co. running */
+		GtkWidget *manager_stop = nullptr;    /* its Stop or Turn Off (tests) */
 		int selected = -1;                   /* in monitors */
 		int dragging = -1;
 		int drag_x = 0, drag_y = 0;          /* where it's dragged to (logical) */
@@ -349,6 +351,10 @@ void arranger_test_describe(Ui *ui, const std::string &what, const std::string &
  * back the <outputs> and <hdr> elements as they were (snapshots). */
 void ask_keep_monitors(Ui *ui, const std::string &outputs_xml, const std::string &hdr_xml);
 void populate_hdr(Ui *ui, const std::optional<std::string> &hdr_outputs);
+/* The notice above the monitors: a program that sets monitors itself
+ * (Manages=outputs) is running, so its profiles win on a hotplug. */
+void refresh_output_manager_notice(Ui *ui);
+bool output_manager_test_stop(Ui *ui);
 /* A monitor's card: its transform (rotation and flip, or one written by
  * hand), and the <output> rule it gives (nullopt: none to write). */
 std::string monitor_transform(const Ui::Monitor &m);
@@ -396,6 +402,11 @@ std::vector<ProcessInfo> list_processes();
 std::string process_name(pid_t pid);
 /* Its arguments (argv), or none if it's gone or not ours to read. */
 std::vector<std::string> process_args(pid_t pid);
+/* A variable of its environment: nullopt if unreadable, "" if unset. */
+std::optional<std::string> process_env(pid_t pid, const std::string &name);
+/* It runs in this Wayland session (WAYLAND_DISPLAY, XDG_RUNTIME_DIR as
+ * ours), not another one of the user's. */
+bool in_this_session(pid_t pid);
 std::set<std::string> running_processes();
 bool is_running(Ui *ui, const std::string &binary);
 bool installed(const std::string &binary);

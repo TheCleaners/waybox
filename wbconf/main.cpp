@@ -125,6 +125,9 @@ void on_save(GtkButton *, gpointer data) {
 	}
 	refresh_save_state(ui);
 	stop_moved_programs(ui);
+	g_timeout_add_once(800, [](gpointer data) {
+		refresh_output_manager_notice(static_cast<Ui *>(data));
+	}, ui);
 	int n = signal_waybox_reload();
 	if (n > 0)
 		set_status(ui, _("Saved and reloaded waybox."));
