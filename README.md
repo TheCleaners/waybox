@@ -197,6 +197,7 @@ waybox-msg get_windows | jq -r '.windows[] | .app_id + "  " + .title'
 waybox-msg action GoToDesktop to=2
 waybox-msg action Close window=app_id:foot
 waybox-msg identify                    # each monitor's name, large, on it
+waybox-msg pick_color                  # the color you click next (Escape cancels)
 waybox-msg subscribe window,desktop    # one event per line, as they happen
 waybox-msg subscribe bell              # each ring of the bell, and what it showed
 ```

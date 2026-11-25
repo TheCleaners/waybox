@@ -44,6 +44,7 @@ wb_src = [
     'toplevel_drag.cpp',
     'xdg_session.cpp',
     'bell.cpp',
+    'color_pick.cpp',
     'bell_style.cpp',
     'stall_watch.cpp',
     'script.cpp',

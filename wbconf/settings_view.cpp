@@ -111,6 +111,7 @@ void show_value(Ui *ui, Ui::SettingRow *r) {
 		break;
 	}
 	case wb::SettingType::String:
+	case wb::SettingType::Color:  /* its color control's field */
 		gtk_editable_set_text(GTK_EDITABLE(r->entry), r->value.value_or("").c_str());
 		break;
 	case wb::SettingType::Font:
@@ -158,7 +159,8 @@ void read_value(Ui *ui, Ui::SettingRow *r) {
 			v.reset();
 		break;
 	}
-	case wb::SettingType::String: {
+	case wb::SettingType::String:
+	case wb::SettingType::Color: {
 		std::string t = gtk_editable_get_text(GTK_EDITABLE(r->entry));
 		if (!t.empty())
 			v = t;
@@ -395,6 +397,13 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 		r->entry = GTK_ENTRY(e);
 		g_signal_connect_swapped(e, "changed", G_CALLBACK(on_changed), r);
 		return e;
+	}
+	case wb::SettingType::Color: {
+		r->color = make_color_control(d.hint, d.def, true);
+		r->entry = r->color->entry;
+		g_signal_connect_swapped(r->entry, "changed", G_CALLBACK(on_changed), r);
+		gtk_widget_set_halign(r->color->box, GTK_ALIGN_START);
+		return r->color->box;
 	}
 	case wb::SettingType::Font: {
 		GtkWidget *box = make_font_picker(&r->font, G_CALLBACK(on_changed), r);
@@ -857,6 +866,11 @@ void apply_test_values(Ui *ui, const char *spec) {
 			if (auto doc = load_document(&problem))
 				populate(ui, doc->read(), &*doc);
 		}
+		/* "colorpick.ID=1": that color setting's eyedropper. */
+		if (eq != std::string::npos && item.rfind("colorpick.", 0) == 0)
+			for (auto &r : ui->rows)
+				if (r->def->id == item.substr(10, eq - 10) && r->color != nullptr)
+					g_signal_emit_by_name(r->color->pick, "clicked");
 		/* "save=1": save now, as Ctrl+S (to change more and save again). */
 		if (eq != std::string::npos && item.substr(0, eq) == "save")
 			on_save(nullptr, ui);

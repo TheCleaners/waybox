@@ -46,6 +46,7 @@ SettingType type_of(const std::string &t) {
 	if (t == "enum") return SettingType::Enum;
 	if (t == "font") return SettingType::Font;
 	if (t == "lines") return SettingType::Lines;
+	if (t == "color") return SettingType::Color;
 	if (t == "custom") return SettingType::Custom;
 	return SettingType::String;
 }

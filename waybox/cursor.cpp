@@ -17,6 +17,7 @@
 #include "waybox/session_lock.h"
 #include "waybox/pointer_constraints.h"
 #include "waybox/xwayland.h"
+#include "color_pick.h"
 
 /* How close (in layout pixels) a dragged window's edge must come to a usable-
  * area or window edge before it snaps. */
@@ -267,6 +268,9 @@ struct HideCarried {
 }  // namespace
 
 static void process_cursor_motion(struct wb_server *server, uint32_t time) {
+	/* Picking a color: the pointer points at nothing else. */
+	if (color_pick_motion(server))
+		return;
 	if (server->seat->seat->drag != nullptr) {
 		wlr_scene_node_set_position(&server->drag_icon_tree->node,
 				static_cast<int>(server->cursor->cursor->x),
@@ -771,6 +775,9 @@ void wb_cursor::on_button(void *data) {
 }
 
 void wb_cursor::button_event(struct wlr_pointer_button_event *event) {
+	if (color_pick_button(server, event->button,
+			event->state == WL_POINTER_BUTTON_STATE_PRESSED))
+		return;
 	/* Release, Click and DoubleClick bindings run after everything else a
 	 * release does (e.g. ending the move a titlebar press started). */
 	std::optional<wb::ClickTracker::Pressed> pressed;

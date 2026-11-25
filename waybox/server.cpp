@@ -17,6 +17,7 @@
 #include "fixes.h"
 #include "toplevel_drag.h"
 #include "bell.h"
+#include "color_pick.h"
 #include "stall_watch.h"
 #include "script.h"
 #include "startup_supervisor.h"
@@ -510,6 +511,7 @@ bool wb_terminate(struct wb_server* server) {
 
 	server->desktop_popup.reset();  /* its timer is on the event loop */
 	server->identify_popups.clear();
+	finish_color_pick(server);
 	finish_bell(server);  /* its flashes' timers too */
 	finish_stall_watch(server);
 	finish_scripts(server);  /* its timers are on the event loop */
