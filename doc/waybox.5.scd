@@ -350,6 +350,10 @@ act on a window use the focused one.
 *Close*, *Iconify*, *Raise*, *Lower*
 	Close, minimize, raise or lower the window.
 
+*Focus*
+	Give the window keyboard focus: it's raised, brought back if minimized,
+	and its desktop is shown if it's on another.
+
 *ToggleMaximize*, *ToggleMaximizeHorizontal*, *ToggleMaximizeVertical*
 	Maximize, or maximize in one direction only.
 

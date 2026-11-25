@@ -209,6 +209,10 @@ json_test = executable(
   )
 test('json', json_test)
 
+# The waybox Python module, against a fake socket (no compositor needed).
+test('python_module', find_program('python3'),
+  args: [files('python/waybox_module_test.py'), python_src_dir])
+
 # Pixel test for the Cairo/Pango painting primitives. Needs cairo/pango, so it
 # is only built in the full build (not tests_only); it links no wlroots.
 if not get_option('tests_only')
@@ -647,6 +651,7 @@ if python.found() and not get_option('tests_only')
     ['input_method', 'input_method_test.py', [ime_client, text_input_client], 90],
     ['input_method_setting', 'input_method_setting_test.py', [], 60],
     ['ipc', 'ipc_test.py', [waybox_msg, lock_client], 60],
+    ['python_ipc', 'python_ipc_test.py', [touch_client, python_src_dir], 60],
     ['key_chain', 'key_chain_test.py', [], 60],
     ['lock_popup', 'lock_popup_test.py', [popup_client, lock_client], 60],
     ['keymap_reconfigure', 'keymap_reconfigure_test.py', [], 60],

@@ -72,3 +72,10 @@ WB_TEST(every_registered_action_round_trips) {
 			WB_CHECK(action->type == spec.type);
 	}
 }
+
+WB_TEST(focus_action) {
+	const ActionSpec *focus = action_spec_from_name("Focus");
+	WB_CHECK(focus != nullptr);
+	WB_CHECK(focus->type == ActionType::Focus);
+	WB_CHECK(!focus->takes_command);
+}
