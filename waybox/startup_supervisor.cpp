@@ -102,7 +102,25 @@ static std::vector<wb::StartupProgram> wanted_programs(struct wb_server *server)
  * comes back when the input method no longer sets them. */
 static std::map<std::string, std::string> last_activation;  /* sent to D-Bus */
 
+/* Set `env` for the programs started from now on, putting back what the
+ * previous call set; then pass the changes to D-Bus and systemd. */
+static void apply_env(struct wb_server *server,
+		const std::vector<std::pair<std::string, std::string>> &env);
+
 void startup_apply_env(struct wb_server *server) {
+	static const std::vector<std::pair<std::string, std::string>> none;
+	apply_env(server, server->config != nullptr ? server->config->input_method_env : none);
+}
+
+void startup_restore_env(struct wb_server *server) {
+	/* Waybox is exiting: the shared systemd/D-Bus environment outlives it
+	 * (and other desktops may start from it), so it gets back what it had
+	 * before. */
+	apply_env(server, {});
+}
+
+static void apply_env(struct wb_server *server,
+		const std::vector<std::pair<std::string, std::string>> &env) {
 	static std::map<std::string, std::optional<std::string>> before;
 	for (const auto &[name, value] : before) {
 		if (value)
@@ -111,9 +129,7 @@ void startup_apply_env(struct wb_server *server) {
 			unsetenv(name.c_str());
 	}
 	before.clear();
-	if (server->config == nullptr)
-		return;  /* no settings loaded: no input method */
-	for (const auto &[name, value] : server->config->input_method_env) {
+	for (const auto &[name, value] : env) {
 		if (before.count(name) == 0) {
 			const char *was = getenv(name.c_str());
 			before[name] = was ? std::optional<std::string>(was) : std::nullopt;
@@ -131,7 +147,7 @@ void startup_apply_env(struct wb_server *server) {
 				std::string::npos;
 	};
 	std::map<std::string, std::string> now;
-	for (const auto &[name, value] : server->config->input_method_env)
+	for (const auto &[name, value] : env)
 		if (plain(name))
 			now[name] = value;
 	std::string set, cleared;
@@ -161,6 +177,7 @@ void startup_apply_env(struct wb_server *server) {
 	}
 	if (!cleared.empty())
 		cmd += "; systemctl --user unset-environment" + cleared + " 2>/dev/null";
+	wlr_log(WLR_INFO, "wb-activation-env set:%s cleared:%s", set.c_str(), cleared.c_str());
 	wb_spawn(cmd.c_str());
 }
 

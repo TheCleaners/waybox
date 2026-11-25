@@ -6,7 +6,8 @@
    (XMODIFIERS here).
 2. Reconfigure without it: it's stopped, and a variable the session had
    before (QT_IM_MODULE from the environment) comes back.
-3. Never set: nothing started.
+3. Exiting with it set: the D-Bus/systemd activation environment gets
+   back what the session had (restored or cleared).
 
 Usage: input_method_setting_test.py <waybox>
 """
@@ -118,6 +119,23 @@ def main():
             except subprocess.TimeoutExpired:
                 proc.kill()
         log.close()
+    # 3. Exiting with the input method still set: the D-Bus/systemd
+    # activation environment gets back the session's QT_IM_MODULE, and
+    # XMODIFIERS (which the session didn't have) is cleared.
+    write_rc(True, prog_env)
+    lp2 = os.path.join(workdir, "waybox-exit.log")
+    log2 = open(lp2, "w")
+    proc2 = subprocess.Popen([waybox, "--debug"], env=env, stdout=log2, stderr=subprocess.STDOUT)
+    time.sleep(1.5)
+    proc2.send_signal(signal.SIGTERM)
+    try:
+        proc2.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc2.kill()
+    log2.close()
+    lines = [l for l in open(lp2).read().splitlines() if "wb-activation-env" in l]
+    if not lines or not lines[-1].endswith("set: QT_IM_MODULE cleared: XMODIFIERS"):
+        failures.append(f"exiting didn't restore the activation environment: {lines[-1:]}")
     subprocess.run(["pkill", "-f", f"{workdir}/fake-im"], capture_output=True)
     contents = open(lp).read()
     if proc.returncode not in (0, None):

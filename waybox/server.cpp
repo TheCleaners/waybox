@@ -396,6 +396,7 @@ bool wb_terminate(struct wb_server* server) {
 	/* Destroy all clients first, so that surface unmap/destroy handlers (which
 	 * reference server->cursor, server->seat and server->config) run while
 	 * those objects are still alive. */
+	startup_restore_env(server);  /* before the programs end */
 	startup_finish(server);  /* end the <startup> programs */
 	ipc_finish(server);
 	finish_idle(server);
