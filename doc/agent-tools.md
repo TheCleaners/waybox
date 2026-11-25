@@ -157,9 +157,11 @@ establishes a provider's identity in one of two ways:
 
   This is weaker, since a process can be anything that executable became,
   but sound against a confused assistant, which is the threat that matters.
-  **Only compiled programs may register.** For an interpreted provider the
-  executable is the interpreter (`/usr/bin/python3`), which any script would
-  match. Interpreted providers must be activated.
+  **Interpreted providers register with a token.** For an interpreted
+  provider the executable is the interpreter (`/usr/bin/python3`), which any
+  script would match. So approving one mints a token, which it presents when
+  registering, as agents do (see "Agent profiles"). Activated providers need
+  none: the hub started them itself.
 
 **Sandboxed providers** (Flatpak): register through a portal and are
 identified by their app id.
@@ -239,16 +241,28 @@ instructions. That's the cheap half of open question 2.
 
 **Agent profiles:** the settings can define profiles, for example "local
 model: full" and "cloud assistant: safe".
-- **Bound to the agent:** each profile is tied to an agent's executable,
-  which the hub finds from the shim's parent process. A shim's
-  `--profile` argument is just a request, honoured only for an agent bound
-  to it. Otherwise the agent could pick the most permissive profile itself.
-- **First use:** a new agent executable asking for a profile gets the
-  "safe" levels until the user confirms the binding, in a compositor-drawn
+- **Bound with a token:** each binding of an agent to a profile has a
+  token, minted when the user confirms the binding in a compositor-drawn
   confirmation.
+  - **Where it goes:** into that agent's MCP configuration, as
+    `waybox-mcp --token …`. The hub keeps only its hash, and the binding
+    can be revoked in the settings.
+  - **Why not the executable:** most assistants are interpreted. Claude
+    Code runs as `node`, many others as `python3`, so the executable the hub
+    sees is the interpreter, which every script shares. (The prototype
+    logged its agent as `/usr/bin/python3.14`.)
+  - **What the confirmation shows:** the executable and the script from the
+    command line (`node …/cli.js`), so the user knows what they're binding.
+    The hub records them for display and the audit, never as authority.
+  - **Without a valid token,** a shim gets "safe", whatever it asks for.
+    Otherwise an agent could pick the most permissive profile itself.
 - **Lower only:** a shim's flags can lower levels, never raise them.
 - **No self-declared trust:** an agent's self-declared name (MCP
   `clientInfo`) is recorded, but never trusted for levels.
+- **The limit:** an agent with its own shell can read another agent's
+  configuration and take its token. That's the same-user limit under
+  "Threat model and security". The token stops what binding is for: an
+  agent choosing a higher profile by name.
 
 **Guards, all switchable in the settings, all on by default:**
 - consent prompts (`ask`);
@@ -277,7 +291,7 @@ closes a hole:
 - a higher level;
 - a guard turned off;
 - the audit log disabled;
-- a profile bound to a new agent;
+- an agent bound to a profile (minting its token);
 - a provider approved.
 
 A change made by editing the settings file directly takes effect only after

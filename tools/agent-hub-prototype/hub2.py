@@ -35,8 +35,11 @@ PRESETS = {
     "trusted": {"read": "allow", "content": "allow", "act": "allow", "destroy": "ask",
                 "exec": "ask", "ui": "allow"},
 }
-# Profiles bound to agent executables (the real hub: from the settings, bound
-# by a compositor confirmation).
+# Profiles bound to agent executables. This is the flaw the spec now avoids:
+# for an interpreted agent the executable is the interpreter, which every
+# script shares (this binding makes *any* Python script "trusted"). The spec
+# binds with a token minted at the compositor's confirmation instead; the
+# prototype keeps the executable for its demo only.
 BINDINGS = {os.path.realpath(sys.executable): "trusted"}
 
 RATE = 20  # ui requests per agent per minute
