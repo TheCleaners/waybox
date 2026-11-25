@@ -391,6 +391,13 @@ if python.found() and not get_option('tests_only')
     dependencies: [dependency('wayland-client')],
     )
 
+  # wl_fixes (core protocol): destroy_registry, ack_global_remove.
+  fixes_client = executable(
+    'fixes_client',
+    ['integration' / 'fixes_client.c'],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # Makes and drops idle inhibitors, for the idle test.
   idle_inhibit_xml = wl_protocol_dir / 'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml'
   inhibit_client = executable(
@@ -453,6 +460,7 @@ if python.found() and not get_option('tests_only')
     ['dialogs', 'dialogs_test.py', [dialog_client], 60],
     ['desktops', 'desktops_test.py', [], 90],
     ['edge_tiling', 'edge_tiling_test.py', [], 90],
+    ['fixes', 'fixes_test.py', [fixes_client], 60],
     ['foreign_toplevel', 'foreign_toplevel_test.py', [default_rc], 60],
     ['fullscreen_panel', 'fullscreen_panel_test.py', [layer_client], 60],
     ['ibus_real', 'ibus_real_test.py', [text_input_client], 60],

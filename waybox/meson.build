@@ -36,6 +36,7 @@ wb_src = [
     'startup_supervisor.cpp',
     'shortcuts_inhibit.cpp',
     'ipc.cpp',
+    'fixes.cpp',
     'input_method.cpp',
     'layer_shell.cpp',
     'main.cpp',
