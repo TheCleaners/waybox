@@ -35,9 +35,6 @@ void DesktopPopup::hide() {
 }
 
 void DesktopPopup::show(const std::string &label, int duration_ms) {
-	if (duration_ms <= 0 || session_locked(server_))
-		return;
-
 	/* The monitor under the pointer. */
 	int cx = static_cast<int>(server_->cursor->cursor->x);
 	int cy = static_cast<int>(server_->cursor->cursor->y);
@@ -45,7 +42,12 @@ void DesktopPopup::show(const std::string &label, int duration_ms) {
 			wlr_output_layout_output_at(server_->output_layout, cx, cy);
 	if (output == nullptr)
 		output = wlr_output_layout_get_center_output(server_->output_layout);
-	if (output == nullptr)
+	show_on(output, label, duration_ms);
+}
+
+void DesktopPopup::show_on(struct wlr_output *output, const std::string &label,
+		int duration_ms) {
+	if (output == nullptr || duration_ms <= 0 || session_locked(server_))
 		return;
 	struct wlr_box box = {};
 	wlr_output_layout_get_box(server_->output_layout, output, &box);

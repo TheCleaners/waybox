@@ -132,6 +132,7 @@ struct Ui {
 	struct {
 		GtkWidget *area = nullptr;
 		GtkCheckButton *advanced = nullptr;  /* every monitor's settings */
+		GtkWidget *identify = nullptr;
 		int selected = -1;                   /* in monitors */
 		int dragging = -1;
 		int drag_x = 0, drag_y = 0;          /* where it's dragged to (logical) */
@@ -308,6 +309,7 @@ std::optional<wb::RcDocument> load_document(std::string *problem);
 pid_t session_compositor();
 bool is_waybox(long pid);
 int signal_waybox_reload();
+JsonObject *waybox_request(const std::string &request);
 /* The monitor arranger (monitor_arranger.cpp). */
 GtkWidget *build_arranger(Ui *ui);
 void arranger_changed(Ui *ui);   /* a monitor's settings changed: redraw */

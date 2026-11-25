@@ -486,6 +486,31 @@ void wb_show_popup(struct wb_server *server, const std::string &text, int durati
 	server->desktop_popup->show(text, duration_ms);
 }
 
+int wb_identify_outputs(struct wb_server *server, const std::string &only, int duration_ms) {
+	wb::Theme theme = server->config != nullptr ? server->config->theme : wb::default_theme();
+	wb::SwitcherStyle base = wb::switcher_style_from_theme(theme);
+	base.item_text.font.bold = true;
+	server->identify_popups.clear();
+	int shown = 0;
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link) {
+		struct wlr_output *wo = o->wlr_output;
+		if (!wo->enabled || (!only.empty() && only != wo->name))
+			continue;
+		/* Big enough to read across the room: a twelfth of its height. */
+		struct wlr_box box = {};
+		wlr_output_layout_get_box(server->output_layout, wo, &box);
+		wb::SwitcherStyle style = base;
+		style.item_text.font.size_pt = std::clamp(box.height / 12, 36, 400);
+		auto popup = std::make_unique<wb::DesktopPopup>(server, style);
+		popup->show_on(wo, wo->name, duration_ms);
+		server->identify_popups.push_back(std::move(popup));
+		++shown;
+	}
+	wlr_log(WLR_INFO, "wb-identify %d", shown);
+	return shown;
+}
+
 /* Show the desktop's name for a moment (Openbox's <popupTime>). */
 static void show_desktop_popup(struct wb_server *server, int index) {
 	wb::DesktopConfig defaults;

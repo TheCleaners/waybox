@@ -6,6 +6,7 @@
  *   waybox-msg get_windows | get_desktops | get_outputs | get_version
  *   waybox-msg action NAME [key=value ...]     e.g. action GoToDesktop to=2
  *                                              action Close window=app_id:foot
+ *   waybox-msg identify [OUTPUT]               each monitor's name, on it
  *   waybox-msg subscribe window,desktop,output,config
  *   waybox-msg raw '{"request": ...}'
  *
@@ -32,6 +33,7 @@ int usage() {
 	fprintf(stderr,
 		"usage: waybox-msg get_windows|get_desktops|get_outputs|get_version\n"
 		"       waybox-msg action NAME [key=value ...]   (to=, command=, window=, ...)\n"
+		"       waybox-msg identify [OUTPUT]\n"
 		"       waybox-msg subscribe window,desktop,output,config\n"
 		"       waybox-msg raw JSON\n");
 	return 2;
@@ -91,6 +93,12 @@ int main(int argc, char **argv) {
 				return usage();
 			req[kv.substr(0, eq)] = value_of(kv.substr(eq + 1));
 		}
+	} else if (cmd == "identify") {
+		if (argc > 3)
+			return usage();
+		req["request"] = "identify";
+		if (argc == 3)
+			req["output"] = argv[2];
 	} else if (cmd == "subscribe") {
 		if (argc != 3)
 			return usage();

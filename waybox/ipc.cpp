@@ -215,6 +215,16 @@ Value handle(Client *c, const Value &req) {
 			return error("no test touchscreen");
 		return Object{{"ok", true}};
 	}
+	/* Each monitor's name, large, on it (wbconf's Identify). */
+	if (cmd == "identify") {
+		const Value *ms = req.get("ms");
+		int duration = ms != nullptr && ms->number() != nullptr
+				? static_cast<int>(std::clamp(*ms->number(), 100.0, 30000.0)) : 3000;
+		int n = wb_identify_outputs(server, req.str("output"), duration);
+		if (n == 0 && !req.str("output").empty())
+			return error("no such monitor");
+		return Object{{"ok", true}, {"shown", n}};
+	}
 	if (cmd == "get_version")
 		return Object{{"ok", true}, {"name", "waybox"}, {"version", WB_BUILD_VERSION},
 				{"release", PACKAGE_VERSION}};
