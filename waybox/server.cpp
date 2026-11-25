@@ -13,6 +13,7 @@
 #include "idle.h"
 #include "shortcuts_inhibit.h"
 #include "ipc.h"
+#include "fixes.h"
 #include "startup_supervisor.h"
 #include "waybox/workspace.h"
 #include "waybox/xwayland.h"
@@ -365,6 +366,7 @@ bool wb_start_server(struct wb_server* server) {
 	init_xwayland(server);  /* after the seat, cursor and config */
 	init_pointer_constraints(server);  /* after the seat and cursor */
 	init_shortcuts_inhibit(server);    /* after the seat */
+	init_fixes(server);
 	init_input_method(server);
 
 	wlr_fractional_scale_manager_v1_create(server->wl_display, 1);
