@@ -59,3 +59,16 @@ WB_TEST(empty_patterns_match_anything) {
 	std::vector<AppRule> rules(1);  /* all patterns empty */
 	WB_CHECK(match_app_rule(rules, "anything", "any title") == &rules[0]);
 }
+
+WB_TEST(rules_match_window_tags) {
+	std::vector<wb::AppRule> rules(2);
+	rules[0].class_pattern = "firefox";
+	rules[0].tag_pattern = "pip*";
+	rules[1].class_pattern = "firefox";
+	/* The tagged window gets the tag rule; others fall through. */
+	WB_CHECK(match_app_rule(rules, "firefox", "Picture-in-Picture", "pip") == &rules[0]);
+	WB_CHECK(match_app_rule(rules, "firefox", "Mozilla Firefox", "main") == &rules[1]);
+	/* No tag: a tag rule never matches. */
+	WB_CHECK(match_app_rule(rules, "firefox", "x") == &rules[1]);
+	WB_CHECK(match_app_rule(rules, "firefox", "x", "") == &rules[1]);
+}

@@ -204,8 +204,10 @@ window, and so do Alt+left-drag and Alt+right-drag anywhere on a window. A
 
 Rules for windows, applied when a window opens. The first matching rule
 applies. *class* and *name* match the Wayland app ID (for X11 programs, the
-WM_CLASS class); *title* matches the window title. Patterns may contain *\**
-and *?*; omitted attributes match anything.
+WM_CLASS class); *title* matches the window title; *tag* matches the stable
+name a program gives a window (xdg-toplevel-tag, such as "preferences" or
+"player"), and never matches a window without one. Patterns may contain
+*\** and *?*; omitted attributes match anything.
 
 [[ *Element*
 :[ *Effect*

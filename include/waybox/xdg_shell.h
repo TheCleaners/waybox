@@ -46,6 +46,9 @@ struct wb_toplevel {
 	cairo_surface_t *icon = nullptr;
 	cairo_surface_t *client_icon = nullptr;
 	std::string client_icon_name;
+	/* xdg-toplevel-tag: a stable, untranslated name the program gives this
+	 * window ("preferences", "player"), and its description. */
+	std::string tag, tag_description;
 
 	struct wlr_xdg_toplevel_decoration_v1 *decoration = nullptr;
 	/* Per-window decoration preference (app rule / ToggleDecorations). */

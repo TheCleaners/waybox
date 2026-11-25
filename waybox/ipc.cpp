@@ -133,6 +133,7 @@ Value window_json(struct wb_toplevel *t) {
 			? Value(std::string(t->foreign_toplevel_handle->identifier)) : Value();
 	w["app_id"] = view_app_id(t) ? view_app_id(t) : "";
 	w["title"] = view_title(t) ? view_title(t) : "";
+	w["tag"] = t->tag;
 	w["desktop"] = t->desktop + 1;
 	w["omnipresent"] = t->omnipresent;
 	w["focused"] = focused(t);

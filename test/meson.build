@@ -442,6 +442,19 @@ if python.found() and not get_option('tests_only')
     )
 
   # A program with a popup grab, for the lock-screen test.
+  # A window that tags itself (xdg-toplevel-tag).
+  tag_client = executable(
+    'tag_client',
+    [
+      'integration' / 'tag_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml),
+      wayland_scanner_client.process(wl_protocol_dir / 'staging/xdg-toplevel-tag/xdg-toplevel-tag-v1.xml'),
+      wayland_scanner_code.process(wl_protocol_dir / 'staging/xdg-toplevel-tag/xdg-toplevel-tag-v1.xml'),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # Touchscreen test windows: with and without wl_touch.
   touch_client = executable(
     'touch_client',
@@ -552,6 +565,7 @@ if python.found() and not get_option('tests_only')
     ['startup_programs', 'startup_programs_test.py', [], 60],
     ['switcher_icons', 'switcher_icons_test.py', [], 60],
     ['switcher_order', 'switcher_order_test.py', [], 60],
+    ['tags', 'tags_test.py', [tag_client], 60],
     ['tearing', 'tearing_test.py', [tearing_client], 60],
     ['titlebar_buttons', 'titlebar_buttons_test.py', [], 60],
     ['titlebar_icon', 'titlebar_icon_test.py', [], 60],

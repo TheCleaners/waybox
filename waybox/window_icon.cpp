@@ -140,6 +140,43 @@ static void set_icon(struct wb_server *server, void *data) {
 	toplevel_update_icon(t);
 }
 
+/* xdg-toplevel-tag: windows' stable tags, for rules and IPC. */
+#if WLR_CHECK_VERSION(0, 20, 0)
+static struct wb_toplevel *xdg_window(struct wb_server *server, struct wlr_xdg_toplevel *xdg) {
+	struct wb_toplevel *it;
+	wl_list_for_each(it, &server->toplevels, link)
+		if (it->kind == wb_view_kind::Xdg && it->xdg_toplevel == xdg)
+			return it;
+	return nullptr;
+}
+#endif
+
+void init_toplevel_tags(struct wb_server *server) {
+#if WLR_CHECK_VERSION(0, 20, 0)
+	struct wlr_xdg_toplevel_tag_manager_v1 *m =
+			wlr_xdg_toplevel_tag_manager_v1_create(server->wl_display, 1);
+	server->set_toplevel_tag.connect(&m->events.set_tag, [server](void *data) {
+		auto *e = static_cast<struct wlr_xdg_toplevel_tag_manager_v1_set_tag_event *>(data);
+		if (struct wb_toplevel *t = xdg_window(server, e->toplevel))
+			t->tag = e->tag ? e->tag : "";
+	});
+	server->set_toplevel_tag_description.connect(&m->events.set_description,
+			[server](void *data) {
+		auto *e = static_cast<struct wlr_xdg_toplevel_tag_manager_v1_set_description_event *>(data);
+		if (struct wb_toplevel *t = xdg_window(server, e->toplevel))
+			t->tag_description = e->description ? e->description : "";
+	});
+	/* Gone with the display: nothing may listen any more by then. */
+	server->toplevel_tag_destroy.connect(&m->events.destroy, [server](void *) {
+		server->set_toplevel_tag.disconnect();
+		server->set_toplevel_tag_description.disconnect();
+		server->toplevel_tag_destroy.disconnect();
+	});
+#else
+	(void) server;
+#endif
+}
+
 void init_window_icons(struct wb_server *server) {
 	server->toplevel_icon_manager =
 			wlr_xdg_toplevel_icon_manager_v1_create(server->wl_display, 1);

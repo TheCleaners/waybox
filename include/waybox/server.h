@@ -71,6 +71,8 @@ struct wb_server {
 	/* xdg-toplevel-icon: icons clients set for their windows. */
 	struct wlr_xdg_toplevel_icon_manager_v1 *toplevel_icon_manager = nullptr;
 	wb::Listener set_toplevel_icon;
+	/* xdg-toplevel-tag (wlroots 0.20+). */
+	wb::Listener set_toplevel_tag, set_toplevel_tag_description, toplevel_tag_destroy;
 	/* security-context-v1: marks sandboxed clients (see sandbox.h). */
 	struct wlr_security_context_manager_v1 *security_context_manager = nullptr;
 	/* color-management-v1, when the renderer supports it (else null). */
