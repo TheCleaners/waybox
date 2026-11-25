@@ -72,8 +72,8 @@
       "title": "Monitors",
       "settings": [
         { "id": "waybox.outputs", "title": "Monitors", "type": "custom", "widget": "monitors",
-          "description": "Mode, scale, position and rotation of each connected monitor, and HDR. Applied when a monitor is connected and on reload; while kanshi or another output manager runs, its profiles win.",
-          "keywords": "display screen resolution refresh scale rotate hdr output" },
+          "description": "Mode, scale, position, rotation and adaptive sync of each connected monitor, and HDR. Applied when a monitor is connected and on reload; while kanshi or another output manager runs, its profiles win.",
+          "keywords": "display screen resolution refresh scale rotate rotation flip mirror adaptive sync vrr freesync gsync arrange layout position identify follow serial dock hdr output" },
         { "id": "margins.top", "group": "Reserved margins", "title": "Top", "type": "int", "min": 0, "max": 1024,
           "unit": "px", "default": "0", "description": "Space at each screen edge that windows are kept out of, as a panel would reserve.",
           "rc": { "path": "margins/top" } },

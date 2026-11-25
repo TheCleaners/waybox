@@ -289,6 +289,7 @@ if not get_option('tests_only')
   wbconf_test = executable(
     'wbconf_test',
     ['wbconf_test.cpp', 'wb_test_main.cpp', files('../waybox/wbconf.cpp'), startup_src,
+     output_rules_src,
      xml_strict_src,
      theme_src],
     include_directories: [inc_dir],
@@ -759,6 +760,8 @@ if python.found() and not get_option('tests_only')
     integration_tests += [['wbconf_wallpaper', 'wbconf_wallpaper_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_monitors', 'wbconf_monitors_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_outputs', 'wbconf_outputs_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['identify', 'identify_test.py',
         [waybox_msg, wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]

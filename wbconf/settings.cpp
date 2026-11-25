@@ -103,21 +103,9 @@ wb::WayboxSettings collect(Ui *ui) {
 			s.theme_name = ui->theme_names[idx];
 	}
 
-	for (Ui::Monitor &m : ui->monitors) {
-		wb::OutputSetting out{m.name, m.kept};
-		if (!gtk_switch_get_active(m.enabled))
-			out.attrs["enabled"] = "no";
-		auto put = [&out](const char *key, const std::string &v) {
-			if (!v.empty())
-				out.attrs[key] = v;
-		};
-		put("mode", selected_value(m.mode, m.modes));
-		put("scale", selected_value(m.scale, m.scales));
-		put("position", gtk_editable_get_text(GTK_EDITABLE(m.position)));
-		put("transform", selected_value(m.transform, kTransforms));
-		if (!out.attrs.empty())
-			s.outputs.push_back(out);
-	}
+	for (Ui::Monitor &m : ui->monitors)
+		if (auto rule = monitor_rule(m))
+			s.outputs.push_back(*rule);
 	for (const wb::OutputSetting &o : ui->other_outputs)
 		s.outputs.push_back(o);
 

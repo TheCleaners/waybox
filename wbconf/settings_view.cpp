@@ -780,10 +780,28 @@ void apply_test_values(Ui *ui, const char *spec) {
 			}
 		}
 		/* "monitor-make.NAME=TEXT" (-model, -desc): as if the monitor said so. */
-		for (const char *what : {"make", "model", "desc"}) {
+		for (const char *what : {"make", "model", "serial", "desc"}) {
 			std::string prefix = std::string("monitor-") + what + ".";
 			if (eq != std::string::npos && item.rfind(prefix, 0) == 0)
 				arranger_test_describe(ui, what, item.substr(prefix.size(), eq - prefix.size()),
+						item.substr(eq + 1));
+		}
+		/* "reload=1": read rc.xml again (after monitor-make... above, as
+		 * if the monitors had said so from the start). */
+		if (eq != std::string::npos && item.substr(0, eq) == "reload") {
+			std::string problem;
+			if (auto doc = load_document(&problem))
+				populate(ui, doc->read(), &*doc);
+		}
+		/* "save=1": save now, as Ctrl+S (to change more and save again). */
+		if (eq != std::string::npos && item.substr(0, eq) == "save")
+			on_save(nullptr, ui);
+		/* "monitor.NAME.KEY=VALUE": a monitor card's control. */
+		if (eq != std::string::npos && item.rfind("monitor.", 0) == 0) {
+			std::string path = item.substr(8, eq - 8);
+			size_t dot = path.rfind('.');
+			if (dot != std::string::npos)
+				monitor_test_set(ui, path.substr(0, dot), path.substr(dot + 1),
 						item.substr(eq + 1));
 		}
 		/* "identify=1": click Identify. */
