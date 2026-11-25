@@ -6,9 +6,13 @@ With a fake touchscreen (WAYBOX_TEST_TOUCH=1, driven over IPC):
 2. a touch on a window that uses touch reaches it as touch (down, motion,
    up, at the right place) and focuses it;
 3. on a window without touch support it works as a pointer (left button);
-4. on a titlebar it drags the window, as the pointer would.
+4. on a titlebar it drags the window, as the pointer would;
+5. a drag-and-drop started by a finger drops where the finger lets go
+   (another window), not only where it began;
+6. a finger down when the screen locks: its touch is cancelled, and
+   nothing more reaches the window under the lock screen.
 
-Usage: touch_test.py <waybox> <touch_client>
+Usage: touch_test.py <waybox> <touch_client> <dnd_client> <lock_client>
 """
 import json
 import os
@@ -84,10 +88,10 @@ def ipc(runtime, display, request):
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 5:
         print(__doc__)
         sys.exit(2)
-    waybox, client_bin = sys.argv[1:]
+    waybox, client_bin, dnd_bin, lock_bin = sys.argv[1:]
     workdir = tempfile.mkdtemp(prefix="waybox-touch-", dir="/tmp")
     cfg = os.path.join(workdir, "config")
     os.makedirs(os.path.join(cfg, "waybox"))
@@ -221,6 +225,60 @@ def main():
             dx, dy = after[0] - before[0], after[1] - before[1]
             if abs(dx - 100) > 20 or abs(dy - 50) > 20:
                 failures.append(f"a titlebar drag by touch didn't move the window: {dx},{dy}")
+        # 5. Drag-and-drop by touch, onto another window.
+        target = Client([dnd_bin, "target"], cenv)
+        clients.append(target)
+        source = Client([dnd_bin, "source"], cenv)
+        clients.append(source)
+        if not (target.wait_for("configured") and source.wait_for("configured")):
+            raise RuntimeError("the drag-and-drop windows never showed")
+        time.sleep(0.5)
+        gs, gt = geom("dnd-source"), geom("dnd-target")
+        if gs is None or gt is None:
+            raise RuntimeError(f"no geometry for the drag windows: {gs} {gt}")
+        sw, sh, sx, sy = gs
+        tw, th, tx, ty = gt
+        spot = None
+        for px in range(tx + 5, tx + tw - 5, 10):
+            for py in range(ty + 5, ty + th - 5, 10):
+                if not (sx <= px < sx + sw and sy <= py < sy + sh):
+                    spot = (px, py)
+                    break
+            if spot:
+                break
+        if spot is None:
+            raise RuntimeError(f"the source covers the target: {gs} {gt}")
+        cx, cy = sx + sw // 2, sy + sh // 2
+        touch("down", cx, cy, tid=3)
+        if not source.wait_for("drag-started"):
+            raise RuntimeError(f"a touch didn't start the drag: {source.drain(0.2)}")
+        for i in range(1, 7):
+            touch("motion", cx + (spot[0] - cx) * i // 6, cy + (spot[1] - cy) * i // 6, tid=3)
+        touch("up", tid=3)
+        if not target.wait_for("dropped hello-dnd", timeout=3.0):
+            failures.append(f"a touch drag didn't drop on the window under the finger: "
+                            f"{target.drain(0.2)}")
+
+        # 6. A finger down when the screen locks.
+        w, h, x, y = gy
+        yes.drain(0.2)
+        yes.seen.clear()
+        subprocess.run(["wlrctl", "toplevel", "focus", "app_id:touch-yes"], env=cenv,
+                       capture_output=True, timeout=10)
+        time.sleep(0.3)
+        touch("down", x + 50, y + 50, tid=5)
+        locker = Client([lock_bin], cenv, stdin=True)
+        clients.append(locker)
+        if not locker.wait_for("locked"):
+            raise RuntimeError("the screen never locked")
+        time.sleep(0.3)
+        yes.drain(0.2)
+        yes.seen.clear()
+        touch("motion", x + 60, y + 60, tid=5)
+        touch("up", tid=5)
+        seen = yes.drain(0.3)
+        if any(l.startswith("touch-motion") or l == "touch-up" for l in seen):
+            failures.append(f"a touch went on under the lock screen: {seen}")
     except RuntimeError as e:
         failures.append(str(e))
     finally:

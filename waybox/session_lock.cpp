@@ -196,6 +196,9 @@ static void begin_lock(struct wb_session_lock_state *st) {
 	wlr_seat_keyboard_end_grab(server->seat->seat);
 	wlr_seat_pointer_end_grab(server->seat->seat);
 	wlr_seat_touch_end_grab(server->seat->seat);
+	/* Fingers already down: their touches end here, not go on to the
+	 * windows under the lock screen. */
+	cursor_touch_cancel_all(server);
 	wlr_seat_keyboard_notify_clear_focus(server->seat->seat);
 	wlr_seat_pointer_clear_focus(server->seat->seat);
 

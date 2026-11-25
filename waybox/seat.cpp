@@ -961,6 +961,8 @@ static void handle_new_touch(struct wb_server *server, struct wlr_input_device *
 	++server->seat->touch_devices;
 	auto *gone = new wb::Listener;
 	gone->connect(&device->events.destroy, [server, gone](void *) {
+		/* Its touches can't end now: end them all. */
+		cursor_touch_cancel_all(server);
 		--server->seat->touch_devices;
 		update_seat_capabilities(server);
 		gone->disconnect();

@@ -607,7 +607,7 @@ if python.found() and not get_option('tests_only')
     ['tearing', 'tearing_test.py', [tearing_client], 60],
     ['titlebar_buttons', 'titlebar_buttons_test.py', [], 60],
     ['titlebar_icon', 'titlebar_icon_test.py', [], 60],
-    ['touch', 'touch_test.py', [touch_client], 60],
+    ['touch', 'touch_test.py', [touch_client, dnd_client, lock_client], 60],
     ['window_capture', 'window_capture_test.py', [], 60],
     ['window_menu', 'window_menu_test.py', [], 90],
     ['window_state', 'window_state_test.py', [], 60],
