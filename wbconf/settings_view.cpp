@@ -363,6 +363,8 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 			return build_binding_block(ui, d.widget.substr(8));
 		if (d.widget == "inputmethod")
 			return build_input_method_block(ui);
+		if (d.widget == "gtk-appearance")
+			return build_gtk_block(ui);
 		if (d.widget == "autostart-script")
 			return build_script_block(ui);
 		if (d.widget == "xdg-autostart")
@@ -589,6 +591,10 @@ GtkWidget *build_settings_view(Ui *ui) {
 		std::vector<wb::SettingDef> programs = program_settings(ui);
 		cat->settings.insert(cat->settings.begin(), programs.begin(), programs.end());
 	}
+	/* GTK programs' themes: at the end of Appearance. */
+	for (wb::SettingCategory &c : ui->schema)
+		if (c.id == "appearance")
+			c.settings.push_back(gtk_appearance_setting());
 
 	GtkWidget *paned = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 
@@ -721,6 +727,8 @@ void apply_test_values(Ui *ui, const char *spec) {
 		/* "inputmethod=ID": choose that input method ("" none). */
 		if (eq != std::string::npos && item.substr(0, eq) == "inputmethod")
 			choose_input_method(ui, item.substr(eq + 1));
+		if (eq != std::string::npos && item.rfind("gtk.", 0) == 0)
+			gtk_test_value(ui, item.substr(0, eq), item.substr(eq + 1));
 		/* "script.LINE=on|off", "xdg.FILE=on|off": startup sources. */
 		if (eq != std::string::npos && (item.rfind("script.", 0) == 0 ||
 				item.rfind("xdg.", 0) == 0))

@@ -165,6 +165,14 @@ startup_sources_test = executable(
   )
 test('startup_sources', startup_sources_test)
 
+# Icon/cursor/GTK themes and broken icon-theme fallbacks (wbconf).
+gtk_appearance_test = executable(
+  'gtk_appearance_test',
+  ['gtk_appearance_test.cpp', 'wb_test_main.cpp', gtk_appearance_src],
+  include_directories: [inc_dir],
+  )
+test('gtk_appearance', gtk_appearance_test)
+
 json_test = executable(
   'json_test',
   ['json_test.cpp', 'wb_test_main.cpp', json_src],
@@ -541,6 +549,8 @@ if python.found() and not get_option('tests_only')
   # wbconf is built only with GTK 4.
   if is_variable('wbconf_exe')
     integration_tests += [['wbconf_save', 'wbconf_save_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_gtk', 'wbconf_gtk_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_startup', 'wbconf_startup_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
