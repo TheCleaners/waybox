@@ -1,0 +1,20 @@
+[Integration]
+Name=Wallpaper (Waybox)
+Category=Wallpaper
+Comment=A random wallpaper, or one you choose, with whichever wallpaper program is installed (swaybg, hyprpaper or wpaperd)
+Exec=waybox-wallpaper
+
+[Option image]
+Label=Image or folder
+Flag=-i
+Hint=~/Pictures/Wallpapers
+
+[Option every]
+Label=Change every (minutes)
+Flag=-e
+Hint=60
+
+[Option colour]
+Label=Colour
+Flag=-c
+Hint=#303030

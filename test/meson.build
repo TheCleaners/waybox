@@ -165,6 +165,11 @@ startup_sources_test = executable(
   )
 test('startup_sources', startup_sources_test)
 
+# waybox-wallpaper: the image and the wallpaper program it picks.
+python3 = find_program('python3')
+test('wallpaper_helper', python3,
+  args: [files('wallpaper_test.py'), meson.project_source_root() / 'data' / 'wallpaper'])
+
 # Icon/cursor/GTK themes and broken icon-theme fallbacks (wbconf).
 gtk_appearance_test = executable(
   'gtk_appearance_test',

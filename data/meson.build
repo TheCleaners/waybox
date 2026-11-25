@@ -67,6 +67,13 @@ install_data(
   rename: ['waybox-menu']
   )
 
+install_data(
+  'wallpaper',
+  install_dir: get_option('prefix') / get_option('bindir'),
+  install_mode: 'rwxr-xr-x',
+  rename: ['waybox-wallpaper']
+  )
+
 # Companion programs wbconf can set up (see #153); users can add their own in
 # $XDG_CONFIG_HOME/waybox/integrations.
 install_subdir('integrations',

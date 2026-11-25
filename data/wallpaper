@@ -1,0 +1,146 @@
+#!/bin/sh
+#
+# waybox-wallpaper: a wallpaper for the session, with whichever wallpaper
+# program is installed (swaybg, else hyprpaper, else wpaperd).
+#
+#   waybox-wallpaper [-i IMAGE|FOLDER] [-c COLOUR] [-m MODE] [-e MINUTES]
+#
+#   -i  an image, or a folder to pick one from at random (default: a random
+#       image from the wallpapers folders of $XDG_DATA_HOME and
+#       $XDG_DATA_DIRS)
+#   -c  the colour around and behind it (default #303030)
+#   -m  fill, fit, stretch, center or tile (swaybg; default fill)
+#   -e  pick another image every so many minutes
+#
+# It stays in the foreground, so Waybox's <startup> can restart it if it
+# crashes. WAYBOX_WALLPAPER_BACKEND=swaybg|hyprpaper|wpaperd chooses one.
+
+image=
+colour='#303030'
+mode=fill
+every=
+
+usage() {
+    echo "usage: waybox-wallpaper [-i IMAGE|FOLDER] [-c COLOUR] [-m MODE] [-e MINUTES]" >&2
+    exit 2
+}
+
+while getopts 'i:c:m:e:h' opt; do
+    case $opt in
+        i) image=$OPTARG ;;
+        c) colour=$OPTARG ;;
+        m) mode=$OPTARG ;;
+        e) every=$OPTARG ;;
+        *) usage ;;
+    esac
+done
+
+case $every in
+    ''|*[!0-9]*) test -n "$every" && usage ;;
+esac
+case $image in
+    "~"/*) image=$HOME/${image#"~"/} ;;
+esac
+
+# A random image: from a folder, or from the wallpapers folders.
+pick() {
+    if test -n "$image" && ! test -d "$image"; then
+        printf '%s\n' "$image"
+        return
+    fi
+    if test -d "$image"; then
+        dirs="$image
+"
+    else
+        dirs=
+        list=${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}
+        old_ifs=$IFS
+        IFS=:
+        for d in $list; do
+            test -d "$d/wallpapers" && dirs="$dirs$d/wallpapers
+"
+        done
+        IFS=$old_ifs
+    fi
+    printf '%s' "$dirs" | while IFS= read -r d; do
+        test -n "$d" && find "$d" -type f \( -iname '*.jpg' -o -iname '*.jpeg' \
+            -o -iname '*.png' -o -iname '*.svg' -o -iname '*.webp' \)
+    done | { shuf -n 1 2>/dev/null || tail -n 1; }
+}
+
+backend=$WAYBOX_WALLPAPER_BACKEND
+if test -z "$backend"; then
+    for b in swaybg hyprpaper wpaperd; do
+        if command -v "$b" >/dev/null 2>&1; then
+            test "$b" = hyprpaper && ! command -v socat >/dev/null 2>&1 && continue
+            backend=$b
+            break
+        fi
+    done
+fi
+
+run_swaybg() {
+    wp=$(pick)
+    if test -n "$wp"; then
+        swaybg -c "$colour" -m "$mode" -i "$wp" &
+    else
+        swaybg -c "$colour" &
+    fi
+    echo $!
+}
+
+case $backend in
+    swaybg)
+        if test -z "$every"; then
+            wp=$(pick)
+            if test -n "$wp"; then
+                exec swaybg -c "$colour" -m "$mode" -i "$wp"
+            fi
+            exec swaybg -c "$colour"
+        fi
+        # Rotating: the next one starts before the last one goes, so the
+        # screen never shows no wallpaper.
+        trap 'kill "$pid" 2>/dev/null; exit 0' INT TERM
+        pid=$(run_swaybg)
+        while sleep "$((every * 60))"; do
+            next=$(run_swaybg)
+            sleep 1
+            kill "$pid" 2>/dev/null
+            pid=$next
+        done
+        ;;
+    hyprpaper)
+        socket=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/hypr/.hyprpaper.sock
+        hyprpaper &
+        hpid=$!
+        trap 'kill "$hpid" 2>/dev/null; exit 0' INT TERM
+        tries=50
+        while ! test -S "$socket" && test $tries -gt 0; do
+            sleep 0.1
+            tries=$((tries - 1))
+        done
+        show() {
+            wp=$(pick)
+            test -n "$wp" || return 0
+            for cmd in "preload $wp" "wallpaper ,$wp" "unload unused"; do
+                printf '%s' "$cmd" | socat - UNIX-CONNECT:"$socket" >/dev/null 2>&1
+            done
+        }
+        show
+        if test -n "$every"; then
+            while kill -0 "$hpid" 2>/dev/null; do
+                sleep "$((every * 60))"
+                show
+            done
+        fi
+        wait "$hpid"
+        ;;
+    wpaperd)
+        # Its own settings (~/.config/wpaperd) choose the images.
+        exec wpaperd
+        ;;
+    *)
+        echo "waybox-wallpaper: no wallpaper program found (swaybg, hyprpaper or wpaperd)" >&2
+        exit 1
+        ;;
+esac
