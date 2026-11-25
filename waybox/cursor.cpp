@@ -416,6 +416,60 @@ void cursor_refresh_focus(struct wb_server *server) {
 			static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000));
 }
 
+void wb_cursor::init_gestures() {
+	gestures = wlr_pointer_gestures_v1_create(server->wl_display);
+	struct wlr_seat *seat = server->seat->seat;
+	/* Each one goes to the surface with pointer focus (wlroots sends it
+	 * there), unless input from its device is blocked (locked screen). */
+	auto pass = [this](struct wlr_pointer *pointer) {
+		if (wb_input_blocked(server, &pointer->base))
+			return false;
+		idle_activity(server, server->seat->seat);
+		return true;
+	};
+	swipe_begin.connect(&cursor->events.swipe_begin, [this, seat, pass](void *data) {
+		auto *e = static_cast<struct wlr_pointer_swipe_begin_event *>(data);
+		if (pass(e->pointer))
+			wlr_pointer_gestures_v1_send_swipe_begin(gestures, seat, e->time_msec, e->fingers);
+	});
+	swipe_update.connect(&cursor->events.swipe_update, [this, seat, pass](void *data) {
+		auto *e = static_cast<struct wlr_pointer_swipe_update_event *>(data);
+		if (pass(e->pointer))
+			wlr_pointer_gestures_v1_send_swipe_update(gestures, seat, e->time_msec, e->dx, e->dy);
+	});
+	swipe_end.connect(&cursor->events.swipe_end, [this, seat, pass](void *data) {
+		auto *e = static_cast<struct wlr_pointer_swipe_end_event *>(data);
+		if (pass(e->pointer))
+			wlr_pointer_gestures_v1_send_swipe_end(gestures, seat, e->time_msec, e->cancelled);
+	});
+	pinch_begin.connect(&cursor->events.pinch_begin, [this, seat, pass](void *data) {
+		auto *e = static_cast<struct wlr_pointer_pinch_begin_event *>(data);
+		if (pass(e->pointer))
+			wlr_pointer_gestures_v1_send_pinch_begin(gestures, seat, e->time_msec, e->fingers);
+	});
+	pinch_update.connect(&cursor->events.pinch_update, [this, seat, pass](void *data) {
+		auto *e = static_cast<struct wlr_pointer_pinch_update_event *>(data);
+		if (pass(e->pointer))
+			wlr_pointer_gestures_v1_send_pinch_update(gestures, seat, e->time_msec,
+					e->dx, e->dy, e->scale, e->rotation);
+	});
+	pinch_end.connect(&cursor->events.pinch_end, [this, seat, pass](void *data) {
+		auto *e = static_cast<struct wlr_pointer_pinch_end_event *>(data);
+		if (pass(e->pointer))
+			wlr_pointer_gestures_v1_send_pinch_end(gestures, seat, e->time_msec, e->cancelled);
+	});
+	hold_begin.connect(&cursor->events.hold_begin, [this, seat, pass](void *data) {
+		auto *e = static_cast<struct wlr_pointer_hold_begin_event *>(data);
+		if (pass(e->pointer))
+			wlr_pointer_gestures_v1_send_hold_begin(gestures, seat, e->time_msec, e->fingers);
+	});
+	hold_end.connect(&cursor->events.hold_end, [this, seat, pass](void *data) {
+		auto *e = static_cast<struct wlr_pointer_hold_end_event *>(data);
+		if (pass(e->pointer))
+			wlr_pointer_gestures_v1_send_hold_end(gestures, seat, e->time_msec, e->cancelled);
+	});
+}
+
 void wb_cursor::on_motion(void *data) {
 	auto *event = static_cast<struct wlr_pointer_motion_event *>(data);
 	if (wb_input_blocked(server, &event->pointer->base))
@@ -801,6 +855,9 @@ wb_cursor::~wb_cursor() {
 	pointer_focus_change.disconnect();
 	request_cursor.disconnect();
 	request_set_shape.disconnect();
+	for (wb::Listener *l : {&swipe_begin, &swipe_update, &swipe_end, &pinch_begin,
+			&pinch_update, &pinch_end, &hold_begin, &hold_end})
+		l->disconnect();
 
 	if (xcursor_manager != nullptr) {
 		wlr_xcursor_manager_destroy(xcursor_manager);
@@ -844,6 +901,8 @@ std::unique_ptr<wb_cursor> wb_cursor_create(struct wb_server *server) {
 		wlr_cursor_shape_manager_v1_create(server->wl_display, 1);
 	c->request_set_shape.connect(&cursor_shape->events.request_set_shape,
 			[c](void *data) { c->on_request_set_shape(data); });
+
+	c->init_gestures();
 
 	wlr_cursor_attach_output_layout(c->cursor, server->output_layout);
 	return cursor;
