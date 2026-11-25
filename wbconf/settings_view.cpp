@@ -738,7 +738,33 @@ void apply_test_values(Ui *ui, const char *spec) {
 			for (auto &p : ui->programs)
 				if (p->in != nullptr && p->in->id == item.substr(8, eq - 8))
 					gtk_switch_set_active(p->on, item.substr(eq + 1) == "on");
-		/* "bind.ID=KEY": turn on that program's key binding. */
+		/* "option.ID.OPTION=VALUE": set a known program's option through its
+		 * widget, as the user would; a colour's "rgb(...)" through the
+		 * colour button. */
+		if (eq != std::string::npos && item.rfind("option.", 0) == 0) {
+			std::string key = item.substr(7, eq - 7);
+			size_t dot = key.rfind('.');
+			std::string v = item.substr(eq + 1);
+			for (auto &p : ui->programs) {
+				if (dot == std::string::npos || p->in == nullptr ||
+						p->in->id != key.substr(0, dot))
+					continue;
+				auto it = p->options.find(key.substr(dot + 1));
+				if (it == p->options.end())
+					continue;
+				OptionField &f = *it->second;
+				GdkRGBA rgba;
+				if (f.color != nullptr && v.rfind("rgb", 0) == 0 &&
+						gdk_rgba_parse(&rgba, v.c_str())) {
+					gtk_color_dialog_button_set_rgba(f.color, &rgba);
+				} else {
+					set_option_field_value(f, v);
+					if (f.on_change)
+						f.on_change();
+				}
+			}
+		}
+				/* "bind.ID=KEY": turn on that program's key binding. */
 		if (eq != std::string::npos && item.rfind("bind.", 0) == 0)
 			for (auto &b : ui->bindings)
 				if (b->in->id == item.substr(5, eq - 5)) {

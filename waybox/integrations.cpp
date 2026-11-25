@@ -3,9 +3,10 @@
  */
 #include "waybox/integrations.hpp"
 
-#include <cctype>
-
 #include <algorithm>
+#include <cctype>
+#include <cerrno>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -37,6 +38,54 @@ int category_rank(const std::string &c) {
 
 }  // namespace
 
+OptionType option_type_from_name(std::string_view n) {
+	if (n == "file") return OptionType::File;
+	if (n == "folder") return OptionType::Folder;
+	if (n == "image") return OptionType::Image;
+	if (n == "image-folder") return OptionType::ImageFolder;
+	if (n == "image-or-folder") return OptionType::ImageOrFolder;
+	if (n == "color" || n == "colour") return OptionType::Color;
+	if (n == "choice") return OptionType::Choice;
+	if (n == "number") return OptionType::Number;
+	if (n == "switch") return OptionType::Switch;
+	return OptionType::Text;
+}
+
+namespace {
+
+/* A whole decimal number ("12", "-0.5"), else nullopt. */
+std::optional<double> parse_number(std::string_view s) {
+	if (s.empty() || s.size() > 64)
+		return std::nullopt;
+	std::string str(s);
+	char *end = nullptr;
+	errno = 0;
+	double d = strtod(str.c_str(), &end);
+	if (end != str.c_str() + str.size() || errno != 0 || d != d ||
+			str.find_first_of("xXnNiI") != std::string::npos)  /* hex, nan, inf */
+		return std::nullopt;
+	return d;
+}
+
+}  // namespace
+
+bool option_value_valid(const IntegrationOption &o, std::string_view value) {
+	if (value.empty())
+		return true;
+	switch (o.type) {
+	case OptionType::Number: {
+		auto n = parse_number(value);
+		return n && (!o.min || *n >= *o.min) && (!o.max || *n <= *o.max);
+	}
+	case OptionType::Choice:
+		return std::find(o.choices.begin(), o.choices.end(), value) != o.choices.end();
+	case OptionType::Switch:
+		return value == "on";
+	default:
+		return true;
+	}
+}
+
 std::optional<Integration> parse_integration(std::string_view id, std::string_view text) {
 	Integration in;
 	in.id = std::string(id);
@@ -52,7 +101,8 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
 			section = std::string(trim(line.substr(1, line.size() - 2)));
 			opt = nullptr;
 			if (section.rfind("Option ", 0) == 0) {
-				in.options.push_back({std::string(trim(section.substr(7))), "", "", ""});
+				in.options.push_back({});
+				in.options.back().id = std::string(trim(section.substr(7)));
 				opt = &in.options.back();
 			}
 			continue;
@@ -82,6 +132,25 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
 			if (key == "Label") opt->label = value;
 			else if (key == "Flag") opt->flag = value;
 			else if (key == "Hint") opt->hint = value;
+			else if (key == "Type") opt->type = option_type_from_name(value);
+			else if (key == "Choices") {
+				opt->choices.clear();
+				size_t start = 0;
+				while (start <= value.size()) {
+					size_t comma = value.find(',', start);
+					std::string c(trim(std::string_view(value).substr(start,
+							comma == std::string::npos ? std::string::npos : comma - start)));
+					if (!c.empty() && std::find(opt->choices.begin(), opt->choices.end(), c) ==
+							opt->choices.end())
+						opt->choices.push_back(c);
+					if (comma == std::string::npos)
+						break;
+					start = comma + 1;
+				}
+			} else if (key == "Min" || key == "Max") {
+				if (auto n = parse_number(value))
+					(key == "Min" ? opt->min : opt->max) = n;
+			}
 		}
 	}
 	if (in.name.empty() || in.exec.empty())
@@ -94,9 +163,15 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
 	in.options.erase(std::remove_if(in.options.begin(), in.options.end(),
 			[](const IntegrationOption &o) { return o.flag.empty() || o.id.empty(); }),
 			in.options.end());
-	for (IntegrationOption &o : in.options)
+	for (IntegrationOption &o : in.options) {
 		if (o.label.empty())
 			o.label = o.id;
+		/* A choice with nothing to choose is just text. */
+		if (o.type == OptionType::Choice && o.choices.empty())
+			o.type = OptionType::Text;
+		if (o.min && o.max && *o.min > *o.max)
+			o.min = o.max = std::nullopt;
+	}
 	return in;
 }
 
@@ -219,12 +294,14 @@ std::map<std::string, std::string> read_options(const Integration &in,
 		std::string_view command) {
 	std::map<std::string, std::string> values;
 	std::vector<std::string> words = split_command(command);
-	for (const IntegrationOption &o : in.options)
-		for (size_t i = 0; i + 1 < words.size(); ++i)
+	for (const IntegrationOption &o : in.options) {
+		bool sw = o.type == OptionType::Switch;
+		for (size_t i = 0; i + (sw ? 0 : 1) < words.size(); ++i)
 			if (words[i] == o.flag) {
-				values[o.id] = words[i + 1];
+				values[o.id] = sw ? "on" : words[i + 1];
 				break;
 			}
+	}
 	return values;
 }
 
@@ -290,6 +367,22 @@ std::string write_options(const Integration &in, std::string_view command,
 		std::string value = it != values.end() ? it->second : "";
 		std::vector<Word> words = words_with_spans(out);
 		size_t at = words.size();
+		if (o.type == OptionType::Switch) {
+			for (size_t i = 0; i < words.size(); ++i)
+				if (words[i].text == o.flag) {
+					at = i;
+					break;
+				}
+			if (at < words.size() && value.empty()) {
+				size_t from = words[at].start;
+				while (from > 0 && (out[from - 1] == ' ' || out[from - 1] == '\t'))
+					--from;
+				out.erase(from, words[at].end - from);
+			} else if (at == words.size() && !value.empty()) {
+				out += " " + o.flag;
+			}
+			continue;
+		}
 		for (size_t i = 0; i + 1 < words.size(); ++i)
 			if (words[i].text == o.flag) {
 				at = i;

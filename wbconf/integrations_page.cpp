@@ -432,13 +432,12 @@ void on_program_toggled(GObject *, GParamSpec *, gpointer data) {
 }
 
 /* Options and the command line stay in step, both ways. */
-void on_option_changed(GtkEditable *, gpointer data) {
-	auto *row = static_cast<Ui::ProgramRow *>(data);
+void on_option_changed(Ui::ProgramRow *row) {
 	if (row->syncing || row->in == nullptr)
 		return;
 	std::map<std::string, std::string> values;
-	for (auto &[id, e] : row->options)
-		values[id] = gtk_editable_get_text(GTK_EDITABLE(e));
+	for (auto &[id, f] : row->options)
+		values[id] = option_field_value(*f);
 	row->syncing = true;
 	gtk_editable_set_text(GTK_EDITABLE(row->command), wb::write_options(*row->in,
 			gtk_editable_get_text(GTK_EDITABLE(row->command)), values).c_str());
@@ -451,8 +450,8 @@ void on_command_changed(GtkEditable *, gpointer data) {
 		return;
 	auto values = wb::read_options(*row->in, gtk_editable_get_text(GTK_EDITABLE(row->command)));
 	row->syncing = true;
-	for (auto &[id, e] : row->options)
-		gtk_editable_set_text(GTK_EDITABLE(e), values.count(id) ? values[id].c_str() : "");
+	for (auto &[id, f] : row->options)
+		set_option_field_value(*f, values.count(id) ? values[id] : "");
 	row->syncing = false;
 }
 
@@ -524,10 +523,12 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 		int r = 0;
 		for (const wb::IntegrationOption &o : in->options) {
 			grid_label(grid, r, (o.label + ":").c_str());
-			GtkEntry *e = GTK_ENTRY(grid_control(grid, r++, gtk_entry_new()));
-			gtk_entry_set_placeholder_text(e, o.hint.c_str());
-			row->options[o.id] = e;
-			g_signal_connect(e, "changed", G_CALLBACK(on_option_changed), row.get());
+			Ui::ProgramRow *rp = row.get();
+			auto f = make_option_field(o, [rp] { on_option_changed(rp); });
+			grid_control(grid, r++, f->widget);
+			if (o.type != wb::OptionType::Switch)
+				gtk_widget_set_hexpand(f->widget, TRUE);
+			row->options[o.id] = std::move(f);
 		}
 	}
 	row->command = GTK_ENTRY(gtk_entry_new());

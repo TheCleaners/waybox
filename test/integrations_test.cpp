@@ -179,3 +179,92 @@ WB_TEST(parse_version_command) {
 	auto none = wb::parse_integration("mako", "[Integration]\nName=mako\nExec=mako\n");
 	WB_CHECK(none && none->version_command.empty());
 }
+
+WB_TEST(option_types_parse) {
+	auto in = wb::parse_integration("bg", R"([Integration]
+Name=bg
+Exec=bg -c '#303030'
+[Option image]
+Flag=-i
+Type=image
+[Option mode]
+Flag=-m
+Type=choice
+Choices= fill, fit ,fill,, center
+[Option every]
+Flag=-e
+Type=number
+Min=1
+Max=1440
+[Option bad-range]
+Flag=-r
+Type=number
+Min=10
+Max=1
+[Option empty-choice]
+Flag=-x
+Type=choice
+[Option quiet]
+Flag=-q
+Type=switch
+[Option what]
+Flag=-w
+Type=sparkles
+[Option colour]
+Flag=-c
+Type=colour
+)");
+	WB_CHECK(in.has_value());
+	const auto &o = in->options;
+	WB_CHECK(o.size() == 8);
+	WB_CHECK(o[0].type == wb::OptionType::Image);
+	WB_CHECK(o[1].type == wb::OptionType::Choice);
+	WB_CHECK((o[1].choices == std::vector<std::string>{"fill", "fit", "center"}));
+	WB_CHECK(o[2].type == wb::OptionType::Number && o[2].min == 1.0 && o[2].max == 1440.0);
+	WB_CHECK(!o[3].min && !o[3].max);              /* min above max: dropped */
+	WB_CHECK(o[4].type == wb::OptionType::Text);   /* a choice of nothing */
+	WB_CHECK(o[5].type == wb::OptionType::Switch);
+	WB_CHECK(o[6].type == wb::OptionType::Text);   /* unknown type */
+	WB_CHECK(o[7].type == wb::OptionType::Color);  /* either spelling */
+	WB_CHECK(wb::option_type_from_name("image-or-folder") == wb::OptionType::ImageOrFolder);
+	WB_CHECK(wb::option_type_from_name("image-folder") == wb::OptionType::ImageFolder);
+	WB_CHECK(wb::option_type_from_name("folder") == wb::OptionType::Folder);
+	WB_CHECK(wb::option_type_from_name("file") == wb::OptionType::File);
+
+	WB_CHECK(wb::option_value_valid(o[2], ""));
+	WB_CHECK(wb::option_value_valid(o[2], "60"));
+	WB_CHECK(wb::option_value_valid(o[2], "1") && wb::option_value_valid(o[2], "1440"));
+	WB_CHECK(!wb::option_value_valid(o[2], "0") && !wb::option_value_valid(o[2], "1441"));
+	WB_CHECK(!wb::option_value_valid(o[2], "6O") && !wb::option_value_valid(o[2], "0x10"));
+	WB_CHECK(!wb::option_value_valid(o[2], "nan") && !wb::option_value_valid(o[2], "inf"));
+	WB_CHECK(wb::option_value_valid(o[1], "fit") && !wb::option_value_valid(o[1], "tile"));
+	WB_CHECK(wb::option_value_valid(o[5], "on") && !wb::option_value_valid(o[5], "yes"));
+	WB_CHECK(wb::option_value_valid(o[0], "$HOME/x.png"));  /* paths: anything */
+}
+
+WB_TEST(switch_options_read_and_written) {
+	auto in = wb::parse_integration("p", R"([Integration]
+Name=p
+Exec=prog --tray
+[Option quiet]
+Flag=-q
+Type=switch
+[Option size]
+Flag=-s
+)");
+	WB_CHECK(in.has_value());
+	WB_CHECK(wb::read_options(*in, "prog --tray").count("quiet") == 0);
+	auto v = wb::read_options(*in, "prog -q --tray");
+	WB_CHECK(v["quiet"] == "on");
+	/* At the end, with no word after it: still there. */
+	WB_CHECK(wb::read_options(*in, "prog --tray -q")["quiet"] == "on");
+	/* A switch's flag isn't another option's value. */
+	auto s = wb::read_options(*in, "prog -s 12 -q");
+	WB_CHECK(s["size"] == "12" && s["quiet"] == "on");
+	WB_CHECK(wb::write_options(*in, "prog --tray", {{"quiet", "on"}}) == "prog --tray -q");
+	WB_CHECK(wb::write_options(*in, "prog -q --tray", {{"quiet", "on"}}) == "prog -q --tray");
+	WB_CHECK(wb::write_options(*in, "prog -q --tray", {}) == "prog --tray");
+	WB_CHECK(wb::write_options(*in, "prog --tray -q", {{"size", "3"}}) == "prog --tray -s 3");
+	WB_CHECK(wb::write_options(*in, "prog --tray -q", {{"quiet", "on"}, {"size", "3"}}) ==
+			"prog --tray -q -s 3");
+}

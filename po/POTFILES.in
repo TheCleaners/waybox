@@ -6,3 +6,4 @@ waybox/seat.cpp
 waybox/server.cpp
 waybox/xdg_shell.cpp
 wbconf/main.cpp
+wbconf/option_widgets.cpp

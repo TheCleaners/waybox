@@ -9,13 +9,16 @@ Version=swaybg -v
 Label=Image
 Flag=-i
 Hint=~/Pictures/wallpaper.png
+Type=image
 
 [Option mode]
 Label=Mode
 Flag=-m
-Hint=fill, fit, stretch, center or tile
+Type=choice
+Choices=stretch,fill,fit,center,tile,solid_color
 
 [Option colour]
 Label=Colour
 Flag=-c
 Hint=#303030
+Type=color
