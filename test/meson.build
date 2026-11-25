@@ -157,6 +157,13 @@ integrations_test = executable(
   )
 test('integrations', integrations_test)
 
+json_test = executable(
+  'json_test',
+  ['json_test.cpp', 'wb_test_main.cpp', json_src],
+  include_directories: [inc_dir],
+  )
+test('json', json_test)
+
 # Pixel test for the Cairo/Pango painting primitives. Needs cairo/pango, so it
 # is only built in the full build (not tests_only); it links no wlroots.
 if not get_option('tests_only')
@@ -435,6 +442,7 @@ if python.found() and not get_option('tests_only')
     ['idle_screen_off', 'idle_screen_off_test.py', [inhibit_client], 60],
     ['input_focus', 'input_focus_test.py', [], 60],
     ['input_method', 'input_method_test.py', [ime_client, text_input_client], 90],
+    ['ipc', 'ipc_test.py', [waybox_msg], 60],
     ['key_chain', 'key_chain_test.py', [], 60],
     ['lock_popup', 'lock_popup_test.py', [popup_client, lock_client], 60],
     ['keymap_reconfigure', 'keymap_reconfigure_test.py', [], 60],
@@ -476,10 +484,11 @@ if python.found() and not get_option('tests_only')
     integration_tests += [['wbconf_save', 'wbconf_save_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
   endif
-  # Run alone: every Waybox instance reserves an X display (wlroots tries
+  # Run alone (Xwayland, and edge_tiling, which starts an X11 window):
+  # every Waybox instance reserves an X display (wlroots tries
   # 33), so with many tests in parallel the one that needs Xwayland could
   # find none left.
-  run_alone = ['xwayland']
+  run_alone = ['xwayland', 'edge_tiling']
   foreach t : integration_tests
     test(
       'integration_' + t[0],
