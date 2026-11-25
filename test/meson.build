@@ -157,6 +157,14 @@ integrations_test = executable(
   )
 test('integrations', integrations_test)
 
+# Session restore's store: JSON, limits, expiry, where a window goes back.
+session_store_test = executable(
+  'session_store_test',
+  ['session_store_test.cpp', 'wb_test_main.cpp', session_store_src, json_src],
+  include_directories: [inc_dir],
+  )
+test('session_store', session_store_test)
+
 # The applications menu: .desktop files, categories, the scan and its cache.
 app_menu_test = executable(
   'app_menu_test',
@@ -497,6 +505,20 @@ if python.found() and not get_option('tests_only')
     dependencies: [dependency('wayland-client')],
     )
 
+  # Session restore: a window that gets a session and names itself in it.
+  session_xml = meson.project_source_root() / 'protocol' / 'xdg-session-management-v1.xml'
+  session_client = executable(
+    'session_client',
+    [
+      'integration' / 'session_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml),
+      wayland_scanner_client.process(session_xml),
+      wayland_scanner_code.process(session_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # Touchscreen test windows: with and without wl_touch.
   fake_daemon = executable('fake_daemon', 'integration' / 'fake_daemon.c')
 
@@ -614,6 +636,7 @@ if python.found() and not get_option('tests_only')
     ['panel_reflow', 'panel_reflow_test.py', [layer_client], 60],
     ['pipe_menu', 'pipe_menu_test.py', [], 60],
     ['apps_menu', 'apps_menu_test.py', [], 60],
+    ['session_restore', 'session_restore_test.py', [session_client], 90],
     ['placement', 'placement_test.py', [default_rc], 60],
     ['pointer_grab', 'pointer_grab_test.py', [constraint_client, layer_client, vpointer_client], 60],
     ['pointer_lock', 'pointer_lock_test.py', [constraint_client], 60],

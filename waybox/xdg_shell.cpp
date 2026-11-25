@@ -10,6 +10,7 @@
 #include "waybox/frame_view.hpp"
 #include "waybox/geometry.hpp"
 #include "waybox/xdg_shell.h"
+#include "waybox/xdg_session.h"
 #include "ipc.h"
 #include "decoration.h"
 #include "waybox/workspace.h"
@@ -26,6 +27,7 @@ wb::FrameInsets toplevel_insets(struct wb_toplevel *toplevel) {
 void position_toplevel(struct wb_toplevel *toplevel) {
 	if (toplevel == nullptr || toplevel->scene_tree == nullptr)
 		return;
+	xdg_session_toplevel_changed(toplevel);
 	/* The container holds the decorations; the client surface sits inside it at
 	 * the insets, so to land the client at geometry.x/y the container goes up
 	 * and left by the inset amount. With no frame the insets are zero. */
@@ -436,6 +438,7 @@ bool toplevel_on_current_desktop(struct wb_toplevel *toplevel) {
 void toplevel_update_visibility(struct wb_toplevel *toplevel);
 
 static void update_desktop_visibility(struct wb_toplevel *toplevel) {
+	xdg_session_toplevel_changed(toplevel);
 	/* Minimized windows are hidden the same way (not moved off screen,
 	 * where re-fitting them to a new panel or monitor brought them back). */
 	if (toplevel->scene_tree != NULL)
@@ -607,12 +610,15 @@ static void focus_next_after(struct wb_server *server, struct wb_toplevel *excep
  * toplevel is on, in layout coordinates. wb_output::usable_area is
  * output-local, so it is shifted by the output's position in the layout. */
 static struct wlr_box get_usable_area(struct wb_toplevel *toplevel) {
-	struct wlr_output *output = get_active_output(toplevel);
+	return output_usable_area(toplevel->server, get_active_output(toplevel));
+}
+
+struct wlr_box output_usable_area(struct wb_server *server, struct wlr_output *output) {
 	struct wlr_box usable_area = {};
 	if (output == NULL)
 		return usable_area;
 	struct wlr_box box;
-	wlr_output_layout_get_box(toplevel->server->output_layout, output, &box);
+	wlr_output_layout_get_box(server->output_layout, output, &box);
 	struct wb_output *wb_output = static_cast<struct wb_output *>(output->data);
 	if (wb_output != NULL && wb_output->usable_area.width > 0 &&
 			wb_output->usable_area.height > 0) {
@@ -836,6 +842,17 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 	struct wb_server *server = toplevel->server;
 	toplevel->desktop = parent ? parent->desktop : server->current_desktop;
 	toplevel->omnipresent = parent ? parent->omnipresent : false;
+	/* Session restore: back where it was, under the rules (an app rule
+	 * still wins). Its desktop too when it's recovering, not when it's
+	 * simply launched again. */
+	std::optional<wb::SavedWindow> restore = std::move(toplevel->session_restore);
+	toplevel->session_restore.reset();
+	if (parent != nullptr)
+		restore.reset();
+	if (restore && toplevel->session_restore_desktop && !(rule != nullptr && rule->desktop)) {
+		toplevel->omnipresent = restore->omnipresent;
+		toplevel->desktop = MIN(restore->desktop, desktop_count(server) - 1);
+	}
 	if (rule != nullptr && rule->desktop) {
 		if (*rule->desktop == wb::AppRule::kAllDesktops)
 			toplevel->omnipresent = true;
@@ -846,6 +863,10 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 
 	int width = geo_box.width;
 	int height = geo_box.height;
+	if (restore) {
+		width = restore->width;
+		height = restore->height;
+	}
 	if (rule != nullptr && rule->width)
 		width = *rule->width;
 	if (rule != nullptr && rule->height)
@@ -868,7 +889,12 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 	wb::PlacementPolicy policy =
 			config ? config->placement_policy : wb::PlacementPolicy::Smart;
 	wb::Rect placed;
-	if (parent != nullptr) {
+	std::optional<wb::Rect> restored;
+	if (restore && !(rule != nullptr && (rule->x || rule->y)))
+		restored = wb::restored_rect(*restore, xdg_session_outputs(server));
+	if (restored) {
+		placed = {restored->x, restored->y, width, height};
+	} else if (parent != nullptr) {
 		placed = wb::place_center(wb::Rect{parent->geometry.x,
 				parent->geometry.y, parent->geometry.width,
 				parent->geometry.height}, width, height);
@@ -955,6 +981,14 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 			set_toplevel_maximized(toplevel, true, true);
 	}
 
+	/* A restored window's state, as it was (an app rule's, below, wins). */
+	if (restore && toplevel->kind == wb_view_kind::Xdg) {
+		if (restore->fullscreen && !toplevel->fullscreen)
+			set_toplevel_fullscreen(toplevel, true);
+		else if (restore->maximized && !(toplevel->max_horz && toplevel->max_vert))
+			set_toplevel_maximized(toplevel, true, true);
+	}
+
 	/* Apply requested initial states after the base mapping. */
 	if (rule != nullptr) {
 		if (rule->decor.has_value()) {
@@ -995,6 +1029,7 @@ static void cancel_switcher_for(struct wb_toplevel *toplevel) {
 }
 
 static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
+	xdg_session_toplevel_unmapped(toplevel);  /* its last state, while it's there */
 	/* Called when the surface is unmapped, and should no longer be shown. */
 	if (toplevel->xdg_toplevel->base->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL)
 		return;
@@ -1031,10 +1066,18 @@ static void xdg_toplevel_commit(struct wb_toplevel *toplevel, void *data) {
 		}
 	}
 	if (base->initial_commit) {
-		wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, 0, 0);
+		/* Being restored: told so, then configured at its old size. */
+		xdg_session_initial_configure(toplevel);
+		if (toplevel->session_restore)
+			wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
+					toplevel->session_restore->width, toplevel->session_restore->height);
+		else
+			wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, 0, 0);
 		if (toplevel->decoration != NULL)
 			wl_signal_emit(&toplevel->decoration->events.request_mode, toplevel->decoration);
 	}
+	if (toplevel->session_handle != nullptr && toplevel->mapped)
+		xdg_session_toplevel_changed(toplevel);  /* resized, maybe */
 	/* Keep the frame matched to the client's current size (the client may have
 	 * resized itself). No-op when the window has no server-side frame. */
 	if (toplevel->frame && toplevel->mapped)
@@ -1111,6 +1154,7 @@ void init_window_capture(struct wb_server *server) {
 }
 
 void destroy_toplevel(struct wb_toplevel *toplevel) {
+	xdg_session_toplevel_destroyed(toplevel);
 	struct wb_server *srv = toplevel->server;
 	drop_window_capture(toplevel);
 	srv->click_tracker.forget(reinterpret_cast<uintptr_t>(toplevel));

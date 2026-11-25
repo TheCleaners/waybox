@@ -233,6 +233,7 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
   <menu source="builtin" submenuOpen="hover" hoverDelay="100" wrap="yes" icons="yes"/>
   <switcher order="mru" osd="yes" wrap="yes" icons="yes"/>
   <edgeTiling enabled="yes" range="10"/>
+  <sessionRestore enabled="yes"/>
   <titlebar paddingY="2" buttonSize="0" resizeGrab="8"/>
   <virtualInput allow="unlocked"/>
   <xwayland enabled="yes"/>
@@ -269,7 +270,16 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 	*range* is how close to the edge the pointer must be, in pixels. Only
 	outer edges count, not the edges between two monitors.
 
-*<titlebar>*
+*<sessionRestore>*
+	Programs that ask (xdg-session-management) get their windows back at
+	the size and place they had, on the same monitor if it's there, and
+	maximized or fullscreen if they were. Recovering from a crash or
+	restoring a session also brings back each window's desktop; a program
+	simply started again opens on the desktop shown. A rule in
+	*<applications>* still wins. The state is kept in
+	_$XDG_STATE_HOME/waybox/sessions.json_ (normally
+	_~/.local/state/waybox_); sessions unused for 90 days are forgotten.
+	*enabled="no"*: nothing is kept or restored.
 	Server-side decoration sizes in pixels: *paddingY* (above and below the
 	title), *buttonSize* (0 picks one from the title height) and
 	*resizeGrab* (an invisible border for resizing).

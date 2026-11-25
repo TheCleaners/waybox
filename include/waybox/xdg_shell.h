@@ -4,7 +4,10 @@
 #include "waybox/wlroots.hpp"
 
 #include <memory>
+#include <optional>
 #include <string>
+
+#include "waybox/session_store.hpp"
 
 #include <cairo.h>
 
@@ -27,8 +30,15 @@ struct wb_popup {
  * xdg_toplevel/xsurface directly. */
 enum class wb_view_kind { Xdg, Xwayland };
 
+struct wb_toplevel_session;
+
 struct wb_toplevel {
 	struct wb_server *server = nullptr;
+	/* Session restore (xdg-session-management): its handle, and the state
+	 * to restore it to when it maps (asked before its first commit). */
+	struct wb_toplevel_session *session_handle = nullptr;
+	std::optional<wb::SavedWindow> session_restore;
+	bool session_restore_desktop = false;  /* recovering: its desktop too */
 	wb_view_kind kind = wb_view_kind::Xdg;
 	struct wlr_xdg_toplevel *xdg_toplevel = nullptr;      /* Xdg only */
 	struct wlr_xwayland_surface *xsurface = nullptr;      /* Xwayland only */
@@ -230,6 +240,9 @@ bool toplevel_on_current_desktop(struct wb_toplevel *toplevel);
 /* Show desktop `index` (0-based): hide the other desktops' windows and focus
  * the most recently used window here (or nothing). */
 void wb_go_to_desktop(struct wb_server *server, int index);
+/* An output's usable area (less panels' reservations), in layout
+ * coordinates; empty for nullptr. */
+struct wlr_box output_usable_area(struct wb_server *server, struct wlr_output *output);
 /* Show `text` for a moment, centred, in the on-screen display style (the
  * desktop popup's; showing again replaces it). */
 void wb_show_popup(struct wb_server *server, const std::string &text, int duration_ms);

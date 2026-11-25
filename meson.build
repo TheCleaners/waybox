@@ -111,6 +111,7 @@ startup_sources_src = files('waybox/startup_sources.cpp')
 gtk_appearance_src = files('waybox/gtk_appearance.cpp')
 stall_src = files('waybox/stall.cpp')
 json_src = files('waybox/json.cpp')
+session_store_src = files('waybox/session_store.cpp')
 xml_strict_src = files('waybox/xml_strict.cpp')
 
 # tests_only builds just the dependency-free unit tests (no wlroots, no
