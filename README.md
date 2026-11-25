@@ -80,7 +80,7 @@ For background, see
 | X11 | Xwayland (lazy start, `DISPLAY` exported to the session) |
 | Graphics | `linux-dmabuf` v4, `linux-drm-syncobj` (explicit sync, on the DRM backend), `drm-lease` (VR headsets for SteamVR and Monado; headsets are kept off the desktop), `tearing-control` (fullscreen games with vsync off; opt-in: `<waybox><tearing allow="yes"/>`) |
 | Colour | `color-management`, `color-representation`, and HDR10 output (`<waybox><hdr>`), with the Vulkan renderer (the default on real displays) and wlroots 0.20 |
-| Keyboard shortcuts | `keyboard-shortcuts-inhibit` (VM viewers and remote desktops take Alt+Tab and the like while focused; Super+Escape takes them back) |
+| Keyboard shortcuts | `keyboard-shortcuts-inhibit` and, for X11 programs, `xwayland-keyboard-grab` (VM viewers, remote desktops and games that grab the keyboard take Alt+Tab and the like while focused; Super+Escape takes them back) |
 | Other | `wl_fixes` v2 (clients can free registries, and acknowledge removed globals such as unplugged outputs instead of risking a disconnect), `presentation-time`, `viewporter`, `single-pixel-buffer`, `content-type`, `cursor-shape`, `idle-notify`, `idle-inhibit` |
 
 ### Robustness

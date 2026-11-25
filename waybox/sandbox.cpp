@@ -14,6 +14,12 @@ static bool global_filter(const struct wl_client *client,
 			global == server->xwayland->shell_v1->global)
 		return server->xwayland->server != nullptr &&
 				client == server->xwayland->server->client;
+	if (global == server->xwayland_keyboard_grab)
+		return server->xwayland != nullptr && server->xwayland->server != nullptr &&
+				client == server->xwayland->server->client;
+#else
+	if (global == server->xwayland_keyboard_grab)
+		return false;
 #endif
 	if (server->security_context_manager == nullptr)
 		return true;

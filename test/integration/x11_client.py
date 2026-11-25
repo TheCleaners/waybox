@@ -16,6 +16,10 @@ Reads commands on stdin, one per line:
                                     client-drawn titlebar does
   where NAME                        print "where NAME X Y": the window's
                                     position as the X server knows it
+  grab NAME                         grab the keyboard (XGrabKeyboard), as
+                                    VMs and remote desktops do; prints
+                                    "grab NAME STATUS" (0: granted)
+  ungrab                            let it go
 
 Prints "mapped NAME" when a window is mapped, and "delete NAME" when the
 window manager asks it to close (WM_DELETE_WINDOW), after which the window
@@ -112,6 +116,14 @@ def main():
         elif parts[0] == "destroy":
             win = windows.pop(parts[1])
             win.destroy()
+            d.flush()
+        elif parts[0] == "grab":
+            win = windows[parts[1]]
+            status = win.grab_keyboard(True, X.GrabModeAsync, X.GrabModeAsync, X.CurrentTime)
+            d.flush()
+            out(f"grab {parts[1]} {status}")
+        elif parts[0] == "ungrab":
+            d.ungrab_keyboard(X.CurrentTime)
             d.flush()
 
     buf = b""
