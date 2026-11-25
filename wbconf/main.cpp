@@ -11,6 +11,7 @@
  * "waybox").
  */
 #include "wbconf_ui.hpp"
+#include "version.h"
 
 namespace wbconf {
 
@@ -241,6 +242,21 @@ void build_window(GtkApplication *app, Ui *ui) {
 			G_CALLBACK(on_reload), ui, pop));
 	gtk_box_append(GTK_BOX(pbox), menu_button_item(_("Reset All to Defaults"),
 			G_CALLBACK(on_reset_all), ui, pop));
+	/* Which builds these are (git describe), for bug reports. */
+	gtk_box_append(GTK_BOX(pbox), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+	std::string running = running_waybox_version();
+	std::string about = std::string(_("wbconf ")) + WB_BUILD_VERSION + "\n" +
+			(running.empty() ? std::string(_("Waybox: not known (not started from Waybox)"))
+			                 : std::string(_("Waybox (running) ")) + running);
+	GtkWidget *versions = gtk_label_new(about.c_str());
+	gtk_label_set_xalign(GTK_LABEL(versions), 0);
+	gtk_label_set_selectable(GTK_LABEL(versions), TRUE);
+	gtk_widget_add_css_class(versions, "dim-label");
+	gtk_widget_set_margin_start(versions, 8);
+	gtk_widget_set_margin_end(versions, 8);
+	gtk_widget_set_margin_top(versions, 4);
+	gtk_widget_set_margin_bottom(versions, 4);
+	gtk_box_append(GTK_BOX(pbox), versions);
 	gtk_popover_set_child(GTK_POPOVER(pop), pbox);
 	gtk_menu_button_set_popover(GTK_MENU_BUTTON(menu), pop);
 	gtk_header_bar_pack_end(GTK_HEADER_BAR(header), menu);

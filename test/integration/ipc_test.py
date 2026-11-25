@@ -193,6 +193,18 @@ def main():
         if not os.path.exists(marker) or open(marker).read().strip() != path:
             failures.append("a program started by Waybox didn't get WAYBOX_SOCK")
 
+        # The build's version: as --version reports it, and exported.
+        built = subprocess.run([waybox, "--version"], capture_output=True,
+                               text=True).stdout.split()[-1]
+        rc, out, err = run_msg(cenv2, "get_version")
+        if rc != 0 or json.loads(out).get("version") != built:
+            failures.append(f"get_version isn't the build's version {built}: {out or err}")
+        vmark = os.path.join(runtime, "version-env")
+        run_msg(cenv2, "action", "Execute", f"command=sh -c 'echo $WAYBOX_VERSION > {vmark}'")
+        time.sleep(0.8)
+        if not os.path.exists(vmark) or open(vmark).read().strip() != built:
+            failures.append("programs Waybox starts don't get WAYBOX_VERSION")
+
         proc.send_signal(signal.SIGUSR2)
         expect(lambda e: e.get("event") == "config", "config reload")
         sub.close()

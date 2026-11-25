@@ -10,9 +10,17 @@ wbconf_args = [
   '-DWB_INTEGRATIONS_DIR="' + get_option('prefix') / get_option('datadir') / 'waybox' / 'integrations' + '"',
 ]
 
+wbconf_version_h = vcs_tag(
+  command: wb_version_cmd,
+  fallback: meson.project_version(),
+  input: version_in,
+  output: 'version.h',
+  replace_string: '@WB_VERSION@',
+)
+
 wbconf_exe = executable(
   'wbconf',
-  ['main.cpp', 'session.cpp', 'monitors.cpp', 'widgets.cpp', 'fonts.cpp',
+  [wbconf_version_h, 'main.cpp', 'session.cpp', 'monitors.cpp', 'widgets.cpp', 'fonts.cpp',
    'theme_page.cpp', 'integrations_page.cpp', 'settings.cpp', 'settings_view.cpp',
    files('../waybox/wbconf.cpp', '../waybox/settings_schema.cpp'), xml_strict_src, theme_src, style_src, widget_src,
    render_src, startup_src, integrations_src],

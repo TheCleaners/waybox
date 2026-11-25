@@ -205,6 +205,7 @@ std::optional<wb::RcDocument> load_document(std::string *problem);
 pid_t session_compositor();
 bool is_waybox(long pid);
 int signal_waybox_reload();
+std::string running_waybox_version();
 std::string format_hz(double hz);
 std::optional<std::vector<MonitorInfo>> query_monitors(std::string *why);
 void populate_monitors(Ui *ui, const std::vector<wb::OutputSetting> &outputs);
