@@ -15,6 +15,8 @@
  *
  *   Configure=wlsunset-gui (its own settings tool, if it has one)
  *   Page=wallpaper        (a page of wbconf's for it, if there's one)
+ *   Manages=outputs       (it sets monitors itself, as kanshi: wbconf says
+ *                          so while it runs)
  *
  *   Kind=binding          (run from a key, not at startup)
  *   Key=W-period          (the key it suggests)
@@ -92,6 +94,9 @@ struct Integration {
 	/* Page=: a page wbconf has for this kind of program ("wallpaper"),
 	 * shown with its options; where wbconf has none, just the options. */
 	std::string page;
+	/* Manages=outputs: it sets monitors itself (kanshi, shikane): while
+	 * it runs, its profiles win over Waybox's <outputs> on a hotplug. */
+	bool manages_outputs = false;
 	bool operator==(const Integration &) const = default;
 };
 

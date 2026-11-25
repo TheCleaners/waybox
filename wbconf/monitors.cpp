@@ -354,6 +354,13 @@ GtkWidget *build_monitors_block(Ui *ui) {
 		gtk_box_append(GTK_BOX(inner), msg);
 		return inner;
 	}
+	ui->arranger.manager_notice = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+	gtk_widget_set_visible(ui->arranger.manager_notice, FALSE);
+	gtk_box_append(GTK_BOX(inner), ui->arranger.manager_notice);
+	/* Once the window is whole: the program rows say where things start. */
+	g_idle_add_once([](gpointer data) {
+		refresh_output_manager_notice(static_cast<Ui *>(data));
+	}, ui);
 	gtk_box_append(GTK_BOX(inner), build_arranger(ui));
 	ui->monitors.reserve(monitors->size());
 	for (const MonitorInfo &info : *monitors) {
@@ -580,6 +587,120 @@ void ask_keep_monitors(Ui *ui, const std::string &outputs_xml, const std::string
 	}, k);
 	gtk_window_present(k->window);
 	gtk_widget_grab_focus(revert);
+}
+
+}  // namespace wbconf
+
+namespace wbconf {
+
+namespace {
+
+/* Our own running copies of `binary` (by process name), in this session
+ * only: never another session's, which the notice isn't about. */
+std::vector<pid_t> own_copies(const std::string &binary) {
+	std::vector<pid_t> out;
+	uid_t me = getuid();
+	std::string name = binary.substr(0, 15);
+	for (const ProcessInfo &p : list_processes())
+		if (p.uid == me && p.name == name && p.pid > 1 && in_this_session(p.pid))
+			out.push_back(p.pid);
+	return out;
+}
+
+/* Its row in Waybox's startup list, if it's on there (and on). */
+Ui::ProgramRow *startup_row(Ui *ui, const wb::Integration &in) {
+	for (auto &row : ui->programs)
+		if (row->in == &in && !row->removed && row->listed && gtk_switch_get_active(row->on))
+			return row.get();
+	return nullptr;
+}
+
+void stop_copies(Ui *ui, const wb::Integration *in) {
+	for (pid_t pid : own_copies(in->binary))
+		kill(pid, SIGTERM);
+	char *t = g_strdup_printf(_("Stopped %s for this session."), in->name.c_str());
+	set_status(ui, t);
+	g_free(t);
+	/* Gone in a moment: look again then. */
+	g_timeout_add_once(500, [](gpointer data) {
+		refresh_output_manager_notice(static_cast<Ui *>(data));
+	}, ui);
+}
+
+}  // namespace
+
+void refresh_output_manager_notice(Ui *ui) {
+	GtkWidget *box = ui->arranger.manager_notice;
+	if (box == nullptr)
+		return;
+	ui->arranger.manager_stop = nullptr;  /* its buttons are made again */
+	while (GtkWidget *c = gtk_widget_get_first_child(box))
+		gtk_box_remove(GTK_BOX(box), c);
+	bool any = false;
+	for (const wb::Integration &in : ui->integrations) {
+		if (!in.manages_outputs || own_copies(in.binary).empty())
+			continue;
+		any = true;
+		Ui::ProgramRow *row = startup_row(ui, in);
+		GtkWidget *frame = gtk_frame_new(nullptr);
+		gtk_widget_add_css_class(frame, "wb-notice");
+		GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+		gtk_widget_set_margin_top(v, 8);
+		gtk_widget_set_margin_bottom(v, 8);
+		gtk_widget_set_margin_start(v, 10);
+		gtk_widget_set_margin_end(v, 10);
+		gtk_frame_set_child(GTK_FRAME(frame), v);
+		char *t = g_strdup_printf(_("%s is running. It sets the monitors itself, from its own "
+				"profiles, whenever one is connected (and after switching to a text console "
+				"and back), so the settings here can be undone by it."), in.name.c_str());
+		GtkWidget *label = gtk_label_new(t);
+		g_free(t);
+		gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+		gtk_label_set_xalign(GTK_LABEL(label), 0);
+		gtk_box_append(GTK_BOX(v), label);
+		GtkWidget *buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+		if (row != nullptr) {
+			/* Waybox would start it again: off in its startup list. */
+			GtkWidget *off = gtk_button_new_with_label(_("Turn It Off"));
+			gtk_widget_set_tooltip_text(off, _("Off in Waybox's startup list: stopped when "
+					"you save"));
+			g_signal_connect_swapped(off, "clicked", G_CALLBACK(+[](GtkSwitch *s) {
+				gtk_switch_set_active(s, FALSE);
+			}), row->on);
+			gtk_box_append(GTK_BOX(buttons), off);
+			ui->arranger.manager_stop = off;
+		} else {
+			GtkWidget *stop = gtk_button_new_with_label(_("Stop It for This Session"));
+			gtk_widget_set_tooltip_text(stop, _("It starts again next time; see where it "
+					"starts to switch it off"));
+			g_object_set_data(G_OBJECT(stop), "wb-integration", const_cast<wb::Integration *>(&in));
+			g_signal_connect(stop, "clicked", G_CALLBACK(+[](GtkButton *b, gpointer data) {
+				stop_copies(static_cast<Ui *>(data), static_cast<const wb::Integration *>(
+						g_object_get_data(G_OBJECT(b), "wb-integration")));
+			}), ui);
+			gtk_box_append(GTK_BOX(buttons), stop);
+			ui->arranger.manager_stop = stop;
+		}
+		GtkWidget *where = gtk_button_new_with_label(_("Where It Starts"));
+		g_object_set_data_full(G_OBJECT(where), "wb-name", g_strdup(in.binary.c_str()), g_free);
+		g_signal_connect(where, "clicked", G_CALLBACK(+[](GtkButton *b, gpointer data) {
+			auto *ui = static_cast<Ui *>(data);
+			gtk_editable_set_text(GTK_EDITABLE(ui->search), static_cast<const char *>(
+					g_object_get_data(G_OBJECT(b), "wb-name")));
+		}), ui);
+		gtk_box_append(GTK_BOX(buttons), where);
+		gtk_box_append(GTK_BOX(v), buttons);
+		gtk_box_append(GTK_BOX(box), frame);
+	}
+	gtk_widget_set_visible(box, any);
+}
+
+bool output_manager_test_stop(Ui *ui) {
+	refresh_output_manager_notice(ui);
+	if (ui->arranger.manager_stop == nullptr)
+		return false;
+	g_signal_emit_by_name(ui->arranger.manager_stop, "clicked");
+	return true;
 }
 
 }  // namespace wbconf
