@@ -308,6 +308,7 @@ void load_integrations_data(Ui *ui, const wb::WayboxSettings &s) {
 	for (const wb::Integration &in : ui->integrations)
 		binaries.push_back(in.binary);
 	ui->in_autostart = wb::programs_in_script(autostart_text(), binaries);
+	load_startup_sources(ui);
 	ui->listed_integrations.clear();
 	for (const wb::StartupSetting &p : s.startup)
 		if (const wb::Integration *in = wb::match_integration(ui->integrations, p.name, p.command))
@@ -355,6 +356,8 @@ std::vector<wb::SettingDef> program_settings(Ui *ui) {
 	other.type = wb::SettingType::Custom;
 	other.widget = "programs-other";
 	out.push_back(std::move(other));
+	for (wb::SettingDef &d : startup_source_settings(ui))
+		out.push_back(std::move(d));
 	return out;
 }
 

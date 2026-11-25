@@ -35,6 +35,7 @@
 #include "waybox/settings_schema.hpp"
 #include "waybox/integrations.hpp"
 #include "waybox/startup.hpp"
+#include "waybox/startup_sources.hpp"
 #include "waybox/theme.hpp"
 #include "waybox/style.hpp"
 #include "waybox/render.hpp"
@@ -99,6 +100,24 @@ struct Ui {
 	std::map<std::string, GtkCheckButton *> hdr;
 	std::vector<std::string> hdr_others;
 	std::optional<std::string> hdr_loaded;
+
+	/* Programs started from elsewhere: the autostart script's start lines
+	 * and XDG autostart entries, each switchable (startup_sources_page.cpp). */
+	struct SourceRow {
+		bool script = true;        /* else an XDG autostart entry */
+		int line = 0;              /* script: its line */
+		std::string command;       /* script: the line as read */
+		std::string file, path;    /* XDG: the .desktop's name, the file that counts */
+		std::string program;
+		bool saved = true;         /* on, as the files have it */
+		GtkSwitch *on = nullptr;
+		GtkLabel *status = nullptr;
+	};
+	std::vector<std::unique_ptr<SourceRow>> source_rows;
+	std::string script_path;       /* the script the session runs */
+	bool script_is_user = false;   /* in the user's config (else the default) */
+	std::vector<wb::ScriptEntry> script_entries;
+	std::vector<wb::AutostartEntry> xdg_entries;
 
 	/* Integrations: one row per known program (from the integration files)
 	 * and per other program in <startup>. */
@@ -289,6 +308,14 @@ void populate_rows(Ui *ui, const wb::RcDocument *doc);
 void rows_saved(Ui *ui);
 /* WBCONF_TEST_SET: change settings as the window would (tests). */
 void apply_test_values(Ui *ui, const char *spec);
+void load_startup_sources(Ui *ui);
+std::vector<wb::SettingDef> startup_source_settings(Ui *ui);
+GtkWidget *build_script_block(Ui *ui);
+GtkWidget *build_xdg_block(Ui *ui);
+int sources_unsaved(Ui *ui);
+bool save_sources(Ui *ui, std::string *error);
+void sources_saved(Ui *ui);
+void source_test_value(Ui *ui, const std::string &key, const std::string &value);
 bool rows_unsaved(Ui *ui);
 void reset_all_rows(Ui *ui);
 /* A setting's value now (or its default), by id. */

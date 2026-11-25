@@ -363,6 +363,10 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 			return build_binding_block(ui, d.widget.substr(8));
 		if (d.widget == "inputmethod")
 			return build_input_method_block(ui);
+		if (d.widget == "autostart-script")
+			return build_script_block(ui);
+		if (d.widget == "xdg-autostart")
+			return build_xdg_block(ui);
 		return wrapped_label(_("(This setting's editor isn't available.)"), true);
 	}
 	return nullptr;
@@ -717,6 +721,10 @@ void apply_test_values(Ui *ui, const char *spec) {
 		/* "inputmethod=ID": choose that input method ("" none). */
 		if (eq != std::string::npos && item.substr(0, eq) == "inputmethod")
 			choose_input_method(ui, item.substr(eq + 1));
+		/* "script.LINE=on|off", "xdg.FILE=on|off": startup sources. */
+		if (eq != std::string::npos && (item.rfind("script.", 0) == 0 ||
+				item.rfind("xdg.", 0) == 0))
+			source_test_value(ui, item.substr(0, eq), item.substr(eq + 1));
 		/* "bind.ID=KEY": turn on that program's key binding. */
 		if (eq != std::string::npos && item.rfind("bind.", 0) == 0)
 			for (auto &b : ui->bindings)
