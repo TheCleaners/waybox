@@ -578,6 +578,7 @@ if python.found() and not get_option('tests_only')
     ['keymap_reconfigure', 'keymap_reconfigure_test.py', [], 60],
     ['menu', 'menu_test.py', [], 60],
     ['menu_hover_delay', 'menu_hover_delay_test.py', [], 60],
+    ['minimize', 'minimize_test.py', [touch_client, layer_client], 60],
     ['mouse_binding', 'mouse_binding_test.py', [], 60],
     ['mouse_contexts', 'mouse_contexts_test.py', [], 60],
     ['multi_output', 'multi_output_test.py', [layer_client], 60],
