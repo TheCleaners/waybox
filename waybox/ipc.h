@@ -20,6 +20,8 @@ struct wb_toplevel;
  *       (any rc.xml action; "command", "to", "direction", "wrap",
  *       "follow" as in rc.xml; "window": an id, "app_id:X", "title:X" or
  *       "focused" (the default))
+ *   {"request": "pick_color"}  -> the next click's color: {"ok": true,
+ *       "color": "#rrggbb"} (Escape, a right click, 30 s: an error)
  *   {"request": "subscribe", "events": ["window", "desktop", "output",
  *       "config", "bell"]}  -> then {"event": "window", "change": "new"|"close"|
  *       "focus"|"title", "window": {...}} and so on as they happen.

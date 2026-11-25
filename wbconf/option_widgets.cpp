@@ -61,16 +61,6 @@ void update_helpers(OptionField *f) {
 		gtk_picture_set_filename(f->thumb, file ? path.c_str() : nullptr);
 		gtk_widget_set_visible(GTK_WIDGET(f->thumb), file);
 	}
-	if (f->color != nullptr) {
-		/* Left out: the program's own colour (Default=), if known. */
-		std::string shown = v.empty() ? f->opt->default_value : v;
-		GdkRGBA rgba;
-		if (!shown.empty() && gdk_rgba_parse(&rgba, shown.c_str())) {
-			f->syncing = true;
-			gtk_color_dialog_button_set_rgba(f->color, &rgba);
-			f->syncing = false;
-		}
-	}
 	bool valid = wb::option_value_valid(*f->opt, v);
 	if (valid)
 		gtk_widget_remove_css_class(GTK_WIDGET(f->entry), "error");
@@ -89,17 +79,6 @@ void changed(OptionField *f) {
 
 void on_entry_changed(GtkEditable *, gpointer data) {
 	changed(static_cast<OptionField *>(data));
-}
-
-void on_color_set(GObject *, GParamSpec *, gpointer data) {
-	auto *f = static_cast<OptionField *>(data);
-	if (f->syncing)
-		return;
-	const GdkRGBA *c = gtk_color_dialog_button_get_rgba(f->color);
-	char hex[8];
-	g_snprintf(hex, sizeof hex, "#%02x%02x%02x", (int)(c->red * 255 + 0.5),
-			(int)(c->green * 255 + 0.5), (int)(c->blue * 255 + 0.5));
-	gtk_editable_set_text(GTK_EDITABLE(f->entry), hex);  /* -> on_entry_changed */
 }
 
 void on_drop_selected(GObject *, GParamSpec *, gpointer data) {
@@ -215,6 +194,14 @@ std::unique_ptr<OptionField> make_option_field(const wb::IntegrationOption &o,
 		f->widget = GTK_WIDGET(f->drop);
 		return f;
 	}
+	case OptionType::Color:
+		/* The shared color control, its field the option's value. */
+		f->color_control = make_color_control(o.hint, o.default_value, false);
+		f->entry = f->color_control->entry;
+		f->color = f->color_control->button;
+		g_signal_connect(f->entry, "changed", G_CALLBACK(on_entry_changed), fp);
+		f->widget = f->color_control->box;
+		return f;
 	default:
 		break;
 	}
@@ -248,17 +235,7 @@ std::unique_ptr<OptionField> make_option_field(const wb::IntegrationOption &o,
 		}
 		return f;
 	}
-	if (o.type == OptionType::Color) {
-		GtkColorDialog *dialog = gtk_color_dialog_new();
-		gtk_color_dialog_set_with_alpha(dialog, FALSE);
-		f->color = GTK_COLOR_DIALOG_BUTTON(gtk_color_dialog_button_new(dialog));
-		g_signal_connect(f->color, "notify::rgba", G_CALLBACK(on_color_set), fp);
-		gtk_editable_set_width_chars(GTK_EDITABLE(f->entry), 10);
-		gtk_widget_set_hexpand(GTK_WIDGET(f->entry), FALSE);
-		gtk_box_append(GTK_BOX(box), GTK_WIDGET(f->color));
-		gtk_box_append(GTK_BOX(box), GTK_WIDGET(f->entry));
-		return f;
-	}
+
 	if (is_path_type(o.type)) {
 		gtk_widget_set_size_request(GTK_WIDGET(f->entry), 260, -1);
 		if (is_image_type(o.type)) {

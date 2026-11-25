@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "script.h"
+#include "color_pick.h"
 #include "waybox/stall.hpp"
 #include "idle.h"
 #include "shortcuts_inhibit.h"
@@ -782,6 +783,10 @@ void wb_keyboard::on_key(void *data) {
 	}
 
 	if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+		/* Escape ends a color pick (and goes no further). */
+		for (int i = 0; i < nsyms; i++)
+			if (color_pick_key(server, syms[i]))
+				return;
 		/* The Alt+Tab OSD grabs the keyboard: Tab/Shift+Tab move the selection,
 		 * Escape cancels, Return commits. All keys are swallowed so they neither
 		 * fire bindings nor reach clients while cycling. */

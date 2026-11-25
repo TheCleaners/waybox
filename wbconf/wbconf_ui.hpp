@@ -82,6 +82,23 @@ struct FontPicker {
 
 /* ---- Widget set, bound to a WayboxSettings on save ------------------- */
 
+/* A color control (color_control.cpp): a tinted text field holding the
+ * value, GTK's color button, and an eyedropper (Waybox's pick_color). */
+struct ColorControl {
+	GtkWidget *box = nullptr;
+	GtkEntry *entry = nullptr;  /* the value: its "changed" is the owner's */
+	GtkColorDialogButton *button = nullptr;
+	GtkWidget *pick = nullptr;
+	std::string css_class, default_value;
+	bool alpha = false, syncing = false, picking = false;
+	std::shared_ptr<ColorControl *> self;  /* nulled when gone: a late pick */
+	~ColorControl();
+};
+std::unique_ptr<ColorControl> make_color_control(const std::string &hint,
+		const std::string &default_value, bool alpha);
+/* After the field's text was set from elsewhere: tint and button. */
+void color_control_refresh(ColorControl *c);
+
 /* One integration option's widget (option_widgets.cpp), by its Type=. */
 struct OptionField {
 	const wb::IntegrationOption *opt = nullptr;
@@ -93,6 +110,7 @@ struct OptionField {
 	GtkSwitch *sw = nullptr;       /* switch */
 	GtkPicture *thumb = nullptr;   /* images: the chosen one */
 	GtkColorDialogButton *color = nullptr;
+	std::unique_ptr<ColorControl> color_control;
 	bool syncing = false;
 	std::function<void()> on_change;  /* the user changed it */
 };
@@ -298,6 +316,7 @@ struct Ui {
 		GtkDropDown *dropdown = nullptr;
 		GtkEntry *entry = nullptr;
 		GtkTextView *text = nullptr;
+		std::unique_ptr<ColorControl> color;  /* type color */
 		FontPicker font;
 		bool updating = false;                /* setting the control from code */
 	};
@@ -337,7 +356,9 @@ std::optional<wb::RcDocument> load_document(std::string *problem);
 pid_t session_compositor();
 bool is_waybox(long pid);
 int signal_waybox_reload();
-JsonObject *waybox_request(const std::string &request);
+/* One request to Waybox's socket; its answer, or nullptr after
+ * `timeout_s` seconds or with no socket. */
+JsonObject *waybox_request(const std::string &request, int timeout_s = 1);
 /* The monitor arranger (monitor_arranger.cpp). */
 GtkWidget *build_arranger(Ui *ui);
 void arranger_changed(Ui *ui);   /* a monitor's settings changed: redraw */

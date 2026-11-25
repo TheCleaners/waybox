@@ -129,7 +129,7 @@ int signal_waybox_reload() {
 /* One request to the running Waybox's scripting socket (<ipc
  * enabled="yes"/>): its reply's JSON object, or nullptr (no socket, no
  * answer within a second). Free with json_object_unref. */
-JsonObject *waybox_request(const std::string &request) {
+JsonObject *waybox_request(const std::string &request, int timeout_s) {
 	std::string path;
 	if (const char *s = getenv("WAYBOX_SOCK"); s && *s) {
 		path = s;
@@ -148,7 +148,8 @@ JsonObject *waybox_request(const std::string &request) {
 	if (fd < 0)
 		return nullptr;
 	std::string reply;
-	struct timeval tv = {1, 0};  /* never hang the window on it */
+	/* Never hang the window on it (a long wait goes on another thread). */
+	struct timeval tv = {std::clamp(timeout_s, 1, 120), 0};
 	setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	std::string line = request + "\n";
 	if (connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) == 0 &&

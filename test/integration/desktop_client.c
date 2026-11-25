@@ -27,6 +27,8 @@ static int configured;
 
 static void say(const char *s) { printf("%s\n", s); fflush(stdout); }
 
+static int halves;
+
 static struct wl_buffer *make_buffer(int W, int H) {
 	size_t stride = (size_t) W * 4, size = stride * (size_t) H;
 	char name[] = "/tmp/wb-desktop-buf-XXXXXX";
@@ -39,8 +41,10 @@ static struct wl_buffer *make_buffer(int W, int H) {
 	uint32_t *px = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	if (px == MAP_FAILED)
 		exit(1);
+	/* "halves" (second argument): red on the left, blue on the right, so
+	 * where a point lands can be told (color picks on turned outputs). */
 	for (size_t i = 0; i < size / 4; i++)
-		px[i] = 0xff305070;
+		px[i] = !halves ? 0xff305070 : (int) (i % (size_t) W) < W / 2 ? 0xffff0000 : 0xff0000ff;
 	munmap(px, size);
 	struct wl_shm_pool *pool = wl_shm_create_pool(shm, fd, (int32_t) size);
 	struct wl_buffer *b = wl_shm_pool_create_buffer(pool, 0, W, H, (int32_t) stride,
@@ -113,6 +117,7 @@ static const struct wl_registry_listener reg_listener = {
 
 int main(int argc, char **argv) {
 	const char *which = argc > 1 ? argv[1] : "background";
+	halves = argc > 2 && strcmp(argv[2], "halves") == 0;
 	uint32_t layer = strcmp(which, "bottom") == 0 ? ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM
 			: strcmp(which, "top") == 0 ? ZWLR_LAYER_SHELL_V1_LAYER_TOP
 			: ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND;

@@ -163,6 +163,18 @@ class Connection:
         shown: "window", "border", "screen", "osd", "paced" or "none"."""
         return str(self.request("bell", **settings).get("shown", ""))
 
+    def pick_color(self) -> str:
+        """The color the user clicks next ("#rrggbb"): the pointer is a
+        crosshair until then. Raises RequestFailed if cancelled (Escape, a
+        right click) or after 30 seconds. Waits for the click."""
+        before = self._sock.gettimeout()
+        if before is not None:
+            self._sock.settimeout(max(before, 35.0))  # Waybox gives up at 30 s
+        try:
+            return str(self.request("pick_color").get("color", ""))
+        finally:
+            self._sock.settimeout(before)
+
     def identify(self, output: Optional[str] = None, ms: Optional[int] = None) -> int:
         """Show each monitor's name, large, on it (only ``output``'s, if
         given) for ``ms`` milliseconds (default 3000); how many were shown."""

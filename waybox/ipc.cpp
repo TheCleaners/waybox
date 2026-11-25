@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "ipc.h"
+#include "color_pick.h"
 #include "bell.h"
 #include "script.h"
 #include "waybox/seat.h"
@@ -40,6 +41,9 @@ namespace {
 constexpr size_t kMaxRequest = 64 * 1024;
 constexpr size_t kMaxPending = 4 * 1024 * 1024;  /* a client not reading goes */
 
+/* An answer handle() leaves for later (a color pick replies itself). */
+const char *const kLater = "__later";
+
 struct Client {
 	struct wb_server *server = nullptr;
 	struct wb_ipc_state *st = nullptr;  /* outlives server->ipc while closing */
@@ -48,6 +52,7 @@ struct Client {
 	std::string in, out;
 	std::set<std::string> events;  /* subscribed to */
 	bool closing = false;
+	bool picking = false;  /* waiting for a color pick's answer */
 };
 
 }  // namespace
@@ -84,6 +89,11 @@ void drop(struct wb_ipc_state *st, Client *c) {
 	if (c->closing)
 		return;
 	c->closing = true;
+	/* Its pick ends now (unanswered): it mustn't outlive the client. */
+	if (c->picking) {
+		c->picking = false;
+		color_pick_cancel(c->server, "the client went");
+	}
 	if (c->source != nullptr) {
 		wl_event_source_remove(c->source);
 		c->source = nullptr;
@@ -238,6 +248,31 @@ Value handle(Client *c, const Value &req) {
 		std::string shown = bell_ring(server, first_toplevel(server), any ? &preview : nullptr);
 		return Object{{"ok", true}, {"shown", shown}};
 	}
+	/* A color from the screen (wbconf's eyedropper): the pointer becomes a
+	 * crosshair, and the answer comes with the click ({"ok": true,
+	 * "color": "#rrggbb"}), or an error (cancelled, timed out). */
+	if (cmd == "pick_color") {
+		struct wb_ipc_state *st = c->st;
+		bool started = color_pick_start(server, [c, st](bool ok, const wb::Color &col,
+				const std::string &why) {
+			if (c->closing || !c->picking)
+				return;
+			c->picking = false;
+			if (ok) {
+				char hex[8];
+				snprintf(hex, sizeof hex, "#%02x%02x%02x", col.r, col.g, col.b);
+				reply(c, Object{{"ok", true}, {"color", std::string(hex)}});
+			} else {
+				reply(c, error(why));
+			}
+			if (!flush(c))
+				drop(st, c);
+		});
+		if (!started)
+			return error("a color pick is already on");
+		c->picking = true;
+		return Value(Object{{kLater, true}});
+	}
 	/* Each monitor's name, large, on it (wbconf's Identify). */
 	if (cmd == "identify") {
 		const Value *ms = req.get("ms");
@@ -355,8 +390,10 @@ int on_client(int fd, uint32_t mask, void *data) {
 			Value answer = req && req->object() ? handle(c, *req)
 					: error("not a JSON object");
 			/* The request may have dropped this client (or stopped the
-			 * socket): it's still allocated, just closed. */
-			if (!c->closing)
+			 * socket): it's still allocated, just closed. An answer for
+			 * later (a color pick) is sent when it comes. */
+			bool later = answer.object() != nullptr && answer.object()->count(kLater);
+			if (!c->closing && !later)
 				reply(c, answer);
 		}
 		if (c->in.size() > kMaxRequest)

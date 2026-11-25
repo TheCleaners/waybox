@@ -76,6 +76,8 @@ def answers(req):
     if r == "get_windows":
         return {"ok": True, "windows": [{"id": "a", "app_id": "foot", "focused": False},
                                         {"id": "b", "app_id": "kgx", "focused": True}]}
+    if r == "pick_color":
+        return {"ok": True, "color": "#336699"}
     if r == "bell":
         return {"ok": True, "shown": req.get("flash", "window")}
     if r == "identify":
@@ -104,6 +106,7 @@ try:
     with waybox.connect(fake.path) as wb:
         check(wb.version() == "1.2.3", "version")
         check(wb.identify() == 2, "identify")
+        check(wb.pick_color() == "#336699", "pick_color")
         check(wb.bell(flash="border", width=6) == "border", "bell")
         check(fake.requests[-1] == {"request": "bell", "flash": "border", "width": 6},
               f"bell request: {fake.requests[-1]}")

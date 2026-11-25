@@ -232,7 +232,7 @@
                        { "value": "border", "label": "Flash its window's border" },
                        { "value": "screen", "label": "Flash the screen" },
                        { "value": "osd", "label": "Show a note (no flashing)" } ] },
-        { "id": "waybox.bell.color", "title": "Flash color", "type": "string",
+        { "id": "waybox.bell.color", "title": "Flash color", "type": "color",
           "description": "#rrggbb, or #rrggbbaa with transparency.", "hint": "#ffffff80",
           "keywords": "bell flash colour color", "rc": { "path": "waybox/bell", "attr": "color" } },
         { "id": "waybox.bell.duration", "title": "How long", "type": "enum",

@@ -157,6 +157,14 @@ integrations_test = executable(
   )
 test('integrations', integrations_test)
 
+# wbconf's color fields: their tint and text.
+color_text_test = executable(
+  'color_text_test',
+  ['color_text_test.cpp', 'wb_test_main.cpp', color_text_src, theme_src],
+  include_directories: [inc_dir],
+  )
+test('color_text', color_text_test)
+
 # The bell: its style, its blinks, never strobing.
 bell_style_test = executable(
   'bell_style_test',
@@ -684,6 +692,7 @@ if python.found() and not get_option('tests_only')
     ['bell', 'bell_test.py', [bell_client, vpointer_client], 60],
     ['bell_styles', 'bell_styles_test.py', [bell_client, waybox_msg], 60],
     ['cursor_theme', 'cursor_theme_test.py', [], 60],
+    ['color_pick', 'color_pick_test.py', [waybox_msg, desktop_client], 60],
     ['color_management', 'color_management_test.py', [], 90],
     ['config_errors', 'config_errors_test.py', [], 60],
     ['desktop_popup', 'desktop_popup_test.py', [], 60],
@@ -773,6 +782,8 @@ if python.found() and not get_option('tests_only')
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_outputs', 'wbconf_outputs_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_color', 'wbconf_color_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', desktop_client], 60]]
     integration_tests += [['wbconf_output_manager', 'wbconf_output_manager_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', fake_daemon], 60]]
     integration_tests += [['bell_wbconf', 'bell_styles_test.py',
