@@ -3,6 +3,7 @@ Name=wlsunset
 Category=NightLight
 Comment=Warmer screen colours after sunset
 Exec=wlsunset -l 51.5 -L -0.1
+Version=wlsunset -v
 
 [Option latitude]
 Label=Latitude

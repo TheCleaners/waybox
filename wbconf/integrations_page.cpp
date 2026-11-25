@@ -66,6 +66,14 @@ void program_status(Ui *ui, Ui::ProgramRow *row) {
 		add(_("Not installed"));
 	else if (st.running)
 		add(_("Running"));
+	if (!st.not_installed) {
+		auto v = ui->versions.find(binary);
+		if (v != ui->versions.end() && !v->second.empty()) {
+			char *text_v = g_strdup_printf(_("version %s"), v->second.c_str());
+			add(text_v);
+			g_free(text_v);
+		}
+	}
 	if (st.twice)
 		add(_("also started by your autostart script: it would run twice"));
 	else if (st.from_script)
@@ -77,6 +85,68 @@ void program_status(Ui *ui, Ui::ProgramRow *row) {
 		gtk_widget_add_css_class(GTK_WIDGET(row->status), "warning");
 	else
 		gtk_widget_remove_css_class(GTK_WIDGET(row->status), "warning");
+}
+
+/* ---- versions ------------------------------------------------------------ */
+
+struct VersionJob {
+	Ui *ui;
+	std::string binary;
+	GSubprocess *proc;
+	guint timeout = 0;
+};
+
+void version_done(GObject *source, GAsyncResult *result, gpointer data) {
+	auto *job = static_cast<VersionJob *>(data);
+	char *out = nullptr;
+	g_subprocess_communicate_utf8_finish(G_SUBPROCESS(source), result, &out, nullptr, nullptr);
+	if (job->timeout != 0)
+		g_source_remove(job->timeout);
+	Ui *ui = job->ui;
+	ui->versions[job->binary] = out != nullptr ? wb::version_from_output(out) : "";
+	g_log("wbconf", G_LOG_LEVEL_DEBUG, "version of %s: \"%s\"", job->binary.c_str(),
+			ui->versions[job->binary].c_str());
+	g_free(out);
+	if (ui->window != nullptr)
+		for (auto &row : ui->programs)
+			if (row->in != nullptr && row->in->binary == job->binary && row->status != nullptr)
+				program_status(ui, row.get());
+	g_object_unref(job->proc);
+	delete job;
+}
+
+/* Ask each installed program with a Version= command for its version, in
+ * the background. It runs without the session's display or bus, so a
+ * program that doesn't know the flag and starts can't show up or take
+ * over a service; and it gets three seconds. */
+void fetch_versions(Ui *ui) {
+	for (const wb::Integration &in : ui->integrations) {
+		if (in.version_command.empty() || ui->versions.count(in.binary) || !installed(in.binary))
+			continue;
+		ui->versions[in.binary] = "";
+		gchar **argv = nullptr;
+		if (!g_shell_parse_argv(in.version_command.c_str(), nullptr, &argv, nullptr))
+			continue;
+		GSubprocessLauncher *l = g_subprocess_launcher_new(static_cast<GSubprocessFlags>(
+				G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE |
+				G_SUBPROCESS_FLAGS_STDERR_MERGE));
+		for (const char *var : {"WAYLAND_DISPLAY", "DISPLAY", "WAYLAND_SOCKET"})
+			g_subprocess_launcher_unsetenv(l, var);
+		g_subprocess_launcher_setenv(l, "DBUS_SESSION_BUS_ADDRESS", "disabled:", TRUE);
+		GSubprocess *proc = g_subprocess_launcher_spawnv(l, argv, nullptr);
+		g_object_unref(l);
+		g_strfreev(argv);
+		if (proc == nullptr)
+			continue;
+		auto *job = new VersionJob{ui, in.binary, proc};
+		job->timeout = g_timeout_add_seconds(3, [](gpointer data) -> gboolean {
+			auto *job = static_cast<VersionJob *>(data);
+			job->timeout = 0;
+			g_subprocess_force_exit(job->proc);
+			return G_SOURCE_REMOVE;
+		}, job);
+		g_subprocess_communicate_utf8_async(proc, nullptr, nullptr, version_done, job);
+	}
 }
 
 /* ---- moving a program from the autostart script to Waybox -------------- */
@@ -586,6 +656,7 @@ void load_integrations_data(Ui *ui, const wb::WayboxSettings &s) {
 		binaries.push_back(in.binary);
 	ui->in_autostart = wb::programs_in_script(autostart_text(), binaries);
 	load_startup_sources(ui);
+	fetch_versions(ui);
 	ui->listed_integrations.clear();
 	for (const wb::StartupSetting &p : s.startup)
 		if (const wb::Integration *in = wb::match_integration(ui->integrations, p.name, p.command))

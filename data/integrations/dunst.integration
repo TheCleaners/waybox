@@ -3,3 +3,4 @@ Name=Dunst
 Category=Notifications
 Comment=Notification daemon
 Exec=dunst
+Version=dunst -v

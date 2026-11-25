@@ -156,3 +156,26 @@ WB_TEST(program_status_says_where_a_program_comes_from) {
 	st = wb::program_status(false, false, false, false);
 	WB_CHECK(st.not_installed && !st.running);
 }
+
+WB_TEST(version_from_real_outputs) {
+	/* As the programs print it. */
+	WB_CHECK(wb::version_from_output("swaybg version 1.2.2\n") == "1.2.2");
+	WB_CHECK(wb::version_from_output("Waybar v0.15.0\n") == "0.15.0");
+	WB_CHECK(wb::version_from_output("ibus-daemon - Version 1.5.35\n") == "1.5.35");
+	WB_CHECK(wb::version_from_output("Dunst - A customizable and lightweight notification-daemon "
+			"1.13.2 (2026-03-18)\n") == "1.13.2");
+	WB_CHECK(wb::version_from_output("\"No Flameshot translation found for C\"\n"
+			"Flameshot v14.0.0 (Debian-14.0.0-4)\nCompiled with Qt 6.10.2\n") == "14.0.0");
+	WB_CHECK(wb::version_from_output("version\t0.7.0\n") == "0.7.0");
+	WB_CHECK(wb::version_from_output("gammastep 2.0.11\n") == "2.0.11");
+	WB_CHECK(wb::version_from_output("usage: foo [-h]\n").empty());
+	WB_CHECK(wb::version_from_output("").empty());
+}
+
+WB_TEST(parse_version_command) {
+	auto in = wb::parse_integration("swaybg", "[Integration]\nName=swaybg\nExec=swaybg\n"
+			"Version=swaybg -v\n");
+	WB_CHECK(in && in->version_command == "swaybg -v");
+	auto none = wb::parse_integration("mako", "[Integration]\nName=mako\nExec=mako\n");
+	WB_CHECK(none && none->version_command.empty());
+}
