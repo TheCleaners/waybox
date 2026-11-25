@@ -505,6 +505,23 @@ if python.found() and not get_option('tests_only')
     dependencies: [dependency('wayland-client')],
     )
 
+  # pointer-warp and alpha-modifier.
+  warp_xml = meson.project_source_root() / 'protocol' / 'pointer-warp-v1.xml'
+  alpha_xml = wl_protocol_dir / 'staging/alpha-modifier/alpha-modifier-v1.xml'
+  warp_alpha_client = executable(
+    'warp_alpha_client',
+    [
+      'integration' / 'warp_alpha_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml),
+      wayland_scanner_client.process(warp_xml),
+      wayland_scanner_code.process(warp_xml),
+      wayland_scanner_client.process(alpha_xml),
+      wayland_scanner_code.process(alpha_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # Session restore: a window that gets a session and names itself in it.
   session_xml = meson.project_source_root() / 'protocol' / 'xdg-session-management-v1.xml'
   session_client = executable(
@@ -637,6 +654,7 @@ if python.found() and not get_option('tests_only')
     ['pipe_menu', 'pipe_menu_test.py', [], 60],
     ['apps_menu', 'apps_menu_test.py', [], 60],
     ['session_restore', 'session_restore_test.py', [session_client], 90],
+    ['warp_alpha', 'warp_alpha_test.py', [warp_alpha_client], 60],
     ['placement', 'placement_test.py', [default_rc], 60],
     ['pointer_grab', 'pointer_grab_test.py', [constraint_client, layer_client, vpointer_client], 60],
     ['pointer_lock', 'pointer_lock_test.py', [constraint_client], 60],

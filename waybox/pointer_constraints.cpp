@@ -1,5 +1,7 @@
 #include "waybox/pointer_constraints.h"
 
+#include <ctime>
+
 #include "waybox/wlroots.hpp"
 
 #include "waybox/listener.hpp"
@@ -7,6 +9,8 @@
 #include "waybox/seat.h"
 #include "waybox/server.h"
 #include "waybox/session_lock.h"
+
+#include "pointer-warp-v1-protocol.h"
 
 namespace {
 
@@ -88,7 +92,66 @@ bool constraints_apply(struct wb_server *server) {
 
 }  // namespace
 
+namespace {
+
+/* ---- pointer-warp-v1: a focused window moves the pointer ---------------- */
+
+void warp_destroy(struct wl_client *, struct wl_resource *resource) {
+	wl_resource_destroy(resource);
+}
+
+/* Honoured only for the surface with pointer focus, with a serial this
+ * client was sent, to a point inside the surface. */
+void warp_pointer(struct wl_client *client, struct wl_resource *resource,
+		struct wl_resource *surface_res, struct wl_resource *pointer_res,
+		wl_fixed_t fx, wl_fixed_t fy, uint32_t serial) {
+	auto *server = static_cast<struct wb_server *>(wl_resource_get_user_data(resource));
+	struct wlr_seat *seat = server->seat->seat;
+	struct wlr_surface *surface = wlr_surface_from_resource(surface_res);
+	struct wlr_seat_client *sc = wlr_seat_client_from_pointer_resource(pointer_res);
+	if (surface == nullptr || sc == nullptr || sc->seat != seat || sc->client != client)
+		return;
+	if (seat->pointer_state.focused_surface != surface ||
+			!wlr_seat_client_validate_event_serial(sc, serial))
+		return;
+	double x = wl_fixed_to_double(fx), y = wl_fixed_to_double(fy);
+	if (x < 0 || y < 0 || x >= surface->current.width || y >= surface->current.height)
+		return;
+	/* A menu or the switcher has the pointer: not now. */
+	if (server->menu != nullptr || session_locked(server))
+		return;
+	double ox, oy;
+	surface_origin(server, &ox, &oy);
+	wlr_cursor_warp(server->cursor->cursor, nullptr, ox + x, oy + y);
+	/* A motion to the client (wlr_seat_pointer_warp() only moves the
+	 * seat's idea of where it is, without telling it). */
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	uint32_t msec = static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000);
+	wlr_seat_pointer_notify_motion(seat, msec, x, y);
+	wlr_seat_pointer_notify_frame(seat);
+	wlr_log(WLR_INFO, "wb-pointer-warp %.0f %.0f", x, y);
+}
+
+const struct wp_pointer_warp_v1_interface warp_impl = {
+	.destroy = warp_destroy,
+	.warp_pointer = warp_pointer,
+};
+
+void bind_warp(struct wl_client *client, void *data, uint32_t version, uint32_t id) {
+	struct wl_resource *r = wl_resource_create(client, &wp_pointer_warp_v1_interface,
+			static_cast<int>(version), id);
+	if (r == nullptr) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(r, &warp_impl, data, nullptr);
+}
+
+}  // namespace
+
 void init_pointer_constraints(struct wb_server *server) {
+	wl_global_create(server->wl_display, &wp_pointer_warp_v1_interface, 1, server, bind_warp);
 	server->relative_pointer_manager =
 			wlr_relative_pointer_manager_v1_create(server->wl_display);
 	server->pointer_constraints =

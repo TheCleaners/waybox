@@ -43,6 +43,7 @@ protocols = [
   'wlr-data-control-unstable-v1.xml',
   # Vendored: newer than the wayland-protocols Waybox needs.
   'xdg-session-management-v1.xml',
+  'pointer-warp-v1.xml',
 ]
 
 client_protocols = [
