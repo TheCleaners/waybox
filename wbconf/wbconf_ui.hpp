@@ -149,8 +149,11 @@ struct Ui {
 		bool updating = false;
 	} im;
 
-	/* Live theme preview (redrawn when the theme/fonts change). */
+	/* Live theme preview (redrawn when the theme/fonts change), and a
+	 * thumbnail per theme in the list, as ObConf has. */
 	GtkWidget *preview = nullptr;
+	std::map<std::string, wb::Theme> theme_cache;
+	std::vector<GtkWidget *> theme_thumbs;
 
 	/* The settings from the schema, one row each (see settings_view.cpp). */
 	struct SettingRow {
@@ -230,13 +233,10 @@ std::string selected_value(GtkDropDown *dd, const std::vector<std::string> &valu
 std::optional<std::string> font_value(const FontPicker *p);
 void font_set(FontPicker *p, const std::optional<std::string> &v);
 void to_cairo(cairo_t *cr, const wb::Color &c);
-void preview_glyph(cairo_t *cr, double cx, double cy, double s, int kind,
-		const wb::Color &fg);
-int preview_titlebar(cairo_t *cr, const wb::Theme &theme, bool active,
-		int x, int y, int w, const char *title);
 void preview_draw(GtkDrawingArea *, cairo_t *cr, int width, int height,
 		gpointer data);
 void preview_refresh(Ui *ui);
+void thumb_draw(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data);
 std::set<std::string> running_processes();
 bool is_running(Ui *ui, const std::string &binary);
 bool installed(const std::string &binary);
@@ -293,6 +293,8 @@ bool rows_unsaved(Ui *ui);
 void reset_all_rows(Ui *ui);
 /* A setting's value now (or its default), by id. */
 std::string setting_value(Ui *ui, const std::string &id);
+/* The value set now, or nullopt when unset (so automatic, not the default). */
+std::optional<std::string> setting_if_set(Ui *ui, const std::string &id);
 void focus_category(Ui *ui, const std::string &category_id);
 /* Save enabled and the status line counting changes, when anything differs
  * from rc.xml. */

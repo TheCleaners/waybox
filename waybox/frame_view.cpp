@@ -9,6 +9,7 @@
 #include <cairo.h>
 
 #include "waybox/render.hpp"
+#include "waybox/titlebar_draw.hpp"
 
 namespace wb {
 
@@ -19,96 +20,6 @@ void to_rgba(const Color &c, float out[4]) {
 	out[1] = c.g / 255.0f;
 	out[2] = c.b / 255.0f;
 	out[3] = c.a / 255.0f;
-}
-
-/* Draw a button glyph (iconify/maximize/close) centred in `r`. */
-void paint_button_glyph(cairo_t *cr, const Rect &r, FrameButton kind,
-		bool on, const Color &fg) {
-	bool maximized = on;
-	double cx = r.x + r.width / 2.0;
-	double cy = r.y + r.height / 2.0;
-	double s = r.width * 0.28;  /* glyph half-extent */
-	cairo_set_source_rgba(cr, fg.r / 255.0, fg.g / 255.0, fg.b / 255.0,
-			fg.a / 255.0);
-	cairo_set_line_width(cr, 1.5);
-	switch (kind) {
-	case FrameButton::Iconify:
-		cairo_move_to(cr, cx - s, cy + s);
-		cairo_line_to(cr, cx + s, cy + s);
-		cairo_stroke(cr);
-		break;
-	case FrameButton::Maximize:
-		cairo_rectangle(cr, cx - s, cy - s, 2 * s, 2 * s);
-		if (maximized) {  /* a second offset square hints "restore" */
-			cairo_move_to(cr, cx - s + 3, cy - s - 3);
-			cairo_line_to(cr, cx + s + 3, cy - s - 3);
-			cairo_line_to(cr, cx + s + 3, cy + s - 3);
-		}
-		cairo_stroke(cr);
-		break;
-	case FrameButton::Close:
-		cairo_move_to(cr, cx - s, cy - s);
-		cairo_line_to(cr, cx + s, cy + s);
-		cairo_move_to(cr, cx + s, cy - s);
-		cairo_line_to(cr, cx - s, cy + s);
-		cairo_stroke(cr);
-		break;
-	case FrameButton::Shade: {
-		/* A rolled-up blind: a bar at the top, with an arrow up (roll up)
-		 * or, rolled up, down (roll down). */
-		cairo_move_to(cr, cx - s, cy - s);
-		cairo_line_to(cr, cx + s, cy - s);
-		double a = s * 0.6;
-		double tip = on ? cy + s : cy - s * 0.2;
-		double base = on ? cy + s * 0.2 : cy + s;
-		cairo_move_to(cr, cx - a, base);
-		cairo_line_to(cr, cx, tip);
-		cairo_line_to(cr, cx + a, base);
-		cairo_stroke(cr);
-		break;
-	}
-	case FrameButton::AllDesktops: {
-		/* Four desktops; filled when the window is on all of them. */
-		double q = s * 0.8;
-		for (int i = 0; i < 4; i++) {
-			double x0 = (i % 2 == 0) ? cx - s : cx + s - q;
-			double y0 = (i / 2 == 0) ? cy - s : cy + s - q;
-			cairo_rectangle(cr, x0, y0, q, q);
-		}
-		if (on)
-			cairo_fill(cr);
-		else
-			cairo_stroke(cr);
-		break;
-	}
-	case FrameButton::Icon: {
-		/* No icon: a small window (frame with a title strip). */
-		double e = r.width * 0.32;
-		cairo_rectangle(cr, cx - e, cy - e, 2 * e, 2 * e);
-		cairo_move_to(cr, cx - e, cy - e + 3);
-		cairo_line_to(cr, cx + e, cy - e + 3);
-		cairo_stroke(cr);
-		break;
-	}
-	}
-}
-
-/* Draw `icon` scaled to fit `r`, keeping its aspect ratio. */
-void paint_icon(cairo_t *cr, const Rect &r, cairo_surface_t *icon) {
-	int iw = cairo_image_surface_get_width(icon);
-	int ih = cairo_image_surface_get_height(icon);
-	if (iw <= 0 || ih <= 0)
-		return;
-	double scale = std::min(static_cast<double>(r.width) / iw,
-			static_cast<double>(r.height) / ih);
-	cairo_save(cr);
-	cairo_translate(cr, r.x + (r.width - iw * scale) / 2.0,
-			r.y + (r.height - ih * scale) / 2.0);
-	cairo_scale(cr, scale, scale);
-	cairo_set_source_surface(cr, icon, 0, 0);
-	cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
-	cairo_paint(cr);
-	cairo_restore(cr);
 }
 
 }  // namespace
@@ -248,73 +159,15 @@ void FrameView::layout() {
 void FrameView::render_titlebar() {
 	if (!titlebar_)
 		return;
-	const FrameStyle &s = style();
-	cairo_t *cr = titlebar_->cr();
-	int w = titlebar_->width();
-	int h = titlebar_->height();
-
-	paint_fill(cr, 0, 0, w, h, s.title_bar.fill);
-
-	/* The label fills the space between the left and right button groups.
-	 * Button rects are frame-local; shift them into titlebar-local (the
-	 * titlebar canvas starts at the titlebar origin). */
-	std::vector<Rect> brects = button_rects();
-	int tb_x = titlebar_rect(outer_w_, metrics_).x;  /* = border */
-	int label_left = metrics_.title_pad;
-	int label_right = w;
-	if (left_ > 0 && left_ <= static_cast<int>(brects.size())) {
-		const Rect &last = brects[left_ - 1];
-		label_left = last.x + last.width - tb_x + metrics_.title_pad;
-	}
-	if (left_ < static_cast<int>(brects.size()))
-		label_right = brects[left_].x - tb_x - metrics_.title_pad;
-
-	int label_x = label_left;
-	TextExtents text = measure_text(title_, s.label.font);
-	/* Round to the nearest pixel (bias down) so the label isn't a pixel high
-	 * when the leftover vertical space is odd. */
-	int text_y = (h - text.height + 1) / 2;
-	int room = label_right - label_left;
-	if (s.label.justify == Justify::Center)
-		label_x = label_left + (room - text.width) / 2;
-	else if (s.label.justify == Justify::Right)
-		label_x = label_right - text.width;
-	if (label_x < label_left)
-		label_x = label_left;
-	/* A long title is cut with an ellipsis before the buttons. */
-	if (room > 0)
-		paint_text(cr, label_x, text_y, title_, s.label.color, s.label.font, room);
-
-	for (size_t i = 0; i < brects.size() && i < buttons_.size(); ++i) {
-		/* button rects are frame-local; convert to titlebar-canvas-local. */
-		Rect r = brects[i];
-		r.x -= tb_x;
-		r.y -= titlebar_rect(outer_w_, metrics_).y;
-		if (buttons_[i] == FrameButton::Icon) {
-			/* Not a push button: no hover or pressed look. */
-			if (icon_ != nullptr)
-				paint_icon(cr, r, icon_);
-			else
-				paint_button_glyph(cr, r, buttons_[i], maximized_,
-						s.button.for_state(WidgetState::Normal).fg);
-			continue;
-		}
-		WidgetState ws = WidgetState::Normal;
-		if (static_cast<int>(i) == pressed_button_)
-			ws = WidgetState::Pressed;
-		else if (static_cast<int>(i) == hovered_button_)
-			ws = WidgetState::Hover;
-		const StateStyle &bs = s.button.for_state(ws);
-		/* The normal button background is the titlebar (parentrelative), already
-		 * painted; only fill when hovered/pressed so the accent shows. */
-		if (ws != WidgetState::Normal)
-			paint_fill(cr, r.x, r.y, r.width, r.height, bs.fill);
-		bool on = buttons_[i] == FrameButton::Shade ? shaded_
-				: buttons_[i] == FrameButton::AllDesktops ? omnipresent_
-				: maximized_;
-		paint_button_glyph(cr, r, buttons_[i], on, bs.fg);
-	}
-
+	TitlebarState st;
+	st.title = title_;
+	st.maximized = maximized_;
+	st.shaded = shaded_;
+	st.omnipresent = omnipresent_;
+	st.icon = icon_;
+	st.hovered = hovered_button_;
+	st.pressed = pressed_button_;
+	draw_titlebar(titlebar_->cr(), outer_w_, metrics_, style(), buttons_, left_, st);
 	titlebar_->commit();
 }
 
