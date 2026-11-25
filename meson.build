@@ -134,6 +134,12 @@ if not tests_only
   if rsvg.found()
     add_project_arguments('-DHAVE_RSVG', language: 'cpp')
   endif
+  # Lua scripting (optional): LuaJIT, else Lua 5.5 or 5.4.
+  lua = dependency('luajit', 'lua5.5', 'lua-5.5', 'lua55', 'lua5.4', 'lua-5.4', 'lua54',
+                   required: get_option('lua'))
+  if lua.found()
+    add_project_arguments('-DHAVE_LUA', language: 'cpp')
+  endif
 
   # render.cpp needs cairo/pango (not wlroots), so it is shared by the
   # compositor and the pixel test; only defined in the full build.

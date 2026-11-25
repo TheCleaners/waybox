@@ -4,6 +4,7 @@
 #include <optional>
 #include <vector>
 
+#include "script.h"
 #include "waybox/stall.hpp"
 #include "idle.h"
 #include "shortcuts_inhibit.h"
@@ -511,6 +512,10 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 			return false;
 		return true;
 	}
+
+	/* Keys scripts bound (wb.bind) come before rc.xml's. */
+	if (server->active_keychain == nullptr && script_key_binding(server, sym, modifiers))
+		return true;
 
 	/* Resolve against the key-binding tree, tracking chain state. While a chain
 	 * is active we match against the current node's children, otherwise the

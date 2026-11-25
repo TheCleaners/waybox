@@ -113,6 +113,11 @@ struct wb_config {
 	/* rc.xml <waybox><bell flash="yes" command="..."/>: what a program
 	 * ringing the bell does. Nothing unless set. */
 	bool bell_flash = false;
+	/* rc.xml <waybox><scripts budget="10"><script>...: Lua scripts to load
+	 * (after $XDG_CONFIG_HOME/waybox/init.lua); budget: milliseconds a call
+	 * may run. */
+	std::vector<std::string> scripts;
+	int script_budget_ms = 10;
 	std::string bell_command;
 
 	/* rc.xml <waybox><ipc enabled="yes"/>: the scripting socket. Off
@@ -151,4 +156,8 @@ bool init_config(struct wb_server *server);
  * broken, so the caller keeps the current one. */
 struct wb_config *reload_config(struct wb_server *server);
 void deinit_config(struct wb_config *config);
+/* "W-S-Return" (rc.xml's key syntax) into a keysym and modifier mask;
+ * sym 0 if it isn't one. */
+void wb_parse_key_combo(const char *spec, uint32_t *sym, uint32_t *modifiers);
+
 #endif

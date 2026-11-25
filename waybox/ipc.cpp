@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "ipc.h"
+#include "script.h"
 #include "waybox/seat.h"
 #include "waybox/session_lock.h"
 #include "version.h"
@@ -452,6 +453,7 @@ void ipc_finish(struct wb_server *server) {
 }
 
 void ipc_window_event(struct wb_toplevel *toplevel, const char *change) {
+	script_window_event(toplevel, change);
 	if (toplevel->server->ipc == nullptr)
 		return;
 	send_event(toplevel->server, "window",
@@ -459,6 +461,7 @@ void ipc_window_event(struct wb_toplevel *toplevel, const char *change) {
 }
 
 void ipc_desktop_event(struct wb_server *server) {
+	script_desktop_event(server);
 	if (server->ipc == nullptr)
 		return;
 	send_event(server, "desktop", Object{{"change", "switch"},
@@ -466,6 +469,7 @@ void ipc_desktop_event(struct wb_server *server) {
 }
 
 void ipc_output_event(struct wb_server *server, struct wlr_output *output, const char *change) {
+	script_output_event(server, output->name, change);
 	if (server->ipc == nullptr)
 		return;
 	send_event(server, "output", Object{{"change", change}, {"name", output->name}});
