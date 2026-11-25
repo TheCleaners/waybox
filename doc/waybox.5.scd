@@ -167,10 +167,16 @@ The contexts are:
   server-side frame.
 - *Frame*: anywhere on a window.
 
-As in Openbox, a *Desktop* binding runs before the click reaches a desktop
-program, and that program gets the clicks no binding takes. A *Root* binding
-leaves desktop programs alone. To keep the root menu on right-click with a
-desktop-icon program running, bind it in *Desktop*.
+*Desktop* bindings on a desktop program behave as in Openbox:
+- **They run, and the program still gets the click**, as a window does for
+  *Client* bindings. A configuration from Openbox, with *Focus*, *Raise* or
+  desktop switching on the wheel in *Desktop*, leaves desktop icons working.
+- **A binding that opens a menu (*ShowMenu*) is the exception:** that click
+  goes to the menu only, so the program doesn't open its own under it. To
+  keep the root menu on right-click with a desktop-icon program running,
+  bind *ShowMenu* in *Desktop*.
+
+A *Root* binding leaves desktop programs alone.
 
 For a window context, the window is focused before the actions run. Clicks on
 panels go to the panel, and the titlebar buttons work on their own; without an

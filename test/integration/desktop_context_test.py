@@ -3,19 +3,21 @@
 
 A stand-in for a desktop-icon program covers the output in the background
 layer; it prints the buttons it gets.
-1. With a Desktop binding for the right button: a right-click runs it,
-   and the program doesn't get the press; a left-click (unbound) reaches
-   the program.
+1. Desktop bindings as Openbox configs have them: a left-press action (as
+   Openbox's Focus, Raise) and the wheel run, and the program still gets
+   the click and the scroll; a right-press ShowMenu opens the root menu,
+   and then the program doesn't get the press (the menu has the pointer).
 2. With only a Root binding (as most configs have): the program gets its
    right-click; the Root binding doesn't run on it.
 3. The bottom layer counts as the desktop too; the top layer (a panel)
    doesn't.
 4. A Desktop binding also covers the empty desktop (Root), as in Openbox.
 5. With swaybg (an empty input region), the empty desktop is still Root.
-Bindings run Execute actions that leave marker files.
-Skips (77) without wlrctl or a headless display.
+Bindings run Execute actions that leave marker files, or open the menu
+(seen in the log).
+Skips (77) without wlrctl, wtype or a headless display.
 
-Usage: desktop_context_test.py <waybox> <desktop_client>
+Usage: desktop_context_test.py <waybox> <desktop_client> <vpointer_client>
 """
 import os
 import queue
@@ -39,9 +41,20 @@ RC = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-def context(name, button, mark):
-    return (f'<context name="{name}"><mousebind button="{button}" action="Press">'
+MENU_XML = """<?xml version="1.0"?>
+<openbox_menu><menu id="root-menu" label="Waybox"><item label="Nothing"/></menu></openbox_menu>
+"""
+
+
+def context(name, button, mark, action="Press"):
+    return (f'<context name="{name}"><mousebind button="{button}" action="{action}">'
             f'<action name="Execute"><execute>touch {mark}</execute></action>'
+            f'</mousebind></context>')
+
+
+def menu_context(name, button):
+    return (f'<context name="{name}"><mousebind button="{button}" action="Press">'
+            f'<action name="ShowMenu"><menu>root-menu</menu></action>'
             f'</mousebind></context>')
 
 
@@ -81,6 +94,8 @@ def session(waybox, workdir, tag, contexts, steps):
     os.makedirs(os.path.join(cfg, "waybox"))
     with open(os.path.join(cfg, "waybox", "rc.xml"), "w") as f:
         f.write(RC.format(contexts=contexts))
+    with open(os.path.join(cfg, "waybox", "menu.xml"), "w") as f:
+        f.write(MENU_XML)
     runtime = os.path.join(workdir, f"run-{tag}")
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
@@ -108,8 +123,12 @@ def session(waybox, workdir, tag, contexts, steps):
         sys.exit(SKIP)
     cenv = dict(env, WAYLAND_DISPLAY=sock)
     problems = []
+
+    def menus():
+        log.flush()
+        return open(log_path).read().count("wb-menu open root-menu")
     try:
-        steps(cenv, problems)
+        steps(cenv, problems, menus)
     except (RuntimeError, OSError) as e:
         problems.append(str(e))
     finally:
@@ -128,19 +147,21 @@ def session(waybox, workdir, tag, contexts, steps):
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print(__doc__)
         sys.exit(2)
-    waybox, client_bin = sys.argv[1:]
-    if shutil.which("wlrctl") is None:
-        print("SKIP: wlrctl not found", file=sys.stderr)
-        sys.exit(SKIP)
+    waybox, client_bin, vpointer_bin = sys.argv[1:]
+    for tool in ("wlrctl", "wtype"):
+        if shutil.which(tool) is None:
+            print(f"SKIP: {tool} not found", file=sys.stderr)
+            sys.exit(SKIP)
     workdir = tempfile.mkdtemp(prefix="waybox-desktopctx-", dir="/tmp")
     desk_mark = os.path.join(workdir, "desktop-mark")
     root_mark = os.path.join(workdir, "root-mark")
+    scroll_mark = os.path.join(workdir, "scroll-mark")
 
     def clear():
-        for m in (desk_mark, root_mark):
+        for m in (desk_mark, root_mark, scroll_mark):
             if os.path.exists(m):
                 os.remove(m)
 
@@ -160,45 +181,66 @@ def main():
         time.sleep(0.3)
         return c
 
-    def desktop_binding(cenv, problems):
+    def close_menu(cenv):
+        subprocess.run(["wtype", "-k", "Escape"], env=cenv, capture_output=True)
+        time.sleep(0.3)
+
+    def desktop_binding(cenv, problems, menus):
         c = start(cenv, "background")
-        clear()
-        click(cenv, "right")
-        got = c.drain()
-        if not os.path.exists(desk_mark):
-            problems.append("a right-click on the desktop program didn't run the Desktop binding")
-        if f"button pressed {BTN_RIGHT}" in got:
-            problems.append(f"the program got a press the Desktop binding took: {got}")
-        if os.path.exists(root_mark):
-            problems.append("the Root binding ran on the desktop program")
+        # Openbox-style non-menu bindings: they run, the program still gets it.
         clear()
         click(cenv, "left")
         got = c.drain()
+        if not os.path.exists(desk_mark):
+            problems.append("a Desktop left-press binding didn't run")
         if f"button pressed {BTN_LEFT}" not in got or f"button released {BTN_LEFT}" not in got:
-            problems.append(f"an unbound left-click didn't reach the program: {got}")
+            problems.append(f"a Desktop binding (not a menu) kept the click from the program: {got}")
+        # A real wheel notch (wlrctl's scrolling isn't a wheel's).
+        subprocess.run([vpointer_bin], input="scroll 1\n", env=cenv, capture_output=True,
+                       text=True, timeout=10)
+        time.sleep(0.5)
+        got = c.drain()
+        if not os.path.exists(scroll_mark):
+            problems.append("a Desktop wheel binding didn't run")
+        if "axis" not in got:
+            problems.append(f"a Desktop wheel binding kept the scroll from the program: {got}")
+        # A menu binding: the menu opens, and the program doesn't get the press.
+        before = menus()
+        click(cenv, "right")
+        got = c.drain()
+        if menus() != before + 1:
+            problems.append("a Desktop right-click didn't open the root menu")
+        if f"button pressed {BTN_RIGHT}" in got:
+            problems.append(f"the program got the press that opened the menu: {got}")
+        if os.path.exists(root_mark):
+            problems.append("the Root binding ran on the desktop program")
+        close_menu(cenv)
         c.proc.kill()
         c.proc.wait()
         time.sleep(0.3)
         # 4. With no desktop program, the Desktop binding covers the empty desktop.
-        clear()
+        before = menus()
         click(cenv, "right")
-        if not os.path.exists(desk_mark):
+        if menus() != before + 1:
             problems.append("a Desktop binding didn't cover the empty desktop")
+        close_menu(cenv)
         # 3. Bottom counts; top doesn't.
         for layer, counts in (("bottom", True), ("top", False)):
             c = start(cenv, layer)
-            clear()
+            before = menus()
             click(cenv, "right")
             got = c.drain()
-            if counts and not os.path.exists(desk_mark):
-                problems.append(f"the {layer} layer wasn't the desktop")
-            if not counts and (os.path.exists(desk_mark) or f"button pressed {BTN_RIGHT}" not in got):
+            opened = menus() != before
+            if counts and (not opened or f"button pressed {BTN_RIGHT}" in got):
+                problems.append(f"the {layer} layer wasn't the desktop: {got}")
+            if not counts and (opened or f"button pressed {BTN_RIGHT}" not in got):
                 problems.append(f"the {layer} layer was taken as the desktop: {got}")
+            close_menu(cenv)
             c.proc.kill()
             c.proc.wait()
             time.sleep(0.3)
 
-    def root_only(cenv, problems):
+    def root_only(cenv, problems, menus):
         c = start(cenv, "background")
         clear()
         click(cenv, "right")
@@ -228,7 +270,10 @@ def main():
             bg.wait()
 
     failures = session(waybox, workdir, "desktop",
-                       context("Desktop", "Right", desk_mark) + context("Root", "Right", root_mark),
+                       context("Desktop", "Left", desk_mark)
+                       + context("Desktop", "Down", scroll_mark, "Click")
+                       + menu_context("Desktop", "Right")
+                       + context("Root", "Right", root_mark),
                        desktop_binding)
     failures += session(waybox, workdir, "root", context("Root", "Right", root_mark), root_only)
     for f in failures:

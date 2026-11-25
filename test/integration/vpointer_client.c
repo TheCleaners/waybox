@@ -1,10 +1,12 @@
 /*
  * Virtual pointer for tests that need a held button (wlrctl only clicks).
- * Commands on stdin, one per line: "move DX DY", "press", "release".
+ * Commands on stdin, one per line: "move DX DY", "press", "release",
+ * "scroll N" (N wheel notches down; negative: up).
  * Prints "ok" after each, once the compositor has processed it.
  */
 #include <linux/input-event-codes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <wayland-client.h>
 
@@ -50,6 +52,12 @@ int main(void) {
 			zwlr_virtual_pointer_v1_button(ptr, t, BTN_LEFT, WL_POINTER_BUTTON_STATE_PRESSED);
 		} else if (strncmp(line, "release", 7) == 0) {
 			zwlr_virtual_pointer_v1_button(ptr, t, BTN_LEFT, WL_POINTER_BUTTON_STATE_RELEASED);
+		} else if (strncmp(line, "scroll", 6) == 0) {
+			/* A mouse wheel: its source, and whole notches. */
+			int n = atoi(line + 6);
+			zwlr_virtual_pointer_v1_axis_source(ptr, WL_POINTER_AXIS_SOURCE_WHEEL);
+			zwlr_virtual_pointer_v1_axis_discrete(ptr, t, WL_POINTER_AXIS_VERTICAL_SCROLL,
+					wl_fixed_from_int(15 * n), n);
 		} else {
 			continue;
 		}
