@@ -59,7 +59,7 @@ def main():
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
                XDG_CONFIG_HOME=cfg, XDG_RUNTIME_DIR=runtime, WB_RC_XML="",
-               WB_MENU_XML="", ASAN_OPTIONS="detect_leaks=1:exitcode=99",
+               WB_MENU_XML="", ASAN_OPTIONS=("detect_leaks=1:" if sys.platform.startswith("linux") else "") + "exitcode=99",
                QT_IM_MODULE="session-value",
                # Never the user's bus: Waybox passes the variables to D-Bus
                # and systemd (dbus-update-activation-environment).

@@ -8,18 +8,8 @@ namespace wbconf {
  * characters). */
 std::set<std::string> running_processes() {
 	std::set<std::string> names;
-	DIR *d = opendir("/proc");
-	if (d == nullptr)
-		return names;
-	while (struct dirent *e = readdir(d)) {
-		if (e->d_name[0] < '0' || e->d_name[0] > '9')
-			continue;
-		std::ifstream f(std::string("/proc/") + e->d_name + "/comm");
-		std::string comm;
-		if (std::getline(f, comm))
-			names.insert(comm);
-	}
-	closedir(d);
+	for (const ProcessInfo &p : list_processes())
+		names.insert(p.name);
 	return names;
 }
 

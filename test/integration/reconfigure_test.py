@@ -43,7 +43,7 @@ def rc_xml(theme, sigmask_out):
   {theme_xml}
   <keyboard>
     <keybind key="W-x">
-      <action name="Execute"><execute>grep SigBlk /proc/self/status &gt; {sigmask_out}</execute></action>
+      <action name="Execute"><execute>ps -o sigmask= -p $$ &gt; {sigmask_out}</execute></action>
     </keybind>
   </keyboard>
   <applications>
@@ -94,7 +94,7 @@ def main():
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
                XDG_CONFIG_HOME=cfg, XDG_DATA_HOME=data, XDG_RUNTIME_DIR=runtime,
-               ASAN_OPTIONS="detect_leaks=1:exitcode=99")
+               ASAN_OPTIONS=("detect_leaks=1:" if sys.platform.startswith("linux") else "") + "exitcode=99")
     env.pop("WAYLAND_DISPLAY", None)
 
     log_path = os.path.join(workdir, "waybox.log")
@@ -154,7 +154,7 @@ def main():
                            env=cenv, capture_output=True)
             time.sleep(0.8)
             mask = open(sigmask_out).read().split() if os.path.exists(sigmask_out) else []
-            if len(mask) != 2 or int(mask[1], 16) != 0:
+            if len(mask) != 1 or int(mask[0], 16) != 0:
                 failures.append(f"spawned program has blocked signals: {mask}")
     finally:
         if foot is not None and foot.poll() is None:

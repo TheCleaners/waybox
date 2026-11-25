@@ -52,7 +52,7 @@ def main():
         WLR_RENDERER="pixman",
         XDG_CONFIG_HOME=workdir,
         # Fail hard on any sanitizer finding.
-        ASAN_OPTIONS="detect_leaks=1:exitcode=99",
+        ASAN_OPTIONS=("detect_leaks=1:" if sys.platform.startswith("linux") else "") + "exitcode=99",
     )
     # A private runtime dir so we don't collide with a real session.
     runtime = os.path.join(workdir, "run")

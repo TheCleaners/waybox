@@ -339,9 +339,17 @@ int on_listen(int fd, uint32_t, void *data) {
 	if (cfd < 0)
 		return 0;
 	/* Only the user who runs Waybox (the socket's mode says so too). */
+#ifdef SO_PEERCRED
 	struct ucred cred = {};
 	socklen_t len = sizeof(cred);
-	if (getsockopt(cfd, SOL_SOCKET, SO_PEERCRED, &cred, &len) != 0 || cred.uid != getuid()) {
+	bool ours = getsockopt(cfd, SOL_SOCKET, SO_PEERCRED, &cred, &len) == 0 &&
+			cred.uid == getuid();
+#else
+	uid_t uid = 0;
+	gid_t gid = 0;
+	bool ours = getpeereid(cfd, &uid, &gid) == 0 && uid == getuid();
+#endif
+	if (!ours) {
 		close(cfd);
 		return 0;
 	}

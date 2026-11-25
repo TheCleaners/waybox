@@ -81,7 +81,7 @@ def main():
     os.chmod(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
                XDG_CONFIG_HOME=workdir, XDG_RUNTIME_DIR=runtime,
-               ASAN_OPTIONS="detect_leaks=1:exitcode=99")
+               ASAN_OPTIONS=("detect_leaks=1:" if sys.platform.startswith("linux") else "") + "exitcode=99")
     env.pop("WAYLAND_DISPLAY", None)
 
     log_path = os.path.join(workdir, "waybox.log")

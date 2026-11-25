@@ -47,7 +47,7 @@ def run(waybox, workdir, order):
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
                XDG_CONFIG_HOME=cfg, XDG_RUNTIME_DIR=runtime, WB_RC_XML="",
-               WB_MENU_XML="", ASAN_OPTIONS="detect_leaks=1:exitcode=99")
+               WB_MENU_XML="", ASAN_OPTIONS=("detect_leaks=1:" if sys.platform.startswith("linux") else "") + "exitcode=99")
     env.pop("WAYLAND_DISPLAY", None)
     env.pop("DISPLAY", None)
     log_path = os.path.join(workdir, f"waybox-{order}.log")

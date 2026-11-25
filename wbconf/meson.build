@@ -21,7 +21,7 @@ wbconf_version_h = vcs_tag(
 wbconf_exe = executable(
   'wbconf',
   [wbconf_version_h, 'main.cpp', 'session.cpp', 'monitors.cpp', 'widgets.cpp', 'fonts.cpp',
-   'theme_page.cpp', 'integrations_page.cpp', 'startup_sources_page.cpp', 'gtk_page.cpp', 'settings.cpp', 'settings_view.cpp',
+   'theme_page.cpp', 'integrations_page.cpp', 'startup_sources_page.cpp', 'procs.cpp', 'gtk_page.cpp', 'settings.cpp', 'settings_view.cpp',
    files('../waybox/wbconf.cpp', '../waybox/settings_schema.cpp'), xml_strict_src, theme_src, style_src, widget_src,
    frame_src, geometry_src, titlebar_draw_src,
    render_src, startup_src, integrations_src, startup_sources_src, gtk_appearance_src],
