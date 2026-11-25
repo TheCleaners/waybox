@@ -1,0 +1,805 @@
+/*
+ * Lua scripting: see script.h and waybox-lua(5).
+ *
+ * One Lua state, on the compositor's thread. Safety and cost:
+ * - scripts run as the user, with the whole standard library;
+ * - nothing runs unless a script is there; each event is a vector lookup;
+ * - every call into Lua has a time budget (an instruction-count hook checks
+ *   the clock); a call past it is stopped, and a callback stopped three
+ *   times in a row is turned off;
+ * - errors are logged with the script's file and line, and skipped;
+ * - notification events are delivered on idle, after the change that
+ *   caused them is over, so a script acting on a window can't pull it from
+ *   under the code still handling it; windows are reached through handles
+ *   that look the window up by id each time (nil once it's gone);
+ * - a Reconfigure started from a script reloads scripts only once that
+ *   script has returned.
+ */
+#include "script.h"
+
+#include "waybox/wlroots.hpp"
+#include "config.h"
+
+#ifdef HAVE_LUA
+
+#include <algorithm>
+#include <cstring>
+#include <set>
+#include <unistd.h>
+#include <deque>
+#include <functional>
+#include <list>
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include <lua.hpp>
+
+#include "waybox/action.hpp"
+#include "waybox/keychain.hpp"
+#include "waybox/session_lock.h"
+#include "waybox/stall.hpp"
+#include "waybox/xdg_shell.h"
+
+#if LUA_VERSION_NUM < 502
+#define lua_rawlen lua_objlen
+#endif
+
+namespace {
+
+constexpr int kHookInstructions = 1000;
+constexpr int kStrikes = 3;           /* overruns in a row before a callback goes */
+constexpr int kMaxDepth = 16;         /* scripts calling actions calling scripts */
+const char *kTooLong = "waybox: took longer than its time budget";
+const char *kWindowMeta = "waybox.window";
+
+struct Event {
+	std::string name;        /* "window.new", "desktop.switch", ... */
+	std::string window_id;   /* window events */
+	std::string app_id, title;
+	int desktop = 0;
+	std::string output;
+};
+
+struct Timer {
+	int id = 0;
+	int ref = LUA_NOREF;
+	int period_ms = 0;       /* 0: once */
+	struct wl_event_source *source = nullptr;
+};
+
+struct Binding {
+	uint32_t sym = 0, modifiers = 0;
+	int ref = LUA_NOREF;
+};
+
+struct State {
+	struct wb_server *server = nullptr;
+	lua_State *L = nullptr;
+	std::map<std::string, std::vector<int>> handlers;
+	std::vector<Binding> bindings;
+	std::list<std::unique_ptr<Timer>> timers;
+	int next_timer = 1;
+	std::map<int, int> strikes;
+	std::deque<Event> queue;
+	struct wl_event_source *idle = nullptr;
+	struct wl_event_source *reload_idle = nullptr;
+	int depth = 0;
+	bool reload_pending = false;
+	double deadline = 0;
+	int budget_ms = 10;
+};
+
+State *g = nullptr;
+
+void close_state();
+void open_state(struct wb_server *server);
+
+/* ---- calling into Lua ---------------------------------------------- */
+
+void budget_hook(lua_State *L, lua_Debug *) {
+	if (g != nullptr && g->depth > 0 && wb::monotonic_ms() > g->deadline)
+		luaL_error(L, "%s (%d ms)", kTooLong, g->budget_ms);
+}
+
+int traceback(lua_State *L) {
+	const char *msg = lua_tostring(L, 1);
+	luaL_traceback(L, L, msg ? msg : "(error object is not a string)", 1);
+	return 1;
+}
+
+void forget(int ref);
+
+void schedule_reload();
+
+/* Call the function under `ref` with what `push` pushes; false on an error
+ * (logged). The time budget runs from the outermost call. */
+bool call(int ref, const std::function<int(lua_State *)> &push, const char *what) {
+	if (g == nullptr || g->L == nullptr || ref == LUA_NOREF || g->depth >= kMaxDepth)
+		return false;
+	lua_State *L = g->L;
+	wb::StallScope timing("script");
+	lua_pushcfunction(L, traceback);
+	int base = lua_gettop(L);
+	lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+	int n = push ? push(L) : 0;
+	if (g->depth == 0)
+		g->deadline = wb::monotonic_ms() + g->budget_ms;
+	++g->depth;
+	int rc = lua_pcall(L, n, 0, base);
+	--g->depth;
+	bool ok = rc == 0;
+	if (!ok) {
+		const char *msg = lua_tostring(L, -1);
+		std::string m = msg ? msg : "(no message)";
+		wlr_log(WLR_ERROR, "wb-script error in %s: %s", what, m.c_str());
+		if (m.find(kTooLong) != std::string::npos && ++g->strikes[ref] >= kStrikes) {
+			wlr_log(WLR_ERROR, "wb-script %s turned off: it kept running too long", what);
+			forget(ref);
+		}
+		lua_pop(L, 1);
+	} else {
+		g->strikes.erase(ref);
+	}
+	lua_settop(L, base - 1);
+	if (g->depth == 0 && g->reload_pending)
+		schedule_reload();
+	return ok;
+}
+
+/* A callback that's turned off: out of every list, and released. */
+void forget(int ref) {
+	for (auto &[name, refs] : g->handlers)
+		refs.erase(std::remove(refs.begin(), refs.end(), ref), refs.end());
+	g->bindings.erase(std::remove_if(g->bindings.begin(), g->bindings.end(),
+			[ref](const Binding &b) { return b.ref == ref; }), g->bindings.end());
+	for (auto it = g->timers.begin(); it != g->timers.end(); ++it)
+		if ((*it)->ref == ref) {
+			wl_event_source_remove((*it)->source);
+			g->timers.erase(it);
+			break;
+		}
+	g->strikes.erase(ref);
+	luaL_unref(g->L, LUA_REGISTRYINDEX, ref);
+}
+
+/* ---- windows --------------------------------------------------------- */
+
+struct wb_toplevel *window_by_id(const std::string &id) {
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &g->server->toplevels, link)
+		if (t->mapped && t->foreign_toplevel_handle != nullptr &&
+				id == t->foreign_toplevel_handle->identifier)
+			return t;
+	return nullptr;
+}
+
+void push_window(lua_State *L, struct wb_toplevel *t) {
+	if (t == nullptr || t->foreign_toplevel_handle == nullptr) {
+		lua_pushnil(L);
+		return;
+	}
+	const char *id = t->foreign_toplevel_handle->identifier;
+	size_t len = strlen(id) + 1;
+	auto *ud = static_cast<char *>(lua_newuserdata(L, len));
+	memcpy(ud, id, len);
+	luaL_getmetatable(L, kWindowMeta);
+	lua_setmetatable(L, -2);
+}
+
+const char *window_id_arg(lua_State *L, int index) {
+	return static_cast<const char *>(luaL_checkudata(L, index, kWindowMeta));
+}
+
+/* Run a named action (rc.xml's), on `target` or the focused window. */
+bool run_named_action(lua_State *L, const char *name, int params, struct wb_toplevel *target) {
+	std::string command;
+	if (params > 0 && lua_istable(L, params)) {
+		lua_getfield(L, params, "command");
+		if (lua_isstring(L, -1))
+			command = lua_tostring(L, -1);
+		lua_pop(L, 1);
+	}
+	auto action = wb::make_action(name, command);
+	if (!action)
+		return false;
+	if (params > 0 && lua_istable(L, params)) {
+		lua_getfield(L, params, "to");
+		if (lua_isstring(L, -1))
+			action->to = lua_tostring(L, -1);
+		lua_pop(L, 1);
+		lua_getfield(L, params, "direction");
+		if (lua_isstring(L, -1))
+			action->direction = lua_tostring(L, -1);
+		lua_pop(L, 1);
+		lua_getfield(L, params, "wrap");
+		if (lua_isboolean(L, -1))
+			action->wrap = lua_toboolean(L, -1);
+		lua_pop(L, 1);
+		lua_getfield(L, params, "follow");
+		if (lua_isboolean(L, -1))
+			action->follow = lua_toboolean(L, -1);
+		lua_pop(L, 1);
+	}
+	struct wb_server *server = g->server;
+	if (session_locked(server))
+		return false;  /* as bindings: nothing behind the lock screen */
+	struct wb_toplevel *saved = server->action_window;
+	server->action_window = target;
+	wb::run_action(*action, server);
+	server->action_window = saved;
+	return true;
+}
+
+int window_action(lua_State *L) {
+	std::string id = window_id_arg(L, 1);
+	const char *name = luaL_checkstring(L, 2);
+	struct wb_toplevel *t = window_by_id(id);
+	lua_pushboolean(L, t != nullptr && run_named_action(L, name, lua_gettop(L) >= 3 ? 3 : 0, t));
+	return 1;
+}
+
+int window_focus(lua_State *L) {
+	struct wb_toplevel *t = window_by_id(window_id_arg(L, 1));
+	if (t != nullptr && !session_locked(g->server))
+		focus_toplevel(t);
+	lua_pushboolean(L, t != nullptr);
+	return 1;
+}
+
+/* w:close(), w:raise(), ...: shortcuts for the actions of those names. */
+int window_shortcut(lua_State *L) {
+	const char *name = lua_tostring(L, lua_upvalueindex(1));
+	struct wb_toplevel *t = window_by_id(window_id_arg(L, 1));
+	lua_pushboolean(L, t != nullptr && run_named_action(L, name, 0, t));
+	return 1;
+}
+
+int window_index(lua_State *L) {
+	std::string id = window_id_arg(L, 1);
+	const char *key = luaL_checkstring(L, 2);
+	if (strcmp(key, "id") == 0) {
+		lua_pushstring(L, id.c_str());
+		return 1;
+	}
+	if (strcmp(key, "action") == 0) {
+		lua_pushcfunction(L, window_action);
+		return 1;
+	}
+	if (strcmp(key, "focus") == 0) {
+		lua_pushcfunction(L, window_focus);
+		return 1;
+	}
+	static const std::map<std::string, const char *> shortcuts = {
+		{"close", "Close"}, {"raise", "Raise"}, {"lower", "Lower"},
+		{"minimize", "Iconify"}, {"toggle_maximize", "ToggleMaximize"},
+		{"toggle_fullscreen", "Fullscreen"}, {"toggle_decorations", "ToggleDecorations"},
+		{"toggle_omnipresent", "ToggleOmnipresent"}, {"shade", "Shade"},
+		{"unshade", "Unshade"},
+	};
+	if (auto s = shortcuts.find(key); s != shortcuts.end()) {
+		lua_pushstring(L, s->second);
+		lua_pushcclosure(L, window_shortcut, 1);
+		return 1;
+	}
+	struct wb_toplevel *t = window_by_id(id);
+	if (t == nullptr) {
+		lua_pushnil(L);  /* the window is gone */
+		return 1;
+	}
+	std::string k = key;
+	if (k == "app_id")
+		lua_pushstring(L, view_app_id(t) ? view_app_id(t) : "");
+	else if (k == "title")
+		lua_pushstring(L, view_title(t) ? view_title(t) : "");
+	else if (k == "tag")
+		lua_pushstring(L, t->tag.c_str());
+	else if (k == "x")
+		lua_pushinteger(L, t->geometry.x);
+	else if (k == "y")
+		lua_pushinteger(L, t->geometry.y);
+	else if (k == "width")
+		lua_pushinteger(L, t->geometry.width);
+	else if (k == "height")
+		lua_pushinteger(L, t->geometry.height);
+	else if (k == "desktop")
+		lua_pushinteger(L, t->desktop + 1);
+	else if (k == "omnipresent")
+		lua_pushboolean(L, t->omnipresent);
+	else if (k == "minimized")
+		lua_pushboolean(L, t->minimized);
+	else if (k == "maximized")
+		lua_pushboolean(L, t->max_horz && t->max_vert);
+	else if (k == "fullscreen")
+		lua_pushboolean(L, t->fullscreen);
+	else if (k == "focused")
+		lua_pushboolean(L, first_toplevel(g->server) == t);
+	else if (k == "xwayland")
+		lua_pushboolean(L, t->kind == wb_view_kind::Xwayland);
+	else
+		lua_pushnil(L);
+	return 1;
+}
+
+int window_eq(lua_State *L) {
+	lua_pushboolean(L, strcmp(window_id_arg(L, 1), window_id_arg(L, 2)) == 0);
+	return 1;
+}
+
+int window_tostring(lua_State *L) {
+	std::string id = window_id_arg(L, 1);
+	struct wb_toplevel *t = window_by_id(id);
+	lua_pushfstring(L, "window %s (%s)", id.c_str(),
+			t != nullptr && view_app_id(t) ? view_app_id(t) : "gone");
+	return 1;
+}
+
+/* ---- the wb module ---------------------------------------------------- */
+
+int wb_on(lua_State *L) {
+	const char *name = luaL_checkstring(L, 1);
+	luaL_checktype(L, 2, LUA_TFUNCTION);
+	static const std::set<std::string> known = {"window.new", "window.close",
+		"window.focus", "window.title", "desktop.switch", "output.added", "output.removed"};
+	if (known.count(name) == 0)
+		return luaL_error(L, "unknown event: %s", name);
+	lua_pushvalue(L, 2);
+	g->handlers[name].push_back(luaL_ref(L, LUA_REGISTRYINDEX));
+	return 0;
+}
+
+int wb_windows(lua_State *L) {
+	lua_newtable(L);
+	int i = 1;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &g->server->focus_order, focus_link) {
+		if (!t->mapped || t->foreign_toplevel_handle == nullptr)
+			continue;
+		push_window(L, t);
+		lua_rawseti(L, -2, i++);
+	}
+	return 1;
+}
+
+int wb_focused(lua_State *L) {
+	push_window(L, first_toplevel(g->server));
+	return 1;
+}
+
+int wb_desktop(lua_State *L) {
+	lua_newtable(L);
+	lua_pushinteger(L, g->server->current_desktop + 1);
+	lua_setfield(L, -2, "current");
+	lua_pushinteger(L, desktop_count(g->server));
+	lua_setfield(L, -2, "count");
+	return 1;
+}
+
+int wb_outputs(lua_State *L) {
+	lua_newtable(L);
+	int i = 1;
+	struct wb_output *o;
+	wl_list_for_each(o, &g->server->outputs, link) {
+		lua_newtable(L);
+		lua_pushstring(L, o->wlr_output->name);
+		lua_setfield(L, -2, "name");
+		lua_pushinteger(L, o->geometry.x);
+		lua_setfield(L, -2, "x");
+		lua_pushinteger(L, o->geometry.y);
+		lua_setfield(L, -2, "y");
+		lua_pushinteger(L, o->geometry.width);
+		lua_setfield(L, -2, "width");
+		lua_pushinteger(L, o->geometry.height);
+		lua_setfield(L, -2, "height");
+		lua_pushnumber(L, o->wlr_output->scale);
+		lua_setfield(L, -2, "scale");
+		lua_rawseti(L, -2, i++);
+	}
+	return 1;
+}
+
+int wb_action(lua_State *L) {
+	const char *name = luaL_checkstring(L, 1);
+	struct wb_toplevel *target = nullptr;
+	if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) {
+		target = window_by_id(window_id_arg(L, 3));
+		if (target == nullptr) {
+			lua_pushboolean(L, 0);
+			return 1;
+		}
+	}
+	lua_pushboolean(L, run_named_action(L, name, lua_gettop(L) >= 2 ? 2 : 0, target));
+	return 1;
+}
+
+int wb_bind(lua_State *L) {
+	const char *key = luaL_checkstring(L, 1);
+	luaL_checktype(L, 2, LUA_TFUNCTION);
+	Binding b;
+	wb_parse_key_combo(key, &b.sym, &b.modifiers);
+	if (b.sym == 0)
+		return luaL_error(L, "not a key: %s", key);
+	lua_pushvalue(L, 2);
+	b.ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	g->bindings.push_back(b);
+	return 0;
+}
+
+int on_timer(void *data) {
+	auto *timer = static_cast<Timer *>(data);
+	int id = timer->id, ref = timer->ref;
+	call(ref, nullptr, "a timer");
+	/* (It may have been cancelled, or turned off, meanwhile.) */
+	for (auto it = g->timers.begin(); it != g->timers.end(); ++it) {
+		if ((*it)->id != id)
+			continue;
+		if ((*it)->period_ms > 0) {
+			wl_event_source_timer_update((*it)->source, (*it)->period_ms);
+		} else {
+			wl_event_source_remove((*it)->source);
+			luaL_unref(g->L, LUA_REGISTRYINDEX, (*it)->ref);
+			g->timers.erase(it);
+		}
+		break;
+	}
+	return 0;
+}
+
+int add_timer(lua_State *L, bool repeat) {
+	lua_Integer ms = luaL_checkinteger(L, 1);
+	luaL_checktype(L, 2, LUA_TFUNCTION);
+	if (ms < (repeat ? 10 : 0))
+		return luaL_error(L, "a %s needs at least %d ms", repeat ? "repeating timer" : "timer",
+				repeat ? 10 : 0);
+	auto timer = std::make_unique<Timer>();
+	timer->id = g->next_timer++;
+	timer->period_ms = repeat ? static_cast<int>(ms) : 0;
+	lua_pushvalue(L, 2);
+	timer->ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	timer->source = wl_event_loop_add_timer(g->server->wl_event_loop, on_timer, timer.get());
+	if (timer->source == nullptr) {
+		luaL_unref(L, LUA_REGISTRYINDEX, timer->ref);
+		return luaL_error(L, "no timer");
+	}
+	wl_event_source_timer_update(timer->source, ms > 0 ? static_cast<int>(ms) : 1);
+	lua_pushinteger(L, timer->id);
+	g->timers.push_back(std::move(timer));
+	return 1;
+}
+
+int wb_timer(lua_State *L) { return add_timer(L, false); }
+int wb_every(lua_State *L) { return add_timer(L, true); }
+
+int wb_cancel(lua_State *L) {
+	lua_Integer id = luaL_checkinteger(L, 1);
+	for (auto it = g->timers.begin(); it != g->timers.end(); ++it)
+		if ((*it)->id == id) {
+			wl_event_source_remove((*it)->source);
+			luaL_unref(L, LUA_REGISTRYINDEX, (*it)->ref);
+			g->timers.erase(it);
+			break;
+		}
+	return 0;
+}
+
+std::string concat_args(lua_State *L) {
+	std::string out;
+	int n = lua_gettop(L);
+	for (int i = 1; i <= n; ++i) {
+		if (i > 1)
+			out += " ";
+		lua_getglobal(L, "tostring");
+		lua_pushvalue(L, i);
+		lua_call(L, 1, 1);
+		const char *s = lua_tostring(L, -1);
+		out += s ? s : "";
+		lua_pop(L, 1);
+	}
+	return out;
+}
+
+int wb_log(lua_State *L) {
+	wlr_log(WLR_INFO, "wb-script: %s", concat_args(L).c_str());
+	return 0;
+}
+
+const luaL_Reg wb_functions[] = {
+	{"on", wb_on}, {"windows", wb_windows}, {"focused", wb_focused},
+	{"desktop", wb_desktop}, {"outputs", wb_outputs}, {"action", wb_action},
+	{"bind", wb_bind}, {"timer", wb_timer}, {"every", wb_every}, {"cancel", wb_cancel},
+	{"log", wb_log}, {nullptr, nullptr},
+};
+
+/* ---- the state ---------------------------------------------------------- */
+
+void open_lib(lua_State *L, const char *name, lua_CFunction f) {
+#if LUA_VERSION_NUM >= 502
+	luaL_requiref(L, name, f, 1);
+	lua_pop(L, 1);
+#else
+	lua_pushcfunction(L, f);
+	lua_pushstring(L, name);
+	lua_call(L, 1, 0);
+#endif
+}
+
+/* The whole standard library: a script runs as you, like your autostart
+ * script (Execute runs any command anyway, so holding back io or os would
+ * protect nothing). What protects the session is the time budget. */
+void open_libraries(lua_State *L) {
+#if LUA_VERSION_NUM >= 502
+	open_lib(L, "_G", luaopen_base);
+#else
+	open_lib(L, "", luaopen_base);
+#endif
+	open_lib(L, LUA_TABLIBNAME, luaopen_table);
+	open_lib(L, LUA_STRLIBNAME, luaopen_string);
+	open_lib(L, LUA_MATHLIBNAME, luaopen_math);
+#if LUA_VERSION_NUM >= 503
+	open_lib(L, LUA_UTF8LIBNAME, luaopen_utf8);
+#endif
+	open_lib(L, LUA_OSLIBNAME, luaopen_os);
+	open_lib(L, LUA_IOLIBNAME, luaopen_io);
+	open_lib(L, LUA_LOADLIBNAME, luaopen_package);
+	open_lib(L, LUA_DBLIBNAME, luaopen_debug);
+#ifdef LUA_BITLIBNAME
+	open_lib(L, LUA_BITLIBNAME, luaopen_bit);  /* LuaJIT */
+#endif
+	/* Not LuaJIT's "jit" library: opening it starts the JIT compiler, and
+	 * compiled code never runs the hook that enforces the time budget (an
+	 * endless loop would freeze Waybox). Its interpreter is fast enough
+	 * for event handlers and layouts. */
+}
+
+int print_to_log(lua_State *L) {
+	wlr_log(WLR_INFO, "wb-script: %s", concat_args(L).c_str());
+	return 0;
+}
+
+void load_file(const std::string &path) {
+	lua_State *L = g->L;
+	if (luaL_loadfile(L, path.c_str()) != 0) {
+		wlr_log(WLR_ERROR, "wb-script %s: %s", path.c_str(), lua_tostring(L, -1));
+		lua_pop(L, 1);
+		return;
+	}
+	int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	call(ref, nullptr, path.c_str());
+	luaL_unref(L, LUA_REGISTRYINDEX, ref);
+}
+
+std::vector<std::string> script_paths(struct wb_server *server) {
+	std::vector<std::string> out;
+	const char *xdg = getenv("XDG_CONFIG_HOME");
+	const char *home = getenv("HOME");
+	std::string config = xdg && *xdg ? xdg : std::string(home ? home : "") + "/.config";
+	std::string init = config + "/waybox/init.lua";
+	if (access(init.c_str(), R_OK) == 0)
+		out.push_back(init);
+	if (server->config != nullptr)
+		for (std::string p : server->config->scripts) {
+			if (p.rfind("~/", 0) == 0 && home)
+				p = std::string(home) + p.substr(1);
+			else if (!p.empty() && p[0] != '/')
+				p = config + "/waybox/" + p;
+			out.push_back(p);
+		}
+	return out;
+}
+
+void open_state(struct wb_server *server) {
+	std::vector<std::string> paths = script_paths(server);
+	if (paths.empty())
+		return;  /* no scripts: nothing at all */
+	g = new State;
+	g->server = server;
+	if (server->config != nullptr)
+		g->budget_ms = server->config->script_budget_ms;
+	g->L = luaL_newstate();
+	if (g->L == nullptr) {
+		wlr_log(WLR_ERROR, "%s", "wb-script: no Lua state");
+		delete g;
+		g = nullptr;
+		return;
+	}
+	lua_State *L = g->L;
+	open_libraries(L);
+	lua_pushcfunction(L, print_to_log);
+	lua_setglobal(L, "print");
+	luaL_newmetatable(L, kWindowMeta);
+	lua_pushcfunction(L, window_index);
+	lua_setfield(L, -2, "__index");
+	lua_pushcfunction(L, window_eq);
+	lua_setfield(L, -2, "__eq");
+	lua_pushcfunction(L, window_tostring);
+	lua_setfield(L, -2, "__tostring");
+	lua_pop(L, 1);
+	lua_newtable(L);
+	luaL_setfuncs(L, wb_functions, 0);
+	lua_pushinteger(L, 1);
+	lua_setfield(L, -2, "api_version");
+	lua_setglobal(L, "wb");
+	lua_sethook(L, budget_hook, LUA_MASKCOUNT, kHookInstructions);
+	for (const std::string &p : paths)
+		load_file(p);
+	wlr_log(WLR_INFO, "wb-scripts loaded: %zu file(s)", paths.size());
+}
+
+void close_state() {
+	if (g == nullptr)
+		return;
+	for (auto &t : g->timers)
+		wl_event_source_remove(t->source);
+	g->timers.clear();
+	if (g->idle != nullptr)
+		wl_event_source_remove(g->idle);
+	if (g->reload_idle != nullptr)
+		wl_event_source_remove(g->reload_idle);
+	if (g->L != nullptr)
+		lua_close(g->L);
+	delete g;
+	g = nullptr;
+}
+
+/* ---- events ----------------------------------------------------------- */
+
+int dispatch(void *) {
+	if (g == nullptr)
+		return 0;
+	g->idle = nullptr;
+	std::deque<Event> events;
+	events.swap(g->queue);
+	for (const Event &e : events) {
+		if (g == nullptr)
+			break;  /* (a reload can't happen mid-dispatch, but be sure) */
+		auto h = g->handlers.find(e.name);
+		if (h == g->handlers.end())
+			continue;
+		std::vector<int> refs = h->second;  /* a handler may add or drop handlers */
+		for (int ref : refs) {
+			call(ref, [&e](lua_State *L) {
+				if (e.name.rfind("window.", 0) == 0) {
+					struct wb_toplevel *t = window_by_id(e.window_id);
+					if (t != nullptr) {
+						push_window(L, t);
+					} else {
+						/* Gone: a handle that reads nil (its id kept). */
+						size_t len = e.window_id.size() + 1;
+						auto *ud = static_cast<char *>(lua_newuserdata(L, len));
+						memcpy(ud, e.window_id.c_str(), len);
+						luaL_getmetatable(L, kWindowMeta);
+						lua_setmetatable(L, -2);
+					}
+					lua_newtable(L);
+					lua_pushstring(L, e.window_id.c_str());
+					lua_setfield(L, -2, "id");
+					lua_pushstring(L, e.app_id.c_str());
+					lua_setfield(L, -2, "app_id");
+					lua_pushstring(L, e.title.c_str());
+					lua_setfield(L, -2, "title");
+					return 2;
+				}
+				if (e.name == "desktop.switch") {
+					lua_pushinteger(L, e.desktop);
+					return 1;
+				}
+				lua_pushstring(L, e.output.c_str());
+				return 1;
+			}, e.name.c_str());
+		}
+	}
+	return 0;
+}
+
+void enqueue(Event e) {
+	if (g == nullptr || g->handlers.count(e.name) == 0 || g->handlers[e.name].empty())
+		return;
+	g->queue.push_back(std::move(e));
+	if (g->idle == nullptr)
+		g->idle = wl_event_loop_add_idle(g->server->wl_event_loop,
+				[](void *d) { dispatch(d); }, nullptr);
+}
+
+void schedule_reload() {
+	if (g == nullptr || g->reload_idle != nullptr)
+		return;
+	g->reload_idle = wl_event_loop_add_idle(g->server->wl_event_loop, [](void *data) {
+		auto *server = static_cast<struct wb_server *>(data);
+		g->reload_idle = nullptr;
+		close_state();
+		open_state(server);
+	}, g->server);
+}
+
+}  // namespace
+
+void init_scripts(struct wb_server *server) {
+	open_state(server);
+}
+
+void finish_scripts(struct wb_server *) {
+	close_state();
+}
+
+void scripts_reload(struct wb_server *server) {
+	if (g != nullptr && g->depth > 0) {
+		g->reload_pending = true;  /* once the running script returns */
+		return;
+	}
+	close_state();
+	open_state(server);
+}
+
+void script_window_event(struct wb_toplevel *t, const char *change) {
+	if (g == nullptr || t->foreign_toplevel_handle == nullptr)
+		return;
+	static const std::map<std::string, std::string> names = {
+		{"new", "window.new"}, {"close", "window.close"}, {"focus", "window.focus"},
+		{"title", "window.title"},
+	};
+	auto n = names.find(change);
+	if (n == names.end())
+		return;
+	Event e;
+	e.name = n->second;
+	e.window_id = t->foreign_toplevel_handle->identifier;
+	e.app_id = view_app_id(t) ? view_app_id(t) : "";
+	e.title = view_title(t) ? view_title(t) : "";
+	enqueue(std::move(e));
+}
+
+void script_desktop_event(struct wb_server *server) {
+	if (g == nullptr)
+		return;
+	Event e;
+	e.name = "desktop.switch";
+	e.desktop = server->current_desktop + 1;
+	enqueue(std::move(e));
+}
+
+void script_output_event(struct wb_server *, const char *name, const char *change) {
+	if (g == nullptr)
+		return;
+	Event e;
+	e.name = std::string("output.") + change;
+	e.output = name;
+	enqueue(std::move(e));
+}
+
+bool script_key_binding(struct wb_server *, uint32_t sym, uint32_t modifiers) {
+	if (g == nullptr || g->bindings.empty())
+		return false;
+	std::vector<wb::KeyBinding> tree;
+	for (const Binding &b : g->bindings) {
+		wb::KeyBinding k;
+		k.sym = b.sym;
+		k.modifiers = b.modifiers;
+		k.actions.push_back(wb::Action{});  /* a leaf: fires */
+		tree.push_back(std::move(k));
+	}
+	wb::ChainStep step = wb::chain_step(tree, sym, modifiers);
+	if (step.outcome != wb::ChainOutcome::Fire || step.node == nullptr)
+		return false;
+	int ref = g->bindings[static_cast<size_t>(step.node - tree.data())].ref;
+	call(ref, [](lua_State *L) {
+		push_window(L, first_toplevel(g->server));
+		return 1;
+	}, "a key binding");
+	return true;
+}
+
+#else  /* no Lua */
+
+void init_scripts(struct wb_server *server) {
+	if (server->config != nullptr && !server->config->scripts.empty())
+		wlr_log(WLR_ERROR, "%s", "<scripts> set, but Waybox was built without Lua");
+}
+void finish_scripts(struct wb_server *) {}
+void scripts_reload(struct wb_server *) {}
+void script_window_event(struct wb_toplevel *, const char *) {}
+void script_desktop_event(struct wb_server *) {}
+void script_output_event(struct wb_server *, const char *, const char *) {}
+bool script_key_binding(struct wb_server *, uint32_t, uint32_t) { return false; }
+
+#endif

@@ -18,6 +18,7 @@
 #include "toplevel_drag.h"
 #include "bell.h"
 #include "stall_watch.h"
+#include "script.h"
 #include "startup_supervisor.h"
 #include "waybox/workspace.h"
 #include "waybox/xwayland.h"
@@ -118,6 +119,7 @@ void wb_reconfigure(struct wb_server *server) {
 	workspace_schedule_sync(server);  /* names or count may have changed */
 	arrange_toplevels(server);
 	ipc_reconfigured(server);  /* <ipc>, and tells subscribers */
+	scripts_reload(server);    /* scripts are loaded afresh */
 	startup_apply(server);     /* <startup>: start, stop what changed */
 	idle_reconfigured(server); /* <idle>: the new timeout counts from now */
 	wlr_log(WLR_INFO, "%s", _("Reconfigured"));
@@ -451,6 +453,7 @@ bool wb_start_server(struct wb_server* server) {
 	init_bell(server);
 	init_stall_watch(server);
 	init_input_method(server);
+	init_scripts(server);  /* last: they may act on all of the above */
 
 	wlr_fractional_scale_manager_v1_create(server->wl_display, 1);
 	wlr_viewporter_create(server->wl_display);
@@ -497,6 +500,7 @@ bool wb_terminate(struct wb_server* server) {
 	server->desktop_popup.reset();  /* its timer is on the event loop */
 	finish_bell(server);  /* its flashes' timers too */
 	finish_stall_watch(server);
+	finish_scripts(server);  /* its timers are on the event loop */
 	seat_finish_test_touch(server);
 	server->cursor.reset();
 	server->new_xdg_decoration.disconnect(); /* wb_decoration_destroy */

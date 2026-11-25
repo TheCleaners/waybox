@@ -4,7 +4,7 @@
 
 scdoc = find_program('scdoc', required: get_option('man-pages'))
 if scdoc.found()
-  foreach page : ['waybox.1', 'waybox.5']
+  foreach page : ['waybox.1', 'waybox.5', 'waybox-lua.5']
     section = page.split('.')[-1]
     custom_target(
       page,

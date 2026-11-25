@@ -5,3 +5,4 @@ option('svg', type: 'feature', value: 'auto', description: 'Build with librsvg f
 option('man-pages', type: 'feature', value: 'auto', description: 'Build and install the manual pages (needs scdoc)')
 option('info', type: 'feature', value: 'auto', description: 'Build and install the Texinfo manual (needs makeinfo)')
 option('wbconf', type: 'feature', value: 'auto', description: 'Build the wbconf GTK4 settings GUI (auto: enabled when GTK4 is present)')
+option('lua', type: 'feature', value: 'auto', description: 'Lua scripting (LuaJIT, else Lua 5.5 or 5.4; auto: when found)')

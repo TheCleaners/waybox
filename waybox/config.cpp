@@ -159,7 +159,7 @@ static xmlChar *get_attribute(xmlNode *node, const char *attr_name) {
 /* Parse a "key" attribute like "W-S-M" into a keysym + modifier mask, matching
  * Openbox's syntax. strtok mutates its buffer, so work on a copy (the attribute
  * content belongs to the parsed document). */
-static void parse_key_combo(const char *spec, uint32_t *sym, uint32_t *modifiers) {
+void wb_parse_key_combo(const char *spec, uint32_t *sym, uint32_t *modifiers) {
 	*sym = 0;
 	*modifiers = 0;
 	if (spec == nullptr)
@@ -198,7 +198,7 @@ static void parse_key_combo(const char *spec, uint32_t *sym, uint32_t *modifiers
  * for actions of their own here -- those belong to the child node. */
 static wb::KeyBinding parse_keybind(xmlNode *node) {
 	wb::KeyBinding binding;
-	parse_key_combo((const char *) get_attribute(node, "key"),
+	wb_parse_key_combo((const char *) get_attribute(node, "key"),
 			&binding.sym, &binding.modifiers);
 
 	for (xmlNode *child = node->children; child; child = child->next) {
@@ -675,6 +675,36 @@ static void parse_bell(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><scripts budget="ms"><script>path</script>.. */
+static void parse_scripts(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:scripts", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *n = object->nodesetval->nodeTab[0];
+		int budget = atoi((const char *) get_attribute(n, "budget"));
+		if (budget > 0)
+			config->script_budget_ms = std::min(budget, 1000);
+		for (xmlNode *c = n->children; c != nullptr; c = c->next) {
+			if (c->type != XML_ELEMENT_NODE || strcmp((const char *) c->name, "script") != 0)
+				continue;
+			xmlChar *text = xmlNodeGetContent(c);
+			if (text != nullptr) {
+				std::string path = (const char *) text;
+				xmlFree(text);
+				while (!path.empty() && isspace(static_cast<unsigned char>(path.back())))
+					path.pop_back();
+				while (!path.empty() && isspace(static_cast<unsigned char>(path.front())))
+					path.erase(0, 1);
+				if (!path.empty())
+					config->scripts.push_back(path);
+			}
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
 /* Parse <waybox><tearing allow="yes|no"/>. */
 static void parse_tearing(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
@@ -930,6 +960,7 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	parse_tearing(config, ctxt);
 	parse_shortcuts_inhibit(config, ctxt);
 	parse_bell(config, ctxt);
+	parse_scripts(config, ctxt);
 	parse_ipc(config, ctxt);
 	parse_input_method(config, ctxt);
 
