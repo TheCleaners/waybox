@@ -6,6 +6,8 @@
 #include "waybox/stall.hpp"
 #include "waybox/menu_widget.hpp"
 
+#include "script.h"
+
 #include <algorithm>
 #include <cerrno>
 #include <csignal>
@@ -49,6 +51,8 @@ MenuWidget::MenuWidget(struct wb_server *server, const MenuFile &menus,
 		const MenuStyle &style, const MenuBehavior &behavior)
 	: server_(server), menus_(menus), style_(style), behavior_(behavior),
 	  metrics_(menu_metrics(style)) {
+	/* The previous menu's script entries go (its actions already ran). */
+	script_menu_reset(server);
 	/* Size rows from the font's real cell height (incl. ascenders/descenders),
 	 * not the point size, so text is centred and descenders are never clipped.
 	 * "Ag" exercises both extremes. Row height is computed dynamically from the
@@ -178,7 +182,7 @@ void MenuWidget::push_menu(const Menu *menu, const Rect &rect, int parent_item) 
 }
 
 bool MenuWidget::open(std::string_view root_id, int lx, int ly) {
-	const Menu *menu = find_menu(root_id);
+	const Menu *menu = with_labels(resolve_menu(root_id));
 	if (menu == nullptr)
 		return false;
 	root_id_ = std::string(root_id);
@@ -278,7 +282,7 @@ void MenuWidget::close_below(size_t keep) {
 void MenuWidget::open_submenu(size_t level_index, int item_index) {
 	Level &parent = levels_[level_index];
 	const MenuItem &item = parent.menu->items[item_index];
-	const Menu *submenu = find_menu(item.submenu_id);
+	const Menu *submenu = with_labels(resolve_menu(item.submenu_id));
 	if (submenu == nullptr)
 		return;
 
@@ -307,6 +311,37 @@ void MenuWidget::open_submenu(size_t level_index, int item_index) {
 			layout.width, layout.height, bounds, style_.panel.border.width);
 	push_menu(submenu, rect, item_index);
 	levels_.back().pending_id = pending;
+}
+
+const Menu *MenuWidget::resolve_menu(std::string_view id) {
+	/* Built already while this menu is open (as pipe menus: again the
+	 * next time it opens), else a script's, else menu.xml's. */
+	for (const auto &[built_id, file] : pipe_results_)
+		if (const Menu *m = file->find(id))
+			return m;
+	std::string key(id);
+	if (auto file = script_build_menu(server_, key))
+		pipe_results_[key] = std::move(file);
+	return find_menu(id);
+}
+
+const Menu *MenuWidget::with_labels(const Menu *menu) {
+	if (menu == nullptr)
+		return nullptr;
+	auto unlabelled = [](const MenuItem &item) {
+		return item.kind == MenuItem::Kind::Submenu && item.label.empty();
+	};
+	if (std::none_of(menu->items.begin(), menu->items.end(), unlabelled))
+		return menu;
+	Menu copy = *menu;
+	for (MenuItem &item : copy.items)
+		if (unlabelled(item)) {
+			item.label = script_menu_label(server_, item.submenu_id);
+			wlr_log(WLR_INFO, "wb-menu label %s: %s", item.submenu_id.c_str(),
+					item.label.c_str());
+		}
+	labelled_.push_back(std::move(copy));
+	return &labelled_.back();
 }
 
 const Menu *MenuWidget::find_menu(std::string_view id) const {

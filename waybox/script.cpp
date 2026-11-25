@@ -41,6 +41,9 @@
 
 #include "waybox/action.hpp"
 #include "waybox/keychain.hpp"
+#include "waybox/desktop_popup.hpp"
+#include "waybox/menu_widget.hpp"
+#include "waybox/style.hpp"
 #include "waybox/session_lock.h"
 #include "waybox/stall.hpp"
 #include "waybox/xdg_shell.h"
@@ -116,7 +119,14 @@ struct State {
 	struct wl_event_source *layout_idle = nullptr;
 	double deadline = 0;
 	int budget_ms = 10;
+	std::map<std::string, int> menu_providers;  /* menu id -> function */
+	std::map<std::string, std::string> menu_labels;  /* menu id -> label */
+	std::map<int, int> menu_callbacks;          /* entry id -> function */
 };
+
+/* Menu entry ids go on across reloads, so an entry from before one finds
+ * nothing rather than another script's function. */
+int next_menu_callback = 1;
 
 State *g = nullptr;
 
@@ -218,6 +228,16 @@ void forget(int ref) {
 		it = it->second == ref ? g->policies.erase(it) : std::next(it);
 	for (auto &[name, refs] : g->handlers)
 		refs.erase(std::remove(refs.begin(), refs.end(), ref), refs.end());
+	for (auto it = g->menu_providers.begin(); it != g->menu_providers.end();) {
+		if (it->second == ref) {
+			g->menu_labels.erase(it->first);
+			it = g->menu_providers.erase(it);
+		} else {
+			++it;
+		}
+	}
+	for (auto it = g->menu_callbacks.begin(); it != g->menu_callbacks.end();)
+		it = it->second == ref ? g->menu_callbacks.erase(it) : std::next(it);
 	g->bindings.erase(std::remove_if(g->bindings.begin(), g->bindings.end(),
 			[ref](const Binding &b) { return b.ref == ref; }), g->bindings.end());
 	for (auto it = g->timers.begin(); it != g->timers.end(); ++it)
@@ -258,36 +278,49 @@ const char *window_id_arg(lua_State *L, int index) {
 	return static_cast<const char *>(luaL_checkudata(L, index, kWindowMeta));
 }
 
+/* t[key] pushed, without metamethods (so nothing here can raise a Lua
+ * error past C++ objects). */
+void raw_field(lua_State *L, int t, const char *key) {
+	lua_pushstring(L, key);
+	lua_rawget(L, t);
+}
+
+std::string string_field(lua_State *L, int t, const char *key) {
+	raw_field(L, t, key);
+	std::string s;
+	if (lua_type(L, -1) == LUA_TSTRING || lua_type(L, -1) == LUA_TNUMBER)
+		s = lua_tostring(L, -1);
+	lua_pop(L, 1);
+	return s;
+}
+
+/* An rc.xml action by name, with the options in the table at `params`
+ * (0: none): command, to, direction, wrap, follow. */
+std::optional<wb::Action> make_script_action(lua_State *L, const char *name, int params) {
+	bool table = params > 0 && lua_istable(L, params);
+	auto action = wb::make_action(name, table ? string_field(L, params, "command") : "");
+	if (!action || !table)
+		return action;
+	if (std::string to = string_field(L, params, "to"); !to.empty())
+		action->to = to;
+	if (std::string d = string_field(L, params, "direction"); !d.empty())
+		action->direction = d;
+	raw_field(L, params, "wrap");
+	if (lua_isboolean(L, -1))
+		action->wrap = lua_toboolean(L, -1);
+	lua_pop(L, 1);
+	raw_field(L, params, "follow");
+	if (lua_isboolean(L, -1))
+		action->follow = lua_toboolean(L, -1);
+	lua_pop(L, 1);
+	return action;
+}
+
 /* Run a named action (rc.xml's), on `target` or the focused window. */
 bool run_named_action(lua_State *L, const char *name, int params, struct wb_toplevel *target) {
-	std::string command;
-	if (params > 0 && lua_istable(L, params)) {
-		lua_getfield(L, params, "command");
-		if (lua_isstring(L, -1))
-			command = lua_tostring(L, -1);
-		lua_pop(L, 1);
-	}
-	auto action = wb::make_action(name, command);
+	auto action = make_script_action(L, name, params);
 	if (!action)
 		return false;
-	if (params > 0 && lua_istable(L, params)) {
-		lua_getfield(L, params, "to");
-		if (lua_isstring(L, -1))
-			action->to = lua_tostring(L, -1);
-		lua_pop(L, 1);
-		lua_getfield(L, params, "direction");
-		if (lua_isstring(L, -1))
-			action->direction = lua_tostring(L, -1);
-		lua_pop(L, 1);
-		lua_getfield(L, params, "wrap");
-		if (lua_isboolean(L, -1))
-			action->wrap = lua_toboolean(L, -1);
-		lua_pop(L, 1);
-		lua_getfield(L, params, "follow");
-		if (lua_isboolean(L, -1))
-			action->follow = lua_toboolean(L, -1);
-		lua_pop(L, 1);
-	}
 	struct wb_server *server = g->server;
 	if (session_locked(server))
 		return false;  /* as bindings: nothing behind the lock screen */
@@ -791,12 +824,209 @@ int wb_go_to_desktop(lua_State *L) {
 	return 1;
 }
 
+/* ---- menus and the on-screen display ---------------------------------- */
+
+constexpr const char *kScriptMenuId = "wb.show_menu";
+constexpr size_t kMaxMenuItems = 500;
+constexpr int kMaxMenuDepth = 8;
+
+/* The action of the entry whose table is at `item`: a function, an action
+ * name, or {name, command=..., to=...}. */
+void entry_action(lua_State *L, int item, wb::MenuItem &out) {
+	raw_field(L, item, "action");
+	int a = lua_gettop(L);
+	if (lua_isfunction(L, a)) {
+		lua_pushvalue(L, a);
+		int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+		int id = next_menu_callback++;
+		g->menu_callbacks[id] = ref;
+		wb::Action call{wb::ActionType::ScriptCall};
+		call.script_callback = id;
+		out.actions.push_back(call);
+	} else if (lua_type(L, a) == LUA_TSTRING) {
+		if (auto action = make_script_action(L, lua_tostring(L, a), 0))
+			out.actions.push_back(*action);
+		else
+			wlr_log(WLR_ERROR, "wb-script menu: no action %s", lua_tostring(L, a));
+	} else if (lua_istable(L, a)) {
+		lua_rawgeti(L, a, 1);
+		std::string name = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "";
+		lua_pop(L, 1);
+		if (auto action = make_script_action(L, name.c_str(), a))
+			out.actions.push_back(*action);
+		else
+			wlr_log(WLR_ERROR, "wb-script menu: no action %s", name.c_str());
+	}
+	lua_pop(L, 1);
+}
+
+/* The items in the array at `t` into `menu`; nested submenus go into
+ * `file` as <menu id>/<n>. */
+void build_items(lua_State *L, int t, wb::Menu &menu, wb::MenuFile &file, int &serial,
+		int depth) {
+	if (!lua_checkstack(L, 8))
+		return;
+	size_t n = lua_rawlen(L, t);
+	for (size_t i = 1; i <= n && menu.items.size() < kMaxMenuItems; i++) {
+		lua_rawgeti(L, t, static_cast<int>(i));
+		int it = lua_gettop(L);
+		if (!lua_istable(L, it)) {
+			lua_pop(L, 1);
+			continue;
+		}
+		wb::MenuItem item;
+		item.label = string_field(L, it, "label");
+		item.icon = string_field(L, it, "icon");
+		raw_field(L, it, "separator");
+		bool separator = lua_toboolean(L, -1);
+		lua_pop(L, 1);
+		raw_field(L, it, "submenu");
+		int sub = lua_gettop(L);
+		if (separator) {
+			item.kind = wb::MenuItem::Kind::Separator;
+		} else if (lua_istable(L, sub) && depth < kMaxMenuDepth) {
+			wb::Menu child;
+			child.id = menu.id + "/" + std::to_string(serial++);
+			child.label = item.label;
+			build_items(L, sub, child, file, serial, depth + 1);
+			item.kind = wb::MenuItem::Kind::Submenu;
+			item.submenu_id = child.id;
+			file.menus.push_back(std::move(child));
+		} else if (lua_type(L, sub) == LUA_TSTRING) {
+			/* Another menu by id: menu.xml's or a provider's. */
+			item.kind = wb::MenuItem::Kind::Submenu;
+			item.submenu_id = lua_tostring(L, sub);
+		} else {
+			item.kind = wb::MenuItem::Kind::Entry;
+			entry_action(L, it, item);
+		}
+		lua_pop(L, 2);  /* submenu, item */
+		menu.items.push_back(std::move(item));
+	}
+}
+
+/* A menu with only a note in it (a provider that failed or gave nothing). */
+void note_only(wb::Menu &menu, const char *note) {
+	wb::MenuItem item;
+	item.kind = wb::MenuItem::Kind::Separator;
+	item.label = note;
+	menu.items.push_back(std::move(item));
+}
+
+/* wb.menu_provider(id, fn, label): the menu `id` is fn's items, built
+ * each time it opens; nil removes it. */
+int wb_menu_provider(lua_State *L) {
+	luaL_checkstring(L, 1);
+	if (!lua_isnil(L, 2))
+		luaL_checktype(L, 2, LUA_TFUNCTION);
+	luaL_optstring(L, 3, "");
+	std::string id = lua_tostring(L, 1);
+	g->menu_labels.erase(id);
+	if (!lua_isnil(L, 2) && lua_type(L, 3) == LUA_TSTRING)
+		g->menu_labels[id] = lua_tostring(L, 3);
+	if (auto old = g->menu_providers.find(id); old != g->menu_providers.end()) {
+		luaL_unref(L, LUA_REGISTRYINDEX, old->second);
+		g->menu_providers.erase(old);
+	}
+	if (!lua_isnil(L, 2)) {
+		lua_pushvalue(L, 2);
+		g->menu_providers[id] = luaL_ref(L, LUA_REGISTRYINDEX);
+	}
+	return 0;
+}
+
+/* wb.show_menu(items, {x=, y=, window=}): open a menu (at the pointer by
+ * default); with `window`, its rc.xml actions act on that window. */
+int wb_show_menu(lua_State *L) {
+	luaL_checktype(L, 1, LUA_TTABLE);
+	struct wb_server *server = g->server;
+	struct wb_toplevel *target = nullptr;
+	int x = static_cast<int>(server->cursor->cursor->x);
+	int y = static_cast<int>(server->cursor->cursor->y);
+	if (lua_istable(L, 2)) {
+		raw_field(L, 2, "window");
+		if (!lua_isnil(L, -1)) {
+			target = window_by_id(window_id_arg(L, -1));
+			if (target == nullptr) {
+				lua_pushboolean(L, 0);
+				return 1;
+			}
+		}
+		lua_pop(L, 1);
+		raw_field(L, 2, "x");
+		if (lua_isnumber(L, -1))
+			x = static_cast<int>(lua_tointeger(L, -1));
+		lua_pop(L, 1);
+		raw_field(L, 2, "y");
+		if (lua_isnumber(L, -1))
+			y = static_cast<int>(lua_tointeger(L, -1));
+		lua_pop(L, 1);
+	}
+	if (g->in_policy) {
+		wlr_log(WLR_ERROR, "%s", "wb-script: no menus in a policy");
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	if (session_locked(server) || server->config == nullptr) {
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	bool ok = false;
+	{
+		server->menu.reset();  /* it may show the previous script menu */
+		server->menu_target = nullptr;
+		server->script_menu = std::make_unique<wb::MenuFile>();
+		wb::StallScope timing("menu");
+		/* (Its constructor drops the previous menu's entry functions:
+		 * build this one's after it.) */
+		auto widget = std::make_unique<wb::MenuWidget>(server, *server->script_menu,
+				wb::menu_style_from_theme(server->config->theme),
+				server->config->menu_behavior);
+		wb::Menu root;
+		root.id = kScriptMenuId;
+		int serial = 1;
+		build_items(L, 1, root, *server->script_menu, serial, 0);
+		if (!root.items.empty()) {
+			server->script_menu->menus.push_back(std::move(root));
+			ok = widget->open(kScriptMenuId, x, y);
+		}
+		if (ok) {
+			server->menu = std::move(widget);
+			server->menu_target = target;
+		}
+	}
+	lua_pushboolean(L, ok);
+	return 1;
+}
+
+/* wb.osd(text[, ms]): show text for a moment, centred; "" hides it. */
+int wb_osd(lua_State *L) {
+	luaL_checkstring(L, 1);
+	lua_Integer ms = luaL_optinteger(L, 2, 1500);
+	if (g->in_policy) {
+		wlr_log(WLR_ERROR, "%s", "wb-script: no on-screen display in a policy");
+		return 0;
+	}
+	struct wb_server *server = g->server;
+	std::string text = lua_tostring(L, 1);
+	if (text.empty()) {
+		if (server->desktop_popup != nullptr)
+			server->desktop_popup->hide();
+		return 0;
+	}
+	if (ms <= 0)
+		ms = 1500;
+	wb_show_popup(server, text, static_cast<int>(std::min<lua_Integer>(ms, 60000)));
+	return 0;
+}
+
 const luaL_Reg wb_functions[] = {
 	{"on", wb_on}, {"windows", wb_windows}, {"focused", wb_focused},
 	{"desktop", wb_desktop}, {"outputs", wb_outputs}, {"action", wb_action},
 	{"bind", wb_bind}, {"timer", wb_timer}, {"every", wb_every}, {"cancel", wb_cancel},
 	{"log", wb_log}, {"spawn", wb_spawn}, {"go_to_desktop", wb_go_to_desktop},
 	{"policy", wb_policy}, {"relayout", wb_relayout},
+	{"menu_provider", wb_menu_provider}, {"show_menu", wb_show_menu}, {"osd", wb_osd},
 	{nullptr, nullptr},
 };
 
@@ -1323,6 +1553,59 @@ bool script_key_binding(struct wb_server *, uint32_t sym, uint32_t modifiers) {
 	return true;
 }
 
+std::unique_ptr<wb::MenuFile> script_build_menu(struct wb_server *, const std::string &id) {
+	if (g == nullptr)
+		return nullptr;
+	auto p = g->menu_providers.find(id);
+	if (p == g->menu_providers.end())
+		return nullptr;
+	auto file = std::make_unique<wb::MenuFile>();
+	wb::Menu menu;
+	menu.id = id;
+	int serial = 1;
+	/* As a policy: it decides what's in the menu, it doesn't act. */
+	bool ok = call_policy(p->second, nullptr, 1, [&](lua_State *L) {
+		int t = lua_gettop(L);
+		if (!lua_istable(L, t))
+			return;
+		menu.label = string_field(L, t, "label");
+		build_items(L, t, menu, *file, serial, 0);
+	}, "a menu provider");
+	if (!ok)
+		note_only(menu, "(script menu failed)");
+	else if (menu.items.empty())
+		note_only(menu, "(empty)");
+	file->menus.push_back(std::move(menu));
+	return file;
+}
+
+std::string script_menu_label(struct wb_server *, const std::string &id) {
+	if (g == nullptr)
+		return "";
+	auto it = g->menu_labels.find(id);
+	return it != g->menu_labels.end() ? it->second : "";
+}
+
+void script_menu_call(struct wb_server *server, int callback) {
+	if (g == nullptr || session_locked(server))
+		return;
+	auto it = g->menu_callbacks.find(callback);
+	if (it == g->menu_callbacks.end())
+		return;
+	call(it->second, [server](lua_State *L) {
+		push_window(L, first_toplevel(server));
+		return 1;
+	}, "a menu entry");
+}
+
+void script_menu_reset(struct wb_server *) {
+	if (g == nullptr || g->L == nullptr)
+		return;
+	for (const auto &[id, ref] : g->menu_callbacks)
+		luaL_unref(g->L, LUA_REGISTRYINDEX, ref);
+	g->menu_callbacks.clear();
+}
+
 #else  /* no Lua */
 
 void init_scripts(struct wb_server *server) {
@@ -1340,5 +1623,11 @@ void script_window_event(struct wb_toplevel *, const char *) {}
 void script_desktop_event(struct wb_server *) {}
 void script_output_event(struct wb_server *, const char *, const char *) {}
 bool script_key_binding(struct wb_server *, uint32_t, uint32_t) { return false; }
+std::unique_ptr<wb::MenuFile> script_build_menu(struct wb_server *, const std::string &) {
+	return nullptr;
+}
+std::string script_menu_label(struct wb_server *, const std::string &) { return ""; }
+void script_menu_call(struct wb_server *, int) {}
+void script_menu_reset(struct wb_server *) {}
 
 #endif

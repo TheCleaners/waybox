@@ -2,12 +2,14 @@
 #define WB_SCRIPT_H
 
 #include <cstdint>
+#include <memory>
 
 #include <optional>
 #include <string>
 
 #include "waybox/applications.hpp"
 #include "waybox/geometry.hpp"
+#include "waybox/menu.hpp"
 #include "waybox/server.h"
 
 /*
@@ -46,6 +48,16 @@ void script_request_layout(struct wb_server *server);
 
 /* SIGCHLD: programs scripts started (wb.spawn) that have ended. */
 void scripts_reap(struct wb_server *server);
+
+/* Menus (wb.menu_provider, wb.show_menu). A menu being opened: the
+ * provider's items for `id`, or nullptr if no script provides it. */
+std::unique_ptr<wb::MenuFile> script_build_menu(struct wb_server *server, const std::string &id);
+/* The label a script gave the menu `id` (wb.menu_provider), or "". */
+std::string script_menu_label(struct wb_server *server, const std::string &id);
+/* A menu entry a script gave a function was chosen. */
+void script_menu_call(struct wb_server *server, int callback);
+/* A new menu opens: drop the entry functions of the previous one. */
+void script_menu_reset(struct wb_server *server);
 
 /* A key a script bound (wb.bind): true if one ran. */
 bool script_key_binding(struct wb_server *server, uint32_t sym, uint32_t modifiers);

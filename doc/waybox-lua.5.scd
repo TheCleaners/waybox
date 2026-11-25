@@ -147,6 +147,26 @@ any action.
 	At most 16 run at once (then it returns *nil* and a reason); otherwise
 	it returns the program's process id.
 
+*wb.show_menu(*_items_*,* _options_*)*
+	Opens a menu, in the theme's menu style, at the pointer (or at
+	_options_' *x* and *y*). With _options_' *window*, rc.xml actions in it
+	act on that window, as in the window menu. Returns whether it opened
+	(an empty menu doesn't, and none opens while the screen is locked).
+	See MENUS.
+
+*wb.menu_provider(*_id_*,* _function_*,* _label_*)*
+	Makes _id_ a menu the function builds each time it opens (it returns
+	its items, see MENUS): menu.xml can include it (*<menu id="*_id_*"/>*,
+	shown as _label_),
+	*ShowMenu* can open it and a script menu's *submenu* can name it. *nil*
+	removes it. The function runs as a policy (no actions); if it fails,
+	the menu shows a note instead.
+
+*wb.osd(*_text_*,* _ms_*)*
+	Shows _text_ centred on the monitor under the pointer for _ms_
+	milliseconds (default 1500), in the style of the desktop popup; showing
+	again replaces it, and *""* hides it.
+
 *wb.timer(*_ms_*,* _function_*)*, *wb.every(*_ms_*,* _function_*)*
 	Runs the function once after _ms_ milliseconds, or every _ms_ (at least
 	10). Returns an id for *wb.cancel(*_id_*)*.
@@ -157,6 +177,25 @@ any action.
 *wb.api_version*
 	1. Additions keep it; changes or removals raise it, with the old
 	behaviour kept for one release.
+
+# MENUS
+
+A menu is a list of items, each a table:
+
+*{ label = "...", action = ... }*
+	An entry. _action_ is a function (it gets the focused window, or
+	*nil*), an rc.xml action name (*"Close"*), or a table with the name
+	first and its options: *{ "Execute", command = "foot" }*. *icon* is an
+	icon name or path.
+
+*{ label = "...", submenu = { ... } }*
+	A submenu, its items in the table; or *submenu = "*_id_*"* for a menu
+	by id (menu.xml's or a provider's).
+
+*{ separator = true, label = "..." }*
+	A separator, labelled if there's a label.
+
+Entry functions run once the menu has closed.
 
 # SAMPLE SCRIPTS
 
@@ -172,6 +211,10 @@ prefix); each is used only when listed in *<scripts>*:
 
 *pip.lua*
 	Picture-in-picture video windows on every desktop.
+
+*windows-menu.lua*
+	Super+W shows a menu of the open windows, by desktop; menu.xml can
+	include it as *<menu id="lua-windows"/>*.
 
 *app-desktops.lua*
 	Programs open on the desktop of your choice (copy it and edit its

@@ -100,6 +100,12 @@ MenuFile parse_menu_xml(std::string_view contents) {
 		}
 	}
 	xmlFreeDoc(doc);
+	/* A bare <menu id="..."/> shows the label of the menu it refers to. */
+	for (Menu &menu : file.menus)
+		for (MenuItem &item : menu.items)
+			if (item.kind == MenuItem::Kind::Submenu && item.label.empty())
+				if (const Menu *target = file.find(item.submenu_id))
+					item.label = target->label;
 	return file;
 }
 
