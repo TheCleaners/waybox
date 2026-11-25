@@ -346,6 +346,11 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 			return;
 	}
 
+	/* Activating a minimized window (a taskbar, an activation request)
+	 * brings it back, as in Openbox: focus on a hidden window is lost. */
+	if (toplevel->mapped && toplevel->minimized)
+		set_toplevel_minimized(toplevel, false);
+
 	/* Focusing a window on another desktop (taskbar, activation request,
 	 * Alt+Tab) goes to that desktop, as in Openbox. */
 	if (toplevel->mapped && !toplevel_on_current_desktop(toplevel))
@@ -418,9 +423,11 @@ bool toplevel_on_current_desktop(struct wb_toplevel *toplevel) {
  * but their scene nodes are disabled, so they are neither drawn nor hit by
  * the pointer, and the actions that check node.enabled skip them. */
 static void update_desktop_visibility(struct wb_toplevel *toplevel) {
+	/* Minimized windows are hidden the same way (not moved off screen,
+	 * where re-fitting them to a new panel or monitor brought them back). */
 	if (toplevel->scene_tree != NULL)
 		wlr_scene_node_set_enabled(&toplevel->scene_tree->node,
-				toplevel_on_current_desktop(toplevel));
+				toplevel_on_current_desktop(toplevel) && !toplevel->minimized);
 }
 
 /* Drop keyboard focus from windows (not from a focused layer surface such as
@@ -1369,16 +1376,10 @@ void set_toplevel_minimized(struct wb_toplevel *toplevel, bool minimize_requeste
 		return;
 	toplevel->minimized = minimize_requested;
 	view_set_minimized(toplevel, minimize_requested);
-	if (minimize_requested) {
-		toplevel->restore_minimize = toplevel->geometry;
-		toplevel->geometry.y = -toplevel->geometry.height;
-
+	/* Hidden where it is: its place stays, for when it comes back. */
+	update_desktop_visibility(toplevel);
+	if (minimize_requested)
 		focus_next_after(toplevel->server, toplevel);
-	} else {
-		toplevel->geometry = toplevel->restore_minimize;
-	}
-
-	position_toplevel(toplevel);
 	if (toplevel->wlr_foreign_handle != NULL)
 		wlr_foreign_toplevel_handle_v1_set_minimized(
 				toplevel->wlr_foreign_handle, minimize_requested);

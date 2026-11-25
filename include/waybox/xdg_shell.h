@@ -92,7 +92,6 @@ struct wb_toplevel {
 	 * (maximize/fullscreen/shade/minimize) each restore to the right place. */
 	struct wlr_box restore_maximize = {};
 	struct wlr_box restore_fullscreen = {};
-	struct wlr_box restore_minimize = {};
 	/* Independent horizontal/vertical maximize state (the xdg protocol only
 	 * signals full maximize, so we track the axes ourselves). */
 	bool max_horz = false;
