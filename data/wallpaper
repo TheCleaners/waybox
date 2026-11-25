@@ -36,8 +36,11 @@ while getopts 'i:c:m:e:h' opt; do
 done
 
 case $every in
-    ''|*[!0-9]*) test -n "$every" && usage ;;
+    '') ;;
+    *[!0-9]*|0) usage ;;
 esac
+# Seconds per "minute" (the tests make it short).
+minute=${WAYBOX_WALLPAPER_MINUTE:-60}
 case $image in
     "~"/*) image=$HOME/${image#"~"/} ;;
 esac
@@ -79,6 +82,9 @@ if test -z "$backend"; then
     done
 fi
 
+# Starts swaybg in the background; its pid in $started. (Not echoed from a
+# command substitution: swaybg would hold that pipe open, and the caller
+# would wait for it for ever.)
 run_swaybg() {
     wp=$(pick)
     if test -n "$wp"; then
@@ -86,7 +92,7 @@ run_swaybg() {
     else
         swaybg -c "$colour" &
     fi
-    echo $!
+    started=$!
 }
 
 case $backend in
@@ -101,12 +107,13 @@ case $backend in
         # Rotating: the next one starts before the last one goes, so the
         # screen never shows no wallpaper.
         trap 'kill "$pid" 2>/dev/null; exit 0' INT TERM
-        pid=$(run_swaybg)
-        while sleep "$((every * 60))"; do
-            next=$(run_swaybg)
+        run_swaybg
+        pid=$started
+        while sleep "$((every * minute))"; do
+            run_swaybg
             sleep 1
             kill "$pid" 2>/dev/null
-            pid=$next
+            pid=$started
         done
         ;;
     hyprpaper)
@@ -129,7 +136,7 @@ case $backend in
         show
         if test -n "$every"; then
             while kill -0 "$hpid" 2>/dev/null; do
-                sleep "$((every * 60))"
+                sleep "$((every * minute))"
                 show
             done
         fi

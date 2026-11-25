@@ -8,6 +8,7 @@
 #include "waybox/cursor.h"
 #include "waybox/xdg_shell.h"
 #include "config.h"
+#include "waybox/session_lock.h"
 
 namespace {
 
@@ -82,7 +83,8 @@ void ring(struct wb_server *server, struct wlr_xdg_system_bell_v1_ring_event *e)
 	struct wb_config *config = server->config;
 	if (config == nullptr)
 		return;
-	if (config->bell_flash) {
+	/* Not over the lock screen (nor anything under it). */
+	if (config->bell_flash && !session_locked(server)) {
 		if (t != nullptr && t->mapped && t->scene_tree != nullptr &&
 				t->scene_tree->node.enabled) {
 			wb::FrameInsets in = toplevel_insets(t);
@@ -110,6 +112,14 @@ void ring(struct wb_server *server, struct wlr_xdg_system_bell_v1_ring_event *e)
 }
 
 }  // namespace
+
+void bell_flashes_set_enabled(bool enabled) {
+	if (state == nullptr)
+		return;
+	for (auto &f : state->flashes)
+		if (f->rect != nullptr)
+			wlr_scene_node_set_enabled(&f->rect->node, enabled);
+}
 
 void init_bell(struct wb_server *server) {
 	state = new BellState;

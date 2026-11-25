@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 
 def main():
@@ -28,6 +29,13 @@ def main():
             with open(p, "w") as f:
                 f.write(f'#!/bin/sh\necho "{prog} $*" > "{record}"\n')
             os.chmod(p, 0o755)
+        # A swaybg that stays (as the real one does), counting its starts.
+        starts = os.path.join(work, "starts")
+        rot = os.path.join(work, "rotbin")
+        os.makedirs(rot)
+        with open(os.path.join(rot, "swaybg"), "w") as f:
+            f.write(f'#!/bin/sh\necho "start $$" >> "{starts}"\nexec sleep 30\n')
+        os.chmod(os.path.join(rot, "swaybg"), 0o755)
         # Only the stand-ins, and the basics the script uses.
         sysbin = os.path.join(work, "sysbin")
         os.makedirs(sysbin)
@@ -76,6 +84,31 @@ def main():
         rc, got = run(["-e", "soon"])
         if rc != 2:
             failures.append(f"a bad -e wasn't refused (exit {rc})")
+        rc, got = run(["-e", "0"])
+        if rc != 2:
+            failures.append(f"-e 0 wasn't refused (exit {rc})")
+        # Rotating: a new swaybg each "minute" (1 s here), the old one gone.
+        env = {"PATH": rot + ":" + sysbin, "HOME": os.path.join(work, "home"),
+               "XDG_DATA_DIRS": share, "XDG_DATA_HOME": os.path.join(work, "nodata"),
+               "WAYBOX_WALLPAPER_MINUTE": "1"}
+        for tool in ("kill",):
+            if shutil.which(tool) and not os.path.exists(os.path.join(sysbin, tool)):
+                os.symlink(shutil.which(tool), os.path.join(sysbin, tool))
+        helper = subprocess.Popen(["sh", script, "-e", "1"], env=env,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(4.5)
+        helper.terminate()
+        helper.wait(timeout=5)
+        n = open(starts).read().count("start") if os.path.exists(starts) else 0
+        if n < 3:
+            failures.append(f"-e didn't rotate: swaybg started {n} time(s) in 4.5 s")
+        # The stand-ins still running (by their recorded pids, nothing else).
+        if os.path.exists(starts):
+            for line in open(starts):
+                try:
+                    os.kill(int(line.split()[1]), 15)
+                except (OSError, ValueError, IndexError):
+                    pass
     finally:
         shutil.rmtree(work, ignore_errors=True)
     for f in failures:
