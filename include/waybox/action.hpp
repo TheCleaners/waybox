@@ -46,6 +46,9 @@ enum class ActionType {
 	SnapToEdge,
 	Move,
 	Resize,
+	/* Not an rc.xml action: calls a function a script gave a menu entry
+	 * (script_callback; see wb.show_menu in waybox-lua(5)). */
+	ScriptCall,
 };
 
 /* A parsed action ready to run. `command` is only meaningful for actions whose
@@ -58,6 +61,7 @@ struct Action {
 	bool wrap = true;
 	bool follow = true;
 	std::string direction{};  /* SnapToEdge: left, right, up, down, up-left, ... */
+	int script_callback = 0;  /* ScriptCall */
 };
 
 /* Registry entry describing one action by its rc.xml name. */

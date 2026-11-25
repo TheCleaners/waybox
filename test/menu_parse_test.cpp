@@ -179,3 +179,20 @@ WB_TEST(parse_command_text_is_joined_and_trimmed) {
 	WB_CHECK(root->items[0].actions[0].command == "foo && bar");
 	WB_CHECK(root->items[1].actions[0].command == "foo bar");
 }
+
+WB_TEST(parse_bare_reference_takes_the_menu_label) {
+	/* <menu id="..."/> shows as the menu it refers to (Openbox); one with
+	 * a label of its own, or one that refers to nothing, keeps its own. */
+	MenuFile f = wb::parse_menu_xml(R"(<openbox_menu>
+<menu id="apps" label="Applications"><item label="A"/></menu>
+<menu id="root-menu">
+  <menu id="apps"/>
+  <menu id="lua-windows"/>
+</menu></openbox_menu>)");
+	const Menu *root = f.find("root-menu");
+	WB_CHECK(root != nullptr && root->items.size() == 2);
+	WB_CHECK(root->items[0].kind == MenuItem::Kind::Submenu);
+	WB_CHECK(root->items[0].label == "Applications");
+	WB_CHECK(root->items[1].submenu_id == "lua-windows");
+	WB_CHECK(root->items[1].label.empty());
+}

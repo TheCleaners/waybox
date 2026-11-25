@@ -230,6 +230,9 @@ bool toplevel_on_current_desktop(struct wb_toplevel *toplevel);
 /* Show desktop `index` (0-based): hide the other desktops' windows and focus
  * the most recently used window here (or nothing). */
 void wb_go_to_desktop(struct wb_server *server, int index);
+/* Show `text` for a moment, centred, in the on-screen display style (the
+ * desktop popup's; showing again replaces it). */
+void wb_show_popup(struct wb_server *server, const std::string &text, int duration_ms);
 /* Move a window to desktop `index`; with `follow`, go there with it. */
 void wb_send_to_desktop(struct wb_toplevel *toplevel, int index, bool follow);
 void wb_toggle_omnipresent(struct wb_toplevel *toplevel);

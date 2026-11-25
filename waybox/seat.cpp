@@ -387,6 +387,9 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		}
 		break;
 	}
+	case wb::ActionType::ScriptCall:
+		script_menu_call(server, action.script_callback);
+		break;
 	case wb::ActionType::GoToDesktop: {
 		if (auto target = wb::desktop_target(action.to,
 				server->current_desktop, server->last_desktop,

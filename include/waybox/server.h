@@ -160,6 +160,7 @@ struct wb_server {
 	 * refers to them) and the window it was opened for, which its entries
 	 * act on. */
 	std::unique_ptr<wb::MenuFile> client_menu;
+	std::unique_ptr<wb::MenuFile> script_menu;  /* the one wb.show_menu opened */
 	struct wb_toplevel *menu_target = nullptr;
 
 	/* The toplevel whose titlebar button is currently held down (for the

@@ -1,6 +1,7 @@
 #ifndef WB_MENU_WIDGET_HPP
 #define WB_MENU_WIDGET_HPP
 
+#include <deque>
 #include <map>
 #include <memory>
 #include <string>
@@ -97,6 +98,12 @@ private:
 
 	/* Look `id` up in finished pipe-menu output first, then in menu.xml. */
 	const Menu *find_menu(std::string_view id) const;
+	/* As find_menu, building a script's menu (wb.menu_provider) first. */
+	const Menu *resolve_menu(std::string_view id);
+	/* `menu`, or a copy whose unlabelled submenu items take their label
+	 * from the script providing the menu (kept in labelled_). */
+	const Menu *with_labels(const Menu *menu);
+	std::deque<Menu> labelled_;
 	/* Run a pipe menu's command (unless already running or done); its output
 	 * replaces the placeholder via finish_pipe(). */
 	void start_pipe(const Menu &menu);
