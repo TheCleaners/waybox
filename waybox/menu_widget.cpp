@@ -186,6 +186,7 @@ bool MenuWidget::open(std::string_view root_id, int lx, int ly) {
 	const Menu *menu = with_labels(resolve_menu(root_id));
 	if (menu == nullptr)
 		return false;
+	wlr_log(WLR_INFO, "wb-menu open %s", std::string(root_id).c_str());
 	root_id_ = std::string(root_id);
 	root_x_ = lx;
 	root_y_ = ly;

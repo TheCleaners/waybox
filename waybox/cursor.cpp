@@ -744,6 +744,22 @@ static bool run_mouse_bindings(struct wb_server *server, wb::MouseContext contex
 	return handled;
 }
 
+/* Whether bindings that ran for a press (or scroll) keep it from the
+ * surface under the pointer. In a window (Client) and on a desktop program
+ * (Desktop) it still reaches the program, as in Openbox: "Focus, Raise" on
+ * a click, or desktop switching on the wheel, must not eat it (Openbox's
+ * own rc.xml binds both on Desktop). Except a binding that opened a menu on
+ * a desktop program: the menu has the pointer now, and the program
+ * mustn't open its own menu under it. Elsewhere (the empty desktop, the
+ * frame) there's nothing to pass it to. */
+static bool takes_click(struct wb_server *server, wb::MouseContext context, bool had_menu) {
+	if (context == wb::MouseContext::Client)
+		return false;
+	if (context == wb::MouseContext::Desktop)
+		return !had_menu && server->menu != nullptr;
+	return true;
+}
+
 static uint32_t keyboard_modifiers(struct wb_server *server) {
 	struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(server->seat->seat);
 	return keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
@@ -870,12 +886,10 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 			server->click_tracker.press(event->button, *context,
 					reinterpret_cast<uintptr_t>(bound_window), mods,
 					cursor->x, cursor->y, event->time_msec);
+			bool had_menu = server->menu != nullptr;
 			if (run_mouse_bindings(server, *context, bound_window,
 					event->button, mods, wb::MouseEvent::Press) &&
-					*context != wb::MouseContext::Client) {
-				/* A binding took the press over. In a window (the Client
-				 * context) the click still reaches the program, as in
-				 * Openbox ("Focus, Raise" on a click must not eat it). */
+					takes_click(server, *context, had_menu)) {
 				idle_activity(server, seat);
 				return;
 			}
@@ -991,12 +1005,13 @@ void wb_cursor::on_axis(void *data) {
 			uint32_t button = steps < 0 ? wb::MOUSE_BUTTON_UP
 					: wb::MOUSE_BUTTON_DOWN;
 			uint32_t mods = keyboard_modifiers(server);
+			bool had_menu = server->menu != nullptr;
 			bool pressed = run_mouse_bindings(server, *context, window, button,
 					mods, wb::MouseEvent::Press);
 			bool clicked = (window == nullptr || toplevel_alive(server, window)) &&
 					run_mouse_bindings(server, *context, window, button, mods,
 							wb::MouseEvent::Click);
-			if (pressed || clicked)
+			if ((pressed || clicked) && takes_click(server, *context, had_menu))
 				return;
 		}
 	}
