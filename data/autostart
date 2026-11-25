@@ -58,63 +58,9 @@ start_polkit_agent
 # wlopm). To lock the screen as well, add for example: timeout 300 'swaylock -f'
 #swayidle -w timeout 600 'wlopm --off "*"' resume 'wlopm --on "*"' &
 
-# Load a random wallpaper
-get_random_wallpaper()
-{
-    oldifs=$IFS
-    IFS=:
-    data_dirs=${XDG_DATA_DIRS:-${datadir:-/usr/share}}:${XDG_DATA_HOME:-~/.local/share}
-    for data_dir in $data_dirs;do
-        IFS=$oldifs
-        wpdir="$data_dir/wallpapers"
-        test -d "$wpdir" && \
-            find $wpdir -name '*.jpg' -o -name '*.png' -o -name '*.svg'
-    done | (shuf -n 1 || tail -n 1)
-}
-
-load_wallpaper() {
-    uses_wayland_info=0
-    if (which hyprpaper && which socat && (test "$uses_wayland_info" = "0" || which wayland-info)) >/dev/null 2>&1; then
-        hyprpaper &
-        HYPRPAPER_SOCKET="${XDG_RUNTIME_DIR:-"/run/user/$(id -u)"}"/hypr/.hyprpaper.sock
-        # Give hyprpaper up to 5 s to create its socket.
-        tries=50
-        while ! test -S "$HYPRPAPER_SOCKET" && test $tries -gt 0; do
-            sleep 0.1
-            tries=$((tries - 1))
-        done
-        # Change the wallpaper every hour
-        while test -S "$HYPRPAPER_SOCKET"; do
-            if test "$uses_wayland_info" != "0";
-            then
-                current_output=$(wayland-info -i wl_output | \
-                    grep 'name:' | tail -n 1 | cut -d : -f 2 | tr -d ' ')
-            fi
-            random_wallpaper="$(get_random_wallpaper)"
-            ok=1
-            for cmd in "preload $random_wallpaper" \
-                "wallpaper $current_output,$random_wallpaper" \
-                'unload all';
-            do
-                printf '%s' "$cmd" | socat UNIX-CONNECT:"$HYPRPAPER_SOCKET" - || ok=0
-            done
-            [ $ok -eq 0 ] && rm -f "$HYPRPAPER_SOCKET"
-            sleep 60m
-        done
-    elif which swaybg >/dev/null 2>&1; then
-        wallpaper="$(get_random_wallpaper)"
-        if [ -n "$wallpaper" ]; then
-            swaybg -c '#303030' -m fill -i "$wallpaper" &
-        else
-            # No wallpaper image found; just set a solid background color
-            # rather than passing swaybg an empty -i argument.
-            swaybg -c '#303030' &
-        fi
-    elif which wpaperd >/dev/null 2>&1; then
-        wpaperd &
-    fi
-}
-
-load_wallpaper &
+# A wallpaper: a random one from the wallpapers folders, with whichever of
+# swaybg, hyprpaper or wpaperd is installed (see waybox-wallpaper -h; or
+# turn it off here and start it from wbconf's Integrations instead).
+command -v waybox-wallpaper >/dev/null 2>&1 && waybox-wallpaper &
 
 # vim: ft=sh

@@ -215,7 +215,7 @@ Like Openbox, Waybox leaves most desktop functions to separate programs.
 |---|---|
 | Panel | [Waybar](https://github.com/Alexays/Waybar), [yambar](https://codeberg.org/dnkl/yambar) |
 | Dock | [Cairo-Dock](https://github.com/dkondor/cairo-dock-core/) (Wayland port), [LavaLauncher](https://sr.ht/~leon_plickat/LavaLauncher/) |
-| Wallpaper | [swaybg](https://github.com/swaywm/swaybg), [wpaperd](https://github.com/danyspin97/wpaperd), [hyprpaper](https://github.com/hyprwm/hyprpaper) |
+| Wallpaper | [swaybg](https://github.com/swaywm/swaybg), [wpaperd](https://github.com/danyspin97/wpaperd), [hyprpaper](https://github.com/hyprwm/hyprpaper) | The default autostart starts `waybox-wallpaper`, which picks a random image and uses whichever of these is installed.
 | Displays | [wlr-randr](https://sr.ht/~emersion/wlr-randr/), [kanshi](https://sr.ht/~emersion/kanshi/) (profiles) |
 | Launcher | [rofi-wayland](https://github.com/lbonn/rofi) or any dmenu-like tool |
 | Notifications | [mako](https://wayland.emersion.fr/mako/) |
