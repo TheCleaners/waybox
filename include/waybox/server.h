@@ -22,6 +22,7 @@
 #endif
 
 #include "config.h"
+#include "waybox/app_menu.hpp"
 #include "waybox/cursor.h"
 #include "waybox/keychain.hpp"
 #include "waybox/mousebind.hpp"
@@ -161,6 +162,7 @@ struct wb_server {
 	 * act on. */
 	std::unique_ptr<wb::MenuFile> client_menu;
 	std::unique_ptr<wb::MenuFile> script_menu;  /* the one wb.show_menu opened */
+	std::unique_ptr<wb::ApplicationsMenu> applications_menu;  /* <menu type="applications"> */
 	struct wb_toplevel *menu_target = nullptr;
 
 	/* The toplevel whose titlebar button is currently held down (for the

@@ -5,6 +5,7 @@
  */
 #include "waybox/stall.hpp"
 #include "waybox/menu_widget.hpp"
+#include "waybox/app_menu.hpp"
 
 #include "script.h"
 
@@ -313,6 +314,33 @@ void MenuWidget::open_submenu(size_t level_index, int item_index) {
 	levels_.back().pending_id = pending;
 }
 
+namespace {
+
+/* $XDG_CURRENT_DESKTOP's desktops (colon-separated). */
+std::vector<std::string> current_desktops() {
+	std::vector<std::string> out;
+	const char *v = getenv("XDG_CURRENT_DESKTOP");
+	std::string_view rest = v != nullptr ? v : "";
+	while (!rest.empty()) {
+		size_t colon = rest.find(':');
+		if (colon != 0)
+			out.emplace_back(rest.substr(0, colon));
+		if (colon == std::string_view::npos)
+			break;
+		rest.remove_prefix(colon + 1);
+	}
+	return out;
+}
+
+std::string message_locale() {
+	for (const char *var : {"LC_ALL", "LC_MESSAGES", "LANG"})
+		if (const char *v = getenv(var); v != nullptr && v[0] != '\0')
+			return v;
+	return "";
+}
+
+}  // namespace
+
 const Menu *MenuWidget::resolve_menu(std::string_view id) {
 	/* Built already while this menu is open (as pipe menus: again the
 	 * next time it opens), else a script's, else menu.xml's. */
@@ -320,9 +348,26 @@ const Menu *MenuWidget::resolve_menu(std::string_view id) {
 		if (const Menu *m = file->find(id))
 			return m;
 	std::string key(id);
-	if (auto file = script_build_menu(server_, key))
+	if (auto file = script_build_menu(server_, key)) {
 		pipe_results_[key] = std::move(file);
-	return find_menu(id);
+		return find_menu(id);
+	}
+	const Menu *menu = find_menu(id);
+	if (menu != nullptr && menu->type == "applications") {
+		/* Kept by the server until an applications directory changes. */
+		StallScope timing("applications-menu");
+		if (server_->applications_menu == nullptr)
+			server_->applications_menu = std::make_unique<ApplicationsMenu>();
+		const char *terminal = getenv("TERMINAL");
+		const MenuFile &apps = server_->applications_menu->get(menu->id, menu->label,
+				application_dirs(getenv("XDG_DATA_HOME"), getenv("HOME"),
+						getenv("XDG_DATA_DIRS")),
+				locale_names(message_locale()), current_desktops(),
+				terminal != nullptr && terminal[0] != '\0' ? terminal : "xdg-terminal-exec");
+		pipe_results_[key] = std::make_unique<MenuFile>(apps);
+		return find_menu(id);
+	}
+	return menu;
 }
 
 const Menu *MenuWidget::with_labels(const Menu *menu) {
