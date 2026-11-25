@@ -427,6 +427,31 @@ void wb_cursor::touch_button(uint32_t time, bool pressed) {
 	wlr_seat_pointer_notify_frame(server->seat->seat);
 }
 
+void wb_cursor::touch_cancel_all() {
+	struct wlr_seat *seat = server->seat->seat;
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	uint32_t ms = static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000);
+	std::set<struct wlr_seat_client *> told;
+	for (auto &[id, p] : touch_points) {
+		if (p.emulated)
+			continue;
+		if (struct wlr_touch_point *point = wlr_seat_touch_get_point(seat, id))
+			if (point->client != nullptr && told.insert(point->client).second)
+				wlr_seat_touch_notify_cancel(seat, point->client);
+	}
+	bool emulated = emulating != -1;
+	touch_points.clear();
+	emulating = -1;
+	if (emulated)
+		touch_button(ms, false);
+}
+
+void cursor_touch_cancel_all(struct wb_server *server) {
+	if (server->cursor != nullptr)
+		server->cursor->touch_cancel_all();
+}
+
 void wb_cursor::init_touch() {
 	touch_down.connect(&cursor->events.touch_down, [this](void *data) {
 		auto *e = static_cast<struct wlr_touch_down_event *>(data);
@@ -478,7 +503,30 @@ void wb_cursor::init_touch() {
 			wlr_seat_pointer_notify_frame(server->seat->seat);
 			return;
 		}
-		wlr_seat_touch_notify_motion(server->seat->seat, e->time_msec, e->touch_id,
+		struct wlr_seat *seat = server->seat->seat;
+		struct wlr_drag *drag = seat->drag;
+		if (drag != nullptr && drag->grab_type == WLR_DRAG_GRAB_KEYBOARD_TOUCH &&
+				drag->touch_id == e->touch_id) {
+			/* A drag-and-drop by this finger: the pointer, the drag icon and a
+			 * carried window follow it, and the drop target is what's under
+			 * it (the carried window left out). */
+			wlr_cursor_warp_closest(cursor, nullptr, lx, ly);
+			wlr_scene_node_set_position(&server->drag_icon_tree->node,
+					static_cast<int>(lx), static_cast<int>(ly));
+			toplevel_drag_motion(server);
+			HideCarried hide(toplevel_drag_window(server));
+			double sx, sy;
+			struct wlr_surface *under = nullptr;
+			get_toplevel_at(server, lx, ly, &under, &sx, &sy);
+			if (under != nullptr) {
+				p->second.off_x = lx - sx;
+				p->second.off_y = ly - sy;
+				wlr_seat_touch_point_focus(seat, under, e->time_msec, e->touch_id, sx, sy);
+			} else {
+				wlr_seat_touch_point_clear_focus(seat, e->time_msec, e->touch_id);
+			}
+		}
+		wlr_seat_touch_notify_motion(seat, e->time_msec, e->touch_id,
 				lx - p->second.off_x, ly - p->second.off_y);
 	});
 	touch_up.connect(&cursor->events.touch_up, [this](void *data) {

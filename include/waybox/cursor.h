@@ -68,6 +68,10 @@ struct wb_cursor {
 	int32_t emulating = -1;               /* the touch id working as a pointer */
 	wb::Listener touch_down, touch_up, touch_motion, touch_cancel, touch_frame;
 	void init_touch();
+	/* Every touch in progress ends: programs get "cancel", a finger
+	 * working as the pointer lets its button go (the screen locking, a
+	 * touchscreen unplugged). */
+	void touch_cancel_all();
 	void touch_button(uint32_t time, bool pressed);
 	void button_event(struct wlr_pointer_button_event *event);
 	struct wlr_pointer_gestures_v1 *gestures = nullptr;
@@ -95,5 +99,6 @@ void reset_cursor_mode(struct wb_server *server);
 /* Re-pick the surface under the pointer after the scene changed underneath it
  * (e.g. a desktop switch), without the pointer having moved. */
 void cursor_refresh_focus(struct wb_server *server);
+void cursor_touch_cancel_all(struct wb_server *server);
 
 #endif /* cursor.h */

@@ -12,7 +12,8 @@
  *   an xdg_toplevel_drag, and a new 200x100 window (app_id dnd-torn) is
  *   attached at offset 20,10 and mapped during the drag. Prints
  *   "torn-mapped" once it's shown.
- * Both print "configured" once shown. Runs until killed.
+ * Both print "configured" once shown. A touch on the source window starts
+ * a drag too (as a finger does). Runs until killed.
  */
 #define _GNU_SOURCE
 #include <stdint.h>
@@ -206,6 +207,31 @@ static void p_button(void *d, struct wl_pointer *p, uint32_t serial, uint32_t t,
 		start_drag(serial);
 }
 static void p_axis(void *d, struct wl_pointer *p, uint32_t t, uint32_t a, wl_fixed_t v) {}
+static void t_down(void *d, struct wl_touch *t, uint32_t serial, uint32_t time,
+		struct wl_surface *s, int32_t id, wl_fixed_t x, wl_fixed_t y) {
+	if (is_source)
+		start_drag(serial);
+}
+static void t_up(void *d, struct wl_touch *t, uint32_t serial, uint32_t time, int32_t id) {}
+static void t_motion(void *d, struct wl_touch *t, uint32_t time, int32_t id,
+		wl_fixed_t x, wl_fixed_t y) {}
+static void t_frame(void *d, struct wl_touch *t) {}
+static void t_cancel(void *d, struct wl_touch *t) {}
+static const struct wl_touch_listener touch_listener = {
+	.down = t_down, .up = t_up, .motion = t_motion, .frame = t_frame, .cancel = t_cancel,
+};
+static void seat_caps(void *d, struct wl_seat *s, uint32_t caps) {
+	static struct wl_touch *touch;
+	if ((caps & WL_SEAT_CAPABILITY_TOUCH) && touch == NULL) {
+		touch = wl_seat_get_touch(s);
+		wl_touch_add_listener(touch, &touch_listener, NULL);
+	}
+}
+static void seat_name(void *d, struct wl_seat *s, const char *name) {}
+static const struct wl_seat_listener seat_listener = {
+	.capabilities = seat_caps, .name = seat_name,
+};
+
 static const struct wl_pointer_listener pointer_listener = {
 	.enter = p_enter, .leave = p_leave, .motion = p_motion,
 	.button = p_button, .axis = p_axis,
@@ -271,6 +297,7 @@ int main(int argc, char **argv) {
 	device = wl_data_device_manager_get_data_device(ddm, seat);
 	wl_data_device_add_listener(device, &dd_listener, NULL);
 	wl_pointer_add_listener(wl_seat_get_pointer(seat), &pointer_listener, NULL);
+	wl_seat_add_listener(seat, &seat_listener, NULL);
 	surface = wl_compositor_create_surface(compositor);
 	struct xdg_surface *xs = xdg_wm_base_get_xdg_surface(wm_base, surface);
 	xdg_surface_add_listener(xs, &xs_listener, NULL);
