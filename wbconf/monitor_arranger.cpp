@@ -1,0 +1,409 @@
+/*
+ * The monitor arranger: each monitor a box at its size on the desktop
+ * (mode over scale, turned for rotation), placed as they're laid out.
+ * Drag one to move it: it snaps to the others' edges and corners, and
+ * when dropped it goes to the nearest place that touches another and
+ * overlaps none; then the arrangement starts at 0,0 again. Arrow keys
+ * nudge the selected one (Shift: by 1). Clicking one shows its settings.
+ *
+ * What it shows is the monitors' settings in their cards, "Automatic"
+ * being what each monitor has now; moving one writes every monitor's
+ * position.
+ */
+#include "wbconf_ui.hpp"
+
+#include <pango/pangocairo.h>
+
+#include "waybox/monitor_layout.hpp"
+
+namespace wbconf {
+
+namespace {
+
+constexpr int kMargin = 16;
+constexpr int kSnap = 14;   /* canvas pixels */
+constexpr int kOffGap = 18; /* between the layout and switched-off monitors */
+
+/* A monitor as it would be with its settings now. */
+struct Effective {
+	int x, y, w, h;
+	bool enabled;
+	int mode_w, mode_h;
+	double scale;
+};
+
+Effective effective(const Ui::Monitor &m) {
+	Effective e{};
+	e.enabled = gtk_switch_get_active(m.enabled);
+	std::string mode = selected_value(m.mode, m.modes);
+	int mw = m.info.width, mh = m.info.height;
+	if (!mode.empty())
+		sscanf(mode.c_str(), "%dx%d", &mw, &mh);
+	if (mw <= 0 || mh <= 0) {
+		mw = 1920;
+		mh = 1080;
+	}
+	std::string scale = selected_value(m.scale, m.scales);
+	double sc = scale.empty() ? m.info.scale : g_ascii_strtod(scale.c_str(), nullptr);
+	std::string tr = selected_value(m.transform, kTransforms);
+	if (tr.empty())
+		tr = m.info.transform;
+	auto [w, h] = wb::logical_size(mw, mh, sc, tr);
+	e.w = w;
+	e.h = h;
+	e.mode_w = mw;
+	e.mode_h = mh;
+	e.scale = sc > 0 ? sc : 1;
+	e.x = m.info.x;
+	e.y = m.info.y;
+	if (auto p = wb::parse_position(gtk_editable_get_text(GTK_EDITABLE(m.position)))) {
+		e.x = p->first;
+		e.y = p->second;
+	}
+	return e;
+}
+
+/* The switched-on monitors as boxes, and which monitor each is. */
+std::vector<wb::LayoutBox> boxes(Ui *ui, std::vector<int> *which) {
+	std::vector<wb::LayoutBox> out;
+	which->clear();
+	for (size_t i = 0; i < ui->monitors.size(); ++i) {
+		Effective e = effective(ui->monitors[i]);
+		if (!e.enabled)
+			continue;
+		out.push_back({ui->monitors[i].name, e.x, e.y, e.w, e.h});
+		which->push_back(static_cast<int>(i));
+	}
+	return out;
+}
+
+/* Where a monitor is drawn, in canvas pixels. */
+struct Drawn {
+	int monitor;
+	double x, y, w, h;
+	bool enabled;
+};
+
+/* Fit the layout (and a row of switched-off monitors under it) in the
+ * canvas; while dragging, the scale stays put. */
+std::vector<Drawn> layout(Ui *ui, int width, int height) {
+	auto &a = ui->arranger;
+	std::vector<int> which;
+	std::vector<wb::LayoutBox> b = boxes(ui, &which);
+	if (a.dragging >= 0)
+		for (size_t k = 0; k < which.size(); ++k)
+			if (which[k] == a.dragging) {
+				b[k].x = a.drag_x;
+				b[k].y = a.drag_y;
+			}
+	std::vector<int> off;
+	int off_w = 0, off_h = 0;
+	for (size_t i = 0; i < ui->monitors.size(); ++i) {
+		Effective e = effective(ui->monitors[i]);
+		if (!e.enabled) {
+			off.push_back(static_cast<int>(i));
+			off_w += e.w + (off_w ? 200 : 0);
+			off_h = std::max(off_h, e.h);
+		}
+	}
+	if (a.dragging < 0) {
+		int minx = 0, miny = 0, maxx = 1, maxy = 1;
+		bool first = true;
+		for (const wb::LayoutBox &x : b) {
+			if (first) {
+				minx = x.x; miny = x.y; maxx = x.x + x.w; maxy = x.y + x.h;
+				first = false;
+			}
+			minx = std::min(minx, x.x);
+			miny = std::min(miny, x.y);
+			maxx = std::max(maxx, x.x + x.w);
+			maxy = std::max(maxy, x.y + x.h);
+		}
+		double lw = maxx - minx, lh = maxy - miny;
+		double extra_h = off.empty() ? 0 : off_h;  /* in logical pixels */
+		lw = std::max(lw, double(off_w));
+		/* Room around, so a monitor can be dragged past the others. */
+		double sx = (width - 2.0 * kMargin) / (lw * 1.25);
+		double sy = (height - 2.0 * kMargin - (off.empty() ? 0 : kOffGap)) /
+				((lh + extra_h) * 1.15);
+		a.scale = std::max(0.005, std::min(sx, sy));
+		a.origin_x = minx;
+		a.origin_y = miny;
+		a.margin_x = (width - (maxx - minx) * a.scale) / 2;
+		a.margin_y = kMargin + std::max(0.0, (height - 2.0 * kMargin -
+				(lh + extra_h) * a.scale - (off.empty() ? 0 : kOffGap)) / 2);
+	}
+	std::vector<Drawn> out;
+	for (size_t k = 0; k < b.size(); ++k)
+		out.push_back({which[k], (b[k].x - a.origin_x) * a.scale + a.margin_x,
+				(b[k].y - a.origin_y) * a.scale + a.margin_y, b[k].w * a.scale,
+				b[k].h * a.scale, true});
+	/* Switched off: in a row under the layout, to select and switch on. */
+	double maxy = a.margin_y;
+	for (const Drawn &d : out)
+		maxy = std::max(maxy, d.y + d.h);
+	double x = kMargin;
+	for (int i : off) {
+		Effective e = effective(ui->monitors[i]);
+		out.push_back({i, x, maxy + kOffGap, e.w * a.scale, e.h * a.scale, false});
+		x += e.w * a.scale + 12;
+	}
+	return out;
+}
+
+void rounded(cairo_t *cr, double x, double y, double w, double h, double r) {
+	r = std::min({r, w / 2, h / 2});
+	cairo_new_sub_path(cr);
+	cairo_arc(cr, x + w - r, y + r, r, -G_PI / 2, 0);
+	cairo_arc(cr, x + w - r, y + h - r, r, 0, G_PI / 2);
+	cairo_arc(cr, x + r, y + h - r, r, G_PI / 2, G_PI);
+	cairo_arc(cr, x + r, y + r, r, G_PI, 3 * G_PI / 2);
+	cairo_close_path(cr);
+}
+
+void draw(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	GdkRGBA fg;
+	gtk_widget_get_color(GTK_WIDGET(area), &fg);
+	for (const Drawn &d : layout(ui, width, height)) {
+		const Ui::Monitor &m = ui->monitors[d.monitor];
+		bool sel = d.monitor == ui->arranger.selected;
+		rounded(cr, d.x + 1, d.y + 1, d.w - 2, d.h - 2, 6);
+		if (!d.enabled)
+			cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.06);
+		else if (sel)
+			cairo_set_source_rgba(cr, 0.21, 0.52, 0.89, 0.85);
+		else
+			cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.18);
+		cairo_fill_preserve(cr);
+		cairo_set_line_width(cr, sel ? 2.5 : 1);
+		if (!d.enabled) {
+			double dash[] = {4, 3};
+			cairo_set_dash(cr, dash, 2, 0);
+		}
+		cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, sel ? 0.9 : 0.5);
+		cairo_stroke(cr);
+		cairo_set_dash(cr, nullptr, 0, 0);
+		/* Name, and make and model, as fits. */
+		/* The widget's own font, not cairo's default. */
+		PangoLayout *pl = gtk_widget_create_pango_layout(GTK_WIDGET(area), nullptr);
+		char *name = g_markup_escape_text(m.name.c_str(), -1);
+		std::string text = "<b>" + std::string(name) + "</b>";
+		g_free(name);
+		if (!m.info.description.empty() && d.h > 44) {
+			char *desc = g_markup_escape_text(m.info.description.c_str(), -1);
+			text += "\n<small>" + std::string(desc) + "</small>";
+			g_free(desc);
+		}
+		if (!d.enabled)
+			text += std::string("\n<small>") + _("Off") + "</small>";
+		pango_layout_set_markup(pl, text.c_str(), -1);
+		pango_layout_set_alignment(pl, PANGO_ALIGN_CENTER);
+		pango_layout_set_width(pl, static_cast<int>((d.w - 8) * PANGO_SCALE));
+		pango_layout_set_height(pl, static_cast<int>((d.h - 8) * PANGO_SCALE));
+		pango_layout_set_ellipsize(pl, PANGO_ELLIPSIZE_END);
+		int tw, th;
+		pango_layout_get_pixel_size(pl, &tw, &th);
+		if (sel)
+			cairo_set_source_rgb(cr, 1, 1, 1);
+		else
+			cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, d.enabled ? 0.95 : 0.6);
+		cairo_move_to(cr, d.x + 4, d.y + (d.h - th) / 2);
+		pango_cairo_show_layout(cr, pl);
+		g_object_unref(pl);
+	}
+}
+
+int hit(Ui *ui, double x, double y) {
+	int w = gtk_widget_get_width(ui->arranger.area), h = gtk_widget_get_height(ui->arranger.area);
+	std::vector<Drawn> all = layout(ui, w, h);
+	for (auto it = all.rbegin(); it != all.rend(); ++it)
+		if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h)
+			return it->monitor;
+	return -1;
+}
+
+/* Every switched-on monitor's position, from boxes moved to start at 0,0. */
+void write_positions(Ui *ui, std::vector<wb::LayoutBox> b, const std::vector<int> &which) {
+	wb::normalize_layout(b);
+	for (size_t k = 0; k < b.size(); ++k) {
+		std::string pos = std::to_string(b[k].x) + "," + std::to_string(b[k].y);
+		gtk_editable_set_text(GTK_EDITABLE(ui->monitors[which[k]].position), pos.c_str());
+	}
+}
+
+/* Monitor `index` dropped (or nudged) to x,y: placed, or refused. With
+ * `exact`, only there (a nudge): no other place. */
+bool drop(Ui *ui, int index, int x, int y, bool exact) {
+	std::vector<int> which;
+	std::vector<wb::LayoutBox> b = boxes(ui, &which);
+	auto at = std::find(which.begin(), which.end(), index);
+	if (at == which.end())
+		return false;
+	size_t k = static_cast<size_t>(at - which.begin());
+	auto p = wb::place_box(b, k, x, y);
+	if (!p || (exact && *p != std::pair{x, y}))
+		return false;
+	b[k].x = p->first;
+	b[k].y = p->second;
+	write_positions(ui, b, which);
+	return true;
+}
+
+void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	int i = hit(ui, x, y);
+	gtk_widget_grab_focus(ui->arranger.area);
+	if (i < 0) {
+		gtk_gesture_set_state(GTK_GESTURE(g), GTK_EVENT_SEQUENCE_DENIED);
+		return;
+	}
+	arranger_select(ui, i);
+	Effective e = effective(ui->monitors[i]);
+	if (!e.enabled)
+		return;
+	ui->arranger.dragging = i;
+	ui->arranger.start_x = ui->arranger.drag_x = e.x;
+	ui->arranger.start_y = ui->arranger.drag_y = e.y;
+}
+
+void on_drag_update(GtkGestureDrag *, double dx, double dy, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	auto &a = ui->arranger;
+	if (a.dragging < 0)
+		return;
+	int x = a.start_x + static_cast<int>(std::lround(dx / a.scale));
+	int y = a.start_y + static_cast<int>(std::lround(dy / a.scale));
+	std::vector<int> which;
+	std::vector<wb::LayoutBox> b = boxes(ui, &which);
+	auto at = std::find(which.begin(), which.end(), a.dragging);
+	if (at != which.end()) {
+		auto s = wb::snap_position(b, static_cast<size_t>(at - which.begin()), x, y,
+				static_cast<int>(kSnap / a.scale));
+		x = s.first;
+		y = s.second;
+	}
+	a.drag_x = x;
+	a.drag_y = y;
+	gtk_widget_queue_draw(a.area);
+}
+
+void on_drag_end(GtkGestureDrag *, double, double, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	auto &a = ui->arranger;
+	if (a.dragging < 0)
+		return;
+	int i = a.dragging;
+	a.dragging = -1;
+	if (a.drag_x != a.start_x || a.drag_y != a.start_y)
+		drop(ui, i, a.drag_x, a.drag_y, false);
+	arranger_changed(ui);
+}
+
+gboolean on_key(GtkEventControllerKey *, guint key, guint, GdkModifierType mods,
+		gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	int i = ui->arranger.selected;
+	if (i < 0 || i >= static_cast<int>(ui->monitors.size()))
+		return FALSE;
+	int step = (mods & GDK_SHIFT_MASK) ? 1 : 10;
+	int dx = 0, dy = 0;
+	switch (key) {
+	case GDK_KEY_Left: dx = -step; break;
+	case GDK_KEY_Right: dx = step; break;
+	case GDK_KEY_Up: dy = -step; break;
+	case GDK_KEY_Down: dy = step; break;
+	default: return FALSE;
+	}
+	Effective e = effective(ui->monitors[i]);
+	if (e.enabled && drop(ui, i, e.x + dx, e.y + dy, true))
+		arranger_changed(ui);
+	else
+		gtk_widget_error_bell(ui->arranger.area);
+	return TRUE;
+}
+
+void show_cards(Ui *ui) {
+	bool all = ui->arranger.advanced != nullptr &&
+			gtk_check_button_get_active(ui->arranger.advanced);
+	for (size_t i = 0; i < ui->monitors.size(); ++i)
+		if (ui->monitors[i].card != nullptr)
+			gtk_widget_set_visible(ui->monitors[i].card,
+					all || static_cast<int>(i) == ui->arranger.selected);
+}
+
+}  // namespace
+
+void arranger_select(Ui *ui, int index) {
+	ui->arranger.selected = index;
+	show_cards(ui);
+	if (ui->arranger.area != nullptr)
+		gtk_widget_queue_draw(ui->arranger.area);
+}
+
+void arranger_changed(Ui *ui) {
+	for (Ui::Monitor &m : ui->monitors) {
+		if (m.looks_like == nullptr)
+			continue;
+		Effective e = effective(m);
+		char *t = std::abs(e.scale - 1) > 1e-6
+				? g_strdup_printf(_("Looks like %d×%d (%d×%d at %s×)"), e.w, e.h, e.mode_w,
+						e.mode_h, format_hz(e.scale).c_str())
+				: g_strdup_printf(_("%d×%d"), e.w, e.h);
+		gtk_label_set_text(m.looks_like, t);
+		g_free(t);
+	}
+	if (ui->arranger.area != nullptr)
+		gtk_widget_queue_draw(ui->arranger.area);
+}
+
+bool arranger_test_drop(Ui *ui, const std::string &name, int x, int y) {
+	for (size_t i = 0; i < ui->monitors.size(); ++i)
+		if (ui->monitors[i].name == name) {
+			bool ok = drop(ui, static_cast<int>(i), x, y, false);
+			arranger_changed(ui);
+			return ok;
+		}
+	return false;
+}
+
+GtkWidget *build_arranger(Ui *ui) {
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+	GtkWidget *area = gtk_drawing_area_new();
+	ui->arranger.area = area;
+	gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(area), 260);
+	gtk_widget_set_hexpand(area, TRUE);
+	gtk_widget_set_focusable(area, TRUE);
+	gtk_widget_set_cursor_from_name(area, "grab");
+	gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(area), draw, ui, nullptr);
+	GtkGesture *drag = gtk_gesture_drag_new();
+	g_signal_connect(drag, "drag-begin", G_CALLBACK(on_drag_begin), ui);
+	g_signal_connect(drag, "drag-update", G_CALLBACK(on_drag_update), ui);
+	g_signal_connect(drag, "drag-end", G_CALLBACK(on_drag_end), ui);
+	gtk_widget_add_controller(area, GTK_EVENT_CONTROLLER(drag));
+	GtkEventController *keys = gtk_event_controller_key_new();
+	g_signal_connect(keys, "key-pressed", G_CALLBACK(on_key), ui);
+	gtk_widget_add_controller(area, keys);
+	GtkWidget *frame = gtk_frame_new(nullptr);
+	gtk_frame_set_child(GTK_FRAME(frame), area);
+	gtk_box_append(GTK_BOX(box), frame);
+
+	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+	GtkWidget *hint = gtk_label_new(_("Drag a monitor to move it; arrow keys nudge the "
+			"selected one. Click one to see its settings."));
+	gtk_label_set_wrap(GTK_LABEL(hint), TRUE);
+	gtk_label_set_xalign(GTK_LABEL(hint), 0);
+	gtk_widget_set_hexpand(hint, TRUE);
+	gtk_widget_add_css_class(hint, "dim-label");
+	gtk_box_append(GTK_BOX(row), hint);
+	ui->arranger.advanced = GTK_CHECK_BUTTON(gtk_check_button_new_with_label(
+			_("All monitors' settings")));
+	g_signal_connect_swapped(ui->arranger.advanced, "toggled", G_CALLBACK(+[](Ui *ui) {
+		show_cards(ui);
+	}), ui);
+	gtk_box_append(GTK_BOX(row), GTK_WIDGET(ui->arranger.advanced));
+	gtk_box_append(GTK_BOX(box), row);
+	return box;
+}
+
+}  // namespace wbconf
