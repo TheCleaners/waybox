@@ -1,3 +1,4 @@
+#include "toplevel_drag.h"
 #include "waybox/window_icon.h"
 #include "waybox/desktop_popup.hpp"
 #include "waybox/wlroots.hpp"
@@ -814,8 +815,10 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 	 * inside the placement area so a server-side titlebar/border is never
 	 * clipped off-screen or placed under a panel's reserved zone. Log the
 	 * final, on-screen position as "mapped" so restore geometry matches it. */
-	clamp_frame_into_area(toplevel, area);
-	position_toplevel(toplevel);
+	if (!toplevel_drag_place(toplevel)) {  /* torn off: at the pointer */
+		clamp_frame_into_area(toplevel, area);
+		position_toplevel(toplevel);
+	}
 	/* X11 windows track their own position: tell them where they ended up. */
 	if (toplevel->kind == wb_view_kind::Xwayland)
 		view_set_size(toplevel, toplevel->geometry.width,
@@ -895,6 +898,7 @@ static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
 }
 
 void unmap_toplevel(struct wb_toplevel *toplevel) {
+	toplevel_drag_unmapped(toplevel);
 	if (toplevel->mapped)
 		ipc_window_event(toplevel, "close");
 	toplevel->mapped = false;

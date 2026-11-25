@@ -6,6 +6,11 @@ the pointer carries it over the target window and lets go there. Waybox
 must start the drag (wlroots only asks), show the icon on screen, and the
 target must get "enter" and then the data on drop.
 
+Then a tear-off, as a browser tab is torn off into a window of its own
+(xdg-toplevel-drag): the drag carries a new window, which must open at
+the pointer (at the client's offset), follow it, and not get in the way
+of the drop target under it.
+
 Usage: dnd_test.py <waybox> <dnd_client> <vpointer_client>
 """
 import os
@@ -16,6 +21,8 @@ import signal
 import subprocess
 import sys
 import tempfile
+import json
+import socket
 import threading
 import time
 
@@ -64,6 +71,20 @@ class Client:
 
 
 
+def ipc(runtime, display, request):
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as c:
+        c.settimeout(5)
+        c.connect(os.path.join(runtime, f"waybox-{display}.sock"))
+        c.sendall((json.dumps(request) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = c.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+    return json.loads(buf)
+
+
 def main():
     if len(sys.argv) != 4:
         print(__doc__)
@@ -75,7 +96,7 @@ def main():
     with open(os.path.join(cfg, "waybox", "rc.xml"), "w") as f:
         f.write("""<?xml version="1.0" encoding="UTF-8"?>
 <openbox_config xmlns="http://openbox.org/3.4/rc">
-  <waybox><virtualInput allow="always"/></waybox>
+  <waybox><virtualInput allow="always"/><ipc enabled="yes"/></waybox>
 </openbox_config>
 """)
     runtime = os.path.join(workdir, "run")
@@ -162,6 +183,53 @@ def main():
             failures.append(f"the drag icon wasn't shown: {seen}")
         if "drop-performed" not in seen or "finished" not in seen:
             failures.append(f"the source didn't see the drop finish: {seen}")
+
+        # ---- the tear-off ----
+        source.proc.kill()
+        source.proc.wait()
+        tear = Client([dnd_bin, "tearoff"], cenv)
+        clients.append(tear)
+        if not tear.wait_for("configured"):
+            raise RuntimeError("the tear-off window never showed")
+        time.sleep(0.5)
+        log.flush()
+        m = re.findall(r"wb-geom mapped (\d+)x(\d+)\+(-?\d+)\+(-?\d+) dnd-source",
+                       open(log_path).read())
+        ow, oh, ox, oy = map(int, m[-1])
+        # The pointer is at the spot over the target; into the new window.
+        px, py = spot
+        nx, ny = ox + ow // 2, oy + oh // 2
+        ptr.send(f"move {nx - px} {ny - py}")
+        px, py = nx, ny
+        ptr.send("press")
+        if not tear.wait_for("torn-mapped", timeout=3.0):
+            raise RuntimeError(f"the torn-off window never showed: {tear.drain(0.2)}")
+        time.sleep(0.3)
+        log.flush()
+        text = open(log_path).read()
+        m = re.findall(r"wb-geom mapped (\d+)x(\d+)\+(-?\d+)\+(-?\d+) dnd-torn", text)
+        if not m:
+            failures.append("no geometry for the torn-off window")
+        elif (int(m[-1][2]), int(m[-1][3])) != (px - 20, py - 10):
+            failures.append(f"the torn-off window didn't open at the pointer: "
+                            f"{m[-1][2:]} vs {(px - 20, py - 10)}")
+        # Carry it over the target.
+        tx2, ty2 = tx + tw // 2, ty + th // 2
+        for i in range(6):
+            ptr.send(f"move {(tx2 - px) // 6} {(ty2 - py) // 6}")
+        ptr.send(f"move {(tx2 - px) - 6 * ((tx2 - px) // 6)} {(ty2 - py) - 6 * ((ty2 - py) // 6)}")
+        px, py = tx2, ty2
+        time.sleep(0.2)
+        torn = [w for w in ipc(runtime, sock, {"request": "get_windows"}).get("windows", [])
+                if w.get("app_id") == "dnd-torn"]
+        if not torn or (torn[0]["x"], torn[0]["y"]) != (px - 20, py - 10):
+            failures.append(f"the torn-off window didn't follow the pointer: "
+                            f"{[(w['x'], w['y']) for w in torn]} vs {(px - 20, py - 10)}")
+        if not target.wait_for("enter", timeout=2.0):
+            failures.append("with a window carried, the drag never reached the target under it")
+        ptr.send("release")
+        if not target.wait_for("dropped hello-dnd", timeout=3.0):
+            failures.append(f"the target didn't get the tear-off's drop: {target.drain(0.2)}")
     except RuntimeError as e:
         failures.append(str(e))
     finally:

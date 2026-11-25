@@ -3,6 +3,7 @@
 #include <optional>
 #include <vector>
 
+#include "toplevel_drag.h"
 #include "idle.h"
 #include "waybox/cursor.h"
 #include "config.h"
@@ -239,11 +240,36 @@ static void process_cursor_resize(struct wb_server *server) {
 	view_set_size(toplevel, resized.width, resized.height);
 }
 
+namespace {
+/* While a drag carries a window, it takes no part in finding what's under
+ * the pointer (the drop target): hidden from the scene's hit tests for the
+ * rest of the motion, shown again before anything is drawn. */
+struct HideCarried {
+	struct wlr_scene_node *node = nullptr;
+	explicit HideCarried(struct wb_toplevel *t) {
+		if (t != nullptr && t->scene_tree != nullptr && t->scene_tree->node.enabled) {
+			node = &t->scene_tree->node;
+			wlr_scene_node_set_enabled(node, false);
+		}
+	}
+	~HideCarried() {
+		if (node != nullptr)
+			wlr_scene_node_set_enabled(node, true);
+	}
+	HideCarried(const HideCarried &) = delete;
+	HideCarried &operator=(const HideCarried &) = delete;
+};
+}  // namespace
+
 static void process_cursor_motion(struct wb_server *server, uint32_t time) {
-	if (server->seat->seat->drag != nullptr)
+	if (server->seat->seat->drag != nullptr) {
 		wlr_scene_node_set_position(&server->drag_icon_tree->node,
 				static_cast<int>(server->cursor->cursor->x),
 				static_cast<int>(server->cursor->cursor->y));
+		toplevel_drag_motion(server);
+	}
+	HideCarried hide(server->seat->seat->drag != nullptr ?
+			toplevel_drag_window(server) : nullptr);
 	/* Locked: pointer input only reaches the locker's surfaces. */
 	if (session_locked(server)) {
 		double sx, sy;
