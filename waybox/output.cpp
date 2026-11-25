@@ -6,6 +6,7 @@
 #include <optional>
 #include <vector>
 
+#include "waybox/stall.hpp"
 #include "waybox/wlroots.hpp"
 
 #include "waybox/output.h"
@@ -367,6 +368,7 @@ void wb_output::on_frame(void *data) {
 	/* Render the scene if needed and commit the output: unsynchronised
 	 * for a fullscreen game that asked (and the settings allow), else at
 	 * the display's refresh. */
+	wb::StallScope timing("frame");
 	bool want = output_wants_tearing(output);
 	if (want != output->tearing_wanted) {
 		output->tearing_wanted = want;

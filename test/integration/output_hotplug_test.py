@@ -62,7 +62,19 @@ def main():
     # wlroots' X11 backend only looks these atoms up if they already exist;
     # on a fresh Xvfb nothing has created them, so it would ignore the
     # WM_DELETE_WINDOW we send below. Create them first (-noreset keeps them).
-    d = xdisplay.Display(x_display)
+    # Retried briefly: with many tests reserving X displays at once, the
+    # first connection can be refused for a moment.
+    d = None
+    for _ in range(30):
+        try:
+            d = xdisplay.Display(x_display)
+            break
+        except Exception:  # Xlib raises several kinds here
+            time.sleep(0.1)
+    if d is None:
+        xvfb.kill()
+        print("SKIP: could not connect to Xvfb", file=sys.stderr)
+        sys.exit(SKIP)
     for atom in ("WM_PROTOCOLS", "WM_DELETE_WINDOW", "_NET_WM_NAME",
                  "UTF8_STRING", "_NET_WM_PID"):
         d.intern_atom(atom)

@@ -1,3 +1,4 @@
+#include "waybox/stall.hpp"
 #include "waybox/window_icon.h"
 
 #include <algorithm>
@@ -18,6 +19,7 @@ static int icon_size(struct wb_toplevel *t) {
 }
 
 void toplevel_update_icon(struct wb_toplevel *t) {
+	wb::StallScope timing("window-icon");
 	cairo_surface_t *icon = nullptr;
 	if (t->client_icon != nullptr) {
 		icon = cairo_surface_reference(t->client_icon);

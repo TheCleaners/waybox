@@ -170,6 +170,14 @@ python3 = find_program('python3')
 test('wallpaper_helper', python3,
   args: [files('wallpaper_test.py'), meson.project_source_root() / 'data' / 'wallpaper'])
 
+# Measuring what blocks the event loop.
+stall_test = executable(
+  'stall_test',
+  ['stall_test.cpp', 'wb_test_main.cpp', stall_src],
+  include_directories: [inc_dir],
+  )
+test('stall', stall_test)
+
 # Icon/cursor/GTK themes and broken icon-theme fallbacks (wbconf).
 gtk_appearance_test = executable(
   'gtk_appearance_test',
@@ -576,6 +584,7 @@ if python.found() and not get_option('tests_only')
     ['shortcuts_inhibit', 'shortcuts_inhibit_test.py', [kbinhibit_client], 60],
     ['small_protocols', 'small_protocols_test.py', [fixes_client, gestures_client], 60],
     ['ssd', 'ssd_test.py', [], 60],
+    ['stalls', 'stalls_test.py', [], 60],
     ['startup_programs', 'startup_programs_test.py', [], 60],
     ['switcher_icons', 'switcher_icons_test.py', [], 60],
     ['switcher_order', 'switcher_order_test.py', [], 60],
