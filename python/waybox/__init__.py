@@ -33,7 +33,7 @@ __all__ = [
 ]
 
 #: The events subscribe() can ask for.
-EVENTS = ("window", "desktop", "output", "config")
+EVENTS = ("window", "desktop", "output", "config", "bell")
 
 # Bounds on what is read from the socket, so a broken peer can't make us
 # hold unbounded data.
@@ -155,6 +155,13 @@ class Connection:
         return self.request("get_stalls")
 
     # ---- what Waybox can do ------------------------------------------
+
+    def bell(self, **settings: Any) -> str:
+        """Ring the bell as the focused window would, to try settings:
+        ``flash``, ``color``, ``duration``, ``count``, ``width``,
+        ``command`` over rc.xml's (no Lua policy, no event). What was
+        shown: "window", "border", "screen", "osd", "paced" or "none"."""
+        return str(self.request("bell", **settings).get("shown", ""))
 
     def identify(self, output: Optional[str] = None, ms: Optional[int] = None) -> int:
         """Show each monitor's name, large, on it (only ``output``'s, if

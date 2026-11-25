@@ -198,6 +198,7 @@ waybox-msg action GoToDesktop to=2
 waybox-msg action Close window=app_id:foot
 waybox-msg identify                    # each monitor's name, large, on it
 waybox-msg subscribe window,desktop    # one event per line, as they happen
+waybox-msg subscribe bell              # each ring of the bell, and what it showed
 ```
 
 From Python, the `waybox` module (installed with Waybox, standard library

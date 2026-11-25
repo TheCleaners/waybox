@@ -109,6 +109,7 @@ wb_version_cmd = ['git', '-C', meson.project_source_root(), 'describe', '--tags'
 version_in = files('version.h.in')
 integrations_src = files('waybox/integrations.cpp')
 monitor_layout_src = files('waybox/monitor_layout.cpp')
+bell_style_src = files('waybox/bell_style.cpp')
 startup_sources_src = files('waybox/startup_sources.cpp')
 gtk_appearance_src = files('waybox/gtk_appearance.cpp')
 stall_src = files('waybox/stall.cpp')

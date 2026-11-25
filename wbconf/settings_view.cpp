@@ -195,6 +195,68 @@ void on_changed(Ui::SettingRow *r) {
 	read_value(static_cast<Ui *>(g_object_get_data(G_OBJECT(r->row), "wb-ui")), r);
 }
 
+/* Test: ring it with the settings on screen. */
+void ring_bell_test(Ui *ui) {
+	JsonBuilder *jb = json_builder_new();
+	json_builder_begin_object(jb);
+	json_builder_set_member_name(jb, "request");
+	json_builder_add_string_value(jb, "bell");
+	static const std::pair<const char *, const char *> keys[] = {
+		{"waybox.bell.flash", "flash"}, {"waybox.bell.color", "color"},
+		{"waybox.bell.duration", "duration"}, {"waybox.bell.count", "count"},
+		{"waybox.bell.width", "width"}, {"waybox.bell.command", "command"}};
+	for (const auto &[id, key] : keys)
+		for (auto &r : ui->rows)
+			if (r->def->id == id) {
+				/* Not set: the default ("" for the command: none). */
+				std::string v = r->value.value_or(r->def->def);
+				if (v.empty() && strcmp(key, "command") != 0)
+					continue;
+				json_builder_set_member_name(jb, key);
+				json_builder_add_string_value(jb, v.c_str());
+			}
+	json_builder_end_object(jb);
+	JsonGenerator *gen = json_generator_new();
+	JsonNode *root = json_builder_get_root(jb);
+	json_generator_set_root(gen, root);
+	gchar *text = json_generator_to_data(gen, nullptr);
+	JsonObject *reply = waybox_request(text);
+	g_free(text);
+	json_node_unref(root);
+	g_object_unref(gen);
+	g_object_unref(jb);
+	if (reply == nullptr) {
+		set_status(ui, _("Waybox didn't answer: is its scripting socket on?"));
+		return;
+	}
+	std::string shown = json_object_get_string_member_with_default(reply, "shown", "");
+	json_object_unref(reply);
+	if (shown == "paced")
+		set_status(ui, _("Too soon after the last one: the bell never flashes more "
+				"than 3 times a second."));
+	else if (shown == "none")
+		set_status(ui, _("Nothing to show: choose what the bell does."));
+	else
+		set_status(ui, "");
+}
+
+/* The bell with the settings on screen (saved or not): Waybox rings it as
+ * the window in front would, without asking a script or telling anyone. */
+GtkWidget *build_bell_test(Ui *ui) {
+	GtkWidget *b = gtk_button_new_with_mnemonic(_("_Test"));
+	gtk_widget_set_halign(b, GTK_ALIGN_START);
+	JsonObject *probe = waybox_request("{\"request\":\"get_version\"}");
+	if (probe != nullptr) {
+		json_object_unref(probe);
+	} else {
+		gtk_widget_set_sensitive(b, FALSE);
+		gtk_widget_set_tooltip_text(b, _("Needs Waybox's scripting socket: "
+				"<ipc enabled=\"yes\"/> in rc.xml"));
+	}
+	g_signal_connect_swapped(b, "clicked", G_CALLBACK(ring_bell_test), ui);
+	return b;
+}
+
 /* ---- The row's menu: reset, copy ---- */
 
 void copy_text(GtkWidget *w, const std::string &text) {
@@ -371,6 +433,8 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 			return build_script_block(ui);
 		if (d.widget == "xdg-autostart")
 			return build_xdg_block(ui);
+		if (d.widget == "bell-test")
+			return build_bell_test(ui);
 		return wrapped_label(_("(This setting's editor isn't available.)"), true);
 	}
 	return nullptr;
@@ -804,6 +868,9 @@ void apply_test_values(Ui *ui, const char *spec) {
 				monitor_test_set(ui, path.substr(0, dot), path.substr(dot + 1),
 						item.substr(eq + 1));
 		}
+		/* "bell-test=1": click the bell's Test. */
+		if (eq != std::string::npos && item.substr(0, eq) == "bell-test")
+			ring_bell_test(ui);
 		/* "identify=1": click Identify. */
 		if (eq != std::string::npos && item.substr(0, eq) == "identify" &&
 				ui->arranger.identify != nullptr)

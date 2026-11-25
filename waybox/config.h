@@ -3,6 +3,7 @@
 
 #include <vector>
 
+#include "waybox/bell_style.hpp"
 #include "waybox/action.hpp"
 #include "waybox/applications.hpp"
 #include "waybox/desktops.hpp"
@@ -110,9 +111,10 @@ struct wb_config {
 	 * (a VM viewer, a remote desktop) take Waybox's key bindings. */
 	bool allow_shortcuts_inhibit = true;
 
-	/* rc.xml <waybox><bell flash="yes" command="..."/>: what a program
-	 * ringing the bell does. Nothing unless set. */
-	bool bell_flash = false;
+	/* rc.xml <waybox><bell flash= color= duration= count= width=
+	 * command=/>: what a program ringing the bell does. Nothing unless set
+	 * (a Lua "bell" policy may decide instead, ring by ring). */
+	wb::BellStyle bell_style;
 	/* rc.xml <waybox><scripts budget="10"><script>...: Lua scripts to load
 	 * (after $XDG_CONFIG_HOME/waybox/init.lua); budget: milliseconds a call
 	 * may run. */

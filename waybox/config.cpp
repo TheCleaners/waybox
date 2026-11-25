@@ -675,7 +675,7 @@ static void parse_shortcuts_inhibit(struct wb_config *config, xmlXPathContextPtr
 	xmlXPathFreeObject(object);
 }
 
-/* Parse <waybox><bell flash="yes|no" command="..."/>. */
+/* Parse <waybox><bell flash= color= duration= count= width= command=/>. */
 static void parse_bell(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
 			(const xmlChar *) "//ob:waybox/ob:bell", ctxt);
@@ -683,9 +683,13 @@ static void parse_bell(struct wb_config *config, xmlXPathContextPtr ctxt) {
 		return;
 	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
 		xmlNode *n = object->nodesetval->nodeTab[0];
-		if (auto v = parse_bool((const char *) get_attribute(n, "flash")))
-			config->bell_flash = *v;
-		config->bell_command = (const char *) get_attribute(n, "command");
+		auto a = [n](const char *k) { return std::string((const char *) get_attribute(n, k)); };
+		std::vector<std::string> problems;
+		config->bell_style = wb::parse_bell_style(a("flash"), a("color"), a("duration"),
+				a("count"), a("width"), &problems);
+		for (const std::string &p : problems)
+			wlr_log(WLR_ERROR, "Ignoring the bell setting %s", p.c_str());
+		config->bell_command = a("command");
 	}
 	xmlXPathFreeObject(object);
 }
