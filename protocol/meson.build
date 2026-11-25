@@ -36,6 +36,7 @@ protocols = [
   [wl_protocol_dir, 'unstable/relative-pointer/relative-pointer-unstable-v1.xml'],
   [wl_protocol_dir, 'unstable/xdg-decoration/xdg-decoration-unstable-v1.xml'],
   [wl_protocol_dir, 'unstable/xdg-output/xdg-output-unstable-v1.xml'],
+  [wl_protocol_dir, 'unstable/xwayland-keyboard-grab/xwayland-keyboard-grab-unstable-v1.xml'],
   'wlr-gamma-control-unstable-v1.xml',
   'wlr-layer-shell-unstable-v1.xml',
   'wlr-output-power-management-unstable-v1.xml',

@@ -301,6 +301,22 @@ def main():
         settle(lambda: focused() == "toggled")
         expect(focused() == "toggled",
                f"toggled window not managed and focused ({focused()})")
+        # 10. An X11 keyboard grab (VMs, remote desktops) takes Waybox's
+        # shortcuts while its window has the keyboard; Super+Escape takes
+        # them back.
+        send("grab toggled")
+        line = wait_line("grab toggled")
+        expect(line == "grab toggled 0", f"the X11 keyboard grab wasn't granted: {line}")
+        expect(settle(lambda: "wb-xwayland-grab active" in logtext()),
+               "Xwayland's keyboard grab didn't take the shortcuts")
+        n_desk = logtext().count("wb-desktop")
+        keys("-M", "logo", "-k", "2", "-m", "logo")
+        expect(logtext().count("wb-desktop") == n_desk,
+               "a shortcut ran while an X11 program held the keyboard")
+        keys("-M", "logo", "-k", "Escape", "-m", "logo")
+        expect(settle(lambda: "wb-xwayland-grab inactive" in logtext()),
+               "Super+Escape didn't take the shortcuts back from the X11 grab")
+        send("ungrab")
         if proc.poll() is not None:
             failures.append(f"waybox exited (status {proc.returncode})")
     except RuntimeError as e:
