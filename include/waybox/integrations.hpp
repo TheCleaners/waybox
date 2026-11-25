@@ -13,6 +13,8 @@
  *   Exec=wlsunset -l 51.5 -L -0.1
  *   Binary=wlsunset
  *
+ *   Configure=wlsunset-gui (its own settings tool, if it has one)
+ *
  *   Kind=binding          (run from a key, not at startup)
  *   Key=W-period          (the key it suggests)
  *
@@ -79,6 +81,9 @@ struct Integration {
 	 * the program has one; never guessed, as a program that doesn't
 	 * know the flag may just start. */
 	std::string version_command;
+	/* Configure=: the program's own settings tool (azote, waypaper,
+	 * blueman-manager), which wbconf offers to open. */
+	std::string configure;
 	bool operator==(const Integration &) const = default;
 };
 

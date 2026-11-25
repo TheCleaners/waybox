@@ -8,7 +8,9 @@ option.ID.OPTION=VALUE) and saved with Ctrl+S:
   colour button (written as #rrggbb), a switch turned off (its flag goes),
   a number: the command becomes exactly what's expected;
 - fakefg: a choice the command has that isn't one of the choices is kept
-  as it was, while a switch is turned on (its flag added alone).
+  as it was, while a switch is turned on (its flag added alone);
+- Configure=: fakebg's settings tool (installed) is started by its
+  Configure… button, with its arguments as written, without a shell.
 Skips (exit 77) without wtype, or a headless display.
 
 Usage: wbconf_options_test.py <waybox> <wbconf> <schema-dir>
@@ -30,6 +32,7 @@ Name={name}
 Category=Wallpaper
 Comment=A made-up program
 Exec={name}
+{configure}
 
 [Option image]
 Label=Image
@@ -89,8 +92,14 @@ def main():
         with open(os.path.join(bindir, name), "w") as f:
             f.write("#!/bin/sh\nexit 0\n")
         os.chmod(os.path.join(bindir, name), 0o755)
+        configure = ("Configure=fakecfg --page 'two words' $HOME" if name == "fakebg"
+                     else "Configure=not-installed-cfg")
         with open(os.path.join(integ, name + ".integration"), "w") as f:
-            f.write(INTEGRATION.format(name=name))
+            f.write(INTEGRATION.format(name=name, configure=configure))
+    marker = os.path.join(workdir, "configured")
+    with open(os.path.join(bindir, "fakecfg"), "w") as f:
+        f.write(f'#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a"; done > {marker}\n')
+    os.chmod(os.path.join(bindir, "fakecfg"), 0o755)
     cfg = os.path.join(workdir, "config")
     os.makedirs(os.path.join(cfg, "waybox"))
     rc_path = os.path.join(cfg, "waybox", "rc.xml")
@@ -132,7 +141,9 @@ def main():
                                 "option.fakebg.colour=rgb(255,0,0);"
                                 "option.fakebg.quiet=;"
                                 "option.fakebg.every=5;"
-                                "option.fakefg.quiet=on",
+                                "option.fakefg.quiet=on;"
+                                "configure.fakebg=1;"
+                                "configure.fakefg=1",
                 XDG_DATA_DIRS=os.path.join(workdir, "share"),
                 PATH=bindir + ":" + os.environ.get("PATH", ""))
     failures = []
@@ -154,6 +165,12 @@ def main():
         if bg is None or bg.group(1).replace("&apos;", "'") != want_bg:
             failures.append(f"fakebg's command: {bg.group(1) if bg else None!r}, "
                             f"not {want_bg!r}")
+        try:
+            args = open(marker).read().splitlines()
+        except OSError:
+            args = None
+        if args != ["--page", "two words", "$HOME"]:
+            failures.append(f"Configure… ran the settings tool with {args!r}")
         want_fg = "fakefg -m weird -q"
         if fg is None or fg.group(1) != want_fg:
             failures.append(f"fakefg's command: {fg.group(1) if fg else None!r}, "

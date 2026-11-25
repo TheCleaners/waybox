@@ -1,0 +1,7 @@
+[Integration]
+Name=Azote
+Category=Wallpaper
+Comment=Choose wallpapers in Azote, one per screen if you like; at startup, the last ones chosen are set again
+Exec=~/.azotebg
+Binary=azote
+Configure=azote

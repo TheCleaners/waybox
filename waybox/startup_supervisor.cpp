@@ -28,6 +28,10 @@ struct Program {
 	struct wb_server *server = nullptr;
 	wb::StartupProgram prog;
 	pid_t pid = -1;
+	/* Its process group: what it started may still run after it exits
+	 * (waypaper --restore leaves swaybg), and goes with it when it's
+	 * stopped. The kernel doesn't reuse an id while a group has it. */
+	pid_t group = -1;
 	std::vector<int64_t> crashes;
 	struct wl_event_source *restart_timer = nullptr;
 	~Program() {
@@ -183,6 +187,7 @@ static void apply_env(struct wb_server *server,
 
 static void start(Program *p) {
 	p->pid = spawn(p->prog.command);
+	p->group = p->pid;
 	if (p->pid > 0)
 		wlr_log(WLR_INFO, "wb-startup start %s %d", p->prog.name.c_str(), p->pid);
 }
@@ -191,8 +196,12 @@ static void start(Program *p) {
 /* SIGTERM to the program's group (or the program, if the group isn't
  * there); SIGKILL in 3 s if it's still running then. */
 static void stop(struct wb_startup_state *st, Program *p) {
-	if (p->pid <= 0)
+	if (p->pid <= 0) {
+		/* Exited: what's left of its group, if anything. */
+		if (p->group > 0 && kill(-p->group, SIGTERM) == 0)
+			wlr_log(WLR_INFO, "wb-startup stop %s (left running)", p->prog.name.c_str());
 		return;
+	}
 	wlr_log(WLR_INFO, "wb-startup stop %s", p->prog.name.c_str());
 	if (kill(-p->pid, SIGTERM) != 0 && errno == ESRCH)
 		kill(p->pid, SIGTERM);
@@ -305,8 +314,8 @@ void startup_finish(struct wb_server *server) {
 	if (st == nullptr)
 		return;
 	for (auto &p : st->programs)
-		if (p->pid > 0)
-			kill(-p->pid, SIGTERM);
+		if (p->group > 0)
+			kill(-p->group, SIGTERM);
 	for (KillLater *later : st->kills) {
 		wl_event_source_remove(later->timer);
 		delete later;
