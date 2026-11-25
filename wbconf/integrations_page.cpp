@@ -476,6 +476,14 @@ GtkWidget *configure_button(const wb::Integration *in) {
 	return b;
 }
 
+GtkWidget *build_integration_page(Ui *ui, Ui::ProgramRow *row) {
+	if (row->in == nullptr)
+		return nullptr;
+	if (row->in->page == "wallpaper")
+		return build_wallpaper_page(ui, row);
+	return nullptr;
+}
+
 /* Options and the command line stay in step, both ways. */
 void on_option_changed(Ui::ProgramRow *row) {
 	if (row->syncing || row->in == nullptr)
@@ -487,6 +495,8 @@ void on_option_changed(Ui::ProgramRow *row) {
 	gtk_editable_set_text(GTK_EDITABLE(row->command), wb::write_options(*row->in,
 			gtk_editable_get_text(GTK_EDITABLE(row->command)), values).c_str());
 	row->syncing = false;
+	if (row->page_refresh)
+		row->page_refresh();
 }
 
 void on_command_changed(GtkEditable *, gpointer data) {
@@ -498,6 +508,8 @@ void on_command_changed(GtkEditable *, gpointer data) {
 	for (auto &[id, f] : row->options)
 		set_option_field_value(*f, values.count(id) ? values[id] : "");
 	row->syncing = false;
+	if (row->page_refresh)
+		row->page_refresh();
 }
 
 void on_remove_program(GtkButton *, gpointer data) {
@@ -570,7 +582,15 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 	row->details = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
 	gtk_box_append(GTK_BOX(body), row->details);
 	if (in != nullptr && !in->options.empty()) {
-		GtkWidget *grid = section_grid(row->details);
+		/* With a page, the options go under it, folded. */
+		GtkWidget *options_parent = row->details;
+		GtkWidget *expander = nullptr;
+		if (!in->page.empty()) {
+			expander = gtk_expander_new(_("All options"));
+			options_parent = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+			gtk_expander_set_child(GTK_EXPANDER(expander), options_parent);
+		}
+		GtkWidget *grid = section_grid(options_parent);
 		int r = 0;
 		for (const wb::IntegrationOption &o : in->options) {
 			grid_label(grid, r, (o.label + ":").c_str());
@@ -580,6 +600,11 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 			if (o.type != wb::OptionType::Switch)
 				gtk_widget_set_hexpand(f->widget, TRUE);
 			row->options[o.id] = std::move(f);
+		}
+		if (expander != nullptr) {
+			if (GtkWidget *page = build_integration_page(ui, row.get()))
+				gtk_box_append(GTK_BOX(row->details), page);
+			gtk_box_append(GTK_BOX(row->details), expander);
 		}
 	}
 	row->command = GTK_ENTRY(gtk_entry_new());

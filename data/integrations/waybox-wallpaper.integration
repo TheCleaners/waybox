@@ -3,6 +3,7 @@ Name=Wallpaper (Waybox)
 Category=Wallpaper
 Comment=A random wallpaper, or one you choose, with whichever wallpaper program is installed (swaybg, hyprpaper or wpaperd)
 Exec=waybox-wallpaper
+Page=wallpaper
 
 [Option image]
 Label=Image or folder
@@ -22,9 +23,11 @@ Label=Colour
 Flag=-c
 Hint=#303030
 Type=color
+Default=#303030
 
 [Option mode]
 Label=Mode
 Flag=-m
 Type=choice
 Choices=fill,fit,stretch,center,tile
+Default=fill

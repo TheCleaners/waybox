@@ -7,3 +7,4 @@ waybox/server.cpp
 waybox/xdg_shell.cpp
 wbconf/main.cpp
 wbconf/option_widgets.cpp
+wbconf/pages/wallpaper.cpp

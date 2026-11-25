@@ -3,6 +3,7 @@ Name=swaybg
 Category=Wallpaper
 Comment=Wallpaper image or solid colour
 Exec=swaybg -c '#303030'
+Page=wallpaper
 Version=swaybg -v
 
 [Option image]
@@ -16,6 +17,7 @@ Label=Mode
 Flag=-m
 Type=choice
 Choices=stretch,fill,fit,center,tile,solid_color
+Default=stretch
 
 [Option colour]
 Label=Colour

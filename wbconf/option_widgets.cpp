@@ -62,8 +62,10 @@ void update_helpers(OptionField *f) {
 		gtk_widget_set_visible(GTK_WIDGET(f->thumb), file);
 	}
 	if (f->color != nullptr) {
+		/* Left out: the program's own colour (Default=), if known. */
+		std::string shown = v.empty() ? f->opt->default_value : v;
 		GdkRGBA rgba;
-		if (!v.empty() && gdk_rgba_parse(&rgba, v.c_str())) {
+		if (!shown.empty() && gdk_rgba_parse(&rgba, shown.c_str())) {
 			f->syncing = true;
 			gtk_color_dialog_button_set_rgba(f->color, &rgba);
 			f->syncing = false;
@@ -196,7 +198,13 @@ std::unique_ptr<OptionField> make_option_field(const wb::IntegrationOption &o,
 	case OptionType::Choice: {
 		/* The first item leaves the option out: the program's default. */
 		f->drop_model = gtk_string_list_new(nullptr);
-		gtk_string_list_append(f->drop_model, _("Default"));
+		if (o.default_value.empty()) {
+			gtk_string_list_append(f->drop_model, _("Default"));
+		} else {
+			char *d = g_strdup_printf(_("Default (%s)"), o.default_value.c_str());
+			gtk_string_list_append(f->drop_model, d);
+			g_free(d);
+		}
 		f->drop_values.push_back("");
 		for (const std::string &c : o.choices) {
 			gtk_string_list_append(f->drop_model, c.c_str());
