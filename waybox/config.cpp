@@ -328,6 +328,7 @@ static void parse_app_rules(struct wb_config *config, xmlXPathContextPtr ctxt) {
 			rule.class_pattern = (const char *) get_attribute(app, "class");
 			rule.name_pattern = (const char *) get_attribute(app, "name");
 			rule.title_pattern = (const char *) get_attribute(app, "title");
+			rule.tag_pattern = (const char *) get_attribute(app, "tag");
 			rule.maximized = parse_bool(child_text(app, "maximized"));
 			rule.fullscreen = parse_bool(child_text(app, "fullscreen"));
 			rule.iconic = parse_bool(child_text(app, "iconic"));

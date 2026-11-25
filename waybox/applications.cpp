@@ -33,13 +33,16 @@ bool glob_match(std::string_view pattern, std::string_view text) {
 }
 
 const AppRule *match_app_rule(const std::vector<AppRule> &rules,
-		std::string_view app_id, std::string_view title) {
+		std::string_view app_id, std::string_view title, std::string_view tag) {
 	for (const AppRule &rule : rules) {
 		if (!rule.class_pattern.empty() && !glob_match(rule.class_pattern, app_id))
 			continue;
 		if (!rule.name_pattern.empty() && !glob_match(rule.name_pattern, app_id))
 			continue;
 		if (!rule.title_pattern.empty() && !glob_match(rule.title_pattern, title))
+			continue;
+		/* A tag pattern never matches a window without a tag. */
+		if (!rule.tag_pattern.empty() && (tag.empty() || !glob_match(rule.tag_pattern, tag)))
 			continue;
 		/* A rule with no patterns at all matches everything; that is the
 		 * caller's choice (Openbox treats it the same way). */

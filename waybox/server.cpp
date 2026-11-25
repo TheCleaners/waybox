@@ -387,6 +387,7 @@ bool wb_start_server(struct wb_server* server) {
 	wlr_content_type_manager_v1_create(server->wl_display, 1);
 
 	init_window_icons(server);  /* xdg-toplevel-icon */
+	init_toplevel_tags(server);  /* xdg-toplevel-tag */
 	/* Modal dialogs (xdg-dialog), and dialogs of other programs, such as a
 	 * portal's file chooser, attached to a window (xdg-foreign v1 for GTK 3,
 	 * v2 for GTK 4): wlroots sets the parent; Waybox centres and stacks. */

@@ -10,6 +10,8 @@ struct wb_toplevel;
  * Icon=, else its app ID as an icon name.
  */
 void init_window_icons(struct wb_server *server);
+/* xdg-toplevel-tag (wlroots 0.20+): windows' tags, for rules and IPC. */
+void init_toplevel_tags(struct wb_server *server);
 
 /* Pick the window's icon again (app ID changed, frame created, ...) and
  * give it to its frame. */

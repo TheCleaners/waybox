@@ -23,6 +23,7 @@ struct AppRule {
 	std::string class_pattern;  /* vs app_id (Openbox class) */
 	std::string name_pattern;   /* vs app_id (Openbox name) */
 	std::string title_pattern;  /* vs title */
+	std::string tag_pattern;    /* vs the window's tag (xdg-toplevel-tag) */
 
 	/* Overrides; std::nullopt leaves that aspect to the default behaviour. */
 	std::optional<bool> maximized;
@@ -44,7 +45,7 @@ bool glob_match(std::string_view pattern, std::string_view text);
 
 /* The first rule whose every non-empty pattern matches, or nullptr. */
 const AppRule *match_app_rule(const std::vector<AppRule> &rules,
-		std::string_view app_id, std::string_view title);
+		std::string_view app_id, std::string_view title, std::string_view tag = {});
 
 }  // namespace wb
 

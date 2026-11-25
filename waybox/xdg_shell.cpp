@@ -770,7 +770,7 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 	const wb::AppRule *rule = nullptr;
 	if (config) {
 		rule = wb::match_app_rule(config->app_rules, view_app_id(toplevel),
-				view_title(toplevel));
+				view_title(toplevel), toplevel->tag);
 	}
 
 	/* New windows open on the desktop being shown, unless a rule says
