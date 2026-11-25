@@ -8,13 +8,18 @@ panel's layer above the fullscreen layer.
 1. An ordinary window stays below the panel (the panel is visible).
 2. A fullscreen window (foot -F, solid blue) covers the panel, and keeps
    covering it while the panel keeps redrawing.
-3. When the fullscreen window closes, the panel is visible again.
+3. A window opening meanwhile is focused and seen: the fullscreen one is
+   stacked with ordinary windows while it isn't active (as in Openbox),
+   so the new window shows, and so does the panel.
+4. The fullscreen window focused again covers everything again.
+5. When the fullscreen window closes, the panel is visible again.
 
 Skips (exit 77) without foot, grim or magick, or a headless display.
 
 Usage: fullscreen_panel_test.py <waybox-binary> <layer_client-binary>
 """
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -87,6 +92,17 @@ def main():
         return subprocess.run(["magick", shot, "-format", "%[pixel:p{200,15}]", "info:"],
                               capture_output=True, text=True).stdout.strip()
 
+    def pixel(x, y):
+        shot = os.path.join(workdir, "shot.png")
+        subprocess.run(["grim", shot], env=cenv, capture_output=True)
+        return subprocess.run(["magick", shot, "-format", f"%[pixel:p{{{x},{y}}}]", "info:"],
+                              capture_output=True, text=True).stdout.strip()
+
+    def mapped(app_id):
+        m = re.findall(r"wb-geom mapped (\d+)x(\d+)\+(-?\d+)\+(-?\d+) " + app_id,
+                       open(log_path).read())
+        return tuple(map(int, m[-1])) if m else None
+
     def foot(*args):
         p = subprocess.Popen(["foot", "-c", foot_ini, *args], env=cenv,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -105,14 +121,42 @@ def main():
         expect(top_pixel() != BLUE, "a maximized window covers the panel")
 
         # 2. A fullscreen window covers the panel, while the panel redraws.
-        full = foot("-F")
+        full = foot("-F", "--app-id=full")
         time.sleep(1.5)
         expect(top_pixel() == BLUE, f"the panel shows over a fullscreen window "
                f"({top_pixel()})")
         time.sleep(1.0)  # dozens more panel commits
         expect(top_pixel() == BLUE, "the panel came back over the fullscreen window")
 
-        # 3. Close it: the panel is visible again.
+        # 3. Another window opens: focused, and seen over the fullscreen one;
+        # the panel shows again.
+        other = foot("--app-id=other", "-o", "colors-dark.background=ff0000",
+                     "-W", "40x10")
+        time.sleep(1.5)
+        log.flush()
+        g = mapped("other")
+        if g is None:
+            failures.append("no geometry for the other window")
+        else:
+            w, h, x, y = g
+            got = pixel(x + w // 2, y + h // 2)
+            expect(got == "srgb(255,0,0)",
+                   f"a window opened over a fullscreen one is hidden under it ({got})")
+        expect(top_pixel() != BLUE, "the panel stays hidden while another window is active")
+
+        # 4. The fullscreen window focused again: over everything again.
+        subprocess.run(["wlrctl", "toplevel", "focus", "app_id:full"], env=cenv,
+                       capture_output=True)
+        time.sleep(1.0)
+        expect(top_pixel() == BLUE, f"the fullscreen window focused again doesn't cover "
+               f"the panel ({top_pixel()})")
+        if g is not None:
+            got = pixel(x + w // 2, y + h // 2)
+            expect(got == "srgb(0,0,255)",
+                   f"the fullscreen window focused again is under the other one ({got})")
+        other.terminate()
+
+        # 5. Close it: the panel is visible again.
         full.terminate()
         full.wait(timeout=5)
         time.sleep(1.0)
