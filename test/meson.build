@@ -535,6 +535,19 @@ if python.found() and not get_option('tests_only')
     dependencies: [dependency('wayland-client')],
     )
 
+  # A panel's popup with a popup of its own (a tray submenu).
+  nested_popup_client = executable(
+    'nested_popup_client',
+    [
+      'integration' / 'nested_popup_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml),
+      wayland_scanner_client.process(layer_shell_xml),
+      wayland_scanner_code.process(layer_shell_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # The integration tests: [name, script in integration/, arguments after the
   # Waybox binary, timeout in seconds]. Each runs with integration_env and
   # skips (exit 77) without its tools. One line per test, kept sorted, so
@@ -577,7 +590,7 @@ if python.found() and not get_option('tests_only')
     ['pointer_grab', 'pointer_grab_test.py', [constraint_client, layer_client, vpointer_client], 60],
     ['pointer_lock', 'pointer_lock_test.py', [constraint_client], 60],
     ['reconfigure', 'reconfigure_test.py', [], 60],
-    ['robustness', 'robustness_test.py', [layer_client], 90],
+    ['robustness', 'robustness_test.py', [layer_client, nested_popup_client], 90],
     ['sandbox', 'sandbox_test.py', [sandbox_client], 60],
     ['session_lock', 'session_lock_test.py', [lock_client], 60],
     ['session_lock_virtual_always', 'session_lock_test.py', [lock_client, 'always'], 60],

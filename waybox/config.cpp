@@ -352,9 +352,10 @@ static void parse_app_rules(struct wb_config *config, xmlXPathContextPtr ctxt) {
 					rule.y = atoi(y);
 			}
 			if (xmlNode *size = child_node(app, "size")) {
-				if (const char *w = child_text(size, "width"))
+				/* A size below 1 means nothing: ignored. */
+				if (const char *w = child_text(size, "width"); w && atoi(w) >= 1)
 					rule.width = atoi(w);
-				if (const char *h = child_text(size, "height"))
+				if (const char *h = child_text(size, "height"); h && atoi(h) >= 1)
 					rule.height = atoi(h);
 			}
 			config->app_rules.push_back(std::move(rule));
