@@ -294,26 +294,25 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 			view_close(toplevel);
 		break;
 	}
+	case wb::ActionType::Maximize:
+	case wb::ActionType::Unmaximize:
 	case wb::ActionType::ToggleMaximize: {
+		/* As Openbox: <direction> both (default), horizontal (horz) or
+		 * vertical (vert); a toggle in one direction looks only at that
+		 * direction, a toggle of both at whether it's fully maximized. */
 		struct wb_toplevel *toplevel = action_target(server);
-		if (toplevel && toplevel->scene_tree->node.enabled) {
-			bool full = toplevel->max_horz && toplevel->max_vert;
-			set_toplevel_maximized(toplevel, !full, !full);
-		}
-		break;
-	}
-	case wb::ActionType::ToggleMaximizeHorizontal: {
-		struct wb_toplevel *toplevel = action_target(server);
-		if (toplevel && toplevel->scene_tree->node.enabled)
-			set_toplevel_maximized(toplevel, !toplevel->max_horz,
-					toplevel->max_vert);
-		break;
-	}
-	case wb::ActionType::ToggleMaximizeVertical: {
-		struct wb_toplevel *toplevel = action_target(server);
-		if (toplevel && toplevel->scene_tree->node.enabled)
-			set_toplevel_maximized(toplevel, toplevel->max_horz,
-					!toplevel->max_vert);
+		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled)
+			break;
+		const std::string &d = action.direction;
+		bool horz = d == "horizontal" || d == "horz";
+		bool vert = d == "vertical" || d == "vert";
+		bool on = action.type == wb::ActionType::Maximize;
+		if (action.type == wb::ActionType::ToggleMaximize)
+			on = horz ? !toplevel->max_horz : vert ? !toplevel->max_vert
+					: !(toplevel->max_horz && toplevel->max_vert);
+		bool h = horz || !vert ? on : toplevel->max_horz;
+		bool v = vert || !horz ? on : toplevel->max_vert;
+		set_toplevel_maximized(toplevel, h, v);
 		break;
 	}
 	case wb::ActionType::Fullscreen: {
@@ -328,6 +327,12 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		if (toplevel && toplevel->scene_tree->node.enabled) {
 			set_toplevel_minimized(toplevel, true);
 		}
+		break;
+	}
+	case wb::ActionType::ToggleShade: {
+		struct wb_toplevel *toplevel = action_target(server);
+		if (toplevel && toplevel->scene_tree->node.enabled)
+			set_toplevel_shaded(toplevel, !toplevel->shaded);
 		break;
 	}
 	case wb::ActionType::Shade:

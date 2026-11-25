@@ -79,3 +79,31 @@ WB_TEST(focus_action) {
 	WB_CHECK(focus->type == ActionType::Focus);
 	WB_CHECK(!focus->takes_command);
 }
+
+WB_TEST(openbox_action_names) {
+	/* Openbox's names, and the direction each implies. */
+	struct Case { const char *name; ActionType type; const char *direction; };
+	const Case cases[] = {
+		{"ToggleFullscreen", ActionType::Fullscreen, ""},
+		{"Fullscreen", ActionType::Fullscreen, ""},  /* Waybox's earlier name */
+		{"ToggleShade", ActionType::ToggleShade, ""},
+		{"Maximize", ActionType::Maximize, ""},
+		{"MaximizeFull", ActionType::Maximize, "both"},
+		{"MaximizeHorz", ActionType::Maximize, "horizontal"},
+		{"MaximizeVert", ActionType::Maximize, "vertical"},
+		{"Unmaximize", ActionType::Unmaximize, ""},
+		{"UnmaximizeHorz", ActionType::Unmaximize, "horizontal"},
+		{"ToggleMaximize", ActionType::ToggleMaximize, ""},
+		{"ToggleMaximizeFull", ActionType::ToggleMaximize, "both"},
+		{"ToggleMaximizeHorz", ActionType::ToggleMaximize, "horizontal"},
+		{"ToggleMaximizeVert", ActionType::ToggleMaximize, "vertical"},
+		{"ToggleMaximizeHorizontal", ActionType::ToggleMaximize, "horizontal"},
+		{"ToggleMaximizeVertical", ActionType::ToggleMaximize, "vertical"},
+	};
+	for (const Case &c : cases) {
+		auto a = make_action(c.name, "");
+		WB_CHECK(a.has_value());
+		WB_CHECK(a && a->type == c.type);
+		WB_CHECK(a && a->direction == c.direction);
+	}
+}

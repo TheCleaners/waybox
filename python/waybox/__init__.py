@@ -132,7 +132,7 @@ class Connection:
     def windows(self) -> list[dict]:
         """The windows, most recently used first: id, app_id, title, tag,
         desktop (1-based), omnipresent, focused, minimized, maximized,
-        fullscreen, x, y, width, height, xwayland."""
+        fullscreen, shaded, x, y, width, height, xwayland."""
         return self.request("get_windows").get("windows", [])
 
     def focused(self) -> Optional[dict]:

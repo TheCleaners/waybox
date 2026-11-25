@@ -28,12 +28,13 @@ enum class ActionType {
 	PreviousWindow,
 	Close,
 	ToggleMaximize,
-	ToggleMaximizeHorizontal,
-	ToggleMaximizeVertical,
+	Maximize,       /* <direction>: both (default), horizontal, vertical */
+	Unmaximize,
 	Fullscreen,
 	Iconify,
 	Shade,
 	Unshade,
+	ToggleShade,
 	Raise,
 	Lower,
 	Exit,
@@ -70,6 +71,9 @@ struct ActionSpec {
 	std::string_view name;
 	ActionType type;
 	bool takes_command;
+	/* A direction the name itself implies (Openbox's MaximizeHorz is
+	 * Maximize with <direction>horizontal</direction>); empty: none. */
+	std::string_view direction = {};
 };
 
 /* The full table of known actions, in declaration order. */
