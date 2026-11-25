@@ -65,6 +65,10 @@ struct MonitorInfo {
 	int x = 0, y = 0;
 	double scale = 1;
 	std::string transform = "normal";
+	bool adaptive_sync = false;
+	/* Its make, model and serial came as valid UTF-8, so a rule can match
+	 * them exactly (else following it is off). */
+	bool identity_ok = true;
 };
 
 /* ---- A lightweight font picker: family + size + bold ----------------- */
@@ -121,8 +125,26 @@ struct Ui {
 		GtkDropDown *scale = nullptr;
 		std::vector<std::string> scales;
 		GtkEntry *position = nullptr;
-		GtkDropDown *transform = nullptr;
+		GtkDropDown *transform = nullptr;    /* rotation: "", normal, 90, 180, 270 */
+		std::vector<std::string> rotations;
+		GtkCheckButton *flip = nullptr;
+		GtkDropDown *adaptive = nullptr;     /* Automatic, On, Off */
+		std::string adaptive_raw;            /* as written, kept while unchanged */
+		guint adaptive_initial = 0;
+		GtkSwitch *follow = nullptr;         /* match make/model/serial, not the port */
+		GtkLabel *matched_by = nullptr;
 		std::map<std::string, std::string> kept;  /* attributes not shown here */
+		/* The rule this card edits (the one Waybox applies to it), by the
+		 * matcher it was read with; empty: none yet. */
+		wb::OutputMatch rule_from;
+		wb::OutputMatch match_initial;  /* its matcher as loaded */
+		bool follow_initial = false;
+		/* The rule applying to it applies to another connected monitor too:
+		 * changed, it gets a rule of its own, before that one. */
+		bool shared = false;
+		wb::OutputMatch shared_match;
+		std::map<std::string, std::string> shared_attrs;
+		std::vector<std::string> shared_with;
 		MonitorInfo info;
 		GtkWidget *card = nullptr;      /* its settings, shown when selected */
 		GtkLabel *looks_like = nullptr;  /* its size on the desktop */
@@ -319,10 +341,18 @@ bool arranger_test_drop(Ui *ui, const std::string &name, int x, int y);
 /* For tests and screenshots: a monitor's make, model or description. */
 void arranger_test_describe(Ui *ui, const std::string &what, const std::string &name,
 		const std::string &text);
-/* After saving changed monitor settings: keep them, or (unanswered) go
- * back to `before`'s. */
-void ask_keep_monitors(Ui *ui, const wb::WayboxSettings &before);
+/* After saving changed monitor settings: keep them, or (unanswered) put
+ * back the <outputs> and <hdr> elements as they were (snapshots). */
+void ask_keep_monitors(Ui *ui, const std::string &outputs_xml, const std::string &hdr_xml);
 void populate_hdr(Ui *ui, const std::optional<std::string> &hdr_outputs);
+/* A monitor's card: its transform (rotation and flip, or one written by
+ * hand), and the <output> rule it gives (nullopt: none to write). */
+std::string monitor_transform(const Ui::Monitor &m);
+std::optional<wb::OutputSetting> monitor_rule(const Ui::Monitor &m);
+/* For tests: "monitor.NAME.KEY=VALUE" (rotation, flip, adaptive, follow,
+ * scale), as the card's controls would. */
+bool monitor_test_set(Ui *ui, const std::string &name, const std::string &key,
+		const std::string &value);
 std::string running_waybox_version();
 std::string format_hz(double hz);
 std::optional<std::vector<MonitorInfo>> query_monitors(std::string *why);

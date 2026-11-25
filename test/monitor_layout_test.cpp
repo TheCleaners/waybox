@@ -104,3 +104,25 @@ WB_TEST(monitor_captions) {
 	c = wb::monitor_caption("", accents, "", "DP-1", 41);
 	WB_CHECK(c.size() == 40 + 3);  /* 20 whole characters, then … */
 }
+
+WB_TEST(transforms_split_and_joined) {
+	using P = std::pair<std::string, bool>;
+	WB_CHECK(wb::split_transform("") == P("", false));
+	WB_CHECK(wb::split_transform("normal") == P("normal", false));
+	WB_CHECK(wb::split_transform("270") == P("270", false));
+	WB_CHECK(wb::split_transform("flipped") == P("normal", true));
+	WB_CHECK(wb::split_transform("flipped-90") == P("90", true));
+	WB_CHECK(!wb::split_transform("flipped-normal"));
+	WB_CHECK(!wb::split_transform("flipped-"));
+	WB_CHECK(!wb::split_transform("45"));
+	WB_CHECK(!wb::split_transform("rotate-90"));
+	WB_CHECK(!wb::split_transform(" 90"));
+	/* Every name Waybox knows goes there and back. */
+	for (const char *t : {"normal", "90", "180", "270", "flipped", "flipped-90",
+			"flipped-180", "flipped-270"}) {
+		auto p = wb::split_transform(t);
+		WB_CHECK(p && wb::join_transform(p->first, p->second) == t);
+	}
+	WB_CHECK(wb::join_transform("", false).empty());
+	WB_CHECK(wb::join_transform("", true) == "flipped");  /* a flip on its own */
+}

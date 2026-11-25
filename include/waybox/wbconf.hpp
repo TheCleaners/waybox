@@ -8,15 +8,42 @@
 
 namespace wb {
 
-/* One <waybox><outputs><output name="..." .../> rule, matched by connector
- * name (rules matched by make/model/serial are left to hand editing). Its
- * attributes as written (mode, scale, position, transform, enabled, ...);
- * an absent one means automatic. */
+/* What an <output> rule matches: any of connector name, make, model and
+ * serial; "" is "any". A rule with none matches nothing. */
+struct OutputMatch {
+	std::string name, make, model, serial;
+	bool empty() const {
+		return name.empty() && make.empty() && model.empty() && serial.empty();
+	}
+	bool operator==(const OutputMatch &) const = default;
+};
+
+/* One <waybox><outputs><output .../> rule: what it matches, and its other
+ * attributes as written (mode, scale, position, transform, adaptiveSync,
+ * enabled, ...); an absent one means automatic.
+ *
+ * `from` is the matcher it was read with, so a rule whose matcher changes
+ * (connector name to make/model/serial, or back) is rewritten where it is:
+ * Waybox uses the first rule that matches a monitor, so order matters.
+ * Empty for a new rule, which goes before the rule `before` matches (if
+ * there's one), else at the end. */
 struct OutputSetting {
 	std::string name;
 	std::map<std::string, std::string> attrs;
+	std::string make{}, model{}, serial{};
+	OutputMatch from{};
+	OutputMatch before{};
+	OutputMatch match() const { return {name, make, model, serial}; }
 	bool operator==(const OutputSetting &) const = default;
 };
+
+/* Whether `rule` matches the monitor `monitor` (its name, make, model and
+ * serial), as Waybox decides: every matcher the rule has must be equal. */
+bool output_rule_matches(const OutputMatch &rule, const OutputMatch &monitor);
+
+/* The rule Waybox applies to `monitor`: the first that matches, in file
+ * order; -1 if none. */
+int applying_output_rule(const std::vector<OutputSetting> &rules, const OutputMatch &monitor);
 
 /* One <waybox><startup><program> entry. `name` is what it's known by (its
  * name attribute, or the command's program); `attrs` its attributes as
@@ -92,7 +119,9 @@ struct WayboxSettings {
 	std::optional<bool> edge_tiling;                 /* waybox/edgeTiling@enabled */
 	std::optional<int> edge_tiling_range;            /* waybox/edgeTiling@range */
 
-	/* Monitors: name-matched <waybox><outputs><output> rules */
+	/* Monitors: the <waybox><outputs><output> rules that can apply, in file
+	 * order (a rule with no matcher, or the same matcher as an earlier one,
+	 * never does: left out, and left as it is) */
 	std::vector<OutputSetting> outputs;
 	std::optional<std::string> hdr_outputs;          /* waybox/hdr@outputs */
 
@@ -182,6 +211,12 @@ public:
 
 	/* Serialise the whole document back to XML / to a file. */
 	std::string to_string() const;
+	/* The element at `path` (from the root: {"waybox", "outputs"}) as
+	 * written, or "" if there's none; and that element put back as it was
+	 * (or removed, for ""), where it is or at the end of its parent. For
+	 * going back to earlier monitor settings exactly. */
+	std::string snapshot(const std::vector<const char *> &path) const;
+	void restore(const std::vector<const char *> &path, const std::string &xml);
 	/* Save safely: the previous file is kept as PATH.bak, and the new one is
 	 * written to a temporary file and renamed over the old (so a crash or a
 	 * full disk can't leave half a file). A symlinked rc.xml (dotfile

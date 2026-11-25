@@ -56,6 +56,13 @@ void normalize_layout(std::vector<LayoutBox> &boxes);
 std::string monitor_caption(std::string_view make, std::string_view model,
 		std::string_view description, std::string_view name, size_t max = 120);
 
+/* rc.xml's transform as a rotation ("", "normal", "90", "180", "270";
+ * "" = not set) and a flip, and back: "flipped-90" is {"90", true},
+ * "flipped" {"normal", true}. nullopt for a value Waybox doesn't know
+ * (kept as written, not shown as these). */
+std::optional<std::pair<std::string, bool>> split_transform(std::string_view t);
+std::string join_transform(std::string_view rotation, bool flip);
+
 /* "1920,0" -> {1920, 0}; nullopt for anything else. */
 std::optional<std::pair<int, int>> parse_position(std::string_view s);
 

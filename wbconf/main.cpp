@@ -92,6 +92,9 @@ void on_save(GtkButton *, gpointer data) {
 			doc->set(r->def->rc, r->value);
 	wb::WayboxSettings now = collect(ui);
 	wb::WayboxSettings before = ui->shown;
+	/* The monitor rules as they are, to put back exactly if not kept. */
+	std::string outputs_xml = doc->snapshot({"waybox", "outputs"});
+	std::string hdr_xml = doc->snapshot({"waybox", "hdr"});
 	doc->apply(now, ui->shown);
 	apply_bindings(ui, *doc);
 	std::string err;
@@ -99,7 +102,14 @@ void on_save(GtkButton *, gpointer data) {
 		set_status(ui, std::string(_("Not saved: ")) + err);
 		return;
 	}
-	ui->shown = now;
+	/* The cards from the rules as written: each knows the rule it edits by
+	 * the matcher it has now. */
+	{
+		wb::WayboxSettings written = doc->read();
+		populate_monitors(ui, written.outputs);
+		populate_hdr(ui, written.hdr_outputs);
+	}
+	ui->shown = collect(ui);
 	rows_saved(ui);
 	bindings_saved(ui);
 	if (!save_sources(ui, &err)) {
@@ -121,7 +131,7 @@ void on_save(GtkButton *, gpointer data) {
 	/* Monitors changed and in use: keep them, or have the old ones back
 	 * if no one answers (a mode the monitor can't show hides the dialog). */
 	if (n > 0 && (now.outputs != before.outputs || now.hdr_outputs != before.hdr_outputs))
-		ask_keep_monitors(ui, before);
+		ask_keep_monitors(ui, outputs_xml, hdr_xml);
 	else if (n <= 0)
 		set_status(ui, std::string(_("Saved to ")) + path + " " +
 				_("(no running waybox to reload)."));

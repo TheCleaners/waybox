@@ -132,6 +132,15 @@ std::optional<std::string> attr_value(xmlNode *node, const char *attr) {
 	return value;
 }
 
+bool is_match_key(const std::string &key) {
+	return key == "name" || key == "make" || key == "model" || key == "serial";
+}
+
+OutputMatch output_match_of(xmlNode *o) {
+	return {attr_value(o, "name").value_or(""), attr_value(o, "make").value_or(""),
+			attr_value(o, "model").value_or(""), attr_value(o, "serial").value_or("")};
+}
+
 std::optional<int> to_int(const std::optional<std::string> &s) {
 	if (!s)
 		return std::nullopt;
@@ -316,6 +325,22 @@ std::optional<RcDocument> RcDocument::from_string(const std::string &xml,
 	return RcDocument(static_cast<void *>(*doc));
 }
 
+bool output_rule_matches(const OutputMatch &rule, const OutputMatch &monitor) {
+	if (rule.empty())
+		return false;
+	return (rule.name.empty() || rule.name == monitor.name) &&
+			(rule.make.empty() || rule.make == monitor.make) &&
+			(rule.model.empty() || rule.model == monitor.model) &&
+			(rule.serial.empty() || rule.serial == monitor.serial);
+}
+
+int applying_output_rule(const std::vector<OutputSetting> &rules, const OutputMatch &monitor) {
+	for (size_t i = 0; i < rules.size(); ++i)
+		if (output_rule_matches(rules[i].match(), monitor))
+			return static_cast<int>(i);
+	return -1;
+}
+
 WayboxSettings RcDocument::read() const {
 	WayboxSettings s;
 	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
@@ -372,14 +397,23 @@ WayboxSettings RcDocument::read() const {
 		for (xmlNode *o = outs->children; o != nullptr; o = o->next) {
 			if (!is_element(o, "output"))
 				continue;
-			auto name = attr_value(o, "name");
-			if (!name || name->empty() || attr_value(o, "make") ||
-					attr_value(o, "model") || attr_value(o, "serial"))
-				continue;  /* only plain by-name rules */
-			OutputSetting out{*name, {}};
+			OutputSetting out;
+			OutputMatch m = output_match_of(o);
+			if (m.empty())
+				continue;  /* matches nothing */
+			bool seen = false;
+			for (const OutputSetting &e : s.outputs)
+				seen = seen || e.from == m;
+			if (seen)
+				continue;  /* never applies: an earlier rule has its matcher */
+			out.name = m.name;
+			out.make = m.make;
+			out.model = m.model;
+			out.serial = m.serial;
+			out.from = m;
 			for (xmlAttr *a = o->properties; a != nullptr; a = a->next) {
 				std::string key = reinterpret_cast<const char *>(a->name);
-				if (key != "name")
+				if (!is_match_key(key))
 					out.attrs[key] = attr_value(o, key.c_str()).value_or("");
 			}
 			s.outputs.push_back(out);
@@ -559,44 +593,75 @@ void put_startup(xmlNode *root, const std::vector<StartupSetting> &now,
 	}
 }
 
-/* The <waybox><outputs><output name="NAME"> element, or nullptr. */
-xmlNode *find_output(xmlNode *root, const std::string &name) {
+/* The first <waybox><outputs><output> with exactly matcher `m`, or
+ * nullptr. */
+xmlNode *find_output(xmlNode *root, const OutputMatch &m) {
+	if (m.empty())
+		return nullptr;
 	xmlNode *outs = find_path(root, {"waybox", "outputs"});
 	for (xmlNode *o = outs ? outs->children : nullptr; o != nullptr; o = o->next)
-		if (is_element(o, "output") && attr_value(o, "name") == name &&
-				!attr_value(o, "make") && !attr_value(o, "model") &&
-				!attr_value(o, "serial"))
+		if (is_element(o, "output") && output_match_of(o) == m)
 			return o;
 	return nullptr;
 }
 
-/* Write one output's attributes: only those that differ from `base` (all
- * of them without one). An output left with no settings is removed. */
+/* Write one rule: its matcher (rewritten where the rule is), and of its
+ * attributes only those that differ from `base` (all of them without
+ * one). A rule left with no settings is removed. */
 void put_output(xmlNode *root, const OutputSetting &out, const OutputSetting *base) {
-	xmlNode *node = find_output(root, out.name);
+	xmlNode *node = find_output(root, out.from);
 	std::map<std::string, std::string> before = base ? base->attrs
 			: std::map<std::string, std::string>{};
+	if (out.attrs.empty() || out.match().empty()) {
+		if (node != nullptr) {
+			xmlUnlinkNode(node);
+			xmlFreeNode(node);
+		}
+		return;
+	}
 	if (node == nullptr) {
-		if (out.attrs.empty())
-			return;
 		xmlNode *outs = ensure_path(root, {"waybox", "outputs"});
 		node = new_child(outs, "output");
-		xmlSetProp(node, xc("name"), xc(out.name.c_str()));
+		/* Before the rule it must win over (the first match applies). */
+		if (xmlNode *ahead = find_output(root, out.before); ahead != nullptr && ahead != node) {
+			xmlUnlinkNode(node);
+			xmlAddPrevSibling(ahead, node);
+		}
+		before.clear();  /* every attribute written */
 	}
-	for (const auto &[key, value] : out.attrs)
-		if (base == nullptr || before.count(key) == 0 || before.at(key) != value)
+	/* Last to first, each new one put first: name, make, model, serial
+	 * lead, as written by hand; one already there stays where it is. */
+	const std::pair<const char *, const std::string *> match[] = {
+		{"serial", &out.serial}, {"model", &out.model}, {"make", &out.make},
+		{"name", &out.name}};
+	for (const auto &[key, value] : match) {
+		if (value->empty()) {
+			if (xmlHasProp(node, xc(key)))
+				xmlUnsetProp(node, xc(key));
+		} else if (xmlHasProp(node, xc(key))) {
+			xmlSetProp(node, xc(key), xc(value->c_str()));
+		} else if (xmlAttr *a = xmlNewProp(node, xc(key), xc(value->c_str()));
+				a != nullptr && a != node->properties) {
+			/* Appended: moved to the front. */
+			if (a->prev != nullptr)
+				a->prev->next = a->next;
+			if (a->next != nullptr)
+				a->next->prev = a->prev;
+			a->prev = nullptr;
+			a->next = node->properties;
+			node->properties->prev = a;
+			node->properties = a;
+		}
+	}
+	for (const auto &[key, value] : out.attrs) {
+		if (is_match_key(key))
+			continue;
+		if (before.count(key) == 0 || before.at(key) != value)
 			xmlSetProp(node, xc(key.c_str()), xc(value.c_str()));
-	for (const auto &[key, value] : before)
-		if (out.attrs.count(key) == 0)
-			xmlUnsetProp(node, xc(key.c_str()));
-	bool empty = true;
-	for (xmlAttr *a = node->properties; a != nullptr; a = a->next)
-		if (xmlStrcmp(a->name, xc("name")) != 0)
-			empty = false;
-	if (empty) {
-		xmlUnlinkNode(node);
-		xmlFreeNode(node);
 	}
+	for (const auto &[key, value] : before)
+		if (out.attrs.count(key) == 0 && !is_match_key(key))
+			xmlUnsetProp(node, xc(key.c_str()));
 }
 
 /* Create/update or remove the <theme><font place="P"> element from a
@@ -764,29 +829,39 @@ void apply_fields(xmlNode *root, const WayboxSettings &s, const WayboxSettings *
 	if (WB_CHANGED(libinput))
 		put_children("mouse", "libinput", s.libinput, base ? base->libinput : none);
 
-	for (const OutputSetting &out : s.outputs) {
-		const OutputSetting *was = nullptr;
-		if (base != nullptr)
-			for (const OutputSetting &b : base->outputs)
-				if (b.name == out.name)
-					was = &b;
-		if (base != nullptr && was != nullptr && *was == out)
-			continue;
-		/* Without a base, every attribute is written; with one, an output
-		 * the base didn't have is written whole. */
-		OutputSetting empty{out.name, {}};
-		put_output(root, out, base == nullptr ? nullptr : (was ? was : &empty));
-	}
-	/* A monitor in the base but no longer in the settings (set back to all
-	 * automatic): its rule goes. */
-	if (base != nullptr)
-		for (const OutputSetting &was : base->outputs) {
-			bool kept = false;
-			for (const OutputSetting &out : s.outputs)
-				kept = kept || out.name == was.name;
-			if (!kept)
-				put_output(root, OutputSetting{was.name, {}}, &was);
+	/* Rules are known by the matcher they were read with (`from`): the
+	 * same in the base and the settings, whatever they match now. */
+	auto in_base = [&](const OutputSetting &out) -> const OutputSetting * {
+		if (base == nullptr || out.from.empty())
+			return nullptr;
+		for (const OutputSetting &b : base->outputs)
+			if (b.from == out.from)
+				return &b;
+		return nullptr;
+	};
+	if (base != nullptr || !s.outputs.empty() || find_path(root, {"waybox", "outputs"})) {
+		for (const OutputSetting &out : s.outputs) {
+			const OutputSetting *was = in_base(out);
+			if (base != nullptr && was != nullptr && *was == out)
+				continue;
+			put_output(root, out, was);
 		}
+		/* In the base but no longer in the settings (set back to all
+		 * automatic): its rule goes. */
+		if (base != nullptr)
+			for (const OutputSetting &was : base->outputs) {
+				if (was.from.empty())
+					continue;
+				bool kept = false;
+				for (const OutputSetting &out : s.outputs)
+					kept = kept || out.from == was.from;
+				if (!kept) {
+					OutputSetting gone = was;
+					gone.attrs.clear();
+					put_output(root, gone, &was);
+				}
+			}
+	}
 #undef WB_CHANGED
 }
 
@@ -800,6 +875,69 @@ void RcDocument::apply(const WayboxSettings &s) {
 void RcDocument::apply(const WayboxSettings &s, const WayboxSettings &unchanged) {
 	if (xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_)))
 		apply_fields(root, s, &unchanged);
+}
+
+namespace {
+
+/* `node` and everything in it into namespace `ns` (the document's default,
+ * as the elements around it). */
+void set_ns_deep(xmlNode *node, xmlNs *ns) {
+	for (; node != nullptr; node = node->next)
+		if (node->type == XML_ELEMENT_NODE) {
+			xmlSetNs(node, ns);
+			set_ns_deep(node->children, ns);
+		}
+}
+
+}  // namespace
+
+std::string RcDocument::snapshot(const std::vector<const char *> &path) const {
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	xmlNode *node = root ? find_path(root, path) : nullptr;
+	if (node == nullptr)
+		return {};
+	xmlBufferPtr buf = xmlBufferCreate();
+	xmlNodeDump(buf, static_cast<xmlDocPtr>(doc_), node, 0, 0);
+	std::string out(reinterpret_cast<const char *>(xmlBufferContent(buf)),
+			static_cast<size_t>(xmlBufferLength(buf)));
+	xmlBufferFree(buf);
+	return out;
+}
+
+void RcDocument::restore(const std::vector<const char *> &path, const std::string &xml) {
+	xmlDocPtr doc = static_cast<xmlDocPtr>(doc_);
+	xmlNode *root = xmlDocGetRootElement(doc);
+	if (root == nullptr || path.empty())
+		return;
+	xmlNode *now = find_path(root, path);
+	xmlNode *copy = nullptr;
+	if (!xml.empty()) {
+		/* No network, no entities expanded: it's our own text, but text. */
+		xmlDocPtr part = xmlReadMemory(xml.data(), static_cast<int>(xml.size()), nullptr,
+				nullptr, XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING);
+		xmlNode *top = part ? xmlDocGetRootElement(part) : nullptr;
+		if (top != nullptr && xmlStrcmp(top->name, xc(path.back())) == 0)
+			copy = xmlDocCopyNode(top, doc, 1);
+		if (part != nullptr)
+			xmlFreeDoc(part);
+		if (copy == nullptr)
+			return;  /* not what was saved: leave things as they are */
+	}
+	if (now != nullptr && copy != nullptr) {
+		set_ns_deep(copy, now->ns);
+		xmlReplaceNode(now, copy);
+		xmlFreeNode(now);
+	} else if (now != nullptr) {
+		xmlUnlinkNode(now);
+		xmlFreeNode(now);
+	} else if (copy != nullptr) {
+		std::vector<const char *> up(path.begin(), path.end() - 1);
+		xmlNode *parent = up.empty() ? root : ensure_path(root, up);
+		set_ns_deep(copy, parent->ns);
+		xmlNode *placed = new_child(parent, reinterpret_cast<const char *>(copy->name));
+		xmlReplaceNode(placed, copy);
+		xmlFreeNode(placed);
+	}
 }
 
 std::string RcDocument::to_string() const {

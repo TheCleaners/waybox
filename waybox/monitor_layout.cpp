@@ -209,6 +209,31 @@ std::string monitor_caption(std::string_view make, std::string_view model,
 	return out;
 }
 
+std::optional<std::pair<std::string, bool>> split_transform(std::string_view t) {
+	if (t.empty())
+		return std::pair{std::string(), false};
+	bool flip = false;
+	if (t == "flipped")
+		return std::pair{std::string("normal"), true};
+	if (t.substr(0, 8) == "flipped-") {
+		flip = true;
+		t.remove_prefix(8);
+		if (t == "normal")
+			return std::nullopt;  /* not one of Waybox's names */
+	}
+	if (t == "normal" || t == "90" || t == "180" || t == "270")
+		return std::pair{std::string(t), flip};
+	return std::nullopt;
+}
+
+std::string join_transform(std::string_view rotation, bool flip) {
+	if (!flip)
+		return std::string(rotation);
+	if (rotation.empty() || rotation == "normal")
+		return "flipped";
+	return "flipped-" + std::string(rotation);
+}
+
 std::optional<std::pair<int, int>> parse_position(std::string_view s) {
 	size_t comma = s.find(',');
 	if (comma == std::string_view::npos || comma == 0 || comma + 1 >= s.size() ||

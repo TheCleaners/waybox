@@ -189,6 +189,14 @@ static bool configure_output(struct wb_server *server, struct wlr_output *wlr_ou
 		wlr_output_state_set_adaptive_sync_enabled(&state, *rule->adaptive_sync);
 	apply_output_color(server, wlr_output, &state);
 
+	/* Refused: drop what was asked for, one thing at a time, until the
+	 * output takes it, so no rule can leave a monitor dark. */
+	if (!wlr_output_test_state(wlr_output, &state) && rule != nullptr &&
+			rule->adaptive_sync == true) {
+		wlr_log(WLR_ERROR, "%s: %s", wlr_output->name,
+				_("the output refused adaptive sync; leaving it off"));
+		wlr_output_state_set_adaptive_sync_enabled(&state, false);
+	}
 	if (!wlr_output_test_state(wlr_output, &state)) {
 		struct wlr_output_mode *preferred = wlr_output_preferred_mode(wlr_output);
 		if (preferred != nullptr && preferred != mode) {
@@ -197,6 +205,14 @@ static bool configure_output(struct wb_server *server, struct wlr_output *wlr_ou
 			wlr_output_state_set_mode(&state, preferred);
 			mode = preferred;
 		}
+	}
+	if (!wlr_output_test_state(wlr_output, &state) && rule != nullptr &&
+			(rule->transform || rule->scale)) {
+		wlr_log(WLR_ERROR, "%s: %s", wlr_output->name,
+				_("the output refused that rotation or scale; using none"));
+		wlr_output_state_set_transform(&state, WL_OUTPUT_TRANSFORM_NORMAL);
+		scale = compute_default_scale(wlr_output, mode);
+		wlr_output_state_set_scale(&state, (float) scale);
 	}
 	bool committed = wlr_output_commit_state(wlr_output, &state);
 	if (!committed)

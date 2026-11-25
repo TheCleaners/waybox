@@ -45,7 +45,10 @@ Effective effective(const Ui::Monitor &m) {
 	}
 	std::string scale = selected_value(m.scale, m.scales);
 	double sc = scale.empty() ? m.info.scale : g_ascii_strtod(scale.c_str(), nullptr);
-	std::string tr = selected_value(m.transform, kTransforms);
+	/* Its size depends on the rotation only (a flip keeps it): the card's,
+	 * or with that on Automatic (or written by hand), the one it has now. */
+	std::string tr = wb::split_transform(monitor_transform(m))
+			.value_or(std::pair{std::string(), false}).first;
 	if (tr.empty())
 		tr = m.info.transform;
 	auto [w, h] = wb::logical_size(mw, mh, sc, tr);
@@ -415,7 +418,7 @@ void arranger_test_describe(Ui *ui, const std::string &what, const std::string &
 	for (Ui::Monitor &m : ui->monitors)
 		if (m.name == name) {
 			std::string &field = what == "make" ? m.info.make : what == "model"
-					? m.info.model : m.info.description;
+					? m.info.model : what == "serial" ? m.info.serial : m.info.description;
 			field = text;
 		}
 	arranger_changed(ui);
