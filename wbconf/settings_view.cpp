@@ -786,6 +786,10 @@ void apply_test_values(Ui *ui, const char *spec) {
 				arranger_test_describe(ui, what, item.substr(prefix.size(), eq - prefix.size()),
 						item.substr(eq + 1));
 		}
+		/* "identify=1": click Identify. */
+		if (eq != std::string::npos && item.substr(0, eq) == "identify" &&
+				ui->arranger.identify != nullptr)
+			g_signal_emit_by_name(ui->arranger.identify, "clicked");
 		/* "arrange.NAME=X,Y": drop that monitor at X,Y in the arranger. */
 		if (eq != std::string::npos && item.rfind("arrange.", 0) == 0)
 			if (auto p = wb::parse_position(item.substr(eq + 1)))

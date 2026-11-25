@@ -28,7 +28,9 @@ public:
 	DesktopPopup(const DesktopPopup &) = delete;
 	DesktopPopup &operator=(const DesktopPopup &) = delete;
 
+	/* On the monitor under the pointer; show_on: on `output`. */
 	void show(const std::string &label, int duration_ms);
+	void show_on(struct wlr_output *output, const std::string &label, int duration_ms);
 	void hide();
 
 private:

@@ -246,6 +246,9 @@ struct wlr_box output_usable_area(struct wb_server *server, struct wlr_output *o
 /* Show `text` for a moment, centred, in the on-screen display style (the
  * desktop popup's; showing again replaces it). */
 void wb_show_popup(struct wb_server *server, const std::string &text, int duration_ms);
+/* Each monitor's name on it, large (or only `only`'s, if not ""), for
+ * `duration_ms`; how many were shown. */
+int wb_identify_outputs(struct wb_server *server, const std::string &only, int duration_ms);
 /* Move a window to desktop `index`; with `follow`, go there with it. */
 void wb_send_to_desktop(struct wb_toplevel *toplevel, int index, bool follow);
 void wb_toggle_omnipresent(struct wb_toplevel *toplevel);

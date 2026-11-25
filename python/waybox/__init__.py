@@ -156,6 +156,16 @@ class Connection:
 
     # ---- what Waybox can do ------------------------------------------
 
+    def identify(self, output: Optional[str] = None, ms: Optional[int] = None) -> int:
+        """Show each monitor's name, large, on it (only ``output``'s, if
+        given) for ``ms`` milliseconds (default 3000); how many were shown."""
+        fields: dict = {}
+        if output is not None:
+            fields["output"] = output
+        if ms is not None:
+            fields["ms"] = ms
+        return int(self.request("identify", **fields).get("shown", 0))
+
     def action(self, action: str, *, window: Optional[str] = None,
                command: Optional[str] = None, to: Optional[str | int] = None,
                direction: Optional[str] = None, wrap: Optional[bool] = None,

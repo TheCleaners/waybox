@@ -467,6 +467,27 @@ GtkWidget *build_arranger(Ui *ui) {
 	g_signal_connect_swapped(ui->arranger.advanced, "toggled", G_CALLBACK(+[](Ui *ui) {
 		show_cards(ui);
 	}), ui);
+	/* Each monitor's name on it, to tell which box is which screen. Waybox
+	 * shows it, so it needs the scripting socket. */
+	GtkWidget *identify = gtk_button_new_with_mnemonic(_("_Identify"));
+	ui->arranger.identify = identify;
+	JsonObject *probe = waybox_request("{\"request\":\"get_version\"}");
+	if (probe != nullptr) {
+		json_object_unref(probe);
+		gtk_widget_set_tooltip_text(identify, _("Show each monitor's name on it"));
+	} else {
+		gtk_widget_set_sensitive(identify, FALSE);
+		gtk_widget_set_tooltip_text(identify, _("Needs Waybox's scripting socket: "
+				"<ipc enabled=\"yes\"/> in rc.xml"));
+	}
+	g_signal_connect_swapped(identify, "clicked", G_CALLBACK(+[](Ui *ui) {
+		JsonObject *r = waybox_request("{\"request\":\"identify\"}");
+		if (r == nullptr)
+			set_status(ui, _("Waybox didn't answer: is its scripting socket on?"));
+		else
+			json_object_unref(r);
+	}), ui);
+	gtk_box_append(GTK_BOX(row), identify);
 	gtk_box_append(GTK_BOX(row), GTK_WIDGET(ui->arranger.advanced));
 	gtk_box_append(GTK_BOX(box), row);
 	return box;

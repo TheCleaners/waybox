@@ -76,6 +76,10 @@ def answers(req):
     if r == "get_windows":
         return {"ok": True, "windows": [{"id": "a", "app_id": "foot", "focused": False},
                                         {"id": "b", "app_id": "kgx", "focused": True}]}
+    if r == "identify":
+        if req.get("output") == "NOPE":
+            return {"ok": False, "error": "no such monitor"}
+        return {"ok": True, "shown": 1 if req.get("output") else 2}
     if r == "get_desktops":
         return {"ok": True, "desktops": [{"number": 1, "current": True}]}
     if r == "action":
@@ -97,6 +101,15 @@ fake = FakeWaybox(answers)
 try:
     with waybox.connect(fake.path) as wb:
         check(wb.version() == "1.2.3", "version")
+        check(wb.identify() == 2, "identify")
+        check(wb.identify("DP-1", ms=500) == 1, "identify one")
+        check(fake.requests[-1] == {"request": "identify", "output": "DP-1", "ms": 500},
+              f"identify request: {fake.requests[-1]}")
+        try:
+            wb.identify("NOPE")
+            check(False, "identify NOPE raised")
+        except waybox.RequestFailed as e:
+            check("no such monitor" in str(e), "identify NOPE error")
         ws = wb.windows()
         check([w["id"] for w in ws] == ["a", "b"], f"windows: {ws}")
         check(wb.focused()["id"] == "b", "focused")

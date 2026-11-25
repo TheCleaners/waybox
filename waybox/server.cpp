@@ -507,6 +507,7 @@ bool wb_terminate(struct wb_server* server) {
 	finish_input_method(server);
 
 	server->desktop_popup.reset();  /* its timer is on the event loop */
+	server->identify_popups.clear();
 	finish_bell(server);  /* its flashes' timers too */
 	finish_stall_watch(server);
 	finish_scripts(server);  /* its timers are on the event loop */
