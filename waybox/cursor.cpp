@@ -16,6 +16,7 @@
 #include "waybox/frame_view.hpp"
 #include "waybox/session_lock.h"
 #include "waybox/pointer_constraints.h"
+#include "waybox/xwayland.h"
 
 /* How close (in layout pixels) a dragged window's edge must come to a usable-
  * area or window edge before it snaps. */
@@ -285,8 +286,7 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 			wlr_seat_pointer_notify_motion(seat, time, sx, sy);
 		} else {
 			wlr_seat_pointer_clear_focus(seat);
-			wlr_cursor_set_xcursor(server->cursor->cursor,
-					server->cursor->xcursor_manager, "default");
+			server->cursor->show_xcursor("default");
 		}
 		idle_activity(server, seat);
 		return;
@@ -310,8 +310,7 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 	if (server->menu != nullptr) {
 		server->menu->on_motion(server->cursor->cursor->x,
 				server->cursor->cursor->y);
-		wlr_cursor_set_xcursor(server->cursor->cursor,
-				server->cursor->xcursor_manager, "default");
+		server->cursor->show_xcursor("default");
 		idle_activity(server,
 				server->seat->seat);
 		return;
@@ -358,12 +357,10 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 		}
 		if (fhover != nullptr) {
 			if (const char *cur = wb::frame_part_cursor(fh.part)) {
-				wlr_cursor_set_xcursor(server->cursor->cursor,
-						server->cursor->xcursor_manager, cur);
+				server->cursor->show_xcursor(cur);
 			} else {
 				/* Titlebar / button: a normal pointer. */
-				wlr_cursor_set_xcursor(server->cursor->cursor,
-						server->cursor->xcursor_manager, "default");
+				server->cursor->show_xcursor("default");
 			}
 			/* The pointer is over our decoration, not the client surface: drop
 			 * the client's pointer focus so that moving back inside the window
@@ -386,8 +383,7 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 		/* If there's no toplevel under the cursor, set the cursor image to a
 		 * default. This is what makes the cursor image appear when you move it
 		 * around the screen, not over any toplevels. */
-		wlr_cursor_set_xcursor(
-				server->cursor->cursor, server->cursor->xcursor_manager, "default");
+		server->cursor->show_xcursor("default");
 	}
 	if (surface) {
 		/*
@@ -657,7 +653,7 @@ void wb_cursor::on_pointer_focus_change(void *data) {
 	 * fall back to the default cursor image if there is no target surface. */
 	auto *event = static_cast<struct wlr_seat_pointer_focus_change_event *>(data);
 	if (event->new_surface == nullptr) {
-		wlr_cursor_set_xcursor(cursor, xcursor_manager, "default");
+		show_xcursor("default");
 	}
 }
 
@@ -1035,6 +1031,7 @@ void wb_cursor::on_request_set_cursor(void *data) {
 	if (focused_client == event->seat_client) {
 		wlr_cursor_set_surface(cursor, event->surface,
 				event->hotspot_x, event->hotspot_y);
+		xcursor_name.clear();  /* the program's own image */
 	}
 }
 
@@ -1046,8 +1043,7 @@ void wb_cursor::on_request_set_shape(void *data) {
 	struct wlr_seat_client *focused_client =
 		server->seat->seat->pointer_state.focused_client;
 	if (focused_client == event->seat_client) {
-		wlr_cursor_set_xcursor(cursor, xcursor_manager,
-				wlr_cursor_shape_v1_name(event->shape));
+		show_xcursor(wlr_cursor_shape_v1_name(event->shape));
 	}
 }
 
@@ -1077,6 +1073,54 @@ wb_cursor::~wb_cursor() {
 	}
 }
 
+void wb_cursor::show_xcursor(const char *name) {
+	xcursor_name = name != nullptr ? name : "default";
+	wlr_cursor_set_xcursor(cursor, xcursor_manager, xcursor_name.c_str());
+}
+
+void wb_cursor_apply_theme(struct wb_server *server) {
+	wb_cursor *c = server->cursor.get();
+	if (c == nullptr)
+		return;
+	const struct wb_config *config = server->config;
+	std::string theme = config != nullptr && !config->cursor_theme.empty()
+			? config->cursor_theme : c->start_theme;
+	unsigned size = config != nullptr && config->cursor_size > 0
+			? static_cast<unsigned>(config->cursor_size) : c->start_size;
+	/* Programs started from now on use the same (Xwayland, startup
+	 * programs, what scripts and menus run). */
+	bool theme_from_rc = config != nullptr && !config->cursor_theme.empty();
+	bool size_from_rc = config != nullptr && config->cursor_size > 0;
+	if (theme_from_rc || c->start_theme_set)
+		setenv("XCURSOR_THEME", theme.c_str(), 1);
+	else
+		unsetenv("XCURSOR_THEME");
+	if (size_from_rc || c->start_size_set)
+		setenv("XCURSOR_SIZE", std::to_string(size).c_str(), 1);
+	else
+		unsetenv("XCURSOR_SIZE");
+	if (theme == c->theme && size == c->size)
+		return;
+	struct wlr_xcursor_manager *fresh = wlr_xcursor_manager_create(
+			theme.empty() ? nullptr : theme.c_str(), size);
+	if (fresh == nullptr) {
+		wlr_log(WLR_ERROR, "Could not load the cursor theme %s at size %u", theme.c_str(), size);
+		return;
+	}
+	/* The new one in use (and the cursor shown from it) before the old
+	 * one goes: the cursor keeps the manager it was last shown from. */
+	struct wlr_xcursor_manager *old = c->xcursor_manager;
+	c->xcursor_manager = fresh;
+	c->theme = theme;
+	c->size = size;
+	if (!c->xcursor_name.empty())
+		wlr_cursor_set_xcursor(c->cursor, fresh, c->xcursor_name.c_str());
+	wlr_xcursor_manager_destroy(old);
+	xwayland_update_cursor(server);
+	wlr_log(WLR_INFO, "wb-cursor theme %s size %u", theme.empty() ? "(default)" : theme.c_str(),
+			size);
+}
+
 std::unique_ptr<wb_cursor> wb_cursor_create(struct wb_server *server) {
 	auto cursor = std::make_unique<wb_cursor>();
 	cursor->cursor = wlr_cursor_create();
@@ -1085,9 +1129,22 @@ std::unique_ptr<wb_cursor> wb_cursor_create(struct wb_server *server) {
 	}
 	cursor->server = server;
 
-	const char *xcursor_size = getenv("XCURSOR_SIZE");
-	cursor->xcursor_manager = wlr_xcursor_manager_create(getenv("XCURSOR_THEME"),
-			xcursor_size ? strtoul(xcursor_size, nullptr, 10) : 24);
+	/* What Waybox was started with, until (and unless) rc.xml says. */
+	if (const char *t = getenv("XCURSOR_THEME"); t != nullptr && *t) {
+		cursor->start_theme = t;
+		cursor->start_theme_set = true;
+	}
+	if (const char *sz = getenv("XCURSOR_SIZE"); sz != nullptr && *sz) {
+		unsigned long v = strtoul(sz, nullptr, 10);
+		if (v >= 8 && v <= 512) {
+			cursor->start_size = static_cast<unsigned>(v);
+			cursor->start_size_set = true;
+		}
+	}
+	cursor->theme = cursor->start_theme;
+	cursor->size = cursor->start_size;
+	cursor->xcursor_manager = wlr_xcursor_manager_create(
+			cursor->theme.empty() ? nullptr : cursor->theme.c_str(), cursor->size);
 
 	wb_cursor *c = cursor.get();
 	c->cursor_motion.connect(&c->cursor->events.motion,

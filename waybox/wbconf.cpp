@@ -420,6 +420,8 @@ WayboxSettings RcDocument::read() const {
 		}
 	}
 	s.hdr_outputs = attr_value(find_path(root, {"waybox", "hdr"}), "outputs");
+	s.cursor_theme = attr_value(find_path(root, {"waybox", "cursor"}), "theme");
+	s.cursor_size = attr_value(find_path(root, {"waybox", "cursor"}), "size");
 
 	auto read_children = [](xmlNode *parent, std::map<std::string, std::string> &into) {
 		for (xmlNode *c = parent ? parent->children : nullptr; c != nullptr; c = c->next)
@@ -778,6 +780,10 @@ void apply_fields(xmlNode *root, const WayboxSettings &s, const WayboxSettings *
 
 	if (WB_CHANGED(hdr_outputs))
 		put_attr(root, {"waybox", "hdr"}, "outputs", s.hdr_outputs);
+	if (WB_CHANGED(cursor_theme))
+		put_attr(root, {"waybox", "cursor"}, "theme", s.cursor_theme);
+	if (WB_CHANGED(cursor_size))
+		put_attr(root, {"waybox", "cursor"}, "size", s.cursor_size);
 	if (WB_CHANGED(xwayland))
 		put_attr(root, {"waybox", "xwayland"}, "enabled", bool_opt_str(s.xwayland));
 	if (WB_CHANGED(idle_screen_off))

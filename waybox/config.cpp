@@ -675,6 +675,33 @@ static void parse_shortcuts_inhibit(struct wb_config *config, xmlXPathContextPtr
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><cursor theme= size=/>. */
+static void parse_cursor(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:cursor", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *n = object->nodesetval->nodeTab[0];
+		std::string theme = (const char *) get_attribute(n, "theme");
+		/* A theme is a folder's name: no path in it. */
+		if (theme.find('/') != std::string::npos || theme == "." || theme == "..")
+			wlr_log(WLR_ERROR, "Ignoring the cursor theme \"%s\"", theme.c_str());
+		else
+			config->cursor_theme = theme;
+		std::string size = (const char *) get_attribute(n, "size");
+		if (!size.empty()) {
+			char *end = nullptr;
+			long v = strtol(size.c_str(), &end, 10);
+			if (end != size.c_str() + size.size() || v < 8 || v > 512)
+				wlr_log(WLR_ERROR, "Ignoring the cursor size \"%s\" (8 to 512)", size.c_str());
+			else
+				config->cursor_size = static_cast<int>(v);
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
 /* Parse <waybox><bell flash= color= duration= count= width= command=/>. */
 static void parse_bell(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
@@ -980,6 +1007,7 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	parse_tearing(config, ctxt);
 	parse_shortcuts_inhibit(config, ctxt);
 	parse_bell(config, ctxt);
+	parse_cursor(config, ctxt);
 	parse_scripts(config, ctxt);
 	parse_ipc(config, ctxt);
 	parse_input_method(config, ctxt);

@@ -258,6 +258,7 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
   <xwayland enabled="yes"/>
   <bell flash="yes" command="paplay /usr/share/sounds/freedesktop/stereo/bell.oga"/>
   <hdr outputs="HDMI-A-1"/>
+  <cursor theme="Adwaita" size="32"/>
   <outputs>
     <output name="HDMI-A-1" mode="3840x2160@60" scale="1.5" position="0,0"/>
     <output make="Dell Inc." serial="ABC123" position="2560,0"/>
@@ -332,6 +333,16 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 	that counted, does nothing at all (no flash, command, script or
 	event); the next that counts says how many there were. A Lua *bell*
 	policy can decide ring by ring (see *waybox-lua*(5)).
+
+*<cursor>*
+	The pointer: *theme* (a cursor theme's folder name, such as Adwaita)
+	and *size* (8 to 512). Waybox draws it for itself, for programs that
+	ask it to (most do: GTK 4, Qt 6, Firefox, Chromium) and for X11
+	programs; programs started afterwards get *XCURSOR_THEME* and
+	*XCURSOR_SIZE* to match. Applied at once on Reconfigure. Unset, the
+	*XCURSOR_THEME* and *XCURSOR_SIZE* Waybox was started with apply, else
+	the default theme at 24. wbconf's pointer settings write it, and GTK's
+	own setting with it.
 
 *<hdr>*
 	*outputs* lists outputs (by name, separated by spaces) to drive in
