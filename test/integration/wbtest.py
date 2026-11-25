@@ -1,0 +1,37 @@
+"""Shared by the integration tests.
+
+reap_on_exit(proc): the Waybox (or other program) a test started goes when
+the test does, however it ends: normally, on an exception the test doesn't
+catch, or when meson stops it (SIGTERM on a timeout). Otherwise it would
+keep running, orphaned, after a failed or timed-out test.
+"""
+import atexit
+import signal
+import subprocess
+import sys
+
+_procs = []
+
+
+def _reap():
+    for proc in _procs:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+
+
+def _on_sigterm(signum, frame):
+    sys.exit(128 + signum)  # unwinds: finally blocks, then atexit
+
+
+def reap_on_exit(proc):
+    if not _procs:
+        atexit.register(_reap)
+        if signal.getsignal(signal.SIGTERM) in (signal.SIG_DFL, None):
+            signal.signal(signal.SIGTERM, _on_sigterm)
+    _procs.append(proc)
+    return proc

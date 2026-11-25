@@ -21,6 +21,7 @@ import sys
 import tempfile
 import threading
 import time
+import wbtest
 
 SKIP = 77
 IBUS_WAYLAND = "/usr/libexec/ibus-wayland"
@@ -71,6 +72,7 @@ def main():
     lp = os.path.join(workdir, "waybox.log")
     log = open(lp, "w")
     proc = subprocess.Popen([waybox, "--debug"], env=env, stdout=log, stderr=subprocess.STDOUT)
+    wbtest.reap_on_exit(proc)
     failures = []
     client = None
 

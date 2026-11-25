@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import wbtest
 
 SKIP = 77
 
@@ -95,6 +96,7 @@ def main():
     log_path = os.path.join(workdir, "waybox.log")
     log = open(log_path, "w")
     proc = subprocess.Popen([waybox, "--debug"], env=env, stdout=log, stderr=subprocess.STDOUT)
+    wbtest.reap_on_exit(proc)
     sock = None
     for _ in range(50):
         time.sleep(0.1)
