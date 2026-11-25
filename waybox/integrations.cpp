@@ -3,6 +3,8 @@
  */
 #include "waybox/integrations.hpp"
 
+#include <cctype>
+
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -66,6 +68,7 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
 			else if (key == "Comment") in.comment = value;
 			else if (key == "Exec") in.exec = value;
 			else if (key == "Binary") in.binary = value;
+			else if (key == "Version") in.version_command = value;
 			else if (key == "Kind") {
 				in.binding = value == "binding";
 				in.input_method = value == "inputmethod";
@@ -320,6 +323,34 @@ const Integration *match_integration(const std::vector<Integration> &all,
 		if (!program.empty() && in.binary == program)
 			return &in;
 	return nullptr;
+}
+
+std::string version_from_output(std::string_view output) {
+	size_t i = 0;
+	while (i < output.size()) {
+		/* A word: up to whitespace, or punctuation that ends a version. */
+		while (i < output.size() && std::string_view(" \t\r\n(),;:\"'").find(output[i]) !=
+				std::string_view::npos)
+			++i;
+		size_t start = i;
+		while (i < output.size() && std::string_view(" \t\r\n(),;:\"'").find(output[i]) ==
+				std::string_view::npos)
+			++i;
+		std::string_view w = output.substr(start, i - start);
+		if (!w.empty() && (w[0] == 'v' || w[0] == 'V'))
+			w.remove_prefix(1);
+		/* digits, a dot, a digit: 1.2, 0.15.0, 14.0.0-rc1 */
+		size_t d = 0;
+		while (d < w.size() && std::isdigit(static_cast<unsigned char>(w[d])))
+			++d;
+		if (d > 0 && d + 1 < w.size() && w[d] == '.' &&
+				std::isdigit(static_cast<unsigned char>(w[d + 1]))) {
+			while (!w.empty() && (w.back() == '.' || w.back() == '-'))
+				w.remove_suffix(1);
+			return std::string(w);
+		}
+	}
+	return "";
 }
 
 std::vector<std::string> programs_in_script(std::string_view script,

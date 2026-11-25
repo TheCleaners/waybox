@@ -3,4 +3,5 @@ Name=cliphist
 Category=Clipboard
 Comment=Clipboard history (pick with: cliphist list | wmenu | cliphist decode | wl-copy)
 Exec=wl-paste --watch cliphist store
+Version=cliphist version
 Binary=cliphist

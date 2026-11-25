@@ -3,6 +3,7 @@ Name=Gammastep
 Category=NightLight
 Comment=Warmer screen colours after sunset
 Exec=gammastep -l 51.5:-0.1
+Version=gammastep -V
 
 [Option location]
 Label=Location (latitude:longitude)

@@ -3,3 +3,4 @@ Name=Flameshot
 Category=Screenshots
 Comment=Screenshot tool kept in the background, so it opens at once
 Exec=flameshot
+Version=flameshot --version

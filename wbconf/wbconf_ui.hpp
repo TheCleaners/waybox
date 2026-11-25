@@ -167,6 +167,9 @@ struct Ui {
 		bool via_function = false;  /* the script starts it from a function */
 	};
 	std::vector<wb::Integration> integrations;
+	/* Installed programs' versions (Version= in their integration file),
+	 * by binary, as they come in; "" while asked or if none was printed. */
+	std::map<std::string, std::string> versions;
 	std::vector<std::unique_ptr<ProgramRow>> programs;
 	GtkWidget *custom_box = nullptr;
 	std::vector<std::string> in_autostart;  /* programs the autostart script runs */

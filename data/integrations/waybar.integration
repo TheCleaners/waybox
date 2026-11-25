@@ -3,6 +3,7 @@ Name=Waybar
 Category=Panel
 Comment=Panel with workspaces, tray, clock and status modules
 Exec=waybar
+Version=waybar --version
 
 [Option config]
 Label=Config file

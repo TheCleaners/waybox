@@ -53,8 +53,17 @@ struct Integration {
 	bool input_method = false;
 	std::vector<std::pair<std::string, std::string>> env;
 	std::vector<IntegrationOption> options;
+	/* Version=: the command that prints its version (swaybg -v), when
+	 * the program has one; never guessed, as a program that doesn't
+	 * know the flag may just start. */
+	std::string version_command;
 	bool operator==(const Integration &) const = default;
 };
+
+/* The version in a program's version output ("swaybg version 1.2.2",
+ * "Waybar v0.15.0", "ibus-daemon - Version 1.5.35"): the first word that
+ * is a version number, without a leading "v"; "" if none. */
+std::string version_from_output(std::string_view output);
 
 /* Parse one file's text; nullopt without an [Integration] Name and Exec. */
 std::optional<Integration> parse_integration(std::string_view id, std::string_view text);

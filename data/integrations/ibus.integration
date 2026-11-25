@@ -3,6 +3,7 @@ Name=IBus
 Category=InputMethod
 Comment=Input method framework (Chinese, Japanese, Korean, emoji with Ctrl+Shift+E), reaching apps through their GTK and Qt modules (needs ibus-gtk3 for GTK 3 apps); IBus (Wayland) is the better choice when ibus-wayland is installed
 Exec=ibus-daemon --replace --xim
+Version=ibus-daemon --version
 Binary=ibus-daemon
 Kind=inputmethod
 Env=XMODIFIERS=@im=ibus
