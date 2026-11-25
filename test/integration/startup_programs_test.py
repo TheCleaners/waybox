@@ -30,12 +30,10 @@ def alive(pid):
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    # A zombie still answers kill -0.
-    try:
-        with open(f"/proc/{pid}/stat") as f:
-            return f.read().split(") ")[1][0] != "Z"
-    except OSError:
-        return False
+    # A zombie still answers kill -0 (ps: Linux and the BSDs alike).
+    r = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+    state = r.stdout.strip()
+    return bool(state) and not state.startswith("Z")
 
 
 def main():
@@ -72,7 +70,7 @@ def main():
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
                XDG_CONFIG_HOME=cfg, XDG_RUNTIME_DIR=runtime, WB_RC_XML="",
-               WB_MENU_XML="", ASAN_OPTIONS="detect_leaks=1:exitcode=99")
+               WB_MENU_XML="", ASAN_OPTIONS=("detect_leaks=1:" if sys.platform.startswith("linux") else "") + "exitcode=99")
     env.pop("WAYLAND_DISPLAY", None)
     env.pop("DISPLAY", None)
     log_path = os.path.join(workdir, "waybox.log")

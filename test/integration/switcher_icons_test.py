@@ -67,7 +67,7 @@ def main():
                    XDG_CONFIG_HOME=cfg, XDG_RUNTIME_DIR=runtime, XDG_DATA_HOME=data,
                    XDG_DATA_DIRS="/nonexistent", WB_ICON_THEME="hicolor",
                    WB_RC_XML="", WB_MENU_XML="",
-                   ASAN_OPTIONS="detect_leaks=1:exitcode=99")
+                   ASAN_OPTIONS=("detect_leaks=1:" if sys.platform.startswith("linux") else "") + "exitcode=99")
         env.pop("WAYLAND_DISPLAY", None)
         env.pop("DISPLAY", None)
         log_path = os.path.join(workdir, f"waybox-{icons}.log")

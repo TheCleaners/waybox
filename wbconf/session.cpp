@@ -1,5 +1,10 @@
 #include "wbconf_ui.hpp"
 
+#if defined(__FreeBSD__) || defined(__DragonFly__)
+#include <sys/param.h>
+#include <sys/ucred.h>
+#endif
+
 namespace wbconf {
 
 /* A blank rc.xml used only when the user has no config and none is installed. */
@@ -78,19 +83,26 @@ pid_t session_compositor() {
 	if (fd < 0)
 		return 0;
 	pid_t pid = 0;
-	struct ucred cred = {};
-	socklen_t len = sizeof(cred);
-	if (connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) == 0 &&
-			getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) == 0)
-		pid = cred.pid;
+	if (connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) == 0) {
+#ifdef SO_PEERCRED
+		struct ucred cred = {};
+		socklen_t len = sizeof(cred);
+		if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) == 0)
+			pid = cred.pid;
+#elif defined(LOCAL_PEERCRED)
+		struct xucred cred = {};
+		socklen_t len = sizeof(cred);
+		if (getsockopt(fd, SOL_LOCAL, LOCAL_PEERCRED, &cred, &len) == 0 &&
+				cred.cr_version == XUCRED_VERSION)
+			pid = cred.cr_pid;
+#endif
+	}
 	close(fd);
 	return pid;
 }
 
 bool is_waybox(long pid) {
-	std::ifstream comm("/proc/" + std::to_string(pid) + "/comm");
-	std::string name;
-	return std::getline(comm, name) && name == "waybox";
+	return process_name(static_cast<pid_t>(pid)) == "waybox";
 }
 
 /* Ask Waybox to reconfigure (SIGUSR2, the signal Openbox uses): the one
@@ -108,25 +120,9 @@ int signal_waybox_reload() {
 		return kill(pid, SIGUSR2) == 0 ? 1 : 0;
 	int signalled = 0;
 	uid_t me = getuid();
-	DIR *proc = opendir("/proc");
-	if (proc == nullptr)
-		return 0;
-	struct dirent *e;
-	while ((e = readdir(proc)) != nullptr) {
-		char *end = nullptr;
-		long pid = strtol(e->d_name, &end, 10);
-		if (end == e->d_name || *end != '\0' || pid <= 0)
-			continue;
-		if (!is_waybox(pid))
-			continue;
-		struct stat st {};
-		std::string dir = std::string("/proc/") + e->d_name;
-		if (stat(dir.c_str(), &st) != 0 || st.st_uid != me)
-			continue;
-		if (kill(static_cast<pid_t>(pid), SIGUSR2) == 0)
+	for (const ProcessInfo &p : list_processes())
+		if (p.name == "waybox" && p.uid == me && kill(p.pid, SIGUSR2) == 0)
 			++signalled;
-	}
-	closedir(proc);
 	return signalled;
 }
 

@@ -70,7 +70,7 @@ def main():
 
     env = dict(os.environ, DISPLAY=f":{num}", WLR_BACKENDS="x11", WLR_RENDERER="pixman",
                XDG_RUNTIME_DIR=runtime, XDG_CONFIG_HOME=cfg, WB_RC_XML="",
-               WB_MENU_XML="", ASAN_OPTIONS="detect_leaks=1:exitcode=99")
+               WB_MENU_XML="", ASAN_OPTIONS=("detect_leaks=1:" if sys.platform.startswith("linux") else "") + "exitcode=99")
     for var in ("WAYLAND_DISPLAY", "XKB_DEFAULT_LAYOUT", "XKB_DEFAULT_VARIANT",
                 "XKB_DEFAULT_OPTIONS", "XKB_DEFAULT_MODEL", "XKB_DEFAULT_RULES"):
         env.pop(var, None)

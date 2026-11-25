@@ -86,7 +86,7 @@ def main():
                 GSETTINGS_BACKEND="memory",            # never the user's settings
                 WBCONF_SCHEMA_DIR=schema, WAYBOX_PID=str(proc.pid),
                 XDG_DATA_HOME=datahome,
-                XDG_DATA_DIRS=fake + ":" + os.environ.get("XDG_DATA_DIRS", "/usr/share"),
+                XDG_DATA_DIRS=fake + ":" + os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share"),
                 WBCONF_TEST_SET="gtk.icons=TestIcons;gtk.fill=1;gtk.scheme=prefer-dark")
     failures = []
     app = None

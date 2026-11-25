@@ -92,8 +92,9 @@ headless integration tests run in CI.
 ## Building
 
 You need Meson (or muon), a C++20 compiler and wlroots 0.19 or 0.20, plus
-the libraries below. librsvg (SVG menu icons), GTK4 (wbconf) and Xwayland
-(X11 programs, needed at run time only) are optional.
+the libraries below. librsvg (SVG menu icons), GTK4 (wbconf), LuaJIT or Lua
+5.4+ (scripting, see `waybox-lua(5)`) and Xwayland (X11 programs, needed at
+run time only) are optional. Waybox builds and runs on Linux and FreeBSD.
 
 **Debian / Ubuntu**
 
@@ -101,14 +102,22 @@ the libraries below. librsvg (SVG menu icons), GTK4 (wbconf) and Xwayland
 sudo apt install meson ninja-build g++ pkg-config libwlroots-0.20-dev \
   libwayland-dev wayland-protocols libxkbcommon-dev libxml2-dev libevdev-dev \
   libinput-dev libcairo2-dev libpango1.0-dev librsvg2-dev libgtk-4-dev \
-  xwayland
+  libluajit-5.1-dev xwayland
 ```
 
 **Alpine**
 
 ```sh
 apk add meson g++ wlroots-dev wayland-dev wayland-protocols libxkbcommon-dev \
-  libxml2-dev libevdev-dev libinput-dev cairo-dev pango-dev xwayland
+  libxml2-dev libevdev-dev libinput-dev cairo-dev pango-dev luajit-dev xwayland
+```
+
+**FreeBSD**
+
+```sh
+pkg install meson ninja pkgconf wlroots020 wayland wayland-protocols \
+  libxkbcommon libxml2 libevdev evdev-proto libinput cairo pango librsvg2-rust \
+  gtk4 luajit-openresty xwayland
 ```
 
 Then build and test:
@@ -124,7 +133,7 @@ meson test -C build
 | `-Dbuildtype=release` | Optimized build. Sanitizers are on by default only for debug builds. |
 | `-Dsanitize=enabled\|disabled` | Force ASan and UBSan on or off. |
 | `-Dwlroots-version=0.19` | Pick a specific wlroots when several are installed. |
-| `-Dsvg=disabled`, `-Dwbconf=disabled` | Skip the optional pieces. |
+| `-Dsvg=disabled`, `-Dwbconf=disabled`, `-Dlua=disabled` | Skip the optional pieces. |
 | `-Dman-pages=disabled`, `-Dinfo=disabled` | Skip the manual pages (scdoc) or the Texinfo manual (makeinfo). |
 | `-Dtests_only=true` | Build only the unit tests, which don't need wlroots. |
 

@@ -275,6 +275,13 @@ void preview_draw(GtkDrawingArea *, cairo_t *cr, int width, int height,
 		gpointer data);
 void preview_refresh(Ui *ui);
 void thumb_draw(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data);
+struct ProcessInfo {
+	pid_t pid;
+	uid_t uid;
+	std::string name;  /* at most 15 characters */
+};
+std::vector<ProcessInfo> list_processes();
+std::string process_name(pid_t pid);
 std::set<std::string> running_processes();
 bool is_running(Ui *ui, const std::string &binary);
 bool installed(const std::string &binary);

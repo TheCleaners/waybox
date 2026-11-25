@@ -86,7 +86,7 @@ EOF
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
                XDG_CONFIG_HOME=workdir, XDG_RUNTIME_DIR=runtime,
                WB_RC_XML="", WB_MENU_XML="",
-               ASAN_OPTIONS="detect_leaks=1:exitcode=99")
+               ASAN_OPTIONS=("detect_leaks=1:" if sys.platform.startswith("linux") else "") + "exitcode=99")
     env.pop("WAYLAND_DISPLAY", None)
 
     log_path = os.path.join(workdir, "waybox.log")
@@ -137,9 +137,11 @@ EOF
             os.kill(pid, 0)
         except ProcessLookupError:
             return False
-        # Reaped or not, a zombie no longer runs anything.
-        with open(f"/proc/{pid}/stat") as f:
-            return f.read().split(") ")[1][0] != "Z"
+        # Reaped or not, a zombie no longer runs anything (ps: Linux and
+        # the BSDs alike).
+        r = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+        state = r.stdout.strip()
+        return bool(state) and not state.startswith("Z")
 
     try:
         # 1. Pipe menu: placeholder, then output; run the piped entry.

@@ -36,7 +36,7 @@ def main():
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
                XDG_CONFIG_HOME=os.path.join(workdir, "config"),
                XDG_RUNTIME_DIR=runtime, WB_RC_XML="/dev/null", WB_MENU_XML="",
-               ASAN_OPTIONS="detect_leaks=1:exitcode=99")
+               ASAN_OPTIONS=("detect_leaks=1:" if sys.platform.startswith("linux") else "") + "exitcode=99")
     env.pop("WAYLAND_DISPLAY", None)
     env.pop("DISPLAY", None)
     log_path = os.path.join(workdir, "waybox.log")

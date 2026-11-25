@@ -15,13 +15,18 @@ project(
 project_args = [
   '-Wno-unused-parameter',
   '-D_DEFAULT_SOURCE',
-  '-D_POSIX_C_SOURCE=200112L',
   '-DWL_HIDE_DEPRECATED', # Hide the deprecated parts of the Wayland API
   '-DWLR_USE_UNSTABLE',
   '-DPACKAGE_NAME="' + meson.project_name() + '"',
   '-DPACKAGE_VERSION="' + meson.project_version() + '"',
   '-DWB_SYSCONFDIR="' + get_option('prefix') / get_option('sysconfdir') + '"',
 ]
+# On the BSDs everything is visible by default, and _POSIX_C_SOURCE would
+# hide what's used (SOCK_CLOEXEC, O_CLOEXEC, pipe2, memfd_create, mkdtemp,
+# MSG_NOSIGNAL); glibc's _DEFAULT_SOURCE keeps them with it.
+if host_machine.system() not in ['freebsd', 'netbsd', 'openbsd', 'dragonfly']
+  project_args += ['-D_POSIX_C_SOURCE=200112L']
+endif
 add_project_arguments(project_args, language: ['c', 'cpp'])
 
 # wl_container_of() expands to offsetof(), which the C++ wlroots glue must use
@@ -56,6 +61,11 @@ if sanitize_opt.enabled() or (sanitize_opt.auto() and build_is_debug)
     '-fsanitize=address,undefined',
     '-fno-omit-frame-pointer',
     '-fno-sanitize-recover=all',
+    # Not the alignment check: wl_list_for_each forms a pointer to an
+    # "element" from the list head to know where the list ends (never
+    # used), misaligned wherever elements hold a std::function (16-byte
+    # aligned with libc++). Every other UB check stays.
+    '-fno-sanitize=alignment',
   ]
   add_project_arguments(sanitize_args, language: ['c', 'cpp'])
   add_project_link_arguments(sanitize_args, language: ['c', 'cpp'])

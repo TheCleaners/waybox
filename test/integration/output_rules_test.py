@@ -68,7 +68,7 @@ def main():
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
                WLR_HEADLESS_OUTPUTS="3", XDG_CONFIG_HOME=cfg,
                XDG_RUNTIME_DIR=runtime, WB_RC_XML="", WB_MENU_XML="",
-               ASAN_OPTIONS="detect_leaks=1:exitcode=99")
+               ASAN_OPTIONS=("detect_leaks=1:" if sys.platform.startswith("linux") else "") + "exitcode=99")
     env.pop("WAYLAND_DISPLAY", None)
     env.pop("DISPLAY", None)
 
