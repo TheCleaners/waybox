@@ -28,6 +28,9 @@ bool is_running(Ui *ui, const std::string &binary) {
 }
 
 bool installed(const std::string &binary) {
+	/* A full path (helpers in /usr/libexec aren't on PATH). */
+	if (binary.find('/') != std::string::npos)
+		return access(binary.c_str(), X_OK) == 0;
 	char *path = g_find_program_in_path(binary.c_str());
 	bool found = path != nullptr;
 	g_free(path);
@@ -596,7 +599,12 @@ void populate_input_method(Ui *ui, const std::optional<wb::InputMethodSetting> &
 	guint idx = 0;
 	if (im) {
 		idx = static_cast<guint>(ui->im.frameworks.size() + 1);  /* Custom */
-		for (size_t i = 0; i < ui->im.frameworks.size(); ++i)
+		/* Its exact command first (a wrapper such as "sh -c ..."), then by
+		 * the program it runs. */
+		for (size_t i = 0; i < ui->im.frameworks.size() && idx > ui->im.frameworks.size(); ++i)
+			if (im->command == ui->im.frameworks[i]->exec)
+				idx = static_cast<guint>(i + 1);
+		for (size_t i = 0; i < ui->im.frameworks.size() && idx > ui->im.frameworks.size(); ++i)
 			if (wb::startup_name("", im->command) == ui->im.frameworks[i]->binary)
 				idx = static_cast<guint>(i + 1);
 		gtk_editable_set_text(GTK_EDITABLE(ui->im.command), im->command.c_str());

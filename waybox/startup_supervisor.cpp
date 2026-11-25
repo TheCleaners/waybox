@@ -87,7 +87,9 @@ static std::vector<wb::StartupProgram> wanted_programs(struct wb_server *server)
 /* The input method's variables, for the programs started from now on.
  * What they were before (from the session's environment file, or unset)
  * comes back when the input method no longer sets them. */
-static void apply_input_method_env(struct wb_server *server) {
+static std::string last_activation_names;
+
+void startup_apply_env(struct wb_server *server) {
 	static std::map<std::string, std::optional<std::string>> before;
 	for (const auto &[name, value] : before) {
 		if (value)
@@ -96,12 +98,30 @@ static void apply_input_method_env(struct wb_server *server) {
 			unsetenv(name.c_str());
 	}
 	before.clear();
+	if (server->config == nullptr)
+		return;  /* no settings loaded: no input method */
 	for (const auto &[name, value] : server->config->input_method_env) {
 		if (before.count(name) == 0) {
 			const char *was = getenv(name.c_str());
 			before[name] = was ? std::optional<std::string>(was) : std::nullopt;
 		}
 		setenv(name.c_str(), value.c_str(), true);
+	}
+	/* Programs D-Bus or systemd start (some opened from a file manager)
+	 * get their environment from there, not from Waybox: pass the names on
+	 * (with their values now, or unset). Names are checked to be plain. */
+	std::string names;
+	for (const auto &[name, value] : before) {
+		bool plain = !name.empty() && name.find_first_not_of(
+				"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_") ==
+				std::string::npos;
+		if (plain)
+			names += " " + name;
+	}
+	if (!names.empty() && last_activation_names != names) {
+		last_activation_names = names;
+		wb_spawn(("command -v dbus-update-activation-environment >/dev/null && "
+				"dbus-update-activation-environment --systemd" + names).c_str());
 	}
 }
 
@@ -123,7 +143,7 @@ static void stop(struct wb_startup_state *st, Program *p) {
 void startup_apply(struct wb_server *server) {
 	if (server->config == nullptr)
 		return;
-	apply_input_method_env(server);
+	startup_apply_env(server);
 	if (server->startup == nullptr && server->config->startup.empty() &&
 			server->config->input_method.empty())
 		return;  /* nothing listed, nothing ever started */
