@@ -155,13 +155,26 @@ Num Lock don't matter.
 A scroll-wheel notch is a *Press* and a *Click* of *Up* or *Down*. Touchpad
 scrolling is not.
 
-The contexts are *Root* or *Desktop* (the empty desktop), *Client* (inside
-a window), *Titlebar*, *Icon* (the window icon in the titlebar), *Top*,
-*Bottom*, *Left* and *Right* (the borders of a window with a server-side
-frame), and *Frame* (anywhere on a window). For a window context, the window
-is focused before the actions run. Clicks on panels go to the panel, and the
-titlebar buttons work on their own; without an *Icon* binding, clicking the
-icon opens the window menu.
+The contexts are:
+- *Root*: the empty desktop.
+- *Desktop*: the empty desktop, and also desktop surfaces, which are the
+  background and bottom layers. A desktop-icon program (pcmanfm-qt's desktop,
+  xfdesktop) draws there, as do wallpaper programs that take input.
+- *Client*: inside a window.
+- *Titlebar*.
+- *Icon*: the window icon in the titlebar.
+- *Top*, *Bottom*, *Left* and *Right*: the borders of a window with a
+  server-side frame.
+- *Frame*: anywhere on a window.
+
+As in Openbox, a *Desktop* binding runs before the click reaches a desktop
+program, and that program gets the clicks no binding takes. A *Root* binding
+leaves desktop programs alone. To keep the root menu on right-click with a
+desktop-icon program running, bind it in *Desktop*.
+
+For a window context, the window is focused before the actions run. Clicks on
+panels go to the panel, and the titlebar buttons work on their own; without an
+*Icon* binding, clicking the icon opens the window menu.
 
 Without any binding, dragging a titlebar or border moves or resizes the
 window, and so do Alt+left-drag and Alt+right-drag anywhere on a window. A

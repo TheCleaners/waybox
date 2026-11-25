@@ -602,6 +602,18 @@ if python.found() and not get_option('tests_only')
   # A minimal wlr-layer-shell panel client for the output-hotplug test.
   layer_shell_xml = meson.project_source_root() / 'protocol' / 'wlr-layer-shell-unstable-v1.xml'
   xdg_shell_xml = wl_protocol_dir / 'stable/xdg-shell/xdg-shell.xml'
+  # A stand-in for a desktop-icon program: a full-output layer surface.
+  desktop_client = executable(
+    'desktop_client',
+    [
+      'integration' / 'desktop_client.c',
+      wayland_scanner_client.process(layer_shell_xml),
+      wayland_scanner_code.process(layer_shell_xml),
+      wayland_scanner_code.process(xdg_shell_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   layer_client = executable(
     'layer_client',
     [
@@ -652,6 +664,7 @@ if python.found() and not get_option('tests_only')
     ['input_method_setting', 'input_method_setting_test.py', [], 60],
     ['ipc', 'ipc_test.py', [waybox_msg, lock_client], 60],
     ['python_ipc', 'python_ipc_test.py', [touch_client, python_src_dir], 60],
+    ['desktop_context', 'desktop_context_test.py', [desktop_client], 60],
     ['key_chain', 'key_chain_test.py', [], 60],
     ['lock_popup', 'lock_popup_test.py', [popup_client, lock_client], 60],
     ['keymap_reconfigure', 'keymap_reconfigure_test.py', [], 60],

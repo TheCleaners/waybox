@@ -135,8 +135,14 @@ bool mouse_context_matches(MouseContext binding, MouseContext actual) {
 	auto is_desktop = [](MouseContext c) {
 		return c == MouseContext::Root || c == MouseContext::Desktop;
 	};
-	if (is_desktop(binding))
+	/* As in Openbox: Desktop covers the empty desktop and desktop windows
+	 * (here: a background- or bottom-layer surface, such as a desktop-icon
+	 * program); Root only the empty desktop. So a desktop-icon program gets
+	 * its own clicks unless Desktop bindings say otherwise. */
+	if (binding == MouseContext::Desktop)
 		return is_desktop(actual);
+	if (binding == MouseContext::Root)
+		return actual == MouseContext::Root;
 	if (binding == MouseContext::Frame)
 		return !is_desktop(actual);
 	return false;
