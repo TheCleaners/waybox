@@ -97,6 +97,7 @@ wb_version_cmd = ['git', '-C', meson.project_source_root(), 'describe', '--tags'
 version_in = files('version.h.in')
 integrations_src = files('waybox/integrations.cpp')
 startup_sources_src = files('waybox/startup_sources.cpp')
+gtk_appearance_src = files('waybox/gtk_appearance.cpp')
 json_src = files('waybox/json.cpp')
 xml_strict_src = files('waybox/xml_strict.cpp')
 

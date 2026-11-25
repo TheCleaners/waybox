@@ -51,6 +51,27 @@ then
     . "$OB_SYS_CONF_DIR/environment";
 fi
 
+# Icon theme stand-ins wbconf made (a missing fallback theme, filled from a
+# complete one) go once the real theme of that name is installed: being in
+# the user's folder, the stand-in would otherwise hide it.
+wb_icons_home="${XDG_DATA_HOME:-$HOME/.local/share}/icons"
+for wb_stand_in in "$wb_icons_home"/*/index.theme; do
+    test -f "$wb_stand_in" || continue
+    grep -qx 'X-Waybox-Stand-In=true' "$wb_stand_in" || continue
+    wb_theme=$(basename "$(dirname "$wb_stand_in")")
+    wb_old_ifs=$IFS
+    IFS=:
+    for wb_dir in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do
+        if test -f "$wb_dir/icons/$wb_theme/index.theme" &&
+                ! grep -qx 'X-Waybox-Stand-In=true' "$wb_dir/icons/$wb_theme/index.theme"; then
+            rm -f "$wb_stand_in" && rmdir "$(dirname "$wb_stand_in")" 2>/dev/null
+            break
+        fi
+    done
+    IFS=$wb_old_ifs
+done
+unset wb_icons_home wb_stand_in wb_theme wb_dir wb_old_ifs
+
 # Get the autostart script to use
 #
 # Openbox calls the autostart script from the XDG autostart script, so we don't

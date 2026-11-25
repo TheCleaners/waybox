@@ -36,6 +36,7 @@
 #include "waybox/integrations.hpp"
 #include "waybox/startup.hpp"
 #include "waybox/startup_sources.hpp"
+#include "waybox/gtk_appearance.hpp"
 #include "waybox/theme.hpp"
 #include "waybox/style.hpp"
 #include "waybox/render.hpp"
@@ -100,6 +101,24 @@ struct Ui {
 	std::map<std::string, GtkCheckButton *> hdr;
 	std::vector<std::string> hdr_others;
 	std::optional<std::string> hdr_loaded;
+
+	/* GTK programs' appearance (gtk_page.cpp): the themes they use, shared
+	 * with other desktops through GSettings and settings.ini. */
+	struct GtkLook {
+		std::string icons, theme, cursor, scheme;  /* scheme: default/prefer-dark/... */
+		int size = 24;
+		bool operator==(const GtkLook &) const = default;
+	};
+	struct {
+		std::map<std::string, wb::IconTheme> icon_themes;
+		std::vector<std::string> icon_values, theme_values, cursor_values, scheme_values;
+		GtkDropDown *icons = nullptr, *theme = nullptr, *cursor = nullptr, *scheme = nullptr;
+		GtkSpinButton *size = nullptr;
+		GtkLabel *health = nullptr;
+		GtkWidget *fill = nullptr, *undo = nullptr;
+		GtkLook saved;
+		bool built = false;
+	} gtk;
 
 	/* Programs started from elsewhere: the autostart script's start lines
 	 * and XDG autostart entries, each switchable (startup_sources_page.cpp). */
@@ -308,6 +327,11 @@ void populate_rows(Ui *ui, const wb::RcDocument *doc);
 void rows_saved(Ui *ui);
 /* WBCONF_TEST_SET: change settings as the window would (tests). */
 void apply_test_values(Ui *ui, const char *spec);
+wb::SettingDef gtk_appearance_setting();
+GtkWidget *build_gtk_block(Ui *ui);
+int gtk_unsaved(Ui *ui);
+bool save_gtk(Ui *ui, std::string *error);
+void gtk_test_value(Ui *ui, const std::string &key, const std::string &value);
 void load_startup_sources(Ui *ui);
 std::vector<wb::SettingDef> startup_source_settings(Ui *ui);
 GtkWidget *build_script_block(Ui *ui);
