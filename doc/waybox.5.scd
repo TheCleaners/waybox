@@ -373,13 +373,18 @@ act on a window use the focused one.
 	Give the window keyboard focus: it's raised, brought back if minimized,
 	and its desktop is shown if it's on another.
 
-*ToggleMaximize*, *ToggleMaximizeHorizontal*, *ToggleMaximizeVertical*
-	Maximize, or maximize in one direction only.
+*Maximize*, *Unmaximize*, *ToggleMaximize*
+	Maximize, restore, or toggle. *<direction>* is *both* (the default),
+	*horizontal* (*horz*) or *vertical* (*vert*). In one direction, the
+	toggle looks only at that direction. As in Openbox, the direction can
+	be in the name instead: *MaximizeFull*, *MaximizeHorz*, *MaximizeVert*,
+	and likewise for *Unmaximize* and *ToggleMaximize*. Waybox's earlier
+	names *ToggleMaximizeHorizontal* and *ToggleMaximizeVertical* still work.
 
-*Fullscreen*
-	Toggle fullscreen.
+*ToggleFullscreen*
+	Toggle fullscreen. (*Fullscreen*, Waybox's earlier name, still works.)
 
-*Shade*, *Unshade*
+*Shade*, *Unshade*, *ToggleShade*
 	Roll the window up to its titlebar, hiding its contents, and back down.
 	Only windows with a server-side titlebar can be rolled up.
 

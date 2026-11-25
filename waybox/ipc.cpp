@@ -142,6 +142,7 @@ Value window_json(struct wb_toplevel *t) {
 	w["minimized"] = t->minimized;
 	w["maximized"] = t->max_horz && t->max_vert;
 	w["fullscreen"] = t->fullscreen;
+	w["shaded"] = t->shaded;
 	w["x"] = t->geometry.x;
 	w["y"] = t->geometry.y;
 	w["width"] = t->geometry.width;

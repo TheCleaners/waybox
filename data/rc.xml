@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <openbox_config xmlns="http://openbox.org/3.4/rc" xmlns:xi="http://www.w3.org/2001/XInclude">
-  <!-- You can reserve a portion of your screen where windows will not cover when
-       they are maximized, or when they are initially placed. -->
+  <!-- Space at each screen edge that maximized and newly placed windows keep
+       clear of (panels reserve their own space already). -->
   <margins>
     <top>0</top>
     <bottom>0</bottom>
@@ -125,7 +125,7 @@
       <action name="ToggleMaximize"/>
     </keybind>
     <keybind key="F11">
-      <action name="Fullscreen"/>
+      <action name="ToggleFullscreen"/>
     </keybind>
     <keybind key="W-t">
       <action name="ToggleDecorations"/>
