@@ -442,6 +442,17 @@ if python.found() and not get_option('tests_only')
     )
 
   # A program with a popup grab, for the lock-screen test.
+  # Touchscreen test windows: with and without wl_touch.
+  touch_client = executable(
+    'touch_client',
+    [
+      'integration' / 'touch_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # Drag-and-drop between two windows, with an icon.
   dnd_client = executable(
     'dnd_client',
@@ -544,6 +555,7 @@ if python.found() and not get_option('tests_only')
     ['tearing', 'tearing_test.py', [tearing_client], 60],
     ['titlebar_buttons', 'titlebar_buttons_test.py', [], 60],
     ['titlebar_icon', 'titlebar_icon_test.py', [], 60],
+    ['touch', 'touch_test.py', [touch_client], 60],
     ['window_capture', 'window_capture_test.py', [], 60],
     ['window_menu', 'window_menu_test.py', [], 90],
     ['window_state', 'window_state_test.py', [], 60],
