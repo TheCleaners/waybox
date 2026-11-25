@@ -468,6 +468,8 @@ bool wb_start_server(struct wb_server* server) {
 	 *   compositor can adapt. */
 	wlr_presentation_create(server->wl_display, server->backend, 2);
 	wlr_single_pixel_buffer_manager_v1_create(server->wl_display);
+	/* alpha-modifier: a client sets a surface's opacity (the scene draws it). */
+	wlr_alpha_modifier_v1_create(server->wl_display);
 	wlr_content_type_manager_v1_create(server->wl_display, 1);
 
 	init_window_icons(server);  /* xdg-toplevel-icon */
