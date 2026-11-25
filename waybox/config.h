@@ -110,6 +110,11 @@ struct wb_config {
 	 * (a VM viewer, a remote desktop) take Waybox's key bindings. */
 	bool allow_shortcuts_inhibit = true;
 
+	/* rc.xml <waybox><bell flash="yes" command="..."/>: what a program
+	 * ringing the bell does. Nothing unless set. */
+	bool bell_flash = false;
+	std::string bell_command;
+
 	/* rc.xml <waybox><ipc enabled="yes"/>: the scripting socket. Off
 	 * unless set. */
 	bool ipc_enabled = false;

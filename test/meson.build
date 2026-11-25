@@ -442,6 +442,19 @@ if python.found() and not get_option('tests_only')
     )
 
   # A program with a popup grab, for the lock-screen test.
+  # Rings the system bell (xdg-system-bell).
+  bell_client = executable(
+    'bell_client',
+    [
+      'integration' / 'bell_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml),
+      wayland_scanner_client.process(wl_protocol_dir / 'staging/xdg-system-bell/xdg-system-bell-v1.xml'),
+      wayland_scanner_code.process(wl_protocol_dir / 'staging/xdg-system-bell/xdg-system-bell-v1.xml'),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   # A window that tags itself (xdg-toplevel-tag).
   tag_client = executable(
     'tag_client',
@@ -522,6 +535,7 @@ if python.found() and not get_option('tests_only')
   integration_tests = [
     ['alt_tab', 'alt_tab_test.py', [default_rc], 60],
     ['app_rule', 'app_rule_test.py', [], 60],
+    ['bell', 'bell_test.py', [bell_client], 60],
     ['color_management', 'color_management_test.py', [], 90],
     ['config_errors', 'config_errors_test.py', [], 60],
     ['desktop_popup', 'desktop_popup_test.py', [], 60],

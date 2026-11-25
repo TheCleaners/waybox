@@ -63,6 +63,7 @@ extern "C" {
 #include <wlr/types/wlr_pointer_constraints_v1.h>
 #include <wlr/types/wlr_pointer_gestures_v1.h>
 #include <wlr/types/wlr_touch.h>
+#include <wlr/types/wlr_xdg_system_bell_v1.h>
 #if __has_include(<wlr/types/wlr_xdg_toplevel_tag_v1.h>)
 #include <wlr/types/wlr_xdg_toplevel_tag_v1.h>
 #endif

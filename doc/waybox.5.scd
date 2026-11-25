@@ -236,6 +236,7 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
   <titlebar paddingY="2" buttonSize="0" resizeGrab="8"/>
   <virtualInput allow="unlocked"/>
   <xwayland enabled="yes"/>
+  <bell flash="yes" command="paplay /usr/share/sounds/freedesktop/stereo/bell.oga"/>
   <hdr outputs="HDMI-A-1"/>
   <outputs>
     <output name="HDMI-A-1" mode="3840x2160@60" scale="1.5" position="0,0"/>
@@ -281,6 +282,12 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 *<xwayland>*
 	Run X11 programs through Xwayland, started when the first one
 	connects (default *yes*).
+
+*<bell>*
+	What a program ringing the bell (a terminal's \\a, a toolkit's error
+	beep) does; nothing unless set. *flash*: briefly flash the window that
+	rang (or the monitor under the pointer). *command*: run it (through
+	*sh*), at most once per quick burst of rings.
 
 *<hdr>*
 	*outputs* lists outputs (by name, separated by spaces) to drive in
