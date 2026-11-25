@@ -1,0 +1,129 @@
+<?xml version="1.0"?>
+<!--
+  org.waybox.AgentHub1: the agent hub's state, for surfaces (panels,
+  notifications, settings). Draft; see doc/agent-tools.md. Provisional name
+  until (if ever) a shared one is agreed (org.freedesktop.AgentHub1).
+
+  Well-known name org.waybox.AgentHub1, object /org/waybox/AgentHub1, on the
+  session bus. One hub per session.
+
+  Surfaces can see and take away (revoke, stop, refuse a provider).
+  Nothing here grants, approves a provider or binds a profile: those come
+  only from confirmations the compositor draws, answered with physical input.
+
+  No arguments: properties, signals and RecentCalls carry who called what,
+  when, and the outcome, never a call's arguments (the session bus reaches
+  more programs than should see them; they're only in the audit file).
+
+  Any program can claim this name; the compositor's own indicator is the
+  trustworthy one.
+
+  Records are a{sv} so fields can be added without a new interface version.
+  Times are Unix seconds (x); 0 means none.
+-->
+<node>
+  <interface name="org.waybox.AgentHub1">
+
+    <!-- 1 for this draft. -->
+    <property name="Version" type="u" access="read"/>
+
+    <!--
+      Connected agents (one per shim):
+        id (s)         the hub's id for the connection
+        profile (s)    the settings profile the shim was started with
+        client (s)     the agent's self-declared name (MCP clientInfo): shown, never trusted
+        since (x)      connected at
+    -->
+    <property name="Agents" type="aa{sv}" access="read"/>
+
+    <!--
+      Known providers:
+        id (s)         manifest Id, e.g. "org.waybar.Waybar"
+        name (s)       its Name
+        state (s)      "approved", "pending" (new or changed: offered to no agent), "refused"
+        connected (b)  reachable now
+        tools (u)      number of tools
+        highest (s)    its most sensitive tool's sensitivity
+    -->
+    <property name="Providers" type="aa{sv}" access="read"/>
+
+    <!--
+      Standing grants (answers to "ask" that were not just "once"):
+        id (s)
+        profile (s)    who it's for
+        provider (s)   provider id, or "" for any
+        tool (s)       tool name, or "" for every tool of that sensitivity
+        sensitivity (s)
+        until (x)      expiry, 0: the end of the session
+    -->
+    <property name="Grants" type="aa{sv}" access="read"/>
+
+    <!--
+      What is happening now:
+        call (s)       call id
+        agent (s)      agent id
+        provider, tool, sensitivity (s)
+        since (x)
+      An entry with sensitivity "capture" or "input" is what an indicator
+      shows; the compositor shows its own too (switchable).
+    -->
+    <property name="Active" type="aa{sv}" access="read"/>
+
+    <!--
+      Questions waiting for the user (consent is asynchronous: the hub keeps
+      working, and Stop closes them as denied):
+        id (s), agent (s), profile (s), provider (s), tool (s),
+        sensitivity (s), since (x)
+    -->
+    <property name="Pending" type="aa{sv}" access="read"/>
+
+    <!-- True while any capture or input is active: the cheap thing for an indicator. -->
+    <property name="Watching" type="b" access="read"/>
+
+    <!--
+      A call is about to run (after the levels and any consent):
+        call, agent, profile, provider, tool, sensitivity (s)
+      Property changes come as org.freedesktop.DBus.Properties.PropertiesChanged.
+    -->
+    <signal name="CallStarted">
+      <arg name="call" type="a{sv}"/>
+    </signal>
+
+    <!--
+      A call ended or was turned away (no arguments):
+        call (s), outcome (s): "done", "failed", "refused" (by a level or the
+        policy), "denied" (by the user), "cancelled" (stop or revoke)
+        message (s): for refusals and failures
+    -->
+    <signal name="CallEnded">
+      <arg name="call" type="a{sv}"/>
+    </signal>
+
+    <!-- The latest @count calls (capped at 100), metadata only: as CallEnded. -->
+    <method name="RecentCalls">
+      <arg name="count" type="u" direction="in"/>
+      <arg name="calls" type="aa{sv}" direction="out"/>
+    </method>
+
+    <!-- End one grant, or all of them. Rate-limited and logged (fail-safe). -->
+    <method name="Revoke">
+      <arg name="grant" type="s" direction="in"/>
+    </method>
+    <method name="RevokeAll"/>
+
+    <!--
+      What the stop key does, from a panel button: cancel calls in progress
+      and pending questions, revoke all grants, and ask the compositor to end
+      capture and input. (The key itself works in the compositor, without
+      the hub.) Agents stay connected, at their levels.
+    -->
+    <method name="Stop"/>
+
+    <!-- Refuse a provider (pending or approved): offered to no agent until
+         approved again. Approving isn't here: it takes the compositor's
+         confirmation. -->
+    <method name="RefuseProvider">
+      <arg name="id" type="s" direction="in"/>
+    </method>
+  </interface>
+</node>

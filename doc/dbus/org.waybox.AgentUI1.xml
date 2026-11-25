@@ -1,0 +1,108 @@
+<?xml version="1.0"?>
+<!--
+  org.waybox.AgentUI1: implemented by UI providers (a launcher, a panel, a
+  chat window, the compositor's built-in fallbacks), called by the agent hub
+  to talk to the user for an agent. Draft; see "Agent UI" in
+  doc/agent-tools.md.
+
+  A provider exports it at /org/waybox/AgentUI1 on its own bus name and
+  declares the kinds it renders in its manifest ([UI] Kinds=). The hub calls
+  only providers the user approved and chose for a kind.
+
+  Everything here is agent UI, so untrusted:
+    - render it as agent UI: labelled with the "from" text the hub passes
+      (an assistant's self-declared name, presented as a claim), in a frame
+      unlike the compositor's confirmations and system password prompts;
+    - never take keyboard focus from what the user is doing: show a notice
+      or a waiting entry the user opens; if a window opens, ignore input
+      briefly after it appears;
+    - warn on secret fields that the answer goes to the assistant.
+
+  Requests follow the portal pattern: a method returns at once with a
+  request object path; the answer comes later as Response on that path.
+  The hub cancels with Close (the agent went away, the stop key, the user
+  muted it). Response codes: 0 answered, 1 cancelled by the user, 2 closed
+  or timed out.
+
+  Common options (a{sv}) on every request:
+    from (s)       "an assistant calling itself “…”", to show as the source
+    flow (s)       requests sharing a flow may be shown as one window
+    timeout (u)    seconds before Response 2 (0: none)
+-->
+<node>
+  <interface name="org.waybox.AgentUI1">
+
+    <!-- The kinds this provider renders: "ask", "choose", "form", "output",
+         "progress" ("notify" and "pick_file" go to Notifications and the
+         FileChooser portal unless a provider claims them). -->
+    <property name="Kinds" type="as" access="read"/>
+
+    <!-- A one-line question. options: default (s), secret (b).
+         Results: text (s). -->
+    <method name="Ask">
+      <arg name="prompt" type="s" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="request" type="o" direction="out"/>
+    </method>
+
+    <!-- Pick from items (id, label). options: multiple (b), default (as).
+         Results: chosen (as) item ids. -->
+    <method name="Choose">
+      <arg name="prompt" type="s" direction="in"/>
+      <arg name="items" type="a(ss)" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="request" type="o" direction="out"/>
+    </method>
+
+    <!-- A form. schema: MCP elicitation's requestedSchema as JSON text (a
+         flat object of string, number, integer, boolean and enum fields,
+         with titles, descriptions, defaults, required). The provider
+         validates before answering. Results: values (s), JSON text of the
+         object. -->
+    <method name="Form">
+      <arg name="title" type="s" direction="in"/>
+      <arg name="schema" type="s" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="request" type="o" direction="out"/>
+    </method>
+
+    <!-- Streamed output (a log, a long answer). OpenOutput returns an id;
+         Append adds text (plain text; providers may render Markdown if
+         options has markdown=true); CloseOutput ends it (the provider keeps
+         it visible until dismissed). -->
+    <method name="OpenOutput">
+      <arg name="title" type="s" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="id" type="s" direction="out"/>
+    </method>
+    <method name="Append">
+      <arg name="id" type="s" direction="in"/>
+      <arg name="text" type="s" direction="in"/>
+    </method>
+    <method name="CloseOutput">
+      <arg name="id" type="s" direction="in"/>
+    </method>
+
+    <!-- Progress on a task the agent runs: fraction 0..1, or -1 when
+         unknown; text says what's happening. A provider shows it until
+         fraction reaches 1 or the output/flow ends. -->
+    <method name="Progress">
+      <arg name="id" type="s" direction="in"/>
+      <arg name="fraction" type="d" direction="in"/>
+      <arg name="text" type="s" direction="in"/>
+    </method>
+
+    <!-- End everything this provider shows for @flow ("" for all): the
+         agent left, the stop key, the user muted it. Open requests answer
+         Response 2. -->
+    <method name="CloseAll">
+      <arg name="flow" type="s" direction="in"/>
+    </method>
+  </interface>
+
+  <!--
+    On each request path, as with portals:
+      org.freedesktop.portal.Request: Close(), and the signal
+      Response(u response, a{sv} results).
+  -->
+</node>
