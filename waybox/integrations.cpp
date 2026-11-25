@@ -66,7 +66,14 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
 			else if (key == "Comment") in.comment = value;
 			else if (key == "Exec") in.exec = value;
 			else if (key == "Binary") in.binary = value;
-			else if (key == "Kind") in.binding = value == "binding";
+			else if (key == "Kind") {
+				in.binding = value == "binding";
+				in.input_method = value == "inputmethod";
+			} else if (key == "Env") {
+				size_t eq = value.find('=');
+				if (eq != std::string::npos && eq > 0)
+					in.env.emplace_back(value.substr(0, eq), value.substr(eq + 1));
+			}
 			else if (key == "Key") in.key = value;
 		} else if (opt != nullptr) {
 			if (key == "Label") opt->label = value;

@@ -35,6 +35,7 @@ int unsaved_count(Ui *ui) {
 	n += now.theme_name != ui->shown.theme_name;
 	n += now.outputs != ui->shown.outputs || now.hdr_outputs != ui->shown.hdr_outputs;
 	n += now.startup != ui->shown.startup;
+	n += now.input_method != ui->shown.input_method;
 	n += bindings_unsaved(ui);
 	return n;
 }
@@ -124,6 +125,7 @@ void on_reset_all(GtkButton *, gpointer data) {
 		gtk_switch_set_active(row->on, FALSE);
 	for (auto &b : ui->bindings)
 		gtk_switch_set_active(b->on, FALSE);
+	choose_input_method(ui, "");
 	preview_refresh(ui);
 	refresh_save_state(ui);
 }

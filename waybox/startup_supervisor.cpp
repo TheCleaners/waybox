@@ -10,6 +10,8 @@
 #include <cstring>
 #include <ctime>
 #include <memory>
+#include <optional>
+#include <map>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
@@ -72,6 +74,37 @@ static struct wb_startup_state *state(struct wb_server *server) {
 	return server->startup;
 }
 
+/* The <startup> programs, and the input method (supervised the same way,
+ * under the name "input-method"). */
+static std::vector<wb::StartupProgram> wanted_programs(struct wb_server *server) {
+	std::vector<wb::StartupProgram> out = server->config->startup;
+	if (!server->config->input_method.empty())
+		out.insert(out.begin(), wb::StartupProgram{"input-method",
+				server->config->input_method, true, true});
+	return out;
+}
+
+/* The input method's variables, for the programs started from now on.
+ * What they were before (from the session's environment file, or unset)
+ * comes back when the input method no longer sets them. */
+static void apply_input_method_env(struct wb_server *server) {
+	static std::map<std::string, std::optional<std::string>> before;
+	for (const auto &[name, value] : before) {
+		if (value)
+			setenv(name.c_str(), value->c_str(), true);
+		else
+			unsetenv(name.c_str());
+	}
+	before.clear();
+	for (const auto &[name, value] : server->config->input_method_env) {
+		if (before.count(name) == 0) {
+			const char *was = getenv(name.c_str());
+			before[name] = was ? std::optional<std::string>(was) : std::nullopt;
+		}
+		setenv(name.c_str(), value.c_str(), true);
+	}
+}
+
 static void start(Program *p) {
 	p->pid = spawn(p->prog.command);
 	if (p->pid > 0)
@@ -90,13 +123,15 @@ static void stop(struct wb_startup_state *st, Program *p) {
 void startup_apply(struct wb_server *server) {
 	if (server->config == nullptr)
 		return;
-	if (server->startup == nullptr && server->config->startup.empty())
+	apply_input_method_env(server);
+	if (server->startup == nullptr && server->config->startup.empty() &&
+			server->config->input_method.empty())
 		return;  /* nothing listed, nothing ever started */
 	struct wb_startup_state *st = state(server);
 	std::vector<wb::StartupProgram> current;
 	for (const auto &p : st->programs)
 		current.push_back(p->prog);
-	wb::StartupPlan plan = wb::plan_startup(current, server->config->startup);
+	wb::StartupPlan plan = wb::plan_startup(current, wanted_programs(server));
 
 	for (const std::string &name : plan.stop) {
 		for (auto it = st->programs.begin(); it != st->programs.end(); ++it) {
@@ -109,7 +144,7 @@ void startup_apply(struct wb_server *server) {
 	}
 	/* Programs kept as they are still take a changed restart setting. */
 	for (auto &p : st->programs)
-		for (const wb::StartupProgram &w : server->config->startup)
+		for (const wb::StartupProgram &w : wanted_programs(server))
 			if (w.name == p->prog.name)
 				p->prog.restart = w.restart;
 	for (const wb::StartupProgram &w : plan.start) {

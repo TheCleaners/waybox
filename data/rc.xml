@@ -60,6 +60,13 @@
          game asks to keep them on). Unset or 0: never.
     <idle screenOff="600"/>
     -->
+    <!-- An input method (IBus, Fcitx5...) to start, keep running, and give
+         programs the variables to use it. None unless set.
+    <inputMethod command="fcitx5">
+      <env name="XMODIFIERS" value="@im=fcitx"/>
+      <env name="QT_IM_MODULE" value="fcitx"/>
+    </inputMethod>
+    -->
     <!-- The scripting socket ($WAYBOX_SOCK; see waybox-msg): list windows,
          run actions, follow events. Off unless set.
     <ipc enabled="yes"/>

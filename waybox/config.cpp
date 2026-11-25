@@ -604,6 +604,31 @@ static void parse_startup(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><inputMethod command="..."><env name= value=/></inputMethod>. */
+static void parse_input_method(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:inputMethod", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *node = object->nodesetval->nodeTab[0];
+		config->input_method = (const char *) get_attribute(node, "command");
+		for (xmlNode *c = node->children; c != nullptr; c = c->next) {
+			if (c->type != XML_ELEMENT_NODE || strcmp((const char *) c->name, "env") != 0)
+				continue;
+			std::string name = (const char *) get_attribute(c, "name");
+			bool ok = !name.empty() && name.find('=') == std::string::npos;
+			if (ok)
+				config->input_method_env.emplace_back(name,
+						(const char *) get_attribute(c, "value"));
+			else
+				wlr_log(WLR_ERROR, "%s \"%s\"", _("Ignoring the input method variable"),
+						name.c_str());
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
 /* Parse <waybox><ipc enabled="yes|no"/>. */
 static void parse_ipc(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
@@ -886,6 +911,7 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	parse_tearing(config, ctxt);
 	parse_shortcuts_inhibit(config, ctxt);
 	parse_ipc(config, ctxt);
+	parse_input_method(config, ctxt);
 
 	xmlXPathFreeContext(ctxt);
 	xmlFreeDoc(doc);

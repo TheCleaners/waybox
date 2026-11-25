@@ -28,6 +28,13 @@ struct StartupSetting {
 	bool operator==(const StartupSetting &) const = default;
 };
 
+/* <waybox><inputMethod command="..."><env name= value=/></inputMethod> */
+struct InputMethodSetting {
+	std::string command;
+	std::vector<std::pair<std::string, std::string>> env;
+	bool operator==(const InputMethodSetting &) const = default;
+};
+
 /*
  * The waybox settings that wbconf (our obconf-style GUI) reads from and writes
  * to rc.xml. Every field is optional: std::nullopt means "absent from rc.xml",
@@ -97,6 +104,7 @@ struct WayboxSettings {
 	/* Integrations: programs started with the session, and screen-off */
 	std::vector<StartupSetting> startup;
 	std::optional<int> idle_screen_off;              /* waybox/idle@screenOff (s) */
+	std::optional<InputMethodSetting> input_method;  /* waybox/inputMethod */
 
 	/* Advanced */
 	std::optional<bool> xwayland;                    /* waybox/xwayland@enabled */

@@ -138,6 +138,17 @@ struct Ui {
 	std::vector<std::unique_ptr<BindingRow>> bindings;
 	std::vector<std::string> bound_keys;  /* every key rc.xml binds */
 
+	/* The input method: None, an installed framework (from the integration
+	 * files), or Custom; with its command and variables. */
+	struct {
+		GtkDropDown *choice = nullptr;
+		std::vector<const wb::Integration *> frameworks;  /* choices 1..n */
+		GtkEntry *command = nullptr;
+		GtkTextView *env = nullptr;   /* NAME=VALUE, one per line */
+		GtkWidget *details = nullptr;
+		bool updating = false;
+	} im;
+
 	/* Live theme preview (redrawn when the theme/fonts change). */
 	GtkWidget *preview = nullptr;
 
@@ -257,6 +268,11 @@ std::vector<wb::SettingDef> program_settings(Ui *ui);
 GtkWidget *build_program_block(Ui *ui, const std::string &id);
 GtkWidget *build_other_programs_block(Ui *ui);
 GtkWidget *build_binding_block(Ui *ui, const std::string &id);
+GtkWidget *build_input_method_block(Ui *ui);
+void populate_input_method(Ui *ui, const std::optional<wb::InputMethodSetting> &im);
+std::optional<wb::InputMethodSetting> collect_input_method(Ui *ui);
+/* Choose by integration id ("" none, "custom"), as the dropdown would. */
+void choose_input_method(Ui *ui, const std::string &id);
 void populate_bindings(Ui *ui, const wb::RcDocument *doc);
 /* The binding rows' changes into `doc`; then what's saved is what's shown. */
 void apply_bindings(Ui *ui, wb::RcDocument &doc);

@@ -1,0 +1,11 @@
+[Integration]
+Name=IBus
+Category=InputMethod
+Comment=Input method framework (Chinese, Japanese, Korean, emoji with Ctrl+Shift+E); reaches apps through their GTK and Qt modules
+Exec=ibus-daemon --replace --xim
+Binary=ibus-daemon
+Kind=inputmethod
+Env=XMODIFIERS=@im=ibus
+Env=GTK_IM_MODULE=ibus
+Env=QT_IM_MODULE=ibus
+Env=SDL_IM_MODULE=ibus
