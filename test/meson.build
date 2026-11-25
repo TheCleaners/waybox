@@ -746,6 +746,8 @@ if python.found() and not get_option('tests_only')
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', fake_daemon], 60]]
     integration_tests += [['wbconf_startup', 'wbconf_startup_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_options', 'wbconf_options_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
   endif
   # Run alone (Xwayland, and edge_tiling, which starts an X11 window):
   # every Waybox instance reserves an X display (wlroots tries

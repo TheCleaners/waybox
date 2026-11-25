@@ -9,3 +9,4 @@ Version=waybar --version
 Label=Config file
 Flag=-c
 Hint=~/.config/waybar/config.jsonc
+Type=file

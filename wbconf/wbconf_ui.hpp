@@ -18,6 +18,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <optional>
 #include <string>
@@ -69,6 +70,26 @@ struct FontPicker {
 };
 
 /* ---- Widget set, bound to a WayboxSettings on save ------------------- */
+
+/* One integration option's widget (option_widgets.cpp), by its Type=. */
+struct OptionField {
+	const wb::IntegrationOption *opt = nullptr;
+	GtkWidget *widget = nullptr;   /* what goes in the grid */
+	GtkEntry *entry = nullptr;     /* the value, for types that take text */
+	GtkDropDown *drop = nullptr;   /* choice */
+	GtkStringList *drop_model = nullptr;
+	std::vector<std::string> drop_values;  /* "" first: the default */
+	GtkSwitch *sw = nullptr;       /* switch */
+	GtkPicture *thumb = nullptr;   /* images: the chosen one */
+	GtkColorDialogButton *color = nullptr;
+	bool syncing = false;
+	std::function<void()> on_change;  /* the user changed it */
+};
+std::unique_ptr<OptionField> make_option_field(const wb::IntegrationOption &o,
+		std::function<void()> on_change);
+std::string option_field_value(const OptionField &f);
+/* Show `value` (from the command), without calling on_change. */
+void set_option_field_value(OptionField &f, const std::string &value);
 
 struct Ui {
 	/* Built and shown: a switch changing now is the user's (or a test's). */
@@ -153,7 +174,7 @@ struct Ui {
 		GtkSwitch *on = nullptr;
 		GtkEntry *command = nullptr;
 		GtkEntry *name_entry = nullptr;       /* custom programs */
-		std::map<std::string, GtkEntry *> options;
+		std::map<std::string, std::unique_ptr<OptionField>> options;
 		GtkWidget *box = nullptr;
 		GtkWidget *details = nullptr;  /* options and command: shown when on */
 		GtkLabel *status = nullptr;

@@ -8,13 +8,23 @@ Exec=waybox-wallpaper
 Label=Image or folder
 Flag=-i
 Hint=~/Pictures/Wallpapers
+Type=image-or-folder
 
 [Option every]
 Label=Change every (minutes)
 Flag=-e
 Hint=60
+Type=number
+Min=1
 
 [Option colour]
 Label=Colour
 Flag=-c
 Hint=#303030
+Type=color
+
+[Option mode]
+Label=Mode
+Flag=-m
+Type=choice
+Choices=fill,fit,stretch,center,tile

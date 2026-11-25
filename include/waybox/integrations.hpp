@@ -19,6 +19,13 @@
  *   [Option latitude]
  *   Label=Latitude
  *   Flag=-l
+ *   Type=number           (wbconf's widget for it; text if not given)
+ *   Min=-90
+ *   Max=90
+ *
+ * Types: text, file, folder, image, image-folder, image-or-folder, color,
+ * choice (with Choices=a,b,c), number (Min=, Max=), and switch: a flag
+ * with no value, there or not.
  */
 #include <map>
 #include <optional>
@@ -28,13 +35,28 @@
 
 namespace wb {
 
+enum class OptionType {
+	Text, File, Folder, Image, ImageFolder, ImageOrFolder, Color, Choice, Number, Switch,
+};
+
 struct IntegrationOption {
 	std::string id;      /* from [Option id] */
 	std::string label;
-	std::string flag;    /* "-l": the value is the next word */
+	std::string flag;    /* "-l": the value is the next word (none for a switch) */
 	std::string hint;    /* example value, shown when empty */
+	OptionType type = OptionType::Text;
+	std::vector<std::string> choices;  /* Choice */
+	std::optional<double> min, max;    /* Number */
 	bool operator==(const IntegrationOption &) const = default;
 };
+
+/* Type= names ("image-folder"); Text for an unknown name. */
+OptionType option_type_from_name(std::string_view name);
+
+/* Whether `value` suits the option: a number in range, one of the
+ * choices, "on" for a switch. Empty (not given) always does; the other
+ * types take any text (a path may be "~/x" or "$VAR"). */
+bool option_value_valid(const IntegrationOption &o, std::string_view value);
 
 struct Integration {
 	std::string id;        /* the file's name without .integration */
@@ -87,7 +109,9 @@ std::string join_command(const std::vector<std::string> &words);
 
 /* The options' values found in `command` (by flag), and a command with
  * `values` set: a changed value replaces the old one, an empty one drops
- * the flag, a new one is appended; everything else is kept as it was. */
+ * the flag, a new one is appended; everything else is kept as it was.
+ * A switch's value is "on" when its flag is there; any value but "" adds
+ * it (alone). */
 std::map<std::string, std::string> read_options(const Integration &in,
 		std::string_view command);
 std::string write_options(const Integration &in, std::string_view command,
