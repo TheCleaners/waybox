@@ -56,8 +56,9 @@ struct ScriptBell {
 	std::optional<std::string> command;
 };
 bool script_bell(struct wb_server *server, struct wb_toplevel *t, ScriptBell *out);
-/* wb.on("bell"): delivered after the ring was dealt with; t may be null. */
-void script_bell_event(struct wb_server *server, struct wb_toplevel *t);
+/* wb.on("bell"): delivered after the ring was dealt with; t may be null;
+ * `skipped`: rings before it that came too soon to count. */
+void script_bell_event(struct wb_server *server, struct wb_toplevel *t, int skipped);
 
 /* SIGCHLD: programs scripts started (wb.spawn) that have ended. */
 void scripts_reap(struct wb_server *server);

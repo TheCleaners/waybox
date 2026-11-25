@@ -16,9 +16,11 @@ struct ScriptBell;
 void init_bell(struct wb_server *server);
 void finish_bell(struct wb_server *server);
 
-/* A ring from `t` (or no window). With `preview` (wbconf's Test: settings
- * over rc.xml's), no policy is asked and no event sent. What was shown:
- * "window", "border", "screen", "osd", "paced" (let go) or "none". */
+/* A ring from `t` (or no window). One too soon after the last let through
+ * (or while it still shows) does nothing but count: "skipped". With
+ * `preview` (wbconf's Test: settings over rc.xml's), no gate, no policy, no
+ * event. What was shown: "window", "border", "screen", "osd", "paced" (a
+ * preview let go), "skipped" or "none". */
 std::string bell_ring(struct wb_server *server, struct wb_toplevel *t,
 		const ScriptBell *preview);
 

@@ -68,11 +68,26 @@ std::vector<Blink> blink_schedule(const BellStyle &style);
 class BellPacer {
 public:
 	bool allow(uint32_t now_ms, const std::vector<Blink> &schedule);
+	/* Whether allow() could let something show now (the last is over, and
+	 * kBellMinPeriodMs have gone by since its last blink). */
+	bool ready(uint32_t now_ms) const;
 
 private:
 	bool any_ = false;
 	uint32_t last_onset_ = 0;
 	uint32_t busy_until_ = 0;
+};
+
+/* Before anything else (a Lua policy, the command, events): at most one
+ * ring every kBellMinPeriodMs gets through, so a program ringing in a loop
+ * can't keep a script, a command or subscribers busy either. */
+class RingGate {
+public:
+	bool pass(uint32_t now_ms);
+
+private:
+	bool any_ = false;
+	uint32_t last_ = 0;
 };
 
 }  // namespace wb

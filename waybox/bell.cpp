@@ -35,6 +35,8 @@ struct BellState {
 	std::list<std::unique_ptr<Flash>> flashes;
 	std::unique_ptr<wb::DesktopPopup> note;
 	wb::BellPacer pacer;
+	wb::RingGate gate;
+	int skipped = 0;  /* rings stopped at the gate since the last let through */
 	uint32_t last_command = 0;
 	bool commanded = false;
 	bool hit_testing = false;  /* flashes off while the pointer's target is found */
@@ -200,12 +202,26 @@ void ring_event(struct wb_server *server, struct wlr_xdg_system_bell_v1_ring_eve
 }  // namespace
 
 std::string bell_ring(struct wb_server *server, struct wb_toplevel *t, const ScriptBell *preview) {
-	if (preview == nullptr)
-		wlr_log(WLR_INFO, "wb-bell ring %s",
-				t != nullptr && view_app_id(t) ? view_app_id(t) : "(no window)");
 	struct wb_config *config = server->config;
 	if (config == nullptr || state == nullptr)
 		return "none";
+	/* A ring too soon after the last (or while it still shows): counted,
+	 * and nothing else, before any script or command. */
+	uint32_t now = now_ms();
+	if (preview == nullptr &&
+			(!state->pacer.ready(now) || !state->gate.pass(now))) {
+		if (state->skipped++ == 0)
+			wlr_log(WLR_INFO, "%s", "wb-bell skipping");
+		return "skipped";
+	}
+	if (preview == nullptr)
+		wlr_log(WLR_INFO, "wb-bell ring %s",
+				t != nullptr && view_app_id(t) ? view_app_id(t) : "(no window)");
+	int skipped = preview == nullptr ? state->skipped : 0;
+	if (preview == nullptr && skipped > 0) {
+		wlr_log(WLR_INFO, "wb-bell skipped %d", skipped);
+		state->skipped = 0;
+	}
 	wb::BellStyle style = config->bell_style;
 	std::string command = config->bell_command;
 	ScriptBell decided;
@@ -228,7 +244,6 @@ std::string bell_ring(struct wb_server *server, struct wb_toplevel *t, const Scr
 	}
 	std::string shown = show_bell(server, t, style);
 	if (!command.empty()) {
-		uint32_t now = now_ms();
 		if (!state->commanded || now - state->last_command >= kCommandGapMs) {
 			state->commanded = true;
 			state->last_command = now;
@@ -236,8 +251,8 @@ std::string bell_ring(struct wb_server *server, struct wb_toplevel *t, const Scr
 		}
 	}
 	if (preview == nullptr) {
-		script_bell_event(server, t);
-		ipc_bell_event(server, t, shown);
+		script_bell_event(server, t, skipped);
+		ipc_bell_event(server, t, shown, skipped);
 	}
 	return shown;
 }

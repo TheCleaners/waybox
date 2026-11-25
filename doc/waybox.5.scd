@@ -328,8 +328,9 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 	  rings.
 
 	Flashes never start more than 3 times a second, whatever the settings:
-	a ring while the bell is still showing, or too soon after its last
-	flash, isn't shown (its command still runs, as above). A Lua *bell*
+	a ring while the bell is still showing, or too soon after the last
+	that counted, does nothing at all (no flash, command, script or
+	event); the next that counts says how many there were. A Lua *bell*
 	policy can decide ring by ring (see *waybox-lua*(5)).
 
 *<hdr>*

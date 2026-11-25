@@ -101,3 +101,24 @@ WB_TEST(bell_style_overrides) {
 	WB_CHECK(s == base && problems.size() == 2);
 	WB_CHECK(wb::bell_style_with(base, {}) == base);
 }
+
+WB_TEST(ring_gate) {
+	wb::RingGate g;
+	int passed = 0;
+	for (uint32_t t = 0; t < 1000; t += 3)
+		passed += g.pass(t);
+	WB_CHECK(passed == 3);  /* at 0, 336 and 672 (steps of 3 ms) */
+	WB_CHECK(!g.pass(1005));
+	WB_CHECK(g.pass(1006));
+	/* Across the clock's wrap. */
+	wb::RingGate w;
+	WB_CHECK(w.pass(0xfffffff0u));
+	WB_CHECK(!w.pass(0x00000010u));  /* 32 ms later */
+	WB_CHECK(w.pass(0xfffffff0u + 334u));
+	/* The pacer's ready(): as allow() would. */
+	auto one = wb::blink_schedule(wb::parse_bell_style("window", "", "150", "1", ""));
+	wb::BellPacer p;
+	WB_CHECK(p.ready(0));
+	WB_CHECK(p.allow(0, one));
+	WB_CHECK(!p.ready(100) && !p.ready(333) && p.ready(334));
+}
