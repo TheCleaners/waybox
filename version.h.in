@@ -1,0 +1,5 @@
+/* Generated at build time (meson vcs_tag): `git describe --tags --dirty`,
+ * e.g. "0.2.2-360-gc03178bd7c4a" (360 commits after the 0.2.2 tag), or
+ * the bare commit when there are no tags, or the release version for a
+ * build without git (a tarball). */
+#define WB_BUILD_VERSION "@WB_VERSION@"

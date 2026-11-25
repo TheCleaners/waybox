@@ -69,9 +69,17 @@ wb_dep = [
   xkbcommon,
   ]
 
+wb_version_h = vcs_tag(
+  command: wb_version_cmd,
+  fallback: meson.project_version(),
+  input: version_in,
+  output: 'version.h',
+  replace_string: '@WB_VERSION@',
+)
+
 waybox_exe = executable(
   'waybox',
-  wb_src,
+  [wb_src, wb_version_h],
   include_directories: [inc_dir],
   dependencies: [wb_dep, wlr_protos],
   install: true,

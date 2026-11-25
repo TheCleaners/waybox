@@ -89,6 +89,11 @@ client_menu_src = files('waybox/client_menu.cpp')
 security_src = files('waybox/security.cpp')
 output_rules_src = files('waybox/output_rules.cpp')
 startup_src = files('waybox/startup.cpp')
+
+# The build's version from git (see version.h.in): regenerated each build.
+wb_version_cmd = ['git', '-C', meson.project_source_root(), 'describe', '--tags',
+  '--dirty', '--always', '--abbrev=12']
+version_in = files('version.h.in')
 integrations_src = files('waybox/integrations.cpp')
 json_src = files('waybox/json.cpp')
 xml_strict_src = files('waybox/xml_strict.cpp')
@@ -156,7 +161,14 @@ endif
 
 # waybox-msg: the scripting socket from the shell.
 if not get_option('tests_only')
-  waybox_msg = executable('waybox-msg', ['msg/waybox-msg.cpp', json_src],
+  msg_version_h = vcs_tag(
+    command: wb_version_cmd,
+    fallback: meson.project_version(),
+    input: version_in,
+    output: 'version.h',
+    replace_string: '@WB_VERSION@',
+  )
+  waybox_msg = executable('waybox-msg', ['msg/waybox-msg.cpp', json_src, msg_version_h],
     include_directories: [inc_dir],
     install: true,
   )

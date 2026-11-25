@@ -3,6 +3,7 @@
 #include <unistd.h>
 
 #include "waybox/server.h"
+#include "version.h"
 #include "idle.h"
 #include "startup_supervisor.h"
 #include "ipc.h"
@@ -72,7 +73,7 @@ int main(int argc, char **argv) {
 					fprintf(stderr, _("%s requires an argument\n"), argv[i]);
 				}
 			} else if (strcmp("--version", argv[i]) == 0 || strcmp("-V", argv[i]) == 0) {
-				printf(PACKAGE_NAME " " PACKAGE_VERSION "\n");
+				printf(PACKAGE_NAME " " WB_BUILD_VERSION "\n");
 				return 0;
 			} else if (strcmp("--help", argv[i]) == 0 || strcmp("-h", argv[i]) == 0) {
 				show_help(argv[0]);
@@ -104,6 +105,9 @@ int main(int argc, char **argv) {
 		exit(EXIT_FAILURE);
 	}
 
+	wlr_log(WLR_INFO, "%s %s", PACKAGE_NAME, WB_BUILD_VERSION);
+	/* Programs Waybox starts (wbconf, scripts) can tell which build runs. */
+	setenv("WAYBOX_VERSION", WB_BUILD_VERSION, true);
 	if (wb_start_server(&server)) {
 		wlr_log(WLR_INFO, "%s", _("Successfully started server"));
 	} else {

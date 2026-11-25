@@ -18,6 +18,7 @@
 
 #include "config.h"
 #include "ipc.h"
+#include "version.h"
 #include "waybox/action.hpp"
 #include "waybox/desktops.hpp"
 #include "waybox/json.hpp"
@@ -150,7 +151,8 @@ Value handle(Client *c, const Value &req) {
 	struct wb_server *server = c->server;
 	std::string cmd = req.str("request");
 	if (cmd == "get_version")
-		return Object{{"ok", true}, {"name", "waybox"}, {"version", PACKAGE_VERSION}};
+		return Object{{"ok", true}, {"name", "waybox"}, {"version", WB_BUILD_VERSION},
+				{"release", PACKAGE_VERSION}};
 	if (cmd == "get_windows") {
 		Array list;
 		struct wb_toplevel *t;

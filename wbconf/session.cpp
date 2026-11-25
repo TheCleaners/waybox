@@ -130,4 +130,53 @@ int signal_waybox_reload() {
 	return signalled;
 }
 
+/* The running Waybox's version: from the environment it gave us, else
+ * asked over its scripting socket; "" if neither. */
+std::string running_waybox_version() {
+	if (const char *v = getenv("WAYBOX_VERSION"); v && *v)
+		return v;
+	std::string path;
+	if (const char *s = getenv("WAYBOX_SOCK"); s && *s) {
+		path = s;
+	} else {
+		const char *runtime = getenv("XDG_RUNTIME_DIR");
+		const char *display = getenv("WAYLAND_DISPLAY");
+		if (runtime && display)
+			path = std::string(runtime) + "/waybox-" + display + ".sock";
+	}
+	struct sockaddr_un addr = {};
+	addr.sun_family = AF_UNIX;
+	if (path.empty() || path.size() >= sizeof(addr.sun_path))
+		return {};
+	memcpy(addr.sun_path, path.c_str(), path.size() + 1);
+	int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	if (fd < 0)
+		return {};
+	std::string reply;
+	struct timeval tv = {1, 0};  /* never hang the window on it */
+	setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+	const char req[] = "{\"request\":\"get_version\"}\n";
+	if (connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) == 0 &&
+			write(fd, req, sizeof(req) - 1) == static_cast<ssize_t>(sizeof(req) - 1)) {
+		char buf[512];
+		ssize_t n;
+		while (reply.find('\n') == std::string::npos &&
+				(n = read(fd, buf, sizeof(buf))) > 0)
+			reply.append(buf, static_cast<size_t>(n));
+	}
+	close(fd);
+	JsonParser *parser = json_parser_new();
+	std::string version;
+	if (json_parser_load_from_data(parser, reply.c_str(), -1, nullptr)) {
+		JsonNode *root = json_parser_get_root(parser);
+		if (root && JSON_NODE_HOLDS_OBJECT(root)) {
+			JsonObject *o = json_node_get_object(root);
+			if (json_object_has_member(o, "version"))
+				version = json_object_get_string_member(o, "version");
+		}
+	}
+	g_object_unref(parser);
+	return version;
+}
+
 }  // namespace wbconf

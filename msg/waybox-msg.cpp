@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include "waybox/json.hpp"
+#include "version.h"
 
 using wb::json::Array;
 using wb::json::Object;
@@ -61,6 +62,10 @@ int main(int argc, char **argv) {
 	if (argc < 2)
 		return usage();
 	std::string cmd = argv[1];
+	if (cmd == "--version" || cmd == "-V") {
+		printf("waybox-msg %s\n", WB_BUILD_VERSION);
+		return 0;
+	}
 	Object req;
 	bool stream = false;
 	if (cmd == "raw") {
