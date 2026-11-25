@@ -162,7 +162,6 @@ bell_style_test = executable(
   'bell_style_test',
   ['bell_style_test.cpp', 'wb_test_main.cpp', bell_style_src, theme_src],
   include_directories: [inc_dir],
-  dependencies: [libxml2],
   )
 test('bell_style', bell_style_test)
 
