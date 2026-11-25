@@ -1,3 +1,4 @@
+#include "script.h"
 #include "bell.h"
 #include "toplevel_drag.h"
 #include "waybox/window_icon.h"
@@ -529,6 +530,7 @@ void wb_send_to_desktop(struct wb_toplevel *toplevel, int index, bool follow) {
 	toplevel->desktop = index;
 	update_desktop_visibility(toplevel);
 	update_toplevel_decoration(toplevel);  /* the D button's look */
+	script_request_layout(server);
 	wlr_log(WLR_INFO, "wb-desktop send %s to %d", view_app_id(toplevel),
 			index + 1);
 	if (follow) {
@@ -688,6 +690,7 @@ void arrange_toplevels(struct wb_server *server) {
 		if (memcmp(&before, &toplevel->geometry, sizeof(before)) != 0)
 			log_geometry(toplevel, "reflow");
 	}
+	script_request_layout(server);  /* the usable area changed */
 }
 
 /* Clamp a toplevel's position so it does not cover layer-shell reserved areas
@@ -795,6 +798,35 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 		rule = wb::match_app_rule(config->app_rules, view_app_id(toplevel),
 				view_title(toplevel), toplevel->tag);
 	}
+	/* A script's rules (wb.policy "rules"), key by key over rc.xml's. */
+	ScriptWindow info;
+	info.app_id = view_app_id(toplevel) ? view_app_id(toplevel) : "";
+	info.title = view_title(toplevel) ? view_title(toplevel) : "";
+	info.tag = toplevel->tag;
+	info.width = geo_box.width;
+	info.height = geo_box.height;
+	info.dialog = parent != nullptr;
+	info.xwayland = toplevel->kind == wb_view_kind::Xwayland;
+	wb::AppRule scripted;
+	wb::AppRule merged;
+	if (script_rules(toplevel->server, info, &scripted)) {
+		merged = rule != nullptr ? *rule : wb::AppRule{};
+		auto over = [](auto &to, const auto &from) {
+			if (from)
+				to = from;
+		};
+		over(merged.maximized, scripted.maximized);
+		over(merged.fullscreen, scripted.fullscreen);
+		over(merged.iconic, scripted.iconic);
+		over(merged.focus, scripted.focus);
+		over(merged.decor, scripted.decor);
+		over(merged.desktop, scripted.desktop);
+		over(merged.x, scripted.x);
+		over(merged.y, scripted.y);
+		over(merged.width, scripted.width);
+		over(merged.height, scripted.height);
+		rule = &merged;
+	}
 
 	/* New windows open on the desktop being shown, unless a rule says
 	 * otherwise. */
@@ -859,6 +891,9 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 		if (rule->y)
 			placed.y = area.y + *rule->y;
 	}
+	/* A script's placement (wb.policy "place") has the last word. */
+	if (auto p = script_place(toplevel->server, info, area, placed))
+		placed = *p;
 
 	toplevel->geometry = {placed.x, placed.y, placed.width, placed.height};
 
@@ -1385,6 +1420,7 @@ void set_toplevel_minimized(struct wb_toplevel *toplevel, bool minimize_requeste
 	view_set_minimized(toplevel, minimize_requested);
 	/* Hidden where it is: its place stays, for when it comes back. */
 	update_desktop_visibility(toplevel);
+	script_request_layout(toplevel->server);
 	if (minimize_requested)
 		focus_next_after(toplevel->server, toplevel);
 	if (toplevel->wlr_foreign_handle != NULL)

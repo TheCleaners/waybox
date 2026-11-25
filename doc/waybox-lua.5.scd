@@ -58,6 +58,37 @@ a slow file hold Waybox up for as long as they take. To run a program, use
 Events are delivered just after the change that caused them is over, never in
 the middle of it.
 
+# POLICIES
+
+*wb.policy(*_name_*,* _function_*)* lets a script decide, where Waybox would.
+It returns a decision, or *nil* to leave it to Waybox; on an error, or past
+the time budget, Waybox decides. A policy only decides: actions asked for
+during one are refused (*wb.action* returns *false*). Calling *wb.policy*
+again replaces the function; *nil* removes it.
+
+*rules*: _function(w)_
+	For each new window, before it is shown. _w_ is a table: *app_id*,
+	*title*, *tag*, *width*, *height*, *dialog*, *xwayland*. Return a
+	table of rules, over rc.xml's *<applications>* key by key: *desktop*
+	(a number, or "all"), *maximized*, *fullscreen*, *minimized*,
+	*focus*, *decor*, *x*, *y* (relative to the usable area), *width*,
+	*height*.
+
+*place*: _function(w, area, proposed)_
+	Where a new window goes, before its first frame, after rules and
+	Waybox's placement (_proposed_). _area_ is the usable area. Return
+	*{x=, y=, width=, height=}* (any of them; absolute coordinates).
+
+*layout*: _function(windows, area, output, desktop)_
+	Lays out the windows on each output, for the desktop shown: those
+	that float (not maximized, fullscreen, tiled to an edge, minimized,
+	or dialogs), as window handles, top of the stack first. Return
+	*{[w.id] = {x=, y=, width=, height=}}*; windows left out stay where
+	they are. Called after windows open, close, are minimized or sent
+	to a desktop, after a desktop switch and when the usable area
+	changes, once for several changes in a row; *wb.relayout()* asks
+	for it too.
+
 # WINDOWS
 
 A window is a handle: it reads the window's state when asked, and once the
@@ -102,6 +133,9 @@ any action.
 	gets the focused window (or *nil*). Script bindings come before
 	rc.xml's.
 
+*wb.relayout()*
+	Asks for the *layout* policy to run (see POLICIES).
+
 *wb.go_to_desktop(*_n_*)*
 	Shows desktop _n_.
 
@@ -131,6 +165,10 @@ prefix); each is used only when listed in *<scripts>*:
 
 *scratchpad.lua*
 	Super+grave shows or hides a drop-down terminal.
+
+*tiling.lua*
+	Super+Alt+T tiles the desktop shown (one main window, the others
+	stacked), or lets it float again.
 
 *pip.lua*
 	Picture-in-picture video windows on every desktop.
