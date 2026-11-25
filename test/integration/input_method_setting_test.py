@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Integration test for <waybox><inputMethod>.
 
-1. With an input method set: Waybox starts it (as "input-method"), and it
-   and the programs Waybox starts get its variables (XMODIFIERS here).
+1. With an input method set: Waybox starts it (as "input-method"), and it,
+   the autostart script and the programs Waybox starts get its variables
+   (XMODIFIERS here).
 2. Reconfigure without it: it's stopped, and a variable the session had
    before (QT_IM_MODULE from the environment) comes back.
 3. Never set: nothing started.
@@ -58,12 +59,19 @@ def main():
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
                XDG_CONFIG_HOME=cfg, XDG_RUNTIME_DIR=runtime, WB_RC_XML="",
                WB_MENU_XML="", ASAN_OPTIONS="detect_leaks=1:exitcode=99",
-               QT_IM_MODULE="session-value")
+               QT_IM_MODULE="session-value",
+               # Never the user's bus: Waybox passes the variables to D-Bus
+               # and systemd (dbus-update-activation-environment).
+               DBUS_SESSION_BUS_ADDRESS="disabled:")
     for v in ("WAYLAND_DISPLAY", "DISPLAY", "XMODIFIERS"):
         env.pop(v, None)
     lp = os.path.join(workdir, "waybox.log")
     log = open(lp, "w")
-    proc = subprocess.Popen([waybox, "--debug"], env=env, stdout=log, stderr=subprocess.STDOUT)
+    autostart_env = os.path.join(workdir, "autostart-env")
+    # As waybox.sh runs the autostart script: it must see the variables too.
+    proc = subprocess.Popen([waybox, "--debug", "--startup",
+                             f"sh -c 'echo \"$XMODIFIERS\" > {autostart_env}'"],
+                            env=env, stdout=log, stderr=subprocess.STDOUT)
     failures = []
 
     def text():
@@ -85,6 +93,8 @@ def main():
             failures.append("the input method wasn't started")
         if read(im_env) != "@im=test|test":
             failures.append(f"the input method didn't get its variables: {read(im_env)}")
+        if read(autostart_env) != "@im=test":
+            failures.append(f"the autostart script didn't get the variables: {read(autostart_env)!r}")
         if read(prog_env) != "@im=test|test":
             failures.append(f"a program didn't get the input method's variables: {read(prog_env)}")
 

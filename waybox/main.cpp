@@ -119,6 +119,9 @@ int main(int argc, char **argv) {
 				server.wl_event_loop, sig, handle_signal, &server);
 	}
 
+	/* The input method's variables first: the autostart script, and what
+	 * it starts and hands to D-Bus, need them too. */
+	startup_apply_env(&server);
 	if (startup_cmd) {
 		wb_spawn(startup_cmd);
 	}

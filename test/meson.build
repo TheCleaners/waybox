@@ -438,6 +438,7 @@ if python.found() and not get_option('tests_only')
     ['edge_tiling', 'edge_tiling_test.py', [], 90],
     ['foreign_toplevel', 'foreign_toplevel_test.py', [default_rc], 60],
     ['fullscreen_panel', 'fullscreen_panel_test.py', [layer_client], 60],
+    ['ibus_real', 'ibus_real_test.py', [text_input_client], 60],
     ['idle_inhibit', 'idle_inhibit_test.py', [inhibit_client], 60],
     ['idle_screen_off', 'idle_screen_off_test.py', [inhibit_client], 60],
     ['input_focus', 'input_focus_test.py', [], 60],
