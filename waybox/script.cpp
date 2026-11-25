@@ -23,7 +23,10 @@
 #ifdef HAVE_LUA
 
 #include <algorithm>
+#include <csignal>
 #include <cstring>
+#include <fcntl.h>
+#include <sys/wait.h>
 #include <set>
 #include <unistd.h>
 #include <deque>
@@ -69,6 +72,26 @@ struct Timer {
 	struct wl_event_source *source = nullptr;
 };
 
+/* A program a script started (wb.spawn): its output, read as it comes,
+ * and its end, then the script's callback. */
+struct Spawn {
+	pid_t pid = -1;
+	int fd = -1;
+	struct wl_event_source *source = nullptr;  /* its output */
+	struct wl_event_source *grace = nullptr;   /* ended, output still open */
+	std::string out;
+	bool truncated = false, eof = false, exited = false;
+	int status = 0;
+	int ref = LUA_NOREF;                        /* the callback (or none) */
+};
+
+constexpr int kMaxSpawns = 16;
+constexpr size_t kMaxOutput = 1 << 20;
+
+/* Programs started and not yet reaped, whatever became of the script that
+ * started them (a reload): reaped on SIGCHLD all the same. */
+std::vector<pid_t> unreaped;
+
 struct Binding {
 	uint32_t sym = 0, modifiers = 0;
 	int ref = LUA_NOREF;
@@ -80,6 +103,7 @@ struct State {
 	std::map<std::string, std::vector<int>> handlers;
 	std::vector<Binding> bindings;
 	std::list<std::unique_ptr<Timer>> timers;
+	std::list<std::unique_ptr<Spawn>> spawns;
 	int next_timer = 1;
 	std::map<int, int> strikes;
 	std::deque<Event> queue;
@@ -256,6 +280,9 @@ int window_shortcut(lua_State *L) {
 	return 1;
 }
 
+int window_move_to_desktop(lua_State *L);
+int window_set_geometry(lua_State *L);
+
 int window_index(lua_State *L) {
 	std::string id = window_id_arg(L, 1);
 	const char *key = luaL_checkstring(L, 2);
@@ -269,6 +296,14 @@ int window_index(lua_State *L) {
 	}
 	if (strcmp(key, "focus") == 0) {
 		lua_pushcfunction(L, window_focus);
+		return 1;
+	}
+	if (strcmp(key, "move_to_desktop") == 0) {
+		lua_pushcfunction(L, window_move_to_desktop);
+		return 1;
+	}
+	if (strcmp(key, "set_geometry") == 0) {
+		lua_pushcfunction(L, window_set_geometry);
 		return 1;
 	}
 	static const std::map<std::string, const char *> shortcuts = {
@@ -319,6 +354,51 @@ int window_index(lua_State *L) {
 		lua_pushboolean(L, t->kind == wb_view_kind::Xwayland);
 	else
 		lua_pushnil(L);
+	return 1;
+}
+
+/* w:move_to_desktop(n) */
+int window_move_to_desktop(lua_State *L) {
+	struct wb_toplevel *t = window_by_id(window_id_arg(L, 1));
+	lua_Integer n = luaL_checkinteger(L, 2);
+	lua_newtable(L);
+	lua_pushstring(L, std::to_string(n).c_str());
+	lua_setfield(L, -2, "to");
+	lua_pushboolean(L, 0);
+	lua_setfield(L, -2, "follow");
+	lua_pushboolean(L, t != nullptr && run_named_action(L, "SendToDesktop", lua_gettop(L), t));
+	return 1;
+}
+
+/* w:set_geometry{x=, y=, width=, height=}: any of them; the window leaves
+ * maximized/tiled first. Sizes are of the window's contents. */
+int window_set_geometry(lua_State *L) {
+	struct wb_toplevel *t = window_by_id(window_id_arg(L, 1));
+	luaL_checktype(L, 2, LUA_TTABLE);
+	if (t == nullptr || t->fullscreen || session_locked(g->server)) {
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	if (t->tiled)
+		untile_toplevel(t, false);
+	if (t->max_horz || t->max_vert)
+		set_toplevel_maximized(t, false, false);
+	auto field = [L](const char *k, int fallback) {
+		lua_getfield(L, 2, k);
+		int v = lua_isnumber(L, -1) ? static_cast<int>(lua_tointeger(L, -1)) : fallback;
+		lua_pop(L, 1);
+		return v;
+	};
+	int w = field("width", t->geometry.width), h = field("height", t->geometry.height);
+	t->geometry.x = std::clamp(field("x", t->geometry.x), -100000, 100000);
+	t->geometry.y = std::clamp(field("y", t->geometry.y), -100000, 100000);
+	if (w >= 1 && h >= 1 && (w != t->geometry.width || h != t->geometry.height)) {
+		t->geometry.width = std::min(w, 32767);
+		t->geometry.height = std::min(h, 32767);
+		view_set_size(t, t->geometry.width, t->geometry.height);
+	}
+	position_toplevel(t);
+	lua_pushboolean(L, 1);
 	return 1;
 }
 
@@ -504,11 +584,149 @@ int wb_log(lua_State *L) {
 	return 0;
 }
 
+void spawn_drop(Spawn *s) {
+	if (s->source != nullptr)
+		wl_event_source_remove(s->source);
+	if (s->grace != nullptr)
+		wl_event_source_remove(s->grace);
+	if (s->fd >= 0)
+		close(s->fd);
+	if (s->ref != LUA_NOREF && g != nullptr && g->L != nullptr)
+		luaL_unref(g->L, LUA_REGISTRYINDEX, s->ref);
+	if (g != nullptr)
+		g->spawns.remove_if([s](const auto &p) { return p.get() == s; });
+}
+
+/* Ended and its output read (or the grace time over): the callback. */
+void spawn_finish(Spawn *s) {
+	int ref = s->ref;
+	s->ref = LUA_NOREF;
+	std::string out = std::move(s->out);
+	bool truncated = s->truncated;
+	int code = WIFEXITED(s->status) ? WEXITSTATUS(s->status)
+			: WIFSIGNALED(s->status) ? -WTERMSIG(s->status) : -1;
+	spawn_drop(s);
+	if (ref != LUA_NOREF) {
+		call(ref, [&](lua_State *L) {
+			lua_pushlstring(L, out.data(), out.size());
+			lua_pushinteger(L, code);
+			lua_pushboolean(L, truncated);
+			return 3;
+		}, "a spawn callback");
+		if (g != nullptr && g->L != nullptr)
+			luaL_unref(g->L, LUA_REGISTRYINDEX, ref);
+	}
+}
+
+int spawn_readable(int fd, uint32_t mask, void *data) {
+	auto *s = static_cast<Spawn *>(data);
+	char buf[8192];
+	for (;;) {
+		ssize_t n = read(fd, buf, sizeof buf);
+		if (n > 0) {
+			size_t room = kMaxOutput - std::min(kMaxOutput, s->out.size());
+			s->out.append(buf, std::min(room, static_cast<size_t>(n)));
+			if (static_cast<size_t>(n) > room)
+				s->truncated = true;
+			continue;
+		}
+		if (n < 0 && (errno == EAGAIN || errno == EINTR) && !(mask & WL_EVENT_HANGUP))
+			return 0;
+		break;  /* end of output (or an error) */
+	}
+	wl_event_source_remove(s->source);
+	s->source = nullptr;
+	close(s->fd);
+	s->fd = -1;
+	s->eof = true;
+	if (s->exited)
+		spawn_finish(s);
+	return 0;
+}
+
+/* wb.spawn(command, callback): command is a string (run by sh) or a list
+ * (argv); the callback gets (output, exit code, truncated). Never waits. */
+int wb_spawn(lua_State *L) {
+	if (!lua_isstring(L, 1) && !lua_istable(L, 1))
+		return luaL_error(L, "wb.spawn: a command string or a list of arguments");
+	if (lua_gettop(L) >= 2 && !lua_isnil(L, 2))
+		luaL_checktype(L, 2, LUA_TFUNCTION);
+	if (static_cast<int>(g->spawns.size()) >= kMaxSpawns) {
+		lua_pushnil(L);
+		lua_pushstring(L, "too many programs still running");
+		return 2;
+	}
+	std::vector<std::string> argv;
+	if (lua_isstring(L, 1)) {
+		argv = {"/bin/sh", "-c", lua_tostring(L, 1)};
+	} else {
+		for (int i = 1; i <= static_cast<int>(lua_rawlen(L, 1)); ++i) {
+			lua_rawgeti(L, 1, i);
+			if (!lua_isstring(L, -1))
+				return luaL_error(L, "wb.spawn: argument %d isn't a string", i);
+			argv.emplace_back(lua_tostring(L, -1));
+			lua_pop(L, 1);
+		}
+		if (argv.empty())
+			return luaL_error(L, "wb.spawn: an empty command");
+	}
+	int fds[2];
+	if (pipe2(fds, O_CLOEXEC) != 0)
+		return luaL_error(L, "wb.spawn: %s", strerror(errno));
+	pid_t pid = fork();
+	if (pid < 0) {
+		close(fds[0]);
+		close(fds[1]);
+		return luaL_error(L, "wb.spawn: %s", strerror(errno));
+	}
+	if (pid == 0) {
+		sigset_t none;
+		sigemptyset(&none);
+		sigprocmask(SIG_SETMASK, &none, nullptr);
+		int devnull = open("/dev/null", O_RDONLY);
+		if (devnull >= 0)
+			dup2(devnull, 0);
+		dup2(fds[1], 1);
+		std::vector<char *> args;
+		for (std::string &a : argv)
+			args.push_back(a.data());
+		args.push_back(nullptr);
+		execvp(args[0], args.data());
+		_exit(127);
+	}
+	close(fds[1]);
+	fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL) | O_NONBLOCK);
+	unreaped.push_back(pid);
+	auto s = std::make_unique<Spawn>();
+	s->pid = pid;
+	s->fd = fds[0];
+	if (lua_gettop(L) >= 2 && lua_isfunction(L, 2)) {
+		lua_pushvalue(L, 2);
+		s->ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	}
+	s->source = wl_event_loop_add_fd(g->server->wl_event_loop, s->fd,
+			WL_EVENT_READABLE, spawn_readable, s.get());
+	g->spawns.push_back(std::move(s));
+	lua_pushinteger(L, pid);
+	return 1;
+}
+
+/* wb.go_to_desktop(n) */
+int wb_go_to_desktop(lua_State *L) {
+	lua_Integer n = luaL_checkinteger(L, 1);
+	lua_newtable(L);
+	lua_pushstring(L, std::to_string(n).c_str());
+	lua_setfield(L, -2, "to");
+	lua_pushboolean(L, run_named_action(L, "GoToDesktop", lua_gettop(L), nullptr));
+	return 1;
+}
+
 const luaL_Reg wb_functions[] = {
 	{"on", wb_on}, {"windows", wb_windows}, {"focused", wb_focused},
 	{"desktop", wb_desktop}, {"outputs", wb_outputs}, {"action", wb_action},
 	{"bind", wb_bind}, {"timer", wb_timer}, {"every", wb_every}, {"cancel", wb_cancel},
-	{"log", wb_log}, {nullptr, nullptr},
+	{"log", wb_log}, {"spawn", wb_spawn}, {"go_to_desktop", wb_go_to_desktop},
+	{nullptr, nullptr},
 };
 
 /* ---- the state ---------------------------------------------------------- */
@@ -632,6 +850,8 @@ void close_state() {
 	for (auto &t : g->timers)
 		wl_event_source_remove(t->source);
 	g->timers.clear();
+	while (!g->spawns.empty())
+		spawn_drop(g->spawns.front().get());
 	if (g->idle != nullptr)
 		wl_event_source_remove(g->idle);
 	if (g->reload_idle != nullptr)
@@ -767,6 +987,46 @@ void script_output_event(struct wb_server *, const char *name, const char *chang
 	enqueue(std::move(e));
 }
 
+void scripts_reap(struct wb_server *) {
+	for (auto it = unreaped.begin(); it != unreaped.end();) {
+		int status = 0;
+		if (waitpid(*it, &status, WNOHANG) != *it) {
+			++it;
+			continue;
+		}
+		pid_t pid = *it;
+		it = unreaped.erase(it);
+		if (g == nullptr)
+			continue;
+		for (auto &s : g->spawns) {
+			if (s->pid != pid)
+				continue;
+			s->exited = true;
+			s->status = status;
+			if (s->eof) {
+				spawn_finish(s.get());
+			} else {
+				/* Its output is still open (a program it started holds
+				 * it): what came so far, after a moment. */
+				Spawn *raw = s.get();
+				raw->grace = wl_event_loop_add_timer(g->server->wl_event_loop,
+						[](void *d) {
+					auto *sp = static_cast<Spawn *>(d);
+					wl_event_source_remove(sp->grace);
+					sp->grace = nullptr;
+					spawn_finish(sp);
+					return 0;
+				}, raw);
+				if (raw->grace != nullptr)
+					wl_event_source_timer_update(raw->grace, 500);
+				else
+					spawn_finish(raw);
+			}
+			break;
+		}
+	}
+}
+
 bool script_key_binding(struct wb_server *, uint32_t sym, uint32_t modifiers) {
 	if (g == nullptr || g->bindings.empty())
 		return false;
@@ -796,6 +1056,7 @@ void init_scripts(struct wb_server *server) {
 		wlr_log(WLR_ERROR, "%s", "<scripts> set, but Waybox was built without Lua");
 }
 void finish_scripts(struct wb_server *) {}
+void scripts_reap(struct wb_server *) {}
 void scripts_reload(struct wb_server *) {}
 void script_window_event(struct wb_toplevel *, const char *) {}
 void script_desktop_event(struct wb_server *) {}

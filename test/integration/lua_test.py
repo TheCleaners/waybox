@@ -11,10 +11,16 @@ purpose, and checks its sandbox:
 - an endless loop is stopped by the time budget, and after 3 times the
   binding is turned off; Waybox stays responsive;
 - the whole standard library is there (io, os, require);
-- a Reconfigure loads the scripts afresh.
+- a Reconfigure loads the scripts afresh;
+- wb.spawn runs a command without waiting, and the callback gets its
+  output and exit code (a list or a shell string);
+- w:set_geometry moves and resizes a window; w:move_to_desktop sends it
+  to another desktop.
 Skips (77) when Waybox was built without Lua, or without wtype.
 
-Usage: lua_test.py <waybox> <touch_client>
+The sample scripts (data/scripts) are loaded too, and must load cleanly.
+
+Usage: lua_test.py <waybox> <touch_client> <samples-dir>
 """
 import json
 import os
@@ -47,6 +53,18 @@ end)
 wb.bind("W-e", function() error("boom") end)
 wb.bind("W-l", function() while true do end end)
 wb.timer(150, function() wb.log("timer once") end)
+wb.spawn({"sh", "-c", "printf 'hi there'; exit 3"}, function(out, code)
+  wb.log("spawn list out=[" .. out .. "] code=" .. code)
+end)
+wb.spawn("echo $((6*7))", function(out, code)
+  wb.log("spawn shell out=[" .. out:gsub("%s+$", "") .. "] code=" .. code)
+end)
+wb.bind("W-g", function(w)
+  if w then w:set_geometry{x = 40, y = 60, width = 220, height = 140} end
+end)
+wb.bind("W-d", function(w)
+  if w then w:move_to_desktop(2) end
+end)
 local n, id = 0, nil
 id = wb.every(50, function()
   n = n + 1
@@ -115,10 +133,13 @@ def ipc(runtime, display, request):
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print(__doc__)
         sys.exit(2)
-    waybox, client_bin = sys.argv[1:]
+    waybox, client_bin, samples = sys.argv[1:]
+    sample_xml = "".join(f"<script>{os.path.join(samples, n)}</script>"
+                         for n in sorted(os.listdir(samples)) if n.endswith(".lua"))
+    n_samples = sample_xml.count("<script>")
     if shutil.which("wtype") is None:
         print("SKIP: wtype not found", file=sys.stderr)
         sys.exit(SKIP)
@@ -129,7 +150,7 @@ def main():
         f.write("""<?xml version="1.0" encoding="UTF-8"?>
 <openbox_config xmlns="http://openbox.org/3.4/rc">
   <desktops><number>2</number></desktops>
-  <waybox><ipc enabled="yes"/><scripts budget="20"/></waybox>
+  <waybox><ipc enabled="yes"/><scripts budget="20">""" + sample_xml + """</scripts></waybox>
 </openbox_config>
 """)
     with open(os.path.join(cfg, "waybox", "init.lua"), "w") as f:
@@ -179,12 +200,20 @@ def main():
             print("SKIP: Waybox was built without Lua", file=sys.stderr)
             proc.kill()
             sys.exit(SKIP)
+        if f"wb-scripts loaded: {1 + n_samples} file(s)" not in text:
+            failures.append(f"not all of init.lua and {n_samples} sample scripts loaded")
+        if re.search(r"wb-script \S*\s*\S*" + re.escape(samples), text):
+            failures.append("a sample script failed to load")
         if "wb-script: stdlib io=table os.execute=function require=function" not in text:
             failures.append("the whole standard library isn't there")
         if "wb-script: timer once" not in text:
             failures.append("the one-shot timer didn't fire")
         if "wb-script: every done 3" not in text or text.count("every done") != 1:
             failures.append("the repeating timer didn't stop itself after 3 runs")
+        if "wb-script: spawn list out=[hi there] code=3" not in text:
+            failures.append("wb.spawn (a list) didn't give its output and exit code")
+        if "wb-script: spawn shell out=[42] code=0" not in text:
+            failures.append("wb.spawn (a shell string) didn't give its output")
 
         win = Client([client_bin, "no"], cenv)
         clients.append(win)
@@ -201,6 +230,23 @@ def main():
         if "wb-script: bind touch-no" not in logtext() or not w["maximized"]:
             failures.append("the bound key didn't run with the focused window, or its "
                             "action didn't work")
+
+        keys("-M", "logo", "-k", "y", "-m", "logo")  # back from maximized
+        keys("-M", "logo", "-k", "g", "-m", "logo")
+        w = [x for x in ipc(runtime, sock, {"request": "get_windows"})["windows"]
+             if x.get("app_id") == "touch-no"][0]
+        if (w["x"], w["y"], w["width"], w["height"]) != (40, 60, 220, 140):
+            failures.append(f"w:set_geometry didn't place the window: "
+                            f"{(w['x'], w['y'], w['width'], w['height'])}")
+        keys("-M", "logo", "-k", "d", "-m", "logo")
+        w = [x for x in ipc(runtime, sock, {"request": "get_windows"})["windows"]
+             if x.get("app_id") == "touch-no"][0]
+        if w["desktop"] != 2:
+            failures.append(f"w:move_to_desktop didn't send it to desktop 2: {w['desktop']}")
+        ipc(runtime, sock, {"request": "action", "action": "SendToDesktop", "to": "1",
+                            "follow": False, "window": "app_id:touch-no"})
+        ipc(runtime, sock, {"request": "action", "action": "GoToDesktop", "to": "1"})
+        time.sleep(0.3)
 
         keys("-M", "logo", "-k", "e", "-m", "logo")
         if not re.search(r"wb-script error in a key binding: \S*init\.lua:\d+: boom", logtext()):

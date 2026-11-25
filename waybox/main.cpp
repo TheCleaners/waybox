@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include "script.h"
 #include "waybox/server.h"
 #include "version.h"
 #include "idle.h"
@@ -47,6 +48,7 @@ static int handle_signal(int sig, void *data) {
 			break;
 		case SIGCHLD:
 			startup_reap(srv);
+			scripts_reap(srv);
 			break;
 	}
 	return 0;

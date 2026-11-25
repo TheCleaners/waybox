@@ -85,3 +85,9 @@ install_subdir('integrations',
 install_subdir('wbconf',
   install_dir: get_option('prefix') / get_option('datadir') / 'waybox',
 )
+
+# Sample Lua scripts (waybox-lua(5)): each is used only when listed in
+# <waybox><scripts>.
+install_subdir('scripts',
+  install_dir: get_option('prefix') / get_option('datadir') / 'waybox',
+  )

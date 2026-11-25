@@ -39,7 +39,7 @@ stopped three times in a row is turned off until the next Reconfigure.
 Errors are logged with their file and line, and skipped. The budget stops
 Lua code, not a call that waits: *os.execute*, *io.popen* reads, or reading
 a slow file hold Waybox up for as long as they take. To run a program, use
-*wb.action("Execute", {command = ...})*, which doesn't wait.
+*wb.spawn* (or *wb.action("Execute", {command = ...})*), which don't wait.
 
 # EVENTS
 
@@ -68,10 +68,14 @@ Fields: *id* (the same as over IPC), *app_id*, *title*, *tag*, *x*, *y*,
 *width*, *height*, *desktop*, *omnipresent*, *minimized*, *maximized*,
 *fullscreen*, *focused*, *xwayland*.
 
-Methods: *w:focus()*, *w:close()*, *w:raise()*, *w:lower()*,
-*w:minimize()*, *w:toggle_maximize()*, *w:toggle_fullscreen()*,
-*w:toggle_decorations()*, *w:toggle_omnipresent()*, *w:shade()*,
-*w:unshade()*, and *w:action(*_name_*,* _params_*)* for any action.
+Methods: *w:focus()* (which also brings back a minimized window),
+*w:close()*, *w:raise()*, *w:lower()*, *w:minimize()*,
+*w:toggle_maximize()*, *w:toggle_fullscreen()*, *w:toggle_decorations()*,
+*w:toggle_omnipresent()*, *w:shade()*, *w:unshade()*,
+*w:move_to_desktop(*_n_*)*, *w:set_geometry{*_x_*,* _y_*,* _width_*,*
+_height_*}* (any of them; sizes are of the window's contents, and the window
+leaves maximized or tiled first), and *w:action(*_name_*,* _params_*)* for
+any action.
 
 # FUNCTIONS
 
@@ -98,6 +102,17 @@ Methods: *w:focus()*, *w:close()*, *w:raise()*, *w:lower()*,
 	gets the focused window (or *nil*). Script bindings come before
 	rc.xml's.
 
+*wb.go_to_desktop(*_n_*)*
+	Shows desktop _n_.
+
+*wb.spawn(*_command_*,* _function_*)*
+	Runs a program without waiting for it: _command_ is a string (run by
+	_sh_) or a list (the program and its arguments). When it ends, the
+	function (optional) gets its output (up to 1 MiB), its exit code
+	(negative: the signal that ended it) and whether the output was cut.
+	At most 16 run at once (then it returns *nil* and a reason); otherwise
+	it returns the program's process id.
+
 *wb.timer(*_ms_*,* _function_*)*, *wb.every(*_ms_*,* _function_*)*
 	Runs the function once after _ms_ milliseconds, or every _ms_ (at least
 	10). Returns an id for *wb.cancel(*_id_*)*.
@@ -108,6 +123,21 @@ Methods: *w:focus()*, *w:close()*, *w:raise()*, *w:lower()*,
 *wb.api_version*
 	1. Additions keep it; changes or removals raise it, with the old
 	behaviour kept for one release.
+
+# SAMPLE SCRIPTS
+
+Waybox ships some in _/usr/share/waybox/scripts_ (under its install
+prefix); each is used only when listed in *<scripts>*:
+
+*scratchpad.lua*
+	Super+grave shows or hides a drop-down terminal.
+
+*pip.lua*
+	Picture-in-picture video windows on every desktop.
+
+*app-desktops.lua*
+	Programs open on the desktop of your choice (copy it and edit its
+	table).
 
 # EXAMPLE
 

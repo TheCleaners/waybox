@@ -23,6 +23,9 @@ void script_window_event(struct wb_toplevel *toplevel, const char *change);
 void script_desktop_event(struct wb_server *server);
 void script_output_event(struct wb_server *server, const char *name, const char *change);
 
+/* SIGCHLD: programs scripts started (wb.spawn) that have ended. */
+void scripts_reap(struct wb_server *server);
+
 /* A key a script bound (wb.bind): true if one ran. */
 bool script_key_binding(struct wb_server *server, uint32_t sym, uint32_t modifiers);
 
