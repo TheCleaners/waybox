@@ -225,31 +225,89 @@ std::map<std::string, std::string> read_options(const Integration &in,
 	return values;
 }
 
+namespace {
+
+/* A shell word of a command and where it is in the text. */
+struct Word {
+	std::string text;
+	size_t start, end;  /* [start, end) in the command */
+};
+
+std::vector<Word> words_with_spans(std::string_view command) {
+	std::vector<Word> out;
+	size_t i = 0;
+	while (i < command.size()) {
+		while (i < command.size() && (command[i] == ' ' || command[i] == '\t' || command[i] == '\n'))
+			++i;
+		if (i >= command.size())
+			break;
+		size_t start = i;
+		char quote = 0;
+		while (i < command.size()) {
+			char c = command[i];
+			if (quote) {
+				if (c == quote)
+					quote = 0;
+				else if (c == '\\' && quote == '"' && i + 1 < command.size())
+					++i;
+			} else if (c == '\'' || c == '"') {
+				quote = c;
+			} else if (c == '\\' && i + 1 < command.size()) {
+				++i;
+			} else if (c == ' ' || c == '\t' || c == '\n') {
+				break;
+			}
+			++i;
+		}
+		std::string_view raw = command.substr(start, i - start);
+		auto parsed = split_command(raw);
+		out.push_back({parsed.empty() ? std::string() : parsed[0], start, i});
+	}
+	return out;
+}
+
+/* An option's value as a shell word: bare when it's plain (so ~ and $VAR
+ * still expand, as typed), else single-quoted. */
+std::string value_word(const std::string &v) {
+	bool plain = !v.empty() && v.find_first_not_of(
+			"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+			"-_./:=,+@%~${}") == std::string::npos;
+	return plain ? v : join_command({v});
+}
+
+}  // namespace
+
 std::string write_options(const Integration &in, std::string_view command,
 		const std::map<std::string, std::string> &values) {
-	std::vector<std::string> words = split_command(command);
-	if (words.empty())
-		words = split_command(in.exec);
+	/* Only the options' values change; the rest of the command stays as
+	 * it was written (quoting, ~, $VAR, pipes...). */
+	std::string out(command.empty() ? std::string_view(in.exec) : command);
 	for (const IntegrationOption &o : in.options) {
 		auto it = values.find(o.id);
 		std::string value = it != values.end() ? it->second : "";
+		std::vector<Word> words = words_with_spans(out);
 		size_t at = words.size();
 		for (size_t i = 0; i + 1 < words.size(); ++i)
-			if (words[i] == o.flag) {
+			if (words[i].text == o.flag) {
 				at = i;
 				break;
 			}
 		if (at < words.size()) {
-			if (value.empty())
-				words.erase(words.begin() + at, words.begin() + at + 2);
-			else
-				words[at + 1] = value;
+			if (value.empty()) {
+				/* The flag and its value go, with the space before them. */
+				size_t from = words[at].start;
+				while (from > 0 && (out[from - 1] == ' ' || out[from - 1] == '\t'))
+					--from;
+				out.erase(from, words[at + 1].end - from);
+			} else if (words[at + 1].text != value) {
+				out.replace(words[at + 1].start, words[at + 1].end - words[at + 1].start,
+						value_word(value));
+			}
 		} else if (!value.empty()) {
-			words.push_back(o.flag);
-			words.push_back(value);
+			out += " " + o.flag + " " + value_word(value);
 		}
 	}
-	return join_command(words);
+	return out;
 }
 
 const Integration *match_integration(const std::vector<Integration> &all,

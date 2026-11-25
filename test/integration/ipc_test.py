@@ -11,7 +11,11 @@
 
 Skips (exit 77) without foot, or a headless display.
 
-Usage: ipc_test.py <waybox> <waybox-msg>
+5. A request sent just before closing the connection still runs; actions
+   are refused while the screen is locked; and turning the socket off with
+   a Reconfigure sent through the socket itself doesn't crash Waybox.
+
+Usage: ipc_test.py <waybox> <waybox-msg> <lock_client>
 """
 import json
 import os
@@ -30,10 +34,10 @@ SKIP = 77
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print(__doc__)
         sys.exit(2)
-    waybox, msg = sys.argv[1:]
+    waybox, msg, lock_bin = sys.argv[1:]
     if shutil.which("foot") is None:
         print("SKIP: foot not found", file=sys.stderr)
         sys.exit(SKIP)
@@ -207,7 +211,40 @@ def main():
 
         proc.send_signal(signal.SIGUSR2)
         expect(lambda e: e.get("event") == "config", "config reload")
+
+        # Fire and forget: write a request and close at once.
+        fire = socket.socket(socket.AF_UNIX)
+        fire.connect(path)
+        fire.sendall(b'{"request":"action","action":"GoToDesktop","to":"3"}\n')
+        fire.close()
+        expect(lambda e: e.get("event") == "desktop" and e["desktop"]["number"] == 3,
+               "desktop switch from a request sent just before closing")
+
+        # Locked: actions are refused.
+        locker = subprocess.Popen([lock_bin], env=cenv, stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, text=True)
+        children.append(locker)
+        for _ in range(30):
+            if "locked" in (locker.stdout.readline() or ""):
+                break
+        rc, out, err = run_msg(cenv2, "action", "NextWindow")
+        if rc == 0 or "locked" not in err:
+            failures.append(f"an action ran while the screen was locked: {rc} {err}")
+        locker.stdin.write("unlock\n")
+        locker.stdin.flush()
+        time.sleep(0.5)
         sub.close()
+
+        # The socket turned off by a Reconfigure sent through it.
+        rc_path = os.path.join(cenv["XDG_CONFIG_HOME"], "waybox", "rc.xml")
+        text = open(rc_path).read().replace('<ipc enabled="yes"/>', "")
+        open(rc_path, "w").write(text)
+        run_msg(cenv2, "action", "Reconfigure")
+        time.sleep(0.8)
+        if proc.poll() is not None:
+            raise RuntimeError(f"waybox died turning the socket off ({proc.returncode})")
+        if os.path.exists(path):
+            failures.append("the socket is still there after turning it off")
     session("on", True, with_ipc)
 
     def without(cenv, runtime, sock, proc, children):

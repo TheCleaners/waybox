@@ -5,6 +5,7 @@
  */
 #include "waybox/wlroots.hpp"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <memory>
@@ -18,6 +19,7 @@
 
 #include "config.h"
 #include "ipc.h"
+#include "waybox/session_lock.h"
 #include "version.h"
 #include "waybox/action.hpp"
 #include "waybox/desktops.hpp"
@@ -36,6 +38,7 @@ constexpr size_t kMaxPending = 4 * 1024 * 1024;  /* a client not reading goes */
 
 struct Client {
 	struct wb_server *server = nullptr;
+	struct wb_ipc_state *st = nullptr;  /* outlives server->ipc while closing */
 	int fd = -1;
 	struct wl_event_source *source = nullptr;
 	std::string in, out;
@@ -46,27 +49,55 @@ struct Client {
 }  // namespace
 
 struct wb_ipc_state {
+	struct wl_event_loop *loop = nullptr;
 	int fd = -1;
 	std::string path;
 	struct wl_event_source *source = nullptr;
 	std::vector<std::unique_ptr<Client>> clients;
+	/* Clients are only freed from here (an idle callback), never while one
+	 * of their requests runs: an action can reconfigure (and stop the
+	 * socket) or make an event that drops the client asking. */
+	struct wl_event_source *reap = nullptr;
+	bool dead = false;  /* stopped: freed with the last client */
 };
 
 namespace {
 
+void reap_now(struct wb_ipc_state *st) {
+	if (st->reap != nullptr) {
+		wl_event_source_remove(st->reap);
+		st->reap = nullptr;
+	}
+	st->clients.erase(std::remove_if(st->clients.begin(), st->clients.end(),
+			[](const std::unique_ptr<Client> &c) { return c->closing; }),
+			st->clients.end());
+	if (st->dead && st->clients.empty())
+		delete st;
+}
+
+/* Close a client now; free it later (see wb_ipc_state::reap). */
 void drop(struct wb_ipc_state *st, Client *c) {
-	if (c->source != nullptr)
+	if (c->closing)
+		return;
+	c->closing = true;
+	if (c->source != nullptr) {
 		wl_event_source_remove(c->source);
+		c->source = nullptr;
+	}
 	close(c->fd);
-	for (auto it = st->clients.begin(); it != st->clients.end(); ++it)
-		if (it->get() == c) {
-			st->clients.erase(it);
-			return;
-		}
+	c->fd = -1;
+	if (st->reap == nullptr)
+		st->reap = wl_event_loop_add_idle(st->loop, [](void *data) {
+			auto *st = static_cast<struct wb_ipc_state *>(data);
+			st->reap = nullptr;  /* idle sources go after running */
+			reap_now(st);
+		}, st);
 }
 
 /* Send what's queued; keep the rest for when the socket can take it. */
 bool flush(Client *c) {
+	if (c->closing)
+		return true;
 	while (!c->out.empty()) {
 		ssize_t n = send(c->fd, c->out.data(), c->out.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
 		if (n < 0) {
@@ -182,6 +213,10 @@ Value handle(Client *c, const Value &req) {
 		return Object{{"ok", true}, {"outputs", list}};
 	}
 	if (cmd == "action") {
+		/* As key and mouse bindings: nothing happens behind the lock
+		 * screen (no menu, switcher or window changes). */
+		if (session_locked(server))
+			return error("the screen is locked");
 		std::string name = req.str("action");
 		auto action = wb::make_action(name, req.str("command"));
 		if (!action)
@@ -223,36 +258,44 @@ Value handle(Client *c, const Value &req) {
 
 int on_client(int fd, uint32_t mask, void *data) {
 	auto *c = static_cast<Client *>(data);
-	struct wb_ipc_state *st = c->server->ipc;
-	if (mask & (WL_EVENT_HANGUP | WL_EVENT_ERROR)) {
-		drop(st, c);
-		return 0;
-	}
+	struct wb_ipc_state *st = c->st;
+	bool hangup = mask & (WL_EVENT_HANGUP | WL_EVENT_ERROR);
+	/* What a client sent before hanging up (write and close at once) is
+	 * still handled. */
 	if (mask & WL_EVENT_READABLE) {
+		/* Everything there is now (bounded): after a hang-up there's no
+		 * second chance to read the rest. */
 		char buf[4096];
-		ssize_t n = recv(fd, buf, sizeof(buf), MSG_DONTWAIT);
-		if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
-			drop(st, c);
-			return 0;
+		while (c->in.size() <= kMaxRequest) {
+			ssize_t n = recv(fd, buf, sizeof(buf), MSG_DONTWAIT);
+			if (n > 0) {
+				c->in.append(buf, static_cast<size_t>(n));
+				continue;
+			}
+			if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK))
+				hangup = true;
+			break;
 		}
-		if (n > 0)
-			c->in.append(buf, static_cast<size_t>(n));
 		size_t nl;
-		while ((nl = c->in.find('\n')) != std::string::npos) {
+		while (!c->closing && (nl = c->in.find('\n')) != std::string::npos) {
 			std::string line = c->in.substr(0, nl);
 			c->in.erase(0, nl + 1);
 			if (line.find_first_not_of(" \t\r") == std::string::npos)
 				continue;
 			auto req = wb::json::parse(line);
-			reply(c, req && req->object() ? handle(c, *req)
-					: error("not a JSON object"));
+			Value answer = req && req->object() ? handle(c, *req)
+					: error("not a JSON object");
+			/* The request may have dropped this client (or stopped the
+			 * socket): it's still allocated, just closed. */
+			if (!c->closing)
+				reply(c, answer);
 		}
-		if (c->in.size() > kMaxRequest) {
-			drop(st, c);
-			return 0;
-		}
+		if (c->in.size() > kMaxRequest)
+			hangup = true;
 	}
-	if (!flush(c))
+	if (c->closing)
+		return 0;
+	if (!flush(c) || hangup)
 		drop(st, c);
 	return 0;
 }
@@ -271,6 +314,7 @@ int on_listen(int fd, uint32_t, void *data) {
 	}
 	auto c = std::make_unique<Client>();
 	c->server = server;
+	c->st = server->ipc;
 	c->fd = cfd;
 	c->source = wl_event_loop_add_fd(server->wl_event_loop, cfd, WL_EVENT_READABLE,
 			on_client, c.get());
@@ -278,22 +322,29 @@ int on_listen(int fd, uint32_t, void *data) {
 	return 0;
 }
 
-void stop(struct wb_server *server) {
+/* `now`: free everything at once (Waybox exiting, nothing dispatching);
+ * else (a Reconfigure, maybe from a client's own request) the clients
+ * and the state go from the idle callback. */
+void stop(struct wb_server *server, bool now) {
 	struct wb_ipc_state *st = server->ipc;
 	if (st == nullptr)
 		return;
-	while (!st->clients.empty())
-		drop(st, st->clients.back().get());
+	for (auto &c : st->clients)
+		drop(st, c.get());
 	if (st->source != nullptr)
 		wl_event_source_remove(st->source);
+	st->source = nullptr;
 	if (st->fd >= 0)
 		close(st->fd);
+	st->fd = -1;
 	if (!st->path.empty())
 		unlink(st->path.c_str());
 	unsetenv("WAYBOX_SOCK");
-	delete st;
 	server->ipc = nullptr;
+	st->dead = true;
 	wlr_log(WLR_INFO, "%s", "wb-ipc stopped");
+	if (now || st->clients.empty())
+		reap_now(st);
 }
 
 bool start(struct wb_server *server) {
@@ -302,6 +353,7 @@ bool start(struct wb_server *server) {
 	if (runtime == nullptr || display == nullptr)
 		return false;
 	auto *st = new wb_ipc_state;
+	st->loop = server->wl_event_loop;
 	st->path = std::string(runtime) + "/waybox-" + display + ".sock";
 	struct sockaddr_un addr = {};
 	addr.sun_family = AF_UNIX;
@@ -342,7 +394,7 @@ void send_event(struct wb_server *server, const std::string &type, Object body) 
 	std::string line = wb::json::dump(Value(body)) + "\n";
 	std::vector<Client *> gone;
 	for (auto &c : st->clients) {
-		if (c->events.count(type) == 0)
+		if (c->closing || c->events.count(type) == 0)
 			continue;
 		c->out += line;
 		if (!flush(c.get()))
@@ -359,12 +411,12 @@ void ipc_reconfigured(struct wb_server *server) {
 	if (want && server->ipc == nullptr)
 		start(server);
 	else if (!want && server->ipc != nullptr)
-		stop(server);
+		stop(server, false);
 	send_event(server, "config", Object{{"change", "reload"}});
 }
 
 void ipc_finish(struct wb_server *server) {
-	stop(server);
+	stop(server, true);
 }
 
 void ipc_window_event(struct wb_toplevel *toplevel, const char *change) {

@@ -11,7 +11,7 @@ namespace wb {
 
 namespace {
 
-constexpr std::array<std::string_view, 22> kPrivileged = {
+constexpr std::array<std::string_view, 23> kPrivileged = {
 	/* Seeing or recording other programs and the screen. */
 	"ext_image_copy_capture_manager_v1",
 	"ext_output_image_capture_source_manager_v1",
@@ -37,6 +37,8 @@ constexpr std::array<std::string_view, 22> kPrivileged = {
 	"zwlr_output_power_manager_v1",
 	"zwlr_gamma_control_manager_v1",
 	"wp_drm_lease_device_v1",
+	/* Taking every key binding (lock, Alt+Tab, Exit) while focused. */
+	"zwp_keyboard_shortcuts_inhibit_manager_v1",
 	/* Watching whether the user is active. */
 	"ext_idle_notifier_v1",
 	/* Making further security contexts. */

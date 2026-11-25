@@ -336,14 +336,17 @@ static bool output_wants_tearing(struct wb_output *output) {
 		return false;
 	struct wb_toplevel *t;
 	wl_list_for_each(t, &server->toplevels, link) {
-		if (!t->fullscreen || t->scene_tree == nullptr ||
+		/* Only a fullscreen window that's shown (not minimized or on
+		 * another desktop): a hidden one mustn't make what's shown tear. */
+		if (!t->fullscreen || t->scene_tree == nullptr || !t->scene_tree->node.enabled ||
 				t->scene_tree->node.parent != output->layers.shell_fullscreen)
 			continue;
 		struct wlr_surface *surface = view_surface(t);
-		return surface != nullptr &&
+		if (surface != nullptr &&
 				wlr_tearing_control_manager_v1_surface_hint_from_surface(
 						server->tearing_control, surface) ==
-				WP_TEARING_CONTROL_V1_PRESENTATION_HINT_ASYNC;
+				WP_TEARING_CONTROL_V1_PRESENTATION_HINT_ASYNC)
+			return true;
 	}
 	return false;
 }

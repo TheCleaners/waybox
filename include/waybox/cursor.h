@@ -30,6 +30,14 @@ struct wb_cursor {
 	 * layout coordinates, to send motion relative to it. */
 	struct wlr_surface *grab_surface = nullptr;
 	double grab_origin_x = 0, grab_origin_y = 0;
+	wb::Listener grab_surface_destroy;
+	/* Buttons physically held, counted here: wlroots' own count misses the
+	 * releases Waybox keeps from clients (over a menu, a frame button). */
+	int buttons_down = 0;
+	void end_grab() {
+		grab_surface = nullptr;
+		grab_surface_destroy.disconnect();
+	}
 
 	wb::Listener cursor_motion;
 	wb::Listener cursor_motion_absolute;

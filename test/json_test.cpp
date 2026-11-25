@@ -42,3 +42,13 @@ WB_TEST(json_rejects_garbage) {
 	std::string deep(100, '[');
 	WB_CHECK(!wb::json::parse(deep + std::string(100, ']')));
 }
+
+WB_TEST(json_output_is_always_utf8) {
+	/* A Latin-1 X11 title, a truncated sequence, an overlong form, a
+	 * surrogate: each bad byte becomes U+FFFD; good UTF-8 stays. */
+	std::string out = wb::json::dump(Value(std::string("caf\xe9 \xe2\x82 \xc0\xaf \xed\xa0\x80 \xc3\xa9")));
+	WB_CHECK(out == "\"caf\xef\xbf\xbd \xef\xbf\xbd\xef\xbf\xbd \xef\xbf\xbd\xef\xbf\xbd "
+			"\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd \xc3\xa9\"");
+	WB_CHECK(wb::json::parse(out).has_value());
+	WB_CHECK(!wb::json::parse(R"("\udc00")"));  /* a lone low surrogate */
+}

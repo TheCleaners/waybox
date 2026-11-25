@@ -70,12 +70,25 @@ def main():
         print(__doc__)
         sys.exit(2)
     waybox, window_bin, panel_bin, vptr_bin = sys.argv[1:]
+    if shutil.which("wtype") is None:
+        print("SKIP: wtype not found", file=sys.stderr)
+        sys.exit(SKIP)
     workdir = tempfile.mkdtemp(prefix="waybox-pgrab-", dir="/tmp")
+    cfg = os.path.join(workdir, "config")
+    os.makedirs(os.path.join(cfg, "waybox"))
+    with open(os.path.join(cfg, "waybox", "rc.xml"), "w") as f:
+        f.write("""<?xml version="1.0" encoding="UTF-8"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <keyboard>
+    <keybind key="W-m"><action name="ShowMenu"><menu>client-menu</menu></action></keybind>
+  </keyboard>
+  <waybox><virtualInput allow="always"/></waybox>
+</openbox_config>
+""")
     runtime = os.path.join(workdir, "run")
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
-               XDG_CONFIG_HOME=os.path.join(workdir, "config"),
-               XDG_RUNTIME_DIR=runtime, WB_RC_XML="/dev/null", WB_MENU_XML="",
+               XDG_RUNTIME_DIR=runtime, WB_RC_XML="", WB_MENU_XML="", XDG_CONFIG_HOME=cfg,
                ASAN_OPTIONS="detect_leaks=1:exitcode=99")
     env.pop("WAYLAND_DISPLAY", None)
     env.pop("DISPLAY", None)
@@ -139,6 +152,25 @@ def main():
         seen = win.drain(0.4)
         if "leave" not in seen:
             failures.append("after release over the panel, the window kept the pointer")
+
+        # A release Waybox keeps from the window (over a menu opened while
+        # the button was held) still ends the grab.
+        ptr.send(f"move 0 {y + h // 2 - 11}")   # back into the window
+        win.drain(0.3)
+        ptr.send("press")
+        subprocess.run(["wtype", "-M", "logo", "m", "-m", "logo"], env=cenv,
+                       capture_output=True, timeout=10)
+        time.sleep(0.4)
+        ptr.send("release")
+        subprocess.run(["wtype", "-k", "Escape"], env=cenv, capture_output=True, timeout=10)
+        time.sleep(0.3)
+        # Back into the window (it gets the pointer again), then away.
+        ptr.send("move 5 5")
+        win.drain(0.3)
+        ptr.send(f"move 0 {-(y + h // 2 - 5)}")  # over the panel again
+        seen = win.drain(0.4)
+        if "leave" not in seen:
+            failures.append("a release kept by a menu left the window holding the pointer")
     except RuntimeError as e:
         failures.append(str(e))
     finally:
