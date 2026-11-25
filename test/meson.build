@@ -181,6 +181,15 @@ startup_sources_test = executable(
   )
 test('startup_sources', startup_sources_test)
 
+# The same parsers under random input (fixed seeds; sanitized in debug builds).
+startup_sources_fuzz_test = executable(
+  'startup_sources_fuzz_test',
+  ['startup_sources_fuzz_test.cpp', 'wb_test_main.cpp', startup_sources_src, startup_src,
+   integrations_src],
+  include_directories: [inc_dir],
+  )
+test('startup_sources_fuzz', startup_sources_fuzz_test, timeout: 120)
+
 # waybox-wallpaper: the image and the wallpaper program it picks.
 python3 = find_program('python3')
 test('wallpaper_helper', python3,
