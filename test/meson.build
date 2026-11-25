@@ -157,6 +157,14 @@ integrations_test = executable(
   )
 test('integrations', integrations_test)
 
+# The applications menu: .desktop files, categories, the scan and its cache.
+app_menu_test = executable(
+  'app_menu_test',
+  ['app_menu_test.cpp', 'wb_test_main.cpp', app_menu_src, menu_src, action_src],
+  include_directories: [inc_dir],
+  )
+test('app_menu', app_menu_test)
+
 # The autostart script's start lines and XDG autostart entries (wbconf).
 startup_sources_test = executable(
   'startup_sources_test',
@@ -603,6 +611,7 @@ if python.found() and not get_option('tests_only')
     ['output_rules', 'output_rules_test.py', [], 60],
     ['panel_reflow', 'panel_reflow_test.py', [layer_client], 60],
     ['pipe_menu', 'pipe_menu_test.py', [], 60],
+    ['apps_menu', 'apps_menu_test.py', [], 60],
     ['placement', 'placement_test.py', [default_rc], 60],
     ['pointer_grab', 'pointer_grab_test.py', [constraint_client, layer_client, vpointer_client], 60],
     ['pointer_lock', 'pointer_lock_test.py', [constraint_client], 60],

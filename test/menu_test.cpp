@@ -27,8 +27,8 @@ Menu sample() {
 
 WB_TEST(menufile_find) {
 	wb::MenuFile f;
-	f.menus.push_back(Menu{"root", "Root", {}, {}});
-	f.menus.push_back(Menu{"apps", "Apps", {}, {}});
+	f.menus.push_back(Menu{"root", "Root", {}, {}, {}});
+	f.menus.push_back(Menu{"apps", "Apps", {}, {}, {}});
 	WB_CHECK(f.find("root") != nullptr);
 	WB_CHECK(f.find("apps")->label == "Apps");
 	WB_CHECK(f.find("missing") == nullptr);

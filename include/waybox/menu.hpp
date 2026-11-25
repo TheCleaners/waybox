@@ -42,6 +42,9 @@ struct Menu {
 	 * command each time the menu is shown; its stdout is an
 	 * <openbox_pipe_menu> document (see parse_pipe_menu). */
 	std::string execute;
+	/* "applications": built from the installed programs' .desktop files
+	 * when it opens (see app_menu.hpp); its items here are ignored. */
+	std::string type;
 };
 
 /* A parsed menu file: a set of menus addressable by id. */

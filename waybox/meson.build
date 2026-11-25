@@ -16,6 +16,7 @@ wb_src = [
   animation_src,
   style_src,
   menu_src,
+  app_menu_src,
   desktops_src,
   edge_tiling_src,
   client_menu_src,

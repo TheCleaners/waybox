@@ -194,13 +194,20 @@ Right-click the empty desktop to open the root menu, defined in
 @file{menu.xml}.  It can have submenus, separators and icons, and you can
 navigate it with the keyboard.
 
-@cindex pipe menu
-A pipe menu is a submenu whose contents a program writes when you open it,
-in Openbox's @code{<openbox_pipe_menu>} format.  The default menu uses one
-for the installed applications.  For example:
+@cindex applications menu
+The default menu starts with the installed programs, by category, read
+from their @file{.desktop} files:
 
 @example
-<menu id="apps" label="Applications" execute="obamenu"/>
+<menu id="applications" label="Applications" type="applications"/>
+@end example
+
+@cindex pipe menu
+A pipe menu is a submenu whose contents a program writes when you open it,
+in Openbox's @code{<openbox_pipe_menu>} format.  For example:
+
+@example
+<menu id="places" label="Places" execute="~/.config/waybox/places.sh"/>
 @end example
 
 To use a launcher such as rofi instead of the built-in menu, set

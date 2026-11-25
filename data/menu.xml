@@ -8,14 +8,17 @@
   Parsed natively by the compositor for the built-in root menu (the ShowMenu
   action, bound to a Root right-click in rc.xml), and also by the `waybox-menu`
   script (a rofi script mode). Menu items use <execute> (like rc.xml); <command>
-  works too. Commands are run without a shell, so prefer literal program names;
-  constructs like pipes, $VARS or && will not be expanded here.
+  works too. Commands run through /bin/sh, so $VARS, pipes and && work.
 
   Copy this to $XDG_CONFIG_HOME/waybox/menu.xml (usually
   ~/.config/waybox/menu.xml) and edit it to taste.
 -->
 
 <menu id="root-menu" label="Waybox">
+  <!-- The installed programs, by category (from their .desktop files). -->
+  <menu id="applications" label="Applications" icon="applications-other"
+        type="applications"/>
+
   <item label="Terminal" icon="utilities-terminal">
     <action name="Execute">
       <execute>$TERMINAL</execute>

@@ -28,8 +28,9 @@ For background, see
   resize cursors and grab borders. Client-side decorations are respected, and
   decorations can be toggled per window or set with an app rule.
 - **Native root menu**: right-click the desktop. It is built from `menu.xml`,
-  with submenus, pipe menus, icons and keyboard navigation. You can hand it off
-  to an external launcher such as rofi instead.
+  with an applications menu, submenus, pipe menus, icons and keyboard
+  navigation. You can hand it off to an external launcher such as rofi
+  instead.
 - **Virtual desktops** as in Openbox: `<desktops>` in `rc.xml`, the
   `GoToDesktop`, `SendToDesktop` and `ToggleOmnipresent` actions
   (Ctrl+Alt+Left/Right, Shift+Alt+Left/Right and Super+F1–F4 by default),

@@ -389,7 +389,8 @@ act on a window use the focused one.
       <action name="Execute"><execute>foot</execute></action>
     </item>
     <separator/>
-    <menu id="apps" label="Applications" execute="obamenu"/>
+    <menu id="applications" label="Applications" type="applications"/>
+    <menu id="places" label="Places" execute="~/.config/waybox/places.sh"/>
   </menu>
 </openbox_menu>
 ```
@@ -399,9 +400,19 @@ with a *label*, an optional *icon* and actions), *<separator>* elements (with
 an optional *label*), and nested *<menu>* elements, which are submenus. A
 *<menu>* with only an *id* refers to a menu defined elsewhere in the file.
 
+A *<menu>* with *type="applications"* lists the installed programs, by
+category, from their _.desktop_ files in _$XDG_DATA_HOME/applications_ and
+the _applications_ directory of each entry in *XDG_DATA_DIRS*. Programs
+marked *NoDisplay* or *Hidden*, meant only for other desktops (*OnlyShowIn*,
+*NotShowIn*, against *XDG_CURRENT_DESKTOP*) or whose *TryExec* isn't
+installed are left out. Programs that run in a terminal start in
+*$TERMINAL* (or *xdg-terminal-exec*). The menu is read again when a
+program is installed or removed.
+
 A *<menu>* with an *execute* attribute is a pipe menu: when it opens, the
 command runs, and its output, an *<openbox_pipe_menu>* document, becomes
 the submenu. Commands that take longer than five seconds are stopped.
+Commands run through _/bin/sh_.
 
 Icons are icon names from the icon theme, or file paths.
 

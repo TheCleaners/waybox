@@ -196,3 +196,18 @@ WB_TEST(parse_bare_reference_takes_the_menu_label) {
 	WB_CHECK(root->items[1].submenu_id == "lua-windows");
 	WB_CHECK(root->items[1].label.empty());
 }
+
+WB_TEST(parse_applications_menu_type) {
+	/* <menu type="applications"/> defines a menu (built when it opens),
+	 * even with no label or children of its own. */
+	MenuFile f = wb::parse_menu_xml(R"(<openbox_menu><menu id="root-menu">
+  <menu id="applications" label="Applications" type="applications"/>
+</menu></openbox_menu>)");
+	const Menu *apps = f.find("applications");
+	WB_CHECK(apps != nullptr && apps->type == "applications");
+	WB_CHECK(apps->items.empty());
+	const Menu *root = f.find("root-menu");
+	WB_CHECK(root != nullptr && root->items.size() == 1);
+	WB_CHECK(root->items[0].kind == MenuItem::Kind::Submenu);
+	WB_CHECK(root->items[0].submenu_id == "applications");
+}

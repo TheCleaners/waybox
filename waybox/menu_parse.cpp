@@ -59,7 +59,7 @@ void parse_menu_children(xmlNode *parent, Menu &menu, MenuFile &file) {
 			 * way it shows as a submenu item pointing at the id. */
 			std::string sub_id = attr(c, "id");
 			if (has_element_children(c) || attr(c, "label")[0] != '\0' ||
-					attr(c, "execute")[0] != '\0')
+					attr(c, "execute")[0] != '\0' || attr(c, "type")[0] != '\0')
 				parse_menu_node(c, file);
 			MenuItem item;
 			item.kind = MenuItem::Kind::Submenu;
@@ -78,7 +78,8 @@ void parse_menu_node(xmlNode *menu_node, MenuFile &file) {
 	menu.id = attr(menu_node, "id");
 	menu.label = attr(menu_node, "label");
 	menu.execute = attr(menu_node, "execute");
-	if (menu.execute.empty())
+	menu.type = attr(menu_node, "type");
+	if (menu.execute.empty() && menu.type.empty())
 		parse_menu_children(menu_node, menu, file);
 	file.menus.push_back(std::move(menu));
 }
