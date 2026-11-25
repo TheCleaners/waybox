@@ -971,25 +971,21 @@ void unmap_toplevel(struct wb_toplevel *toplevel) {
 	focus_next_after(toplevel->server, toplevel);
 }
 
-static void update_fractional_scale(struct wlr_surface *surface) {
-	float scale = 1;
-	struct wlr_surface_output *surface_output;
-	wl_list_for_each(surface_output, &surface->current_outputs, link) {
-		if (surface_output->output->scale > scale) {
-			scale = surface_output->output->scale;
-		}
-	}
-	wlr_fractional_scale_v1_notify_scale(surface, scale);
-	wlr_surface_set_preferred_buffer_scale(surface, ceil(scale));
-}
-
 static void xdg_toplevel_commit(struct wb_toplevel *toplevel, void *data) {
 	struct wlr_xdg_surface *base = toplevel->xdg_toplevel->base;
 
-	struct wlr_output *output = get_active_output(toplevel);
-	if (output != NULL)
-		wlr_surface_send_enter(base->surface, output);
-	update_fractional_scale(base->surface);
+	/* Which outputs the window is on (wl_surface.enter/leave, its scale)
+	 * is the scene's to say, as it moves. Before it's shown, the scene
+	 * doesn't know: the scale of the output it'll likely open on, so the
+	 * first frame is drawn at the right scale. */
+	if (base->initial_commit) {
+		struct wlr_output *output = get_active_output(toplevel);
+		if (output != NULL) {
+			wlr_fractional_scale_v1_notify_scale(base->surface, output->scale);
+			wlr_surface_set_preferred_buffer_scale(base->surface,
+					static_cast<int32_t>(ceil(output->scale)));
+		}
+	}
 	if (base->initial_commit) {
 		wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, 0, 0);
 		if (toplevel->decoration != NULL)
@@ -1003,11 +999,6 @@ static void xdg_toplevel_commit(struct wb_toplevel *toplevel, void *data) {
 
 static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 	/* Called when the xdg_toplevel is destroyed and should never be shown again. */
-	struct wlr_output *output = get_active_output(toplevel);
-	struct wlr_xdg_surface *base = toplevel->xdg_toplevel->base;
-	if (output != NULL)
-		wlr_surface_send_leave(base->surface, output);
-	update_fractional_scale(base->surface);
 	destroy_toplevel(toplevel);
 }
 
@@ -1507,7 +1498,14 @@ static void xdg_popup_commit(struct wb_popup *popup, void *data) {
 	if (!base || !base->initial_commit)
 		return;
 
-	update_fractional_scale(base->surface);
+	/* Its first frame at its window's output's scale (then the scene's
+	 * enter/leave and scale follow it). */
+	if (struct wb_toplevel *owner = popup_root_toplevel(popup->xdg_popup))
+		if (struct wlr_output *o = get_active_output(owner)) {
+			wlr_fractional_scale_v1_notify_scale(base->surface, o->scale);
+			wlr_surface_set_preferred_buffer_scale(base->surface,
+					static_cast<int32_t>(ceil(o->scale)));
+		}
 
 	/* Unconstrain the popup against its toplevel's output. This must happen
 	 * here, on the initial commit, rather than when the popup is created:
@@ -1541,8 +1539,6 @@ static void xdg_popup_commit(struct wb_popup *popup, void *data) {
 }
 
 static void xdg_popup_destroy(struct wb_popup *popup, void *data) {
-	if (popup->xdg_popup)
-		update_fractional_scale(popup->xdg_popup->base->surface);
 	/* The wb::Listener members disconnect themselves on delete. */
 	delete popup;
 }

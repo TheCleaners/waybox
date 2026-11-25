@@ -95,9 +95,10 @@ static void wm_ping(void *d, struct xdg_wm_base *b, uint32_t serial) { xdg_wm_ba
 static const struct xdg_wm_base_listener wm_listener = { .ping = wm_ping };
 static void xs_configure(void *d, struct xdg_surface *xs, uint32_t serial) {
 	xdg_surface_ack_configure(xs, serial);
+	/* Drawn again on each configure, as toolkits do. */
+	wl_surface_attach(surface, make_buffer(300, 200, use_touch ? 0xff3060a0 : 0xff30a060), 0, 0);
+	wl_surface_commit(surface);
 	if (!configured) {
-		wl_surface_attach(surface, make_buffer(300, 200, use_touch ? 0xff3060a0 : 0xff30a060), 0, 0);
-		wl_surface_commit(surface);
 		configured = 1;
 		say("configured");
 	}

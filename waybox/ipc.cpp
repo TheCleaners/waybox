@@ -184,6 +184,12 @@ struct wb_toplevel *find_window(struct wb_server *server, const std::string &sel
 Value handle(Client *c, const Value &req) {
 	struct wb_server *server = c->server;
 	std::string cmd = req.str("request");
+	/* Only with WAYBOX_TEST_GPU_RESET=1: as if the GPU was reset. */
+	if (cmd == "test_renderer_lost") {
+		if (!wb_test_renderer_lost(server))
+			return error("no test GPU reset");
+		return Object{{"ok", true}};
+	}
 	/* What blocked the event loop (see stall.hpp). */
 	if (cmd == "get_stalls") {
 		Array scopes;
