@@ -3,6 +3,7 @@
  * $XDG_RUNTIME_DIR, for scripts in any language (and waybox-msg). Off
  * unless <waybox><ipc enabled="yes"/>. See ipc.h for the requests.
  */
+#include "waybox/stall.hpp"
 #include "waybox/wlroots.hpp"
 
 #include <algorithm>
@@ -183,6 +184,17 @@ struct wb_toplevel *find_window(struct wb_server *server, const std::string &sel
 Value handle(Client *c, const Value &req) {
 	struct wb_server *server = c->server;
 	std::string cmd = req.str("request");
+	/* What blocked the event loop (see stall.hpp). */
+	if (cmd == "get_stalls") {
+		Array scopes;
+		for (const auto &[name, st] : wb::Stalls::get().stats())
+			scopes.push_back(Object{{"name", name}, {"count", static_cast<double>(st.count)},
+					{"slow", static_cast<double>(st.slow)}, {"total_ms", st.total_ms},
+					{"max_ms", st.max_ms},
+					{"mean_ms", st.count ? st.total_ms / static_cast<double>(st.count) : 0.0}});
+		return Object{{"ok", true}, {"threshold_ms", wb::Stalls::get().threshold_ms},
+				{"scopes", scopes}};
+	}
 	/* Only with WAYBOX_TEST_TOUCH=1 (the tests' fake touchscreen). */
 	if (cmd == "test_touch") {
 		auto num = [&req](const char *k) {

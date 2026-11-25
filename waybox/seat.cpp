@@ -4,6 +4,7 @@
 #include <optional>
 #include <vector>
 
+#include "waybox/stall.hpp"
 #include "idle.h"
 #include "shortcuts_inhibit.h"
 #include "waybox/input_method.h"
@@ -192,6 +193,7 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 	wb::SwitcherStyle style = server->config
 			? wb::switcher_style_from_theme(server->config->theme)
 			: wb::switcher_style_from_theme(wb::default_theme());
+	wb::StallScope timing("switcher");
 	auto widget = std::make_unique<wb::SwitcherWidget>(server, style, behavior);
 	std::vector<wb::SwitcherWidget::Entry> rows;
 	rows.reserve(wins.size());
@@ -236,6 +238,7 @@ void wb_show_client_menu(struct wb_server *server) {
 
 	server->menu.reset();  /* it may refer to the previous client_menu */
 	server->client_menu = std::make_unique<wb::MenuFile>(wb::build_client_menu(state));
+	wb::StallScope timing("menu");
 	auto widget = std::make_unique<wb::MenuWidget>(server, *server->client_menu,
 			wb::menu_style_from_theme(server->config->theme),
 			server->config->menu_behavior);
@@ -370,6 +373,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 			wb_spawn(server->config->menu_source.command.c_str());
 			break;
 		}
+		wb::StallScope timing("menu");
 		auto widget = std::make_unique<wb::MenuWidget>(server,
 				server->config->menu,
 				wb::menu_style_from_theme(server->config->theme),

@@ -88,6 +88,15 @@ only; entries limited to other desktops (_OnlyShowIn_) are skipped.
 *XDG_CONFIG_HOME*, *XDG_DATA_HOME*, *XDG_DATA_DIRS*
 	Where configuration files, themes and icons are looked up.
 
+*WAYBOX_STALL_MS*, *WAYBOX_STALL_WATCH*
+	For finding what makes Waybox stutter. Timed pieces of work (frames,
+	Reconfigure, theme and icon loading, menus, the window switcher) that
+	take at least *WAYBOX_STALL_MS* milliseconds (default 8) are logged as
+	_wb-stall NAME MS_. With *WAYBOX_STALL_WATCH=1*, Waybox also notices
+	whenever its event loop was blocked, whatever blocked it, at the cost
+	of waking 20 times a second. *waybox-msg get_stalls* shows counts and
+	times per name.
+
 *WLR_RENDERER*
 	The renderer: *vulkan*, *gles2* or *pixman*. On real displays Waybox
 	uses *vulkan*, falling back to *gles2* when Vulkan is unavailable;

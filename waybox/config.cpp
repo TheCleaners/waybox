@@ -14,6 +14,7 @@
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 
+#include "waybox/stall.hpp"
 #include "config.h"
 #include "waybox/action_xml.hpp"
 #include "waybox/xml_strict.hpp"
@@ -895,6 +896,7 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	/* Theme: <theme><name>...</name></theme> (Openbox standard). load_theme
 	 * falls back to the built-in default when the name is absent or not found. */
 	if (char *name = parse_xpath_expr("//ob:theme/ob:name", ctxt)) {
+		wb::StallScope timing("theme");
 		config->theme = wb::load_theme(name);
 		free(name);
 	} else {

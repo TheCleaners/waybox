@@ -3,6 +3,7 @@
  * menu model. Renders one Cairo panel per open level into the scene graph and
  * routes grabbed input to selection/submenu navigation.
  */
+#include "waybox/stall.hpp"
 #include "waybox/menu_widget.hpp"
 
 #include <algorithm>
@@ -130,6 +131,7 @@ cairo_surface_t *MenuWidget::icon_surface(const std::string &name) {
 		return nullptr;
 	if (auto it = icon_cache_.find(name); it != icon_cache_.end())
 		return it->second;
+	wb::StallScope timing("menu-icon");
 	cairo_surface_t *loaded = load_themed_icon(name, icon_theme_, icon_size_);
 	icon_cache_[name] = loaded;
 	return loaded;
