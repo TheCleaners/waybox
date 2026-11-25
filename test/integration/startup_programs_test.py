@@ -30,10 +30,24 @@ def alive(pid):
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    # A zombie still answers kill -0 (ps: Linux and the BSDs alike).
-    r = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
-    state = r.stdout.strip()
+    # A zombie still answers kill -0.
+    state = process_state(pid)
     return bool(state) and not state.startswith("Z")
+
+
+def process_state(pid):
+    """A process's state letter(s): /proc where there is one (Linux), else
+    ps (the BSDs, where /proc isn't mounted); "" if it's gone."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(") ", 1)[1][0]
+    except FileNotFoundError:
+        if os.path.isdir("/proc/self"):
+            return ""
+    except (OSError, IndexError):
+        return ""
+    r = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+    return r.stdout.strip()
 
 
 def main():

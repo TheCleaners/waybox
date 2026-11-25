@@ -137,8 +137,14 @@ EOF
             os.kill(pid, 0)
         except ProcessLookupError:
             return False
-        # Reaped or not, a zombie no longer runs anything (ps: Linux and
-        # the BSDs alike).
+        # Reaped or not, a zombie no longer runs anything. /proc where
+        # there is one (Linux), else ps (the BSDs).
+        if os.path.isdir("/proc/self"):
+            try:
+                with open(f"/proc/{pid}/stat") as f:
+                    return f.read().rsplit(") ", 1)[1][0] != "Z"
+            except (OSError, IndexError):
+                return False
         r = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
         state = r.stdout.strip()
         return bool(state) and not state.startswith("Z")
