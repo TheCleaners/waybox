@@ -73,6 +73,7 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 
 	populate_programs(ui, s.startup);
 	populate_bindings(ui, doc);
+	populate_input_method(ui, s.input_method);
 	populate_rows(ui, doc);
 
 	ui->shown = collect(ui);
@@ -126,6 +127,7 @@ wb::WayboxSettings collect(Ui *ui) {
 	}
 
 	s.startup = collect_programs(ui);
+	s.input_method = collect_input_method(ui);
 	return s;
 }
 

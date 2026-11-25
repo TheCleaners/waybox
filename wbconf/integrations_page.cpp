@@ -312,6 +312,8 @@ std::vector<wb::SettingDef> program_settings(Ui *ui) {
 	std::vector<wb::SettingDef> out;
 	std::vector<std::string> missing;
 	for (const wb::Integration &in : ui->integrations) {
+		if (in.input_method)
+			continue;  /* chosen under Keyboard: Input method */
 		if (!installed(in.binary) && ui->listed_integrations.count(in.id) == 0) {
 			missing.push_back(in.name);
 			continue;
@@ -514,6 +516,137 @@ bool binding_set(Ui *ui, const std::string &id) {
 		if (b->in->id == id)
 			return b->saved.has_value() || gtk_switch_get_active(b->on);
 	return false;
+}
+
+/* ---- The input method ------------------------------------------------- */
+
+namespace {
+
+std::string env_text(const std::vector<std::pair<std::string, std::string>> &env) {
+	std::string out;
+	for (const auto &[name, value] : env)
+		out += name + "=" + value + "\n";
+	return out;
+}
+
+void set_env_text(Ui *ui, const std::string &text) {
+	gtk_text_buffer_set_text(gtk_text_view_get_buffer(ui->im.env), text.c_str(), -1);
+}
+
+/* The dropdown changed: show (and for a framework, fill) the details. */
+void on_im_choice(Ui *ui) {
+	guint idx = gtk_drop_down_get_selected(ui->im.choice);
+	size_t n = ui->im.frameworks.size();
+	gtk_widget_set_visible(ui->im.details, idx != 0);
+	if (ui->im.updating || idx == 0 || idx > n)
+		return;
+	const wb::Integration *in = ui->im.frameworks[idx - 1];
+	gtk_editable_set_text(GTK_EDITABLE(ui->im.command), in->exec.c_str());
+	set_env_text(ui, env_text(in->env));
+}
+
+}  // namespace
+
+GtkWidget *build_input_method_block(Ui *ui) {
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+	std::vector<std::string> labels = {_("None")};
+	for (const wb::Integration &in : ui->integrations)
+		if (in.input_method && installed(in.binary)) {
+			ui->im.frameworks.push_back(&in);
+			labels.push_back(in.name);
+		}
+	labels.push_back(_("Custom"));
+	std::vector<const char *> items;
+	for (const std::string &l : labels)
+		items.push_back(l.c_str());
+	items.push_back(nullptr);
+	ui->im.choice = GTK_DROP_DOWN(gtk_drop_down_new_from_strings(items.data()));
+	gtk_widget_set_halign(GTK_WIDGET(ui->im.choice), GTK_ALIGN_START);
+	g_signal_connect_swapped(ui->im.choice, "notify::selected", G_CALLBACK(on_im_choice), ui);
+	gtk_box_append(GTK_BOX(box), GTK_WIDGET(ui->im.choice));
+
+	ui->im.details = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+	ui->im.command = GTK_ENTRY(gtk_entry_new());
+	gtk_entry_set_placeholder_text(ui->im.command, _("Command, e.g. fcitx5 --replace"));
+	gtk_widget_set_size_request(GTK_WIDGET(ui->im.command), 360, -1);
+	gtk_widget_set_halign(GTK_WIDGET(ui->im.command), GTK_ALIGN_START);
+	gtk_box_append(GTK_BOX(ui->im.details), GTK_WIDGET(ui->im.command));
+	GtkWidget *label = gtk_label_new(_("Variables for programs (NAME=value, one per line):"));
+	gtk_label_set_xalign(GTK_LABEL(label), 0);
+	gtk_widget_add_css_class(label, "dim-label");
+	gtk_box_append(GTK_BOX(ui->im.details), label);
+	GtkWidget *frame = gtk_frame_new(nullptr);
+	GtkWidget *tv = gtk_text_view_new();
+	gtk_widget_set_size_request(tv, 360, 80);
+	gtk_text_view_set_monospace(GTK_TEXT_VIEW(tv), TRUE);
+	gtk_text_view_set_left_margin(GTK_TEXT_VIEW(tv), 6);
+	gtk_frame_set_child(GTK_FRAME(frame), tv);
+	gtk_widget_set_halign(frame, GTK_ALIGN_START);
+	ui->im.env = GTK_TEXT_VIEW(tv);
+	gtk_box_append(GTK_BOX(ui->im.details), frame);
+	gtk_widget_set_visible(ui->im.details, FALSE);
+	gtk_box_append(GTK_BOX(box), ui->im.details);
+	return box;
+}
+
+void populate_input_method(Ui *ui, const std::optional<wb::InputMethodSetting> &im) {
+	if (ui->im.choice == nullptr)
+		return;
+	ui->im.updating = true;
+	guint idx = 0;
+	if (im) {
+		idx = static_cast<guint>(ui->im.frameworks.size() + 1);  /* Custom */
+		for (size_t i = 0; i < ui->im.frameworks.size(); ++i)
+			if (wb::startup_name("", im->command) == ui->im.frameworks[i]->binary)
+				idx = static_cast<guint>(i + 1);
+		gtk_editable_set_text(GTK_EDITABLE(ui->im.command), im->command.c_str());
+		set_env_text(ui, env_text(im->env));
+	} else {
+		gtk_editable_set_text(GTK_EDITABLE(ui->im.command), "");
+		set_env_text(ui, "");
+	}
+	gtk_drop_down_set_selected(ui->im.choice, idx);
+	gtk_widget_set_visible(ui->im.details, idx != 0);
+	ui->im.updating = false;
+}
+
+std::optional<wb::InputMethodSetting> collect_input_method(Ui *ui) {
+	if (ui->im.choice == nullptr || gtk_drop_down_get_selected(ui->im.choice) == 0)
+		return std::nullopt;
+	wb::InputMethodSetting im;
+	im.command = gtk_editable_get_text(GTK_EDITABLE(ui->im.command));
+	if (im.command.empty())
+		return std::nullopt;
+	GtkTextBuffer *b = gtk_text_view_get_buffer(ui->im.env);
+	GtkTextIter s, e;
+	gtk_text_buffer_get_bounds(b, &s, &e);
+	char *text = gtk_text_buffer_get_text(b, &s, &e, FALSE);
+	std::istringstream lines(text);
+	g_free(text);
+	std::string line;
+	while (std::getline(lines, line)) {
+		size_t eq = line.find('=');
+		size_t start = line.find_first_not_of(" \t");
+		if (eq == std::string::npos || start == std::string::npos || eq <= start)
+			continue;
+		std::string name = line.substr(start, eq - start);
+		while (!name.empty() && (name.back() == ' ' || name.back() == '\t'))
+			name.pop_back();
+		im.env.emplace_back(name, line.substr(eq + 1));
+	}
+	return im;
+}
+
+void choose_input_method(Ui *ui, const std::string &id) {
+	if (ui->im.choice == nullptr)
+		return;
+	guint idx = 0;
+	if (id == "custom")
+		idx = static_cast<guint>(ui->im.frameworks.size() + 1);
+	for (size_t i = 0; i < ui->im.frameworks.size(); ++i)
+		if (ui->im.frameworks[i]->id == id)
+			idx = static_cast<guint>(i + 1);
+	gtk_drop_down_set_selected(ui->im.choice, idx);
 }
 
 }  // namespace wbconf

@@ -114,6 +114,13 @@ struct wb_config {
 	 * unless set. */
 	bool ipc_enabled = false;
 
+	/* rc.xml <waybox><inputMethod command="fcitx5"><env name="XMODIFIERS"
+	 * value="@im=fcitx"/></inputMethod>: the input method (IBus, Fcitx5,
+	 * ...) Waybox starts and keeps running, and the variables programs
+	 * need to use it. None unless set. */
+	std::string input_method;
+	std::vector<std::pair<std::string, std::string>> input_method_env;
+
 	/* rc.xml <waybox><edgeTiling enabled="yes|no" range="N"/>: drag a window
 	 * to a monitor edge to tile it (halves, corner quarters, maximize at the
 	 * top); range is how close to the edge the pointer must be, in pixels. */

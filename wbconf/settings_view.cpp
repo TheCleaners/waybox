@@ -361,6 +361,8 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 			return build_other_programs_block(ui);
 		if (d.widget.rfind("binding:", 0) == 0)
 			return build_binding_block(ui, d.widget.substr(8));
+		if (d.widget == "inputmethod")
+			return build_input_method_block(ui);
 		return wrapped_label(_("(This setting's editor isn't available.)"), true);
 	}
 	return nullptr;
@@ -503,6 +505,8 @@ void on_search(GtkSearchEntry *entry, gpointer data) {
 		}
 		if (widget.rfind("binding:", 0) == 0)
 			return binding_set(ui, widget.substr(8));
+		if (widget == "inputmethod")
+			return now.input_method.has_value();
 		if (widget == "programs-other") {
 			for (auto &p : ui->programs)
 				if (p->in == nullptr && !p->removed)
@@ -710,6 +714,9 @@ void apply_test_values(Ui *ui, const char *spec) {
 		std::string item = all.substr(start, end == std::string::npos ? std::string::npos
 				: end - start);
 		size_t eq = item.find('=');
+		/* "inputmethod=ID": choose that input method ("" none). */
+		if (eq != std::string::npos && item.substr(0, eq) == "inputmethod")
+			choose_input_method(ui, item.substr(eq + 1));
 		/* "bind.ID=KEY": turn on that program's key binding. */
 		if (eq != std::string::npos && item.rfind("bind.", 0) == 0)
 			for (auto &b : ui->bindings)

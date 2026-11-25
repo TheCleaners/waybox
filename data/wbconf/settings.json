@@ -122,15 +122,18 @@
       "id": "keyboard",
       "title": "Keyboard",
       "settings": [
-        { "id": "keyboard.xkb.layout", "title": "Layouts", "type": "string", "hint": "us  (several: us,de)",
+        { "id": "waybox.inputMethod", "title": "Input method", "type": "custom", "widget": "inputmethod",
+          "description": "A framework for typing other scripts (Chinese, Japanese, Korean...) and emoji. Waybox starts it, keeps it running and sets the variables programs need. None runs nothing: keys go straight to programs.",
+          "keywords": "ime ibus fcitx fcitx5 cjk chinese japanese korean emoji compose" },
+        { "id": "keyboard.xkb.layout", "section": "Layout", "title": "Layouts", "type": "string", "hint": "us  (several: us,de)",
           "description": "Empty uses the system default. Several layouts are separated by commas.",
           "rc": { "path": "keyboard/xkb/layout" } },
-        { "id": "keyboard.xkb.variant", "title": "Variants", "type": "string", "hint": "e.g. dvorak  (one per layout)",
+        { "id": "keyboard.xkb.variant", "section": "Layout", "title": "Variants", "type": "string", "hint": "e.g. dvorak  (one per layout)",
           "rc": { "path": "keyboard/xkb/variant" } },
-        { "id": "keyboard.xkb.options", "title": "Options", "type": "string",
+        { "id": "keyboard.xkb.options", "section": "Layout", "title": "Options", "type": "string",
           "hint": "e.g. grp:alt_shift_toggle,caps:escape", "keywords": "xkb caps compose switch layout",
           "rc": { "path": "keyboard/xkb/options" } },
-        { "id": "keyboard.xkb.model", "title": "Model", "type": "string", "hint": "e.g. pc105",
+        { "id": "keyboard.xkb.model", "section": "Layout", "title": "Model", "type": "string", "hint": "e.g. pc105",
           "rc": { "path": "keyboard/xkb/model" } }
       ]
     },

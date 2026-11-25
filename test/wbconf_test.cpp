@@ -509,3 +509,23 @@ WB_TEST(execute_keybinds_read_and_set) {
 	doc->set_keybind("W-period", std::nullopt);
 	WB_CHECK(doc->to_string().find("W-period") == std::string::npos);
 }
+
+WB_TEST(input_method_read_and_written) {
+	auto doc = RcDocument::from_string(kMinimalRc);
+	WayboxSettings before = doc->read(), s = before;
+	WB_CHECK(!s.input_method);
+	s.input_method = wb::InputMethodSetting{"fcitx5 --replace",
+			{{"XMODIFIERS", "@im=fcitx"}, {"QT_IM_MODULE", "fcitx"}}};
+	doc->apply(s, before);
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("<inputMethod command=\"fcitx5 --replace\">") != std::string::npos);
+	WB_CHECK(out.find("<env name=\"XMODIFIERS\" value=\"@im=fcitx\"/>") != std::string::npos);
+	auto again = RcDocument::from_string(out);
+	WayboxSettings read = again->read();
+	WB_CHECK(read.input_method == s.input_method);
+	/* Back to none: the element goes. */
+	WayboxSettings none = read;
+	none.input_method.reset();
+	again->apply(none, read);
+	WB_CHECK(again->to_string().find("inputMethod") == std::string::npos);
+}

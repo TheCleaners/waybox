@@ -118,3 +118,12 @@ WB_TEST(integration_binding_kind_and_key) {
 	WB_CHECK(in && in->binding && in->key == "W-period");
 	WB_CHECK(!wb::parse_integration("mako", "[Integration]\nName=mako\nExec=mako\n")->binding);
 }
+
+WB_TEST(integration_input_method_kind_and_env) {
+	auto in = wb::parse_integration("fcitx5",
+			"[Integration]\nName=Fcitx 5\nCategory=InputMethod\nExec=fcitx5 --replace\n"
+			"Kind=inputmethod\nEnv=XMODIFIERS=@im=fcitx\nEnv=QT_IM_MODULE=fcitx\nEnv=bad\n");
+	WB_CHECK(in && in->input_method && !in->binding);
+	WB_CHECK(in->env.size() == 2);
+	WB_CHECK(in->env[0].first == "XMODIFIERS" && in->env[0].second == "@im=fcitx");
+}

@@ -410,6 +410,15 @@ WayboxSettings RcDocument::read() const {
 		}
 	}
 	s.idle_screen_off = to_int(attr_value(find_path(root, {"waybox", "idle"}), "screenOff"));
+	if (xmlNode *im = find_path(root, {"waybox", "inputMethod"})) {
+		InputMethodSetting ims;
+		ims.command = attr_value(im, "command").value_or("");
+		for (xmlNode *c = im->children; c != nullptr; c = c->next)
+			if (is_element(c, "env"))
+				ims.env.emplace_back(attr_value(c, "name").value_or(""),
+						attr_value(c, "value").value_or(""));
+		s.input_method = ims;
+	}
 
 	s.xwayland = to_bool(attr_value(find_path(root, {"waybox", "xwayland"}), "enabled"));
 	s.virtual_input = attr_value(find_path(root, {"waybox", "virtualInput"}), "allow");
@@ -710,6 +719,20 @@ void apply_fields(xmlNode *root, const WayboxSettings &s, const WayboxSettings *
 		put_attr(root, {"waybox", "idle"}, "screenOff", int_str(s.idle_screen_off));
 	if (WB_CHANGED(startup))
 		put_startup(root, s.startup, base ? &base->startup : nullptr);
+	if (WB_CHANGED(input_method)) {
+		/* Rewritten whole: it's one element. */
+		if (xmlNode *old = find_path(root, {"waybox", "inputMethod"}))
+			unlink_element(old);
+		if (s.input_method) {
+			xmlNode *im = new_child(ensure_path(root, {"waybox"}), "inputMethod");
+			xmlSetProp(im, xc("command"), xc(s.input_method->command.c_str()));
+			for (const auto &[name, value] : s.input_method->env) {
+				xmlNode *e = new_child(im, "env");
+				xmlSetProp(e, xc("name"), xc(name.c_str()));
+				xmlSetProp(e, xc("value"), xc(value.c_str()));
+			}
+		}
+	}
 	if (WB_CHANGED(virtual_input))
 		put_attr(root, {"waybox", "virtualInput"}, "allow", s.virtual_input);
 	/* <keyboard><xkb> and <mouse><libinput>: one element per setting. */

@@ -48,6 +48,10 @@ struct Integration {
 	 * rc.xml's syntax ("W-period" is Super+.). */
 	bool binding = false;
 	std::string key;
+	/* Kind=inputmethod: an input method (IBus, Fcitx5); one at a time.
+	 * Env=NAME=VALUE lines: the variables programs need to use it. */
+	bool input_method = false;
+	std::vector<std::pair<std::string, std::string>> env;
 	std::vector<IntegrationOption> options;
 	bool operator==(const Integration &) const = default;
 };
