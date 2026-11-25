@@ -418,6 +418,8 @@ if python.found() and not get_option('tests_only')
       'integration' / 'dnd_client.c',
       wayland_scanner_client.process(xdg_shell_client_xml),
       wayland_scanner_code.process(xdg_shell_client_xml),
+      wayland_scanner_client.process(wl_protocol_dir / 'staging/xdg-toplevel-drag/xdg-toplevel-drag-v1.xml'),
+      wayland_scanner_code.process(wl_protocol_dir / 'staging/xdg-toplevel-drag/xdg-toplevel-drag-v1.xml'),
     ],
     dependencies: [dependency('wayland-client')],
     )

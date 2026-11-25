@@ -8,6 +8,10 @@
  *   "drop-performed", "finished" or "cancelled".
  * target: prints "enter" when a drag comes over it (accepting text/plain),
  *   and "dropped TEXT" with what it received.
+ * tearoff: as source, but like a browser tab torn off: the drag also gets
+ *   an xdg_toplevel_drag, and a new 200x100 window (app_id dnd-torn) is
+ *   attached at offset 20,10 and mapped during the drag. Prints
+ *   "torn-mapped" once it's shown.
  * Both print "configured" once shown. Runs until killed.
  */
 #define _GNU_SOURCE
@@ -20,6 +24,7 @@
 #include <wayland-client.h>
 
 #include "xdg-shell-client-protocol.h"
+#include "xdg-toplevel-drag-v1-client-protocol.h"
 
 #define MIME "text/plain;charset=utf-8"
 
@@ -30,7 +35,8 @@ static struct xdg_wm_base *wm_base;
 static struct wl_data_device_manager *ddm;
 static struct wl_data_device *device;
 static struct wl_surface *surface;
-static int is_source, configured;
+static int is_source, is_tearoff, configured;
+static struct xdg_toplevel_drag_manager_v1 *tdm;
 
 static void say(const char *s) {
 	printf("%s\n", s);
@@ -85,6 +91,39 @@ static const struct wl_surface_listener icon_listener = {
 	.enter = icon_enter, .leave = icon_leave,
 };
 
+/* ---- the torn-off window ---- */
+static struct wl_surface *torn_surface;
+static int torn_shown;
+static void torn_configure(void *d, struct xdg_surface *xs, uint32_t serial) {
+	xdg_surface_ack_configure(xs, serial);
+	if (!torn_shown) {
+		wl_surface_attach(torn_surface, make_buffer(200, 100, 0xffa03060), 0, 0);
+		wl_surface_commit(torn_surface);
+		torn_shown = 1;
+		say("torn-mapped");
+	}
+}
+static const struct xdg_surface_listener torn_xs_listener = { .configure = torn_configure };
+static void torn_tl_configure(void *d, struct xdg_toplevel *t, int32_t w, int32_t h,
+		struct wl_array *s) {}
+static void torn_tl_close(void *d, struct xdg_toplevel *t) {}
+static const struct xdg_toplevel_listener torn_tl_listener = {
+	.configure = torn_tl_configure, .close = torn_tl_close,
+};
+
+static void tear_off(struct wl_data_source *src) {
+	struct xdg_toplevel_drag_v1 *drag =
+		xdg_toplevel_drag_manager_v1_get_xdg_toplevel_drag(tdm, src);
+	torn_surface = wl_compositor_create_surface(compositor);
+	struct xdg_surface *xs = xdg_wm_base_get_xdg_surface(wm_base, torn_surface);
+	xdg_surface_add_listener(xs, &torn_xs_listener, NULL);
+	struct xdg_toplevel *tl = xdg_surface_get_toplevel(xs);
+	xdg_toplevel_add_listener(tl, &torn_tl_listener, NULL);
+	xdg_toplevel_set_app_id(tl, "dnd-torn");
+	xdg_toplevel_drag_v1_attach(drag, tl, 20, 10);
+	wl_surface_commit(torn_surface);
+}
+
 static void start_drag(uint32_t serial) {
 	struct wl_data_source *src = wl_data_device_manager_create_data_source(ddm);
 	wl_data_source_add_listener(src, &src_listener, NULL);
@@ -92,7 +131,10 @@ static void start_drag(uint32_t serial) {
 	wl_data_source_set_actions(src, WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY);
 	struct wl_surface *icon = wl_compositor_create_surface(compositor);
 	wl_surface_add_listener(icon, &icon_listener, NULL);
+	struct wl_data_source *keep = src;
 	wl_data_device_start_drag(device, src, surface, icon, serial);
+	if (is_tearoff)
+		tear_off(keep);
 	wl_surface_attach(icon, make_buffer(24, 24, 0xffe0a020), 0, 0);
 	wl_surface_commit(icon);
 	say("drag-started");
@@ -198,6 +240,8 @@ static void reg_global(void *d, struct wl_registry *r, uint32_t name,
 		seat = wl_registry_bind(r, name, &wl_seat_interface, 4);
 	else if (strcmp(iface, xdg_wm_base_interface.name) == 0)
 		wm_base = wl_registry_bind(r, name, &xdg_wm_base_interface, 1);
+	else if (strcmp(iface, xdg_toplevel_drag_manager_v1_interface.name) == 0)
+		tdm = wl_registry_bind(r, name, &xdg_toplevel_drag_manager_v1_interface, 1);
 	else if (strcmp(iface, wl_output_interface.name) == 0)
 		wl_registry_bind(r, name, &wl_output_interface, 1);  /* for surface enter */
 	else if (strcmp(iface, wl_data_device_manager_interface.name) == 0)
@@ -209,7 +253,8 @@ static const struct wl_registry_listener reg_listener = {
 };
 
 int main(int argc, char **argv) {
-	is_source = argc > 1 && strcmp(argv[1], "source") == 0;
+	is_tearoff = argc > 1 && strcmp(argv[1], "tearoff") == 0;
+	is_source = is_tearoff || (argc > 1 && strcmp(argv[1], "source") == 0);
 	struct wl_display *display = wl_display_connect(NULL);
 	if (!display)
 		return 1;
@@ -218,6 +263,10 @@ int main(int argc, char **argv) {
 	wl_display_roundtrip(display);
 	if (!compositor || !shm || !seat || !wm_base || !ddm)
 		return 1;
+	if (is_tearoff && !tdm) {
+		say("no-toplevel-drag");
+		return 1;
+	}
 	xdg_wm_base_add_listener(wm_base, &wm_listener, NULL);
 	device = wl_data_device_manager_get_data_device(ddm, seat);
 	wl_data_device_add_listener(device, &dd_listener, NULL);
