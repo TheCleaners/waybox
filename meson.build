@@ -90,6 +90,7 @@ security_src = files('waybox/security.cpp')
 output_rules_src = files('waybox/output_rules.cpp')
 startup_src = files('waybox/startup.cpp')
 integrations_src = files('waybox/integrations.cpp')
+json_src = files('waybox/json.cpp')
 xml_strict_src = files('waybox/xml_strict.cpp')
 
 # tests_only builds just the dependency-free unit tests (no wlroots, no
@@ -151,6 +152,14 @@ if not tests_only
   if gtk4.found() and json_glib.found()
     subdir('wbconf')
   endif
+endif
+
+# waybox-msg: the scripting socket from the shell.
+if not get_option('tests_only')
+  waybox_msg = executable('waybox-msg', ['msg/waybox-msg.cpp', json_src],
+    include_directories: [inc_dir],
+    install: true,
+  )
 endif
 
 subdir('test')

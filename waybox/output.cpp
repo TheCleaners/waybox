@@ -12,6 +12,7 @@
 #include "waybox/xdg_shell.h"
 #include "waybox/output_rules.hpp"
 #include "waybox/session_lock.h"
+#include "ipc.h"
 
 /* Pick a sensible default scale for a freshly connected output based on its
  * pixel density. 96 dpi maps to 1.0; the result is rounded to the nearest
@@ -524,6 +525,7 @@ void new_output_notify(struct wb_server *server, void *data) {
 		 * themselves when the output is deleted. */
 		layer_shell_output_destroy(output);
 		session_lock_output_gone(output->server, output->wlr_output);
+		ipc_output_event(output->server, output->wlr_output, "removed");
 		/* Windows (and their dialogs) in this output's fullscreen layer
 		 * would go with it: back to the ordinary window layer first. */
 		output_release_toplevels(output);
@@ -551,6 +553,7 @@ void new_output_notify(struct wb_server *server, void *data) {
 	output_manager_update_config(server);
 	if (enabled)
 		reconfigure_output(output);
+	ipc_output_event(server, wlr_output, "added");
 }
 
 bool output_set_power(struct wb_output *output, bool on) {

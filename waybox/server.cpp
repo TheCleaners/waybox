@@ -12,6 +12,7 @@
 
 #include "idle.h"
 #include "shortcuts_inhibit.h"
+#include "ipc.h"
 #include "startup_supervisor.h"
 #include "waybox/workspace.h"
 #include "waybox/xwayland.h"
@@ -110,6 +111,7 @@ void wb_reconfigure(struct wb_server *server) {
 	}
 	workspace_schedule_sync(server);  /* names or count may have changed */
 	arrange_toplevels(server);
+	ipc_reconfigured(server);  /* <ipc>, and tells subscribers */
 	startup_apply(server);     /* <startup>: start, stop what changed */
 	idle_reconfigured(server); /* <idle>: the new timeout counts from now */
 	wlr_log(WLR_INFO, "%s", _("Reconfigured"));
@@ -395,6 +397,7 @@ bool wb_terminate(struct wb_server* server) {
 	 * reference server->cursor, server->seat and server->config) run while
 	 * those objects are still alive. */
 	startup_finish(server);  /* end the <startup> programs */
+	ipc_finish(server);
 	finish_idle(server);
 	wl_display_destroy_clients(server->wl_display);
 	finish_session_lock(server);

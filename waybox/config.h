@@ -110,6 +110,10 @@ struct wb_config {
 	 * (a VM viewer, a remote desktop) take Waybox's key bindings. */
 	bool allow_shortcuts_inhibit = true;
 
+	/* rc.xml <waybox><ipc enabled="yes"/>: the scripting socket. Off
+	 * unless set. */
+	bool ipc_enabled = false;
+
 	/* rc.xml <waybox><edgeTiling enabled="yes|no" range="N"/>: drag a window
 	 * to a monitor edge to tile it (halves, corner quarters, maximize at the
 	 * top); range is how close to the edge the pointer must be, in pixels. */

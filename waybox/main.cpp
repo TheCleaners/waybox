@@ -5,6 +5,7 @@
 #include "waybox/server.h"
 #include "idle.h"
 #include "startup_supervisor.h"
+#include "ipc.h"
 #include "waybox/menu_widget.hpp"
 #include "waybox/switcher_widget.hpp"
 #include "waybox/desktop_popup.hpp"
@@ -121,6 +122,7 @@ int main(int argc, char **argv) {
 	if (startup_cmd) {
 		wb_spawn(startup_cmd);
 	}
+	ipc_reconfigured(&server);  /* before startup programs: they get WAYBOX_SOCK */
 	startup_apply(&server);
 	idle_reconfigured(&server);  /* start counting for <idle screenOff> */
 
