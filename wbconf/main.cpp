@@ -113,6 +113,7 @@ void on_save(GtkButton *, gpointer data) {
 		return;
 	}
 	refresh_save_state(ui);
+	stop_moved_programs(ui);
 	int n = signal_waybox_reload();
 	if (n > 0)
 		set_status(ui, _("Saved and reloaded waybox."));
@@ -338,6 +339,9 @@ void build_window(GtkApplication *app, Ui *ui) {
 		gtk_box_prepend(GTK_BOX(vbox), banner);
 	}
 	g_signal_connect(ui->window, "close-request", G_CALLBACK(on_close_request), ui);
+	ui->ready = true;
+	if (const char *choice = getenv("WBCONF_TEST_CHOICE"))
+		ui->test_choice = choice;
 	if (const char *set = getenv("WBCONF_TEST_SET"))
 		apply_test_values(ui, set);
 	refresh_save_state(ui);

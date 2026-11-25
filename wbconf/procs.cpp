@@ -5,6 +5,9 @@
  */
 #include "wbconf_ui.hpp"
 
+#include <iterator>
+#include <sstream>
+
 #if defined(__FreeBSD__) || defined(__DragonFly__)
 #include <sys/types.h>
 #include <sys/sysctl.h>
@@ -34,7 +37,7 @@ std::vector<ProcessInfo> list_processes() {
 		return out;
 	for (size_t off = 0; off + sizeof(struct kinfo_proc) <= len; off += sizeof(struct kinfo_proc)) {
 		const auto *kp = reinterpret_cast<const struct kinfo_proc *>(buf.data() + off);
-		out.push_back({kp->ki_pid, kp->ki_uid, cut(kp->ki_comm)});
+		out.push_back({kp->ki_pid, kp->ki_uid, cut(kp->ki_comm), kp->ki_ppid});
 	}
 #else
 	DIR *d = opendir("/proc");
@@ -51,11 +54,50 @@ std::vector<ProcessInfo> list_processes() {
 			continue;
 		std::ifstream f(dir + "/comm");
 		std::string comm;
-		if (std::getline(f, comm))
-			out.push_back({static_cast<pid_t>(pid), st.st_uid, cut(comm)});
+		if (!std::getline(f, comm))
+			continue;
+		/* The parent: the field after the state, past the ")" that ends
+		 * the name (which may itself hold spaces or parentheses). */
+		pid_t ppid = 0;
+		std::ifstream statf(dir + "/stat");
+		std::string stat;
+		std::getline(statf, stat);
+		if (size_t close = stat.rfind(')'); close != std::string::npos) {
+			std::istringstream rest(stat.substr(close + 1));
+			std::string state;
+			rest >> state >> ppid;
+		}
+		out.push_back({static_cast<pid_t>(pid), st.st_uid, cut(comm), ppid});
 	}
 	closedir(d);
 #endif
+	return out;
+}
+
+std::vector<std::string> process_args(pid_t pid) {
+	std::string raw;
+#if defined(__FreeBSD__) || defined(__DragonFly__)
+	int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ARGS, static_cast<int>(pid)};
+	size_t len = 0;
+	if (sysctl(mib, 4, nullptr, &len, nullptr, 0) != 0 || len == 0)
+		return {};
+	raw.resize(len);
+	if (sysctl(mib, 4, raw.data(), &len, nullptr, 0) != 0)
+		return {};
+	raw.resize(len);
+#else
+	std::ifstream f("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);
+	raw.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+#endif
+	std::vector<std::string> out;
+	size_t start = 0;
+	while (start < raw.size()) {
+		size_t end = raw.find('\0', start);
+		if (end == std::string::npos)
+			end = raw.size();
+		out.push_back(raw.substr(start, end - start));
+		start = end + 1;
+	}
 	return out;
 }
 

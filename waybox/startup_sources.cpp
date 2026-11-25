@@ -1,6 +1,8 @@
 #include "waybox/startup_sources.hpp"
 
 #include <algorithm>
+#include <set>
+#include <map>
 #include <sstream>
 
 #include "waybox/startup.hpp"
@@ -224,6 +226,132 @@ std::vector<ScriptEntry> script_entries(std::string_view script) {
 		if (!is_comment)
 			depth = std::max(0, depth + nesting_change(words));
 	}
+	return out;
+}
+
+namespace {
+
+/* Whether `line` (code, not a comment) names `program` as a word. */
+bool mentions(std::string_view line, const std::string &program) {
+	std::string word;
+	bool found = false;
+	auto flush = [&] {
+		if (!word.empty()) {
+			size_t slash = word.rfind('/');
+			if (word.substr(slash == std::string::npos ? 0 : slash + 1) == program)
+				found = true;
+		}
+		word.clear();
+	};
+	for (char c : trim(line)) {
+		if (c == '#' && word.empty())
+			break;
+		if (std::string_view(" \t;&|()<>'\"`$={}").find(c) != std::string_view::npos)
+			flush();
+		else
+			word += c;
+	}
+	flush();
+	return found;
+}
+
+}  // namespace
+
+std::string script_start_command(std::string_view line) {
+	std::string_view l = trim(line);
+	if (!l.empty() && l.back() == '&' && (l.size() < 2 || l[l.size() - 2] != '&'))
+		l = trim(l.substr(0, l.size() - 1));
+	/* A guard: what follows the last "&&" outside quotes. */
+	size_t cut = std::string_view::npos;
+	char quote = 0;
+	for (size_t i = 0; i + 1 < l.size(); ++i) {
+		char c = l[i];
+		if (quote != 0) {
+			if (c == quote)
+				quote = 0;
+			else if (c == '\\' && quote == '"')
+				++i;
+			continue;
+		}
+		if (c == '\'' || c == '"')
+			quote = c;
+		else if (c == '\\')
+			++i;
+		else if (c == '&' && l[i + 1] == '&')
+			cut = i;
+	}
+	if (cut != std::string_view::npos)
+		l = trim(l.substr(cut + 2));
+	return std::string(l);
+}
+
+ScriptStarters script_starters(std::string_view script, const std::string &program) {
+	ScriptStarters out;
+	std::vector<std::string> lines = split_lines(script);
+	/* Function bodies: from "name() {" until its braces close. */
+	std::map<std::string, bool> runs;  /* function -> runs the program */
+	std::vector<bool> in_body(lines.size(), false);
+	for (size_t n = 0; n < lines.size(); ++n) {
+		std::string name = function_defined(lines[n]);
+		if (name.empty())
+			continue;
+		int depth = 0;
+		bool opened = false, found = false;
+		size_t m = n;
+		for (; m < lines.size(); ++m) {
+			std::string commented;
+			if (uncomment(lines[m], commented))
+				continue;
+			in_body[m] = true;
+			if (m > n && mentions(lines[m], program))
+				found = true;
+			std::vector<std::string> words;
+			if (shell_words(lines[m], words))
+				depth += nesting_change(words);
+			if (depth > 0)
+				opened = true;
+			if (opened && depth <= 0)
+				break;
+		}
+		runs[name] = found;
+		n = m;
+	}
+	/* A function that runs it, called from another function that's
+	 * called: one level of calls is enough for an autostart script. */
+	std::set<int> entry_lines;
+	for (const ScriptEntry &e : script_entries(script)) {
+		if (!e.enabled)
+			continue;
+		bool direct = !e.function && e.program == program;
+		bool via = e.function && runs.count(e.program) && runs[e.program];
+		if (direct || via) {
+			out.lines.push_back(e);
+			entry_lines.insert(e.line);
+			if (via)
+				out.functions.push_back(e.program);
+		}
+	}
+	for (size_t n = 0; n < lines.size(); ++n) {
+		std::string commented;
+		if (in_body[n] || entry_lines.count(static_cast<int>(n)) ||
+				uncomment(lines[n], commented))
+			continue;
+		if (mentions(lines[n], program))
+			out.elsewhere = true;
+	}
+	/* Run by a function, but no line we can switch calls it. */
+	for (const auto &[name, yes] : runs)
+		if (yes && std::find(out.functions.begin(), out.functions.end(), name) ==
+				out.functions.end()) {
+			bool called = false;
+			for (size_t n = 0; n < lines.size(); ++n) {
+				std::string commented;
+				if (!in_body[n] && !uncomment(lines[n], commented) && mentions(lines[n], name))
+					called = true;
+			}
+			if (called)
+				out.elsewhere = true;
+		}
 	return out;
 }
 

@@ -43,6 +43,23 @@ struct AutostartEntry {
 	bool for_here = true;  /* OnlyShowIn/NotShowIn allow these desktops */
 };
 
+/* How the autostart script starts `program`: the lines that can be
+ * switched off to stop it (its own start lines, and lines calling a
+ * function of the script that runs it), and whether it's also started
+ * some way no line switches (an if block, a pipeline, a function no
+ * line calls). Lines already commented out don't count. */
+struct ScriptStarters {
+	std::vector<ScriptEntry> lines;
+	std::vector<std::string> functions;  /* of those lines: the functions */
+	bool elsewhere = false;
+};
+ScriptStarters script_starters(std::string_view script, const std::string &program);
+
+/* The command a start line runs, for <startup>: without the final "&" and
+ * a "command -v prog >/dev/null 2>&1 &&" guard ("swaybg -c '#000' &" ->
+ * "swaybg -c '#000'"). */
+std::string script_start_command(std::string_view line);
+
 /* Parse one .desktop file's text into `e` (its file/path/user unset);
  * false if it has no [Desktop Entry] group or no Exec. */
 bool parse_autostart(std::string_view text, const std::vector<std::string> &desktops,
