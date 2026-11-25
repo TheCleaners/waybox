@@ -396,6 +396,39 @@ act on a window use the focused one.
 *ToggleDecorations*
 	Turn server-side decorations on or off.
 
+*If*
+	Run *<then>*'s actions if the conditions hold, else *<else>*'s.
+	The conditions sit in the action itself, or in *<query>* elements,
+	all of which must hold; *<query target="focus">* asks about the focused
+	window instead of the one the action is for. The conditions:
+	- *<shaded>*, *<maximized>*, *<maximizedhorizontal>*,
+	  *<maximizedvertical>*, *<iconified>*, *<fullscreen>*, *<focused>*,
+	  *<focusable>*, *<undecorated>*, *<omnipresent>*, *<urgent>*:
+	  *yes* or *no*. Waybox keeps no urgency, so *<urgent>yes</urgent>*
+	  never holds.
+	- *<desktop>*: a number, *current*, *other* or *last*.
+	- *<activedesktop>*: the number of the desktop shown. It holds even
+	  with no window.
+	- *<monitor>*: a number, counting the monitors in the order *waybox-msg
+	  get_outputs* lists them.
+	- *<title>*, *<class>*, *<name>*, *<role>*, *<type>*: text to match,
+	  with *type="pattern"* (a pattern with *\** and *?*, the default),
+	  *"regex"* (found anywhere) or *"exact"*. Wayland programs have one
+	  name, their app id, so *<class>* and *<name>* both match it. *<role>*
+	  matches the window's tag, and *<type>* is *dialog* for a window with
+	  a parent, *normal* otherwise.
+
+	An *If* never ends its own list: the actions after it still run.
+
+*ForEach*
+	The same test on every window, oldest first. For each window, *<then>*
+	or *<else>* runs with that window as the one they act on. If no window
+	matched, *<none>* runs.
+
+*Stop*
+	The actions after it in its list don't run. In a *ForEach*, it also
+	ends the loop over windows.
+
 *GoToDesktop*
 	Go to the desktop in *<to>*: a number, *left*/*previous*,
 	*right*/*next* or *last*. *<wrap>no</wrap>* stops at the first and last

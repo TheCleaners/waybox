@@ -29,6 +29,7 @@ wb_src = [
   render_src,
   files(
     'action_xml.cpp',
+    'conditions.cpp',
     'config.cpp',
     'cursor.cpp',
     'decoration.cpp',

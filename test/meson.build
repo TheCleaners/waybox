@@ -157,6 +157,14 @@ integrations_test = executable(
   )
 test('integrations', integrations_test)
 
+# Openbox's If/ForEach conditions: matching, desktops, targets.
+conditions_test = executable(
+  'conditions_test',
+  ['conditions_test.cpp', 'wb_test_main.cpp', conditions_src, applications_src, action_src],
+  include_directories: [inc_dir],
+  )
+test('conditions', conditions_test)
+
 # Session restore's store: JSON, limits, expiry, where a window goes back.
 session_store_test = executable(
   'session_store_test',
@@ -260,7 +268,8 @@ if not get_option('tests_only')
   menu_parse_test = executable(
     'menu_parse_test',
     ['menu_parse_test.cpp', 'wb_test_main.cpp', menu_src,
-     action_src, files('../waybox/menu_parse.cpp', '../waybox/action_xml.cpp')],
+     action_src, conditions_src, applications_src,
+     files('../waybox/menu_parse.cpp', '../waybox/action_xml.cpp')],
     include_directories: [inc_dir],
     dependencies: [libxml2],
     )
@@ -675,6 +684,7 @@ if python.found() and not get_option('tests_only')
     ['python_ipc', 'python_ipc_test.py', [touch_client, python_src_dir], 60],
     ['desktop_context', 'desktop_context_test.py', [desktop_client, vpointer_client], 60],
     ['openbox_actions', 'openbox_actions_test.py', [touch_client], 60],
+    ['if_foreach', 'if_foreach_test.py', [touch_client], 60],
     ['key_chain', 'key_chain_test.py', [], 60],
     ['lock_popup', 'lock_popup_test.py', [popup_client, lock_client], 60],
     ['keymap_reconfigure', 'keymap_reconfigure_test.py', [], 60],

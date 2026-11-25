@@ -17,12 +17,15 @@ namespace {
 /* The single source of truth for known actions. Adding a row here is all that
  * is needed to register a new action name for parsing; wire its behaviour into
  * run_action() to make it do something. */
-constexpr std::array<ActionSpec, 37> kRegistry = {{
+constexpr std::array<ActionSpec, 40> kRegistry = {{
 	{"Execute",        ActionType::Execute,        true},
 	{"NextWindow",     ActionType::NextWindow,     false},
 	{"PreviousWindow", ActionType::PreviousWindow, false},
 	{"Close",          ActionType::Close,          false},
 	{"Focus",          ActionType::Focus,          false},
+	{"If",             ActionType::If,             false},
+	{"ForEach",        ActionType::ForEach,        false},
+	{"Stop",           ActionType::Stop,           false},
 	{"ToggleMaximize", ActionType::ToggleMaximize, false},
 	/* Openbox's maximize family: each takes <direction>; the Full, Horz and
 	 * Vert names fix it. ToggleMaximizeHorizontal/Vertical: Waybox's earlier

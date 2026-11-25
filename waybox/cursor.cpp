@@ -732,6 +732,8 @@ static bool run_mouse_bindings(struct wb_server *server, wb::MouseContext contex
 		for (const wb::Action &action : actions) {
 			if (window != nullptr && !toplevel_alive(server, window))
 				break;  /* closed by an earlier action */
+			if (action.type == wb::ActionType::Stop)
+				break;  /* the rest of this binding's actions don't run */
 			wb::run_action(action, server);
 			if (server->config != config)
 				break;  /* reconfigured: the rest belongs to the old config */
