@@ -658,6 +658,21 @@ static void parse_shortcuts_inhibit(struct wb_config *config, xmlXPathContextPtr
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><bell flash="yes|no" command="..."/>. */
+static void parse_bell(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:bell", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *n = object->nodesetval->nodeTab[0];
+		if (auto v = parse_bool((const char *) get_attribute(n, "flash")))
+			config->bell_flash = *v;
+		config->bell_command = (const char *) get_attribute(n, "command");
+	}
+	xmlXPathFreeObject(object);
+}
+
 /* Parse <waybox><tearing allow="yes|no"/>. */
 static void parse_tearing(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
@@ -911,6 +926,7 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	parse_idle(config, ctxt);
 	parse_tearing(config, ctxt);
 	parse_shortcuts_inhibit(config, ctxt);
+	parse_bell(config, ctxt);
 	parse_ipc(config, ctxt);
 	parse_input_method(config, ctxt);
 

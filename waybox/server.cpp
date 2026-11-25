@@ -15,6 +15,7 @@
 #include "ipc.h"
 #include "fixes.h"
 #include "toplevel_drag.h"
+#include "bell.h"
 #include "startup_supervisor.h"
 #include "waybox/workspace.h"
 #include "waybox/xwayland.h"
@@ -371,6 +372,7 @@ bool wb_start_server(struct wb_server* server) {
 	init_shortcuts_inhibit(server);    /* after the seat */
 	init_fixes(server);
 	init_toplevel_drag(server);
+	init_bell(server);
 	init_input_method(server);
 
 	wlr_fractional_scale_manager_v1_create(server->wl_display, 1);
@@ -416,6 +418,7 @@ bool wb_terminate(struct wb_server* server) {
 	finish_input_method(server);
 
 	server->desktop_popup.reset();  /* its timer is on the event loop */
+	finish_bell(server);  /* its flashes' timers too */
 	seat_finish_test_touch(server);
 	server->cursor.reset();
 	server->new_xdg_decoration.disconnect(); /* wb_decoration_destroy */

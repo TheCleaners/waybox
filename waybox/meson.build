@@ -38,6 +38,7 @@ wb_src = [
     'ipc.cpp',
     'fixes.cpp',
     'toplevel_drag.cpp',
+    'bell.cpp',
     'input_method.cpp',
     'layer_shell.cpp',
     'main.cpp',
