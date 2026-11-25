@@ -38,6 +38,7 @@ int unsaved_count(Ui *ui) {
 	n += now.startup != ui->shown.startup;
 	n += now.input_method != ui->shown.input_method;
 	n += bindings_unsaved(ui);
+	n += sources_unsaved(ui);
 	return n;
 }
 
@@ -99,6 +100,12 @@ void on_save(GtkButton *, gpointer data) {
 	ui->shown = now;
 	rows_saved(ui);
 	bindings_saved(ui);
+	if (!save_sources(ui, &err)) {
+		refresh_save_state(ui);
+		set_status(ui, std::string(_("Saved rc.xml, but not the autostart changes: ")) + err);
+		return;
+	}
+	sources_saved(ui);
 	refresh_save_state(ui);
 	int n = signal_waybox_reload();
 	if (n > 0)
