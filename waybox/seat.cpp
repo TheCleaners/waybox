@@ -1067,6 +1067,40 @@ struct wb_seat *wb_seat_create(struct wb_server *server) {
 		wlr_seat_set_selection(seat->seat, event->source, event->serial);
 	});
 
+	/* Drag-and-drop: wlroots only asks; without this no drag ever started
+	 * (files from a file manager, text, browser tabs). A drag needs the
+	 * button press it comes from, as with every grab. */
+	seat->request_start_drag.connect(&seat->seat->events.request_start_drag,
+			[seat](void *data) {
+		auto *event = static_cast<struct wlr_seat_request_start_drag_event *>(data);
+		if (wlr_seat_validate_pointer_grab_serial(seat->seat, event->origin,
+				event->serial)) {
+			wlr_seat_start_pointer_drag(seat->seat, event->drag, event->serial);
+			return;
+		}
+		wlr_log(WLR_DEBUG, "%s", "Refused a drag without a button held");
+		if (event->drag->source != nullptr)
+			wlr_data_source_destroy(event->drag->source);
+	});
+	seat->start_drag.connect(&seat->seat->events.start_drag, [seat](void *data) {
+		auto *drag = static_cast<struct wlr_drag *>(data);
+		struct wb_server *server = seat->server;
+		wlr_log(WLR_DEBUG, "wb-drag start icon=%d", drag->icon != nullptr);
+		if (drag->icon != nullptr) {
+			/* Follows the icon surface; destroyed with it. */
+			wlr_scene_drag_icon_create(server->drag_icon_tree, drag->icon);
+			wlr_scene_node_set_position(&server->drag_icon_tree->node,
+					static_cast<int>(server->cursor->cursor->x),
+					static_cast<int>(server->cursor->cursor->y));
+			wlr_scene_node_raise_to_top(&server->drag_icon_tree->node);
+		}
+		seat->drag_destroy.connect(&drag->events.destroy, [seat](void *) {
+			seat->drag_destroy.disconnect();
+			/* The pointer goes back to whatever is under it now. */
+			cursor_refresh_focus(seat->server);
+		});
+	});
+
 	return seat;
 }
 

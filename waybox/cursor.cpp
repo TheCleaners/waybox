@@ -240,6 +240,10 @@ static void process_cursor_resize(struct wb_server *server) {
 }
 
 static void process_cursor_motion(struct wb_server *server, uint32_t time) {
+	if (server->seat->seat->drag != nullptr)
+		wlr_scene_node_set_position(&server->drag_icon_tree->node,
+				static_cast<int>(server->cursor->cursor->x),
+				static_cast<int>(server->cursor->cursor->y));
 	/* Locked: pointer input only reaches the locker's surfaces. */
 	if (session_locked(server)) {
 		double sx, sy;

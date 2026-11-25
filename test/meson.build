@@ -411,6 +411,17 @@ if python.found() and not get_option('tests_only')
     )
 
   # A program with a popup grab, for the lock-screen test.
+  # Drag-and-drop between two windows, with an icon.
+  dnd_client = executable(
+    'dnd_client',
+    [
+      'integration' / 'dnd_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   popup_client = executable(
     'popup_client',
     [
@@ -459,6 +470,7 @@ if python.found() and not get_option('tests_only')
     ['desktop_popup', 'desktop_popup_test.py', [], 60],
     ['dialogs', 'dialogs_test.py', [dialog_client], 60],
     ['desktops', 'desktops_test.py', [], 90],
+    ['dnd', 'dnd_test.py', [dnd_client, vpointer_client], 60],
     ['edge_tiling', 'edge_tiling_test.py', [], 90],
     ['fixes', 'fixes_test.py', [fixes_client], 60],
     ['foreign_toplevel', 'foreign_toplevel_test.py', [default_rc], 60],

@@ -82,6 +82,8 @@ struct wb_server {
 	struct wlr_scene_tree *toplevel_tree;
 	/* X11 override-redirect windows (menus, tooltips), above toplevels. */
 	struct wlr_scene_tree *unmanaged_tree = nullptr;
+	/* The icon of a drag-and-drop in progress, at the pointer, on top. */
+	struct wlr_scene_tree *drag_icon_tree = nullptr;
 	struct wlr_scene_output_layout *scene_layout;
 	struct wlr_session *session;
 	struct wlr_subcompositor *subcompositor;
