@@ -11,10 +11,14 @@
    freeing the backend and display twice.
 5. A program whose app_id is the path of a FIFO doesn't freeze waybox
    (icon lookup must not open client-named paths).
+6. A panel's popup opening a popup of its own (a tray menu's submenu)
+   doesn't abort waybox.
+7. An application rule with a negative size doesn't abort waybox when
+   the window opens.
 
 Skips (exit 77) without foot or wlrctl, or a headless display.
 
-Usage: robustness_test.py <waybox-binary> <layer_client>
+Usage: robustness_test.py <waybox-binary> <layer_client> <nested_popup_client>
 """
 import os
 import re
@@ -29,10 +33,10 @@ SKIP = 77
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print(__doc__)
         sys.exit(2)
-    waybox, layer_client = sys.argv[1:]
+    waybox, layer_client, nested_popup = sys.argv[1:]
     for tool in ("foot", "wlrctl"):
         if shutil.which(tool) is None:
             print(f"SKIP: {tool} not found", file=sys.stderr)
@@ -183,6 +187,34 @@ def main():
         if not re.search(r"wb-geom mapped \S+ after-fifo", logtext()):
             failures.append("fifo icon: waybox stopped responding (it opened the FIFO)")
     session("fifo", empty_rc, fifo_icon)
+
+    # 6. A submenu of a panel's popup.
+    def nested_panel_popup(spawn, wlrctl, logtext):
+        p = spawn(nested_popup)
+        try:
+            p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            failures.append("nested popup: the client never got its submenu")
+            return
+        if p.returncode != 0:
+            failures.append(f"nested popup: the client failed ({p.returncode})")
+    session("nestedpopup", empty_rc, nested_panel_popup)
+
+    # 7. A rule with a negative size.
+    negsize_rc = """<?xml version="1.0" encoding="UTF-8"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <applications>
+    <application class="negsize"><size><width>-50</width><height>-20</height></size></application>
+  </applications>
+</openbox_config>
+"""
+
+    def negative_size(spawn, wlrctl, logtext):
+        spawn("foot", "-a", "negsize")
+        time.sleep(1.5)
+        if not re.search(r"wb-geom mapped \S+ negsize", logtext()):
+            failures.append("negative size: the window never mapped")
+    session("negsize", negsize_rc, negative_size)
 
     # 4. Startup failure (no usable runtime directory, so no socket): a
     # clean exit, not a double free of the backend and display.

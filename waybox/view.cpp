@@ -106,7 +106,11 @@ void view_set_size(struct wb_toplevel *t, int width, int height) {
 		return;
 	}
 #endif
-	wlr_xdg_toplevel_set_size(t->xdg_toplevel, width, height);
+	/* Never negative (wlroots asserts): an area smaller than the frame
+	 * (huge margins, a tile on a tiny output) gets the smallest size. 0
+	 * keeps its meaning: the program chooses. */
+	wlr_xdg_toplevel_set_size(t->xdg_toplevel, width < 0 ? 1 : width,
+			height < 0 ? 1 : height);
 }
 
 void view_moved(struct wb_toplevel *t) {

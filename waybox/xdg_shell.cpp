@@ -1546,11 +1546,13 @@ static void handle_new_xdg_popup(struct wb_server *server, void *data) {
 	if (xdg_popup->parent) {
 		struct wlr_xdg_surface *parent = wlr_xdg_surface_try_from_wlr_surface(
 			xdg_popup->parent);
-		if (parent != NULL) {
-			struct wlr_scene_tree *parent_tree = static_cast<struct wlr_scene_tree *>(parent->data);
+		/* A popup of a panel's popup (a tray menu's submenu): its parent
+		 * has no tree of ours, and layer_shell.cpp gives it its scene. */
+		struct wlr_scene_tree *parent_tree = parent != NULL
+				? static_cast<struct wlr_scene_tree *>(parent->data) : nullptr;
+		if (parent_tree != nullptr)
 			xdg_popup->base->data = wlr_scene_xdg_surface_create(
 				parent_tree, xdg_popup->base);
-		}
 	}
 
 	auto *popup = new wb_popup{};
