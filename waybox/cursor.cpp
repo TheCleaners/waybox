@@ -298,7 +298,7 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 	{
 		struct wlr_seat *seat = server->seat->seat;
 		struct wb_cursor *c = server->cursor.get();
-		if (c->grab_surface != nullptr && seat->pointer_state.button_count > 0 &&
+		if (c->grab_surface != nullptr && c->buttons_down > 0 &&
 				seat->pointer_state.focused_surface == c->grab_surface &&
 				seat->drag == nullptr) {
 			wlr_seat_pointer_notify_motion(seat, time,
@@ -529,6 +529,13 @@ void wb_cursor::on_button(void *data) {
 void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 	struct wlr_seat *seat = server->seat->seat;
 
+	/* Count every press and release, whatever path handles it below. */
+	if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
+		++buttons_down;
+	} else if (buttons_down > 0 && --buttons_down == 0) {
+		end_grab();
+	}
+
 	/* Locked: no bindings, frames or menus. The button goes to the pointer
 	 * focus (only ever a lock surface), and a press on a lock surface gives it
 	 * keyboard focus (e.g. the locker on another monitor). */
@@ -662,14 +669,16 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 	}
 
 	wlr_seat_pointer_notify_button(seat, event->time_msec, event->button, event->state);
-	if (seat->pointer_state.button_count == 0) {
-		this->grab_surface = nullptr;
-	} else if (event->state == WL_POINTER_BUTTON_STATE_PRESSED &&
-			seat->pointer_state.button_count == 1) {
-		/* The first button down: the surface under it keeps the pointer. */
+	if (event->state == WL_POINTER_BUTTON_STATE_PRESSED && this->buttons_down == 1 &&
+			seat->pointer_state.focused_surface != nullptr) {
+		/* The first button down: the surface under it keeps the pointer
+		 * (until the last button is up, or it goes away). */
+		this->end_grab();
 		this->grab_surface = seat->pointer_state.focused_surface;
 		this->grab_origin_x = cursor->x - seat->pointer_state.sx;
 		this->grab_origin_y = cursor->y - seat->pointer_state.sy;
+		this->grab_surface_destroy.connect(&this->grab_surface->events.destroy,
+				[this](void *) { this->end_grab(); });
 	}
 	if (event->state == WL_POINTER_BUTTON_STATE_RELEASED) {
 		/* Dropped on an edge zone: tile there. */

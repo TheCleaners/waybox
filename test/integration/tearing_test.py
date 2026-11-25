@@ -39,13 +39,22 @@ def main():
     def logtext_of(tag):
         return open(os.path.join(workdir, f"waybox-{tag}.log")).read()
 
+    send_env = {}
+
+    def cenv_of(_):
+        return send_env["env"]
+
     def session(tag, allow, steps):
         cfg = os.path.join(workdir, f"cfg-{tag}")
         os.makedirs(os.path.join(cfg, "waybox"))
         with open(os.path.join(cfg, "waybox", "rc.xml"), "w") as f:
             f.write(f"""<?xml version="1.0" encoding="UTF-8"?>
 <openbox_config xmlns="http://openbox.org/3.4/rc">
-  <waybox>{'<tearing allow="yes"/>' if allow else ''}</waybox>
+  <keyboard>
+    <keybind key="W-1"><action name="GoToDesktop"><to>1</to></action></keybind>
+    <keybind key="W-2"><action name="GoToDesktop"><to>2</to></action></keybind>
+  </keyboard>
+  <waybox><virtualInput allow="always"/>{'<tearing allow="yes"/>' if allow else ''}</waybox>
 </openbox_config>
 """)
         runtime = os.path.join(workdir, f"run-{tag}")
@@ -88,6 +97,8 @@ def main():
             found = re.findall(r"wb-tearing-wanted \S+ (\d)", logtext())
             return found[-1] if found else "0"
 
+        send_env["env"] = dict(env, WAYLAND_DISPLAY=sock)
+
         def send(cmd):
             client.stdin.write(cmd + "\n")
             client.stdin.flush()
@@ -127,6 +138,18 @@ def main():
         send("async")
         if wanted() != "1":
             failures.append("switching back to async didn't bring tearing back")
+        if shutil.which("wtype"):
+            # On another desktop (hidden): what's shown mustn't tear.
+            subprocess.run(["wtype", "-M", "logo", "2", "-m", "logo"],
+                           env=cenv_of(send), capture_output=True, timeout=5)
+            time.sleep(0.6)
+            if wanted() != "0":
+                failures.append("a fullscreen game on another desktop still makes the output tear")
+            subprocess.run(["wtype", "-M", "logo", "1", "-m", "logo"],
+                           env=cenv_of(send), capture_output=True, timeout=5)
+            time.sleep(0.6)
+            if wanted() != "1":
+                failures.append("back on the game's desktop, it didn't tear again")
         send("windowed")
         if wanted() != "0":
             failures.append("a window that left fullscreen still tears")

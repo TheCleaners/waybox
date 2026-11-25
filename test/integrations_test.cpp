@@ -127,3 +127,18 @@ WB_TEST(integration_input_method_kind_and_env) {
 	WB_CHECK(in->env.size() == 2);
 	WB_CHECK(in->env[0].first == "XMODIFIERS" && in->env[0].second == "@im=fcitx");
 }
+
+WB_TEST(options_keep_the_rest_of_the_command_as_written) {
+	auto in = *wb::parse_integration("swaybg",
+			"[Integration]\nName=swaybg\nExec=swaybg -c '#303030'\n"
+			"[Option image]\nFlag=-i\n[Option mode]\nFlag=-m\n");
+	/* ~ and $VAR stay expandable; untouched words keep their quoting. */
+	WB_CHECK(wb::write_options(in, "swaybg -c '#303030'", {{"image", "~/Pictures/bg.jpg"}}) ==
+			"swaybg -c '#303030' -i ~/Pictures/bg.jpg");
+	WB_CHECK(wb::write_options(in, "swaybg -i $HOME/a.png -c '#303030'",
+			{{"image", "$HOME/a.png"}, {"mode", "fill"}}) ==
+			"swaybg -i $HOME/a.png -c '#303030' -m fill");
+	/* A value with spaces is quoted; a dropped option leaves no gap. */
+	WB_CHECK(wb::write_options(in, "swaybg -i x.png -m fit", {{"image", "My Pictures/b.png"}}) ==
+			"swaybg -i 'My Pictures/b.png'");
+}

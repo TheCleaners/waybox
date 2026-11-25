@@ -112,6 +112,8 @@ struct Parser {
 				unsigned cp;
 				if (!hex4(cp))
 					return std::nullopt;
+				if (cp >= 0xdc00 && cp < 0xe000)
+					return std::nullopt;  /* a low surrogate with no high one */
 				if (cp >= 0xd800 && cp < 0xdc00) {  /* a surrogate pair */
 					unsigned lo;
 					if (!lit("\\u") || !hex4(lo) || lo < 0xdc00 || lo >= 0xe000)
@@ -208,7 +210,45 @@ struct Parser {
 	}
 };
 
-void dump_string(std::string &out, const std::string &s) {
+/* Length of the valid UTF-8 sequence at s[i], or 0 if it isn't one
+ * (overlong forms, surrogates and values past U+10FFFF included). */
+size_t utf8_len(const std::string &s, size_t i) {
+	unsigned char c = static_cast<unsigned char>(s[i]);
+	size_t len;
+	unsigned cp;
+	if (c < 0x80) return 1;
+	if ((c & 0xe0) == 0xc0) { len = 2; cp = c & 0x1f; }
+	else if ((c & 0xf0) == 0xe0) { len = 3; cp = c & 0x0f; }
+	else if ((c & 0xf8) == 0xf0) { len = 4; cp = c & 0x07; }
+	else return 0;
+	if (i + len > s.size())
+		return 0;
+	for (size_t k = 1; k < len; ++k) {
+		unsigned char cc = static_cast<unsigned char>(s[i + k]);
+		if ((cc & 0xc0) != 0x80)
+			return 0;
+		cp = (cp << 6) | (cc & 0x3f);
+	}
+	static const unsigned min[] = {0, 0, 0x80, 0x800, 0x10000};
+	if (cp < min[len] || cp > 0x10ffff || (cp >= 0xd800 && cp < 0xe000))
+		return 0;
+	return len;
+}
+
+void dump_string(std::string &out, const std::string &raw) {
+	/* Strings from clients (window titles: X11 ones are often Latin-1)
+	 * needn't be UTF-8; JSON must be: bad bytes become U+FFFD. */
+	std::string s;
+	for (size_t i = 0; i < raw.size();) {
+		size_t n = utf8_len(raw, i);
+		if (n == 0) {
+			s += "\xef\xbf\xbd";
+			++i;
+		} else {
+			s.append(raw, i, n);
+			i += n;
+		}
+	}
 	out += '"';
 	for (unsigned char c : s) {
 		switch (c) {
