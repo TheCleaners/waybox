@@ -219,7 +219,7 @@ bool wb_test_renderer_lost(struct wb_server *server) {
 static void init_color_management(struct wb_server *server) {
 #if WLR_CHECK_VERSION(0, 20, 0)
 	if (!server->renderer->features.input_color_transform) {
-		wlr_log(WLR_INFO, "%s", _("Colour management needs the Vulkan renderer"));
+		wlr_log(WLR_INFO, "%s", _("Color management needs the Vulkan renderer"));
 		return;
 	}
 	const enum wp_color_manager_v1_render_intent intents[] = {
@@ -246,7 +246,7 @@ static void init_color_management(struct wb_server *server) {
 	free(primaries);
 	wlr_color_representation_manager_v1_create_with_renderer(server->wl_display, 1,
 			server->renderer);
-	wlr_log(WLR_INFO, "%s", _("Colour management enabled"));
+	wlr_log(WLR_INFO, "%s", _("Color management enabled"));
 #else
 	(void) server;
 #endif

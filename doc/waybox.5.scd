@@ -82,7 +82,7 @@ turns it off.
 *<policy>* is where new windows go: *Smart* (avoid other windows, the
 default), *Center* or *UnderMouse*. New windows open on the monitor with the
 pointer (X11 windows start from the position they ask for); a dialog opens
-centred over its parent window. *<margins>* keeps
+centered over its parent window. *<margins>* keeps
 space free at the screen edges, in pixels, in addition to the space panels
 reserve.
 
@@ -349,7 +349,7 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 	HDR10: BT.2020 primaries and the PQ transfer function, 10 bits per
 	channel. It needs the Vulkan renderer (the default on real displays;
 	see *WLR_RENDERER* in *waybox*(1)) and an output that supports HDR10; otherwise, or if the output refuses it,
-	the output stays in SDR and the log says why. Colour-managed programs
+	the output stays in SDR and the log says why. Color-managed programs
 	(see *waybox*(1)) then show HDR content on it.
 
 *<outputs>*

@@ -39,7 +39,7 @@ For background, see
   desktops through `ext-workspace-v1` (Waybar's `ext/workspaces` module).
 - **X11 programs** through Xwayland, started on first use: Steam, Wine,
   older toolkits. X11 windows get the same frames, placement, desktops,
-  focus and actions as Wayland ones; dialogs open centred over their parent,
+  focus and actions as Wayland ones; dialogs open centered over their parent,
   and menus and tooltips appear where the program puts them. Turn it off
   with `<xwayland enabled="no"/>`.
 - **Window menu**: right-click a title bar or press Alt+Space to send the
@@ -72,7 +72,7 @@ For background, see
 | Area | Protocols |
 |---|---|
 | Displays | `wlr-output-management` (wlr-randr, kanshi), per-monitor settings in `rc.xml` (`<waybox><outputs>`), `wp-fractional-scale` (sharp text in foot and others at 1.25×, 1.5× and so on), `xdg-output`, `gamma-control`, `output-power-management` (screens off when idle: `swayidle timeout 600 'wlopm --off \*' resume 'wlopm --on \*'`) |
-| Shell | `xdg-shell`, `xdg-decoration`, `layer-shell`, `xdg-activation`, `xdg-toplevel-icon`, `xdg-dialog` (modal dialogs take focus from their window), `xdg-foreign` (dialogs of other programs, such as portal file choosers, centred over their window), `xdg-toplevel-drag` (browser tabs torn off into a window follow the pointer), `xdg-toplevel-tag` (rules can match a window's stable tag), `xdg-system-bell` (a flash and/or a command, if set), `xdg-session-management` (windows of programs that ask reopen where they were; opt out with `<sessionRestore enabled="no"/>`) |
+| Shell | `xdg-shell`, `xdg-decoration`, `layer-shell`, `xdg-activation`, `xdg-toplevel-icon`, `xdg-dialog` (modal dialogs take focus from their window), `xdg-foreign` (dialogs of other programs, such as portal file choosers, centered over their window), `xdg-toplevel-drag` (browser tabs torn off into a window follow the pointer), `xdg-toplevel-tag` (rules can match a window's stable tag), `xdg-system-bell` (a flash and/or a command, if set), `xdg-session-management` (windows of programs that ask reopen where they were; opt out with `<sessionRestore enabled="no"/>`) |
 | Security | `ext-session-lock` (swaylock); virtual keyboard and pointer, ignored while locked by default (`<virtualInput>`); `security-context` (programs in Flatpak and other sandboxes don't get capture, input injection, background clipboard, window control, layer-shell, locking or output control) |
 | Taskbars | `wlr-foreign-toplevel-management`, `ext-foreign-toplevel-list`, `ext-workspace` (desktops in Waybar) |
 | Input | touchscreens (touch for programs that use it; elsewhere, and on titlebars and menus, a finger works as the pointer), `pointer-gestures` (touchpad swipe, pinch and hold reach the window under the pointer), `pointer-constraints`, `relative-pointer` (pointer lock for games, held only while the window has keyboard focus), `pointer-warp` (a window with the pointer in it may move it within itself); `text-input-v3` and `input-method-v2` (input methods such as fcitx5 and ibus, with their candidate popups at the text cursor; wbconf can start one and set the variables programs need: `<waybox><inputMethod>`) |
@@ -80,7 +80,7 @@ For background, see
 | Capture | `ext-image-copy-capture` (grim, screen recorders), with whole outputs and single windows as sources (window capture needs wlroots 0.20); `wlr-screencopy` for older tools |
 | X11 | Xwayland (lazy start, `DISPLAY` exported to the session) |
 | Graphics | `alpha-modifier` (a program sets a surface's opacity), `linux-dmabuf` v4, `linux-drm-syncobj` (explicit sync, on the DRM backend), `drm-lease` (VR headsets for SteamVR and Monado; headsets are kept off the desktop), `tearing-control` (fullscreen games with vsync off; opt-in: `<waybox><tearing allow="yes"/>`) |
-| Colour | `color-management`, `color-representation`, and HDR10 output (`<waybox><hdr>`), with the Vulkan renderer (the default on real displays) and wlroots 0.20 |
+| Color | `color-management`, `color-representation`, and HDR10 output (`<waybox><hdr>`), with the Vulkan renderer (the default on real displays) and wlroots 0.20 |
 | Keyboard shortcuts | `keyboard-shortcuts-inhibit` and, for X11 programs, `xwayland-keyboard-grab` (VM viewers, remote desktops and games that grab the keyboard take Alt+Tab and the like while focused; Super+Escape takes them back) |
 | Other | `wl_fixes` v2 (clients can free registries, and acknowledge removed globals such as unplugged outputs instead of risking a disconnect), `presentation-time`, `viewporter`, `single-pixel-buffer`, `content-type`, `cursor-shape`, `idle-notify`, `idle-inhibit` |
 
@@ -178,7 +178,7 @@ installed from [`data/`](data). The session script falls back to Openbox's
 files if it finds no Waybox ones.
 
 The format follows Openbox. A `<waybox>` block holds settings specific to this
-fork: menu behaviour, switcher options, titlebar sizing, and optionally
+fork: menu behavior, switcher options, titlebar sizing, and optionally
 programs to start with the session (restarted if they crash) and switching
 the screens off when idle. The shipped
 [`rc.xml`](data/rc.xml) is commented throughout. To edit settings in a GUI,
