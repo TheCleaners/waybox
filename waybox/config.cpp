@@ -577,6 +577,21 @@ static void parse_edge_tiling(struct wb_config *config, xmlXPathContextPtr ctxt)
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><sessionRestore enabled="yes|no"/>. */
+static void parse_session_restore(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:sessionRestore", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *node = object->nodesetval->nodeTab[0];
+		if (node != nullptr)
+			if (auto v = parse_bool((const char *) get_attribute(node, "enabled")))
+				config->session_restore = *v;
+	}
+	xmlXPathFreeObject(object);
+}
+
 /* Parse <waybox><startup><program ...>command</program></startup>. */
 static void parse_startup(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
@@ -952,6 +967,7 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	parse_virtual_input(config, ctxt);
 	parse_xwayland(config, ctxt);
 	parse_edge_tiling(config, ctxt);
+	parse_session_restore(config, ctxt);
 	parse_hdr(config, ctxt);
 	parse_outputs(config, ctxt);
 	parse_titlebar(config, ctxt);

@@ -139,6 +139,10 @@ struct wb_config {
 		int range = 10;
 	} edge_tiling;
 
+	/* rc.xml <waybox><sessionRestore enabled="yes|no"/>: programs that ask
+	 * (xdg-session-management) get their windows back where they were. */
+	bool session_restore = true;
+
 	/* rc.xml <waybox><titlebar ...> server-side-decoration tuning. A value of
 	 * -1 means "unset" (fall back to a sensible default derived from the
 	 * theme/font); see frame_metrics() in decoration.cpp. */

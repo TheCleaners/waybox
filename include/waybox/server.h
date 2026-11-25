@@ -163,6 +163,7 @@ struct wb_server {
 	std::unique_ptr<wb::MenuFile> client_menu;
 	std::unique_ptr<wb::MenuFile> script_menu;  /* the one wb.show_menu opened */
 	std::unique_ptr<wb::ApplicationsMenu> applications_menu;  /* <menu type="applications"> */
+	struct wb_session_state *sessions = nullptr;  /* xdg-session-management */
 	struct wb_toplevel *menu_target = nullptr;
 
 	/* The toplevel whose titlebar button is currently held down (for the

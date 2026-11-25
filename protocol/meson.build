@@ -41,10 +41,13 @@ protocols = [
   'wlr-layer-shell-unstable-v1.xml',
   'wlr-output-power-management-unstable-v1.xml',
   'wlr-data-control-unstable-v1.xml',
+  # Vendored: newer than the wayland-protocols Waybox needs.
+  'xdg-session-management-v1.xml',
 ]
 
 client_protocols = [
   [wl_protocol_dir, 'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml'],
+  'xdg-session-management-v1.xml',
   'wlr-layer-shell-unstable-v1.xml',
 ]
 

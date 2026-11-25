@@ -33,6 +33,7 @@
 #include "waybox/menu_widget.hpp"
 #include "waybox/switcher_widget.hpp"
 #include "waybox/xdg_shell.h"
+#include "waybox/xdg_session.h"
 
 void wb_spawn(const char *cmd) {
 	if (cmd == NULL || cmd[0] == '\0') {
@@ -450,6 +451,7 @@ bool wb_start_server(struct wb_server* server) {
 	init_shortcuts_inhibit(server);    /* after the seat */
 	init_fixes(server);
 	init_toplevel_drag(server);
+	init_xdg_session(server);  /* session restore */
 	init_bell(server);
 	init_stall_watch(server);
 	init_input_method(server);
@@ -489,6 +491,7 @@ bool wb_terminate(struct wb_server* server) {
 	startup_finish(server);  /* end the <startup> programs */
 	ipc_finish(server);
 	finish_idle(server);
+	finish_xdg_session(server);  /* saves the windows while they're there */
 	wl_display_destroy_clients(server->wl_display);
 	finish_session_lock(server);
 	workspace_finish(server);
