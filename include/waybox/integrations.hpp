@@ -92,6 +92,18 @@ const Integration *match_integration(const std::vector<Integration> &all,
 /* The programs in `names` that a shell script starts (a word of a line
  * that isn't a comment): to warn that one in the startup list is also in
  * the autostart script and would run twice. */
+/* What wbconf says about a program in its list. The switch is only
+ * Waybox's own startup list; the user's autostart script may start the
+ * program as well, and either way that should be said. */
+struct ProgramStatus {
+	bool not_installed = false;
+	bool running = false;
+	bool twice = false;        /* switched on and in the script too */
+	bool from_script = false;  /* switched off, started by the script */
+};
+ProgramStatus program_status(bool installed, bool running, bool in_script,
+		bool switched_on);
+
 std::vector<std::string> programs_in_script(std::string_view script,
 		const std::vector<std::string> &names);
 

@@ -52,18 +52,23 @@ void program_status(Ui *ui, Ui::ProgramRow *row) {
 		return;
 	std::string binary = row->in ? row->in->binary
 		: wb::startup_name("", gtk_editable_get_text(GTK_EDITABLE(row->command)));
+	bool scripted = std::find(ui->in_autostart.begin(), ui->in_autostart.end(),
+			binary) != ui->in_autostart.end();
+	wb::ProgramStatus st = wb::program_status(row->in == nullptr || installed(binary),
+			is_running(ui, binary), scripted, gtk_switch_get_active(row->on));
 	std::string text;
-	bool warn = false;
-	if (row->in != nullptr && !installed(binary))
-		text = _("Not installed");
-	else if (is_running(ui, binary))
-		text = _("Running");
-	if (std::find(ui->in_autostart.begin(), ui->in_autostart.end(), binary) !=
-			ui->in_autostart.end() && gtk_switch_get_active(row->on)) {
-		text += std::string(text.empty() ? "" : " · ") +
-				_("also started by your autostart script: it would run twice");
-		warn = true;
-	}
+	auto add = [&text](const char *part) {
+		text += std::string(text.empty() ? "" : " · ") + part;
+	};
+	if (st.not_installed)
+		add(_("Not installed"));
+	else if (st.running)
+		add(_("Running"));
+	if (st.twice)
+		add(_("also started by your autostart script: it would run twice"));
+	else if (st.from_script)
+		add(_("started by your autostart script"));
+	bool warn = st.twice;
 	gtk_label_set_text(row->status, text.c_str());
 	gtk_widget_set_visible(GTK_WIDGET(row->status), !text.empty());
 	if (warn)

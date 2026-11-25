@@ -142,3 +142,17 @@ WB_TEST(options_keep_the_rest_of_the_command_as_written) {
 	WB_CHECK(wb::write_options(in, "swaybg -i x.png -m fit", {{"image", "My Pictures/b.png"}}) ==
 			"swaybg -i 'My Pictures/b.png'");
 }
+
+WB_TEST(program_status_says_where_a_program_comes_from) {
+	/* Off in wbconf, started by the autostart script: say so, no warning. */
+	wb::ProgramStatus st = wb::program_status(true, true, true, false);
+	WB_CHECK(st.running && st.from_script && !st.twice);
+	/* On as well: it would run twice. */
+	st = wb::program_status(true, true, true, true);
+	WB_CHECK(st.twice && !st.from_script);
+	/* Only wbconf's: nothing about the script. */
+	st = wb::program_status(true, false, false, true);
+	WB_CHECK(!st.running && !st.twice && !st.from_script);
+	st = wb::program_status(false, false, false, false);
+	WB_CHECK(st.not_installed && !st.running);
+}

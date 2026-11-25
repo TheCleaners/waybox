@@ -355,4 +355,14 @@ std::vector<std::string> programs_in_script(std::string_view script,
 	return {found.begin(), found.end()};
 }
 
+ProgramStatus program_status(bool installed, bool running, bool in_script,
+		bool switched_on) {
+	ProgramStatus st;
+	st.not_installed = !installed;
+	st.running = installed && running;
+	st.twice = in_script && switched_on;
+	st.from_script = in_script && !switched_on;
+	return st;
+}
+
 }  // namespace wb
