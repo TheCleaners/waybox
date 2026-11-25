@@ -13,6 +13,9 @@
  *   Exec=wlsunset -l 51.5 -L -0.1
  *   Binary=wlsunset
  *
+ *   Kind=binding          (run from a key, not at startup)
+ *   Key=W-period          (the key it suggests)
+ *
  *   [Option latitude]
  *   Label=Latitude
  *   Flag=-l
@@ -40,6 +43,11 @@ struct Integration {
 	std::string comment;
 	std::string exec;      /* the default command */
 	std::string binary;    /* to detect it and match commands; Exec's program */
+	/* Kind=binding: a program run from a key (an emoji or clipboard
+	 * picker), not started with the session. Key= suggests the key, in
+	 * rc.xml's syntax ("W-period" is Super+.). */
+	bool binding = false;
+	std::string key;
 	std::vector<IntegrationOption> options;
 	bool operator==(const Integration &) const = default;
 };

@@ -26,7 +26,7 @@ std::string_view trim(std::string_view s) {
 
 int category_rank(const std::string &c) {
 	static const char *const order[] = {"Panel", "Notifications", "Wallpaper",
-			"NightLight", "Idle", "Clipboard", "Tray", "Polkit", "Displays", nullptr};
+			"NightLight", "Idle", "Clipboard", "Pickers", "Tray", "Polkit", "Displays", nullptr};
 	for (int i = 0; order[i] != nullptr; ++i)
 		if (c == order[i])
 			return i;
@@ -66,6 +66,8 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
 			else if (key == "Comment") in.comment = value;
 			else if (key == "Exec") in.exec = value;
 			else if (key == "Binary") in.binary = value;
+			else if (key == "Kind") in.binding = value == "binding";
+			else if (key == "Key") in.key = value;
 		} else if (opt != nullptr) {
 			if (key == "Label") opt->label = value;
 			else if (key == "Flag") opt->flag = value;

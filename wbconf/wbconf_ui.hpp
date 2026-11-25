@@ -124,6 +124,20 @@ struct Ui {
 	std::set<std::string> running;          /* process names running now */
 	std::set<std::string> listed_integrations;  /* ids rc.xml's <startup> uses */
 
+	/* Programs run from a key (Kind=binding: emoji, clipboard pickers): an
+	 * Execute key binding each. */
+	struct BindingRow {
+		const wb::Integration *in = nullptr;
+		std::optional<std::pair<std::string, std::string>> saved;  /* key, command */
+		GtkSwitch *on = nullptr;
+		GtkEntry *key = nullptr;
+		GtkEntry *command = nullptr;
+		GtkLabel *status = nullptr;
+		GtkWidget *details = nullptr;
+	};
+	std::vector<std::unique_ptr<BindingRow>> bindings;
+	std::vector<std::string> bound_keys;  /* every key rc.xml binds */
+
 	/* Live theme preview (redrawn when the theme/fonts change). */
 	GtkWidget *preview = nullptr;
 
@@ -242,6 +256,13 @@ void load_integrations_data(Ui *ui, const wb::WayboxSettings &s);
 std::vector<wb::SettingDef> program_settings(Ui *ui);
 GtkWidget *build_program_block(Ui *ui, const std::string &id);
 GtkWidget *build_other_programs_block(Ui *ui);
+GtkWidget *build_binding_block(Ui *ui, const std::string &id);
+void populate_bindings(Ui *ui, const wb::RcDocument *doc);
+/* The binding rows' changes into `doc`; then what's saved is what's shown. */
+void apply_bindings(Ui *ui, wb::RcDocument &doc);
+void bindings_saved(Ui *ui);
+int bindings_unsaved(Ui *ui);
+bool binding_set(Ui *ui, const std::string &id);
 GtkWidget *make_font_picker(FontPicker *out, GCallback on_change, gpointer user);
 
 /* settings_view.cpp: the searchable list of every setting */

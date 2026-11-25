@@ -1,0 +1,7 @@
+[Integration]
+Name=bemoji
+Category=Pickers
+Comment=Emoji picker: types the emoji you pick (with wofi, fuzzel, rofi or bemenu, and wtype)
+Exec=bemoji -t -n
+Kind=binding
+Key=W-period

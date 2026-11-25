@@ -1015,4 +1015,90 @@ void RcDocument::set(const RcLocation &at, const std::optional<std::string> &val
 	}
 }
 
+namespace {
+
+/* A keybind's command if its only action is Execute (a <command> or
+ * <execute> child), else nullopt. */
+std::optional<std::string> execute_command(xmlNode *keybind) {
+	xmlNode *only = nullptr;
+	for (xmlNode *c = keybind->children; c != nullptr; c = c->next) {
+		if (c->type != XML_ELEMENT_NODE)
+			continue;
+		if (only != nullptr || !is_element(c, "action"))
+			return std::nullopt;
+		only = c;
+	}
+	if (only == nullptr || attr_value(only, "name").value_or("") != "Execute")
+		return std::nullopt;
+	xmlNode *cmd = child_named(only, "command");
+	if (cmd == nullptr)
+		cmd = child_named(only, "execute");
+	if (cmd == nullptr)
+		return std::nullopt;
+	return trimmed(node_text(cmd).value_or(""));
+}
+
+xmlNode *find_keybind(xmlNode *root, const std::string &key) {
+	xmlNode *kb = find_path(root, {"keyboard"});
+	for (xmlNode *c = kb ? kb->children : nullptr; c != nullptr; c = c->next)
+		if (is_element(c, "keybind") && attr_value(c, "key").value_or("") == key)
+			return c;
+	return nullptr;
+}
+
+}  // namespace
+
+std::vector<std::pair<std::string, std::string>> RcDocument::execute_keybinds() const {
+	std::vector<std::pair<std::string, std::string>> out;
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	xmlNode *kb = root ? find_path(root, {"keyboard"}) : nullptr;
+	for (xmlNode *c = kb ? kb->children : nullptr; c != nullptr; c = c->next) {
+		if (!is_element(c, "keybind"))
+			continue;
+		if (auto cmd = execute_command(c))
+			out.emplace_back(attr_value(c, "key").value_or(""), *cmd);
+	}
+	return out;
+}
+
+std::vector<std::string> RcDocument::keybind_keys() const {
+	std::vector<std::string> out;
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	xmlNode *kb = root ? find_path(root, {"keyboard"}) : nullptr;
+	for (xmlNode *c = kb ? kb->children : nullptr; c != nullptr; c = c->next)
+		if (is_element(c, "keybind"))
+			out.push_back(attr_value(c, "key").value_or(""));
+	return out;
+}
+
+void RcDocument::set_keybind(const std::string &key, const std::optional<std::string> &command) {
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	if (root == nullptr || key.empty())
+		return;
+	xmlNode *existing = find_keybind(root, key);
+	if (!command) {
+		if (existing != nullptr && execute_command(existing))
+			unlink_element(existing);
+		return;
+	}
+	xmlNode *bind = existing;
+	if (bind == nullptr) {
+		bind = new_child(ensure_path(root, {"keyboard"}), "keybind");
+		xmlSetProp(bind, xc("key"), xc(key.c_str()));
+	} else {
+		/* What the key did before goes. */
+		for (xmlNode *c = bind->children; c != nullptr;) {
+			xmlNode *next = c->next;
+			xmlUnlinkNode(c);
+			xmlFreeNode(c);
+			c = next;
+		}
+	}
+	xmlNode *action = new_child(bind, "action");
+	xmlSetProp(action, xc("name"), xc("Execute"));
+	xmlNode *cmd = xmlNewNode(action->ns, xc("command"));
+	xmlNodeAddContent(cmd, xc(command->c_str()));
+	xmlAddChild(action, cmd);
+}
+
 }  // namespace wb

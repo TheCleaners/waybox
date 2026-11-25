@@ -279,6 +279,7 @@ const char *integration_category_title(const std::string &category) {
 		{"Panel", N_("Panel")}, {"Notifications", N_("Notifications")},
 		{"Wallpaper", N_("Wallpaper")}, {"NightLight", N_("Night Light")},
 		{"Idle", N_("Idle and Locking")}, {"Clipboard", N_("Clipboard")},
+		{"Pickers", N_("Pickers")},
 		{"Tray", N_("Tray Applets")}, {"Polkit", N_("Password Prompts")},
 		{"Displays", N_("Displays")}, {"Screenshots", N_("Screenshots")},
 	};
@@ -324,7 +325,9 @@ std::vector<wb::SettingDef> program_settings(Ui *ui) {
 		for (const wb::IntegrationOption &o : in.options)
 			d.keywords += " " + o.label;
 		d.type = wb::SettingType::Custom;
-		d.widget = "program:" + in.id;
+		d.widget = (in.binding ? "binding:" : "program:") + in.id;
+		if (in.binding)
+			d.keywords += " key binding shortcut";
 		out.push_back(std::move(d));
 	}
 	wb::SettingDef other;
@@ -364,6 +367,153 @@ GtkWidget *build_other_programs_block(Ui *ui) {
 	g_signal_connect(add, "clicked", G_CALLBACK(on_add_program), ui);
 	gtk_box_append(GTK_BOX(box), add);
 	return box;
+}
+
+/* ---- Programs run from a key ----------------------------------------- */
+
+namespace {
+
+std::optional<std::pair<std::string, std::string>> binding_now(Ui::BindingRow *b) {
+	if (!gtk_switch_get_active(b->on))
+		return std::nullopt;
+	std::string key = gtk_editable_get_text(GTK_EDITABLE(b->key));
+	std::string cmd = gtk_editable_get_text(GTK_EDITABLE(b->command));
+	if (key.empty() || cmd.empty())
+		return std::nullopt;
+	return std::make_pair(key, cmd);
+}
+
+void binding_status(Ui *ui, Ui::BindingRow *b) {
+	std::string text;
+	bool warn = false;
+	if (!installed(b->in->binary)) {
+		text = _("Not installed");
+	} else if (gtk_switch_get_active(b->on)) {
+		std::string key = gtk_editable_get_text(GTK_EDITABLE(b->key));
+		bool ours = b->saved && b->saved->first == key;
+		if (!ours && std::find(ui->bound_keys.begin(), ui->bound_keys.end(), key) !=
+				ui->bound_keys.end()) {
+			text = key + " " + _("already does something else: saving replaces it");
+			warn = true;
+		}
+	}
+	gtk_label_set_text(b->status, text.c_str());
+	gtk_widget_set_visible(GTK_WIDGET(b->status), !text.empty());
+	if (warn)
+		gtk_widget_add_css_class(GTK_WIDGET(b->status), "warning");
+	else
+		gtk_widget_remove_css_class(GTK_WIDGET(b->status), "warning");
+}
+
+void on_binding_changed(Ui::BindingRow *b) {
+	Ui *ui = static_cast<Ui *>(g_object_get_data(G_OBJECT(b->on), "wb-ui"));
+	gtk_widget_set_visible(b->details, gtk_switch_get_active(b->on));
+	binding_status(ui, b);
+}
+
+}  // namespace
+
+GtkWidget *build_binding_block(Ui *ui, const std::string &id) {
+	const wb::Integration *in = nullptr;
+	for (const wb::Integration &i : ui->integrations)
+		if (i.id == id)
+			in = &i;
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+	if (in == nullptr)
+		return box;
+	auto b = std::make_unique<Ui::BindingRow>();
+	b->in = in;
+	GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+	b->on = GTK_SWITCH(gtk_switch_new());
+	gtk_widget_set_valign(GTK_WIDGET(b->on), GTK_ALIGN_CENTER);
+	g_object_set_data(G_OBJECT(b->on), "wb-ui", ui);
+	gtk_box_append(GTK_BOX(head), GTK_WIDGET(b->on));
+	gtk_box_append(GTK_BOX(head), gtk_label_new(_("Bind to a key")));
+	gtk_box_append(GTK_BOX(box), head);
+	b->status = GTK_LABEL(gtk_label_new(""));
+	gtk_label_set_xalign(b->status, 0);
+	gtk_label_set_wrap(b->status, TRUE);
+	gtk_widget_add_css_class(GTK_WIDGET(b->status), "dim-label");
+	gtk_box_append(GTK_BOX(box), GTK_WIDGET(b->status));
+
+	b->details = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+	GtkWidget *grid = section_grid(b->details);
+	grid_label(grid, 0, _("Key:"));
+	b->key = GTK_ENTRY(grid_control(grid, 0, gtk_entry_new()));
+	gtk_entry_set_placeholder_text(b->key, in->key.c_str());
+	GtkWidget *hint = gtk_label_new(_("W Super, A Alt, C Ctrl, S Shift: W-period is Super+."));
+	gtk_widget_add_css_class(hint, "dim-label");
+	gtk_grid_attach(GTK_GRID(grid), hint, 2, 0, 1, 1);
+	b->command = GTK_ENTRY(gtk_entry_new());
+	gtk_widget_set_hexpand(GTK_WIDGET(b->command), TRUE);
+	gtk_entry_set_placeholder_text(b->command, _("Command"));
+	gtk_box_append(GTK_BOX(b->details), GTK_WIDGET(b->command));
+	gtk_box_append(GTK_BOX(box), b->details);
+
+	g_signal_connect_swapped(b->on, "notify::active", G_CALLBACK(on_binding_changed), b.get());
+	g_signal_connect_swapped(b->key, "changed", G_CALLBACK(on_binding_changed), b.get());
+	ui->bindings.push_back(std::move(b));
+	return box;
+}
+
+void populate_bindings(Ui *ui, const wb::RcDocument *doc) {
+	std::vector<std::pair<std::string, std::string>> binds;
+	ui->bound_keys.clear();
+	if (doc != nullptr) {
+		binds = doc->execute_keybinds();
+		ui->bound_keys = doc->keybind_keys();
+	}
+	for (auto &b : ui->bindings) {
+		b->saved.reset();
+		/* Bound already if a key runs this program. */
+		for (const auto &[key, cmd] : binds)
+			if (wb::startup_name("", cmd) == b->in->binary) {
+				b->saved = std::make_pair(key, cmd);
+				break;
+			}
+		gtk_editable_set_text(GTK_EDITABLE(b->key),
+				(b->saved ? b->saved->first : b->in->key).c_str());
+		gtk_editable_set_text(GTK_EDITABLE(b->command),
+				(b->saved ? b->saved->second : b->in->exec).c_str());
+		gtk_switch_set_active(b->on, b->saved.has_value());
+		on_binding_changed(b.get());
+	}
+}
+
+void apply_bindings(Ui *ui, wb::RcDocument &doc) {
+	for (auto &b : ui->bindings) {
+		auto now = binding_now(b.get());
+		if (now == b->saved)
+			continue;
+		if (b->saved)
+			doc.set_keybind(b->saved->first, std::nullopt);
+		if (now)
+			doc.set_keybind(now->first, now->second);
+	}
+}
+
+void bindings_saved(Ui *ui) {
+	for (auto &b : ui->bindings) {
+		b->saved = binding_now(b.get());
+		if (b->saved && std::find(ui->bound_keys.begin(), ui->bound_keys.end(),
+				b->saved->first) == ui->bound_keys.end())
+			ui->bound_keys.push_back(b->saved->first);
+		binding_status(ui, b.get());
+	}
+}
+
+int bindings_unsaved(Ui *ui) {
+	int n = 0;
+	for (auto &b : ui->bindings)
+		n += binding_now(b.get()) != b->saved;
+	return n;
+}
+
+bool binding_set(Ui *ui, const std::string &id) {
+	for (auto &b : ui->bindings)
+		if (b->in->id == id)
+			return b->saved.has_value() || gtk_switch_get_active(b->on);
+	return false;
 }
 
 }  // namespace wbconf

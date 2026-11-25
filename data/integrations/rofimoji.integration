@@ -1,0 +1,7 @@
+[Integration]
+Name=rofimoji
+Category=Pickers
+Comment=Emoji and character picker: types what you pick (with rofi, wofi or fuzzel)
+Exec=rofimoji --action type
+Kind=binding
+Key=W-period
