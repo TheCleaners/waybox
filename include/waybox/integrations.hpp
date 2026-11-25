@@ -14,6 +14,7 @@
  *   Binary=wlsunset
  *
  *   Configure=wlsunset-gui (its own settings tool, if it has one)
+ *   Page=wallpaper        (a page of wbconf's for it, if there's one)
  *
  *   Kind=binding          (run from a key, not at startup)
  *   Key=W-period          (the key it suggests)
@@ -24,6 +25,7 @@
  *   Type=number           (wbconf's widget for it; text if not given)
  *   Min=-90
  *   Max=90
+ *   Default=0             (what the program does without it; shown only)
  *
  * Types: text, file, folder, image, image-folder, image-or-folder, color,
  * choice (with Choices=a,b,c), number (Min=, Max=), and switch: a flag
@@ -49,6 +51,9 @@ struct IntegrationOption {
 	OptionType type = OptionType::Text;
 	std::vector<std::string> choices;  /* Choice */
 	std::optional<double> min, max;    /* Number */
+	/* Default=: what the program does with the option left out
+	 * (swaybg's mode: stretch), shown as such; never written. */
+	std::string default_value;
 	bool operator==(const IntegrationOption &) const = default;
 };
 
@@ -84,6 +89,9 @@ struct Integration {
 	/* Configure=: the program's own settings tool (azote, waypaper,
 	 * blueman-manager), which wbconf offers to open. */
 	std::string configure;
+	/* Page=: a page wbconf has for this kind of program ("wallpaper"),
+	 * shown with its options; where wbconf has none, just the options. */
+	std::string page;
 	bool operator==(const Integration &) const = default;
 };
 

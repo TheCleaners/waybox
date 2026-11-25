@@ -276,3 +276,13 @@ WB_TEST(integration_configure_tool) {
 	auto none = wb::parse_integration("x", "[Integration]\nName=x\nExec=x\n");
 	WB_CHECK(none.has_value() && none->configure.empty());
 }
+
+WB_TEST(integration_page_and_defaults) {
+	auto in = wb::parse_integration("swaybg", "[Integration]\nName=swaybg\nExec=swaybg\n"
+			"Page=wallpaper\n[Option mode]\nFlag=-m\nType=choice\nChoices=fill,stretch\n"
+			"Default=stretch\n");
+	WB_CHECK(in.has_value() && in->page == "wallpaper");
+	WB_CHECK(in->options.size() == 1 && in->options[0].default_value == "stretch");
+	/* A default is shown, never written: the command stays without it. */
+	WB_CHECK(wb::write_options(*in, "swaybg", {}) == "swaybg");
+}

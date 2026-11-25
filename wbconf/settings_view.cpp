@@ -764,7 +764,20 @@ void apply_test_values(Ui *ui, const char *spec) {
 				}
 			}
 		}
-				/* "configure.ID=1": click that program's Configure… button. */
+				/* "wallpaper.ID=PATH" (or random=on|off, every=N, mode=M): use that
+		 * program's wallpaper page, as a click would. */
+		if (eq != std::string::npos && item.rfind("wallpaper.", 0) == 0) {
+			for (auto &p : ui->programs) {
+				if (p->in == nullptr || p->page == nullptr || p->in->page != "wallpaper")
+					continue;
+				std::string prefix = "wallpaper." + p->in->id;
+				if (item.rfind(prefix + "=", 0) == 0)
+					wallpaper_test_choose(p->page.get(), item.substr(eq + 1));
+				else if (item.rfind(prefix + ".", 0) == 0)  /* .random=on, .every=N */
+					wallpaper_test_choose(p->page.get(), item.substr(prefix.size() + 1));
+			}
+		}
+		/* "configure.ID=1": click that program's Configure… button. */
 		if (eq != std::string::npos && item.rfind("configure.", 0) == 0)
 			for (auto &p : ui->programs)
 				if (p->in != nullptr && p->in->id == item.substr(10, eq - 10) &&

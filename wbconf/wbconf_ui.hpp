@@ -179,6 +179,10 @@ struct Ui {
 		GtkWidget *details = nullptr;  /* options and command: shown when on */
 		GtkLabel *status = nullptr;
 		GtkWidget *configure = nullptr;  /* Configure=: its settings tool */
+		/* Page=: wbconf's page for it (pages/), and how it's told the
+		 * options changed. */
+		std::shared_ptr<void> page;
+		std::function<void()> page_refresh;
 		bool syncing = false;
 		bool removed = false;
 		/* Turned on while the autostart script starts it too: asked
@@ -325,6 +329,14 @@ std::vector<std::string> process_args(pid_t pid);
 std::set<std::string> running_processes();
 bool is_running(Ui *ui, const std::string &binary);
 bool installed(const std::string &binary);
+
+/* Integration pages (Page= in an integration file), in pages/: built into
+ * a program's row, from its options; nullptr if wbconf has no such page,
+ * or it doesn't suit the options. */
+GtkWidget *build_integration_page(Ui *ui, Ui::ProgramRow *row);
+GtkWidget *build_wallpaper_page(Ui *ui, Ui::ProgramRow *row);
+void wallpaper_refresh(void *page);
+bool wallpaper_test_choose(void *page, const std::string &what);
 std::string autostart_text();
 void program_status(Ui *ui, Ui::ProgramRow *row);
 void on_program_toggled(GObject *, GParamSpec *, gpointer data);

@@ -120,6 +120,7 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
 			else if (key == "Binary") in.binary = value;
 			else if (key == "Version") in.version_command = value;
 			else if (key == "Configure") in.configure = value;
+			else if (key == "Page") in.page = value;
 			else if (key == "Kind") {
 				in.binding = value == "binding";
 				in.input_method = value == "inputmethod";
@@ -134,6 +135,7 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
 			else if (key == "Flag") opt->flag = value;
 			else if (key == "Hint") opt->hint = value;
 			else if (key == "Type") opt->type = option_type_from_name(value);
+			else if (key == "Default") opt->default_value = value;
 			else if (key == "Choices") {
 				opt->choices.clear();
 				size_t start = 0;
