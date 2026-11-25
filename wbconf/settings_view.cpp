@@ -779,6 +779,13 @@ void apply_test_values(Ui *ui, const char *spec) {
 					wallpaper_test_choose(p->page.get(), item.substr(prefix.size() + 1));
 			}
 		}
+		/* "monitor-make.NAME=TEXT" (-model, -desc): as if the monitor said so. */
+		for (const char *what : {"make", "model", "desc"}) {
+			std::string prefix = std::string("monitor-") + what + ".";
+			if (eq != std::string::npos && item.rfind(prefix, 0) == 0)
+				arranger_test_describe(ui, what, item.substr(prefix.size(), eq - prefix.size()),
+						item.substr(eq + 1));
+		}
 		/* "arrange.NAME=X,Y": drop that monitor at X,Y in the arranger. */
 		if (eq != std::string::npos && item.rfind("arrange.", 0) == 0)
 			if (auto p = wb::parse_position(item.substr(eq + 1)))

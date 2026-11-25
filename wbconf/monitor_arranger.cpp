@@ -151,6 +151,10 @@ std::vector<Drawn> layout(Ui *ui, int width, int height) {
 	return out;
 }
 
+std::string caption_of(const MonitorInfo &i) {
+	return wb::monitor_caption(i.make, i.model, i.description, i.name);
+}
+
 void rounded(cairo_t *cr, double x, double y, double w, double h, double r) {
 	r = std::min({r, w / 2, h / 2});
 	cairo_new_sub_path(cr);
@@ -184,33 +188,61 @@ void draw(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer dat
 		cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, sel ? 0.9 : 0.5);
 		cairo_stroke(cr);
 		cairo_set_dash(cr, nullptr, 0, 0);
-		/* Name, and make and model, as fits. */
-		/* The widget's own font, not cairo's default. */
-		PangoLayout *pl = gtk_widget_create_pango_layout(GTK_WIDGET(area), nullptr);
-		char *name = g_markup_escape_text(m.name.c_str(), -1);
-		std::string text = "<b>" + std::string(name) + "</b>";
-		g_free(name);
-		if (!m.info.description.empty() && d.h > 44) {
-			char *desc = g_markup_escape_text(m.info.description.c_str(), -1);
-			text += "\n<small>" + std::string(desc) + "</small>";
-			g_free(desc);
-		}
-		if (!d.enabled)
-			text += std::string("\n<small>") + _("Off") + "</small>";
-		pango_layout_set_markup(pl, text.c_str(), -1);
-		pango_layout_set_alignment(pl, PANGO_ALIGN_CENTER);
-		pango_layout_set_width(pl, static_cast<int>((d.w - 8) * PANGO_SCALE));
-		pango_layout_set_height(pl, static_cast<int>((d.h - 8) * PANGO_SCALE));
-		pango_layout_set_ellipsize(pl, PANGO_ELLIPSIZE_END);
+		/* The name on one line; under it, make and model (or "Off") in as
+		 * many lines as fit, broken anywhere if a word is too long; each
+		 * cut short with "…". The full text is in the tooltip. */
+		double inner_w = d.w - 10, inner_h = d.h - 8;
+		if (inner_w < 8 || inner_h < 8)
+			continue;
+		PangoLayout *title = gtk_widget_create_pango_layout(GTK_WIDGET(area), m.name.c_str());
+		PangoAttrList *bold = pango_attr_list_new();
+		pango_attr_list_insert(bold, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
+		pango_layout_set_attributes(title, bold);
+		pango_attr_list_unref(bold);
+		pango_layout_set_alignment(title, PANGO_ALIGN_CENTER);
+		pango_layout_set_width(title, static_cast<int>(inner_w * PANGO_SCALE));
+		pango_layout_set_ellipsize(title, PANGO_ELLIPSIZE_END);
+		pango_layout_set_single_paragraph_mode(title, TRUE);
 		int tw, th;
-		pango_layout_get_pixel_size(pl, &tw, &th);
+		pango_layout_get_pixel_size(title, &tw, &th);
+		std::string caption = d.enabled ? caption_of(m.info) : _("Off");
+		PangoLayout *sub = nullptr;
+		int sw = 0, sh = 0;
+		if (!caption.empty() && inner_h - th >= 10) {
+			sub = gtk_widget_create_pango_layout(GTK_WIDGET(area), caption.c_str());
+			PangoAttrList *small = pango_attr_list_new();
+			pango_attr_list_insert(small, pango_attr_scale_new(PANGO_SCALE_SMALL));
+			pango_layout_set_attributes(sub, small);
+			pango_attr_list_unref(small);
+			pango_layout_set_alignment(sub, PANGO_ALIGN_CENTER);
+			pango_layout_set_width(sub, static_cast<int>(inner_w * PANGO_SCALE));
+			pango_layout_set_wrap(sub, PANGO_WRAP_WORD_CHAR);
+			pango_layout_set_height(sub, static_cast<int>((inner_h - th) * PANGO_SCALE));
+			pango_layout_set_ellipsize(sub, PANGO_ELLIPSIZE_END);
+			pango_layout_get_pixel_size(sub, &sw, &sh);
+			if (sh > inner_h - th) {  /* not even one line fits */
+				g_object_unref(sub);
+				sub = nullptr;
+				sh = 0;
+			}
+		}
 		if (sel)
 			cairo_set_source_rgb(cr, 1, 1, 1);
 		else
 			cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, d.enabled ? 0.95 : 0.6);
-		cairo_move_to(cr, d.x + 4, d.y + (d.h - th) / 2);
-		pango_cairo_show_layout(cr, pl);
-		g_object_unref(pl);
+		cairo_save(cr);
+		cairo_rectangle(cr, d.x + 2, d.y + 2, d.w - 4, d.h - 4);
+		cairo_clip(cr);
+		double top = d.y + (d.h - th - sh) / 2;
+		cairo_move_to(cr, d.x + 5, top);
+		pango_cairo_show_layout(cr, title);
+		if (sub != nullptr) {
+			cairo_move_to(cr, d.x + 5, top + th);
+			pango_cairo_show_layout(cr, sub);
+			g_object_unref(sub);
+		}
+		cairo_restore(cr);
+		g_object_unref(title);
 	}
 }
 
@@ -323,6 +355,27 @@ gboolean on_key(GtkEventControllerKey *, guint key, guint, GdkModifierType mods,
 	return TRUE;
 }
 
+/* Everything about the monitor under the pointer, uncut. */
+gboolean on_tooltip(GtkWidget *, int x, int y, gboolean, GtkTooltip *tip, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	int i = hit(ui, x, y);
+	if (i < 0)
+		return FALSE;
+	const MonitorInfo &m = ui->monitors[i].info;
+	std::string text = m.name;
+	auto line = [&text](const char *label, const std::string &v) {
+		if (!v.empty())
+			text += std::string("\n") + label + v;
+	};
+	line(_("Make: "), m.make);
+	line(_("Model: "), m.model);
+	line(_("Serial: "), m.serial);
+	if (m.make.empty() && m.model.empty())
+		line("", m.description);
+	gtk_tooltip_set_text(tip, text.c_str());
+	return TRUE;
+}
+
 void show_cards(Ui *ui) {
 	bool all = ui->arranger.advanced != nullptr &&
 			gtk_check_button_get_active(ui->arranger.advanced);
@@ -357,6 +410,17 @@ void arranger_changed(Ui *ui) {
 		gtk_widget_queue_draw(ui->arranger.area);
 }
 
+void arranger_test_describe(Ui *ui, const std::string &what, const std::string &name,
+		const std::string &text) {
+	for (Ui::Monitor &m : ui->monitors)
+		if (m.name == name) {
+			std::string &field = what == "make" ? m.info.make : what == "model"
+					? m.info.model : m.info.description;
+			field = text;
+		}
+	arranger_changed(ui);
+}
+
 bool arranger_test_drop(Ui *ui, const std::string &name, int x, int y) {
 	for (size_t i = 0; i < ui->monitors.size(); ++i)
 		if (ui->monitors[i].name == name) {
@@ -376,6 +440,8 @@ GtkWidget *build_arranger(Ui *ui) {
 	gtk_widget_set_focusable(area, TRUE);
 	gtk_widget_set_cursor_from_name(area, "grab");
 	gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(area), draw, ui, nullptr);
+	gtk_widget_set_has_tooltip(area, TRUE);
+	g_signal_connect(area, "query-tooltip", G_CALLBACK(on_tooltip), ui);
 	GtkGesture *drag = gtk_gesture_drag_new();
 	g_signal_connect(drag, "drag-begin", G_CALLBACK(on_drag_begin), ui);
 	g_signal_connect(drag, "drag-update", G_CALLBACK(on_drag_update), ui);

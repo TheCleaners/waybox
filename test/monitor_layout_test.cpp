@@ -77,3 +77,30 @@ WB_TEST(normalizing_and_positions) {
 	WB_CHECK(!wb::parse_position("99999999999,0"));
 	WB_CHECK(!wb::parse_position("1x,0"));
 }
+
+WB_TEST(monitor_captions) {
+	/* Make and model; the make not said twice. */
+	WB_CHECK(wb::monitor_caption("Dell Inc.", "DELL U2723QE", "", "DP-3") == "DELL U2723QE");
+	WB_CHECK(wb::monitor_caption("LG Electronics", "LG ULTRAGEAR", "", "DP-1") == "LG ULTRAGEAR");
+	WB_CHECK(wb::monitor_caption("BOE", "0x0BCA", "", "eDP-1") == "BOE 0x0BCA");
+	WB_CHECK(wb::monitor_caption("Samsung Electric Company", "", "", "HDMI-A-1") ==
+			"Samsung Electric Company");
+	WB_CHECK(wb::monitor_caption("", "U28E590", "", "DP-2") == "U28E590");
+	/* No make or model: the description, without its "(NAME)". */
+	WB_CHECK(wb::monitor_caption("", "", "Dell Inc. DELL U2723QE 5XYZ123 (DP-3)", "DP-3") ==
+			"Dell Inc. DELL U2723QE 5XYZ123");
+	WB_CHECK(wb::monitor_caption("", "", "Headless output 1", "HEADLESS-1") == "Headless output 1");
+	WB_CHECK(wb::monitor_caption("", "", "Something (DP-1)", "DP-2") == "Something (DP-1)");
+	WB_CHECK(wb::monitor_caption("", "", "", "DP-2").empty());
+	/* Control characters, tabs, newlines, runs of spaces. */
+	WB_CHECK(wb::monitor_caption("Ac\tme\n", "  X\x01Y  ", "", "DP-1") == "Ac me X Y");
+	/* Long: cut at a character, not inside one, with an ellipsis. */
+	std::string long_model(300, 'W');
+	std::string c = wb::monitor_caption("", long_model, "", "DP-1", 40);
+	WB_CHECK(c.size() <= 40 + 3 && c.rfind("…") == c.size() - 3);
+	std::string accents;
+	for (int i = 0; i < 60; ++i)
+		accents += "é";  /* 2 bytes each */
+	c = wb::monitor_caption("", accents, "", "DP-1", 41);
+	WB_CHECK(c.size() == 40 + 3);  /* 20 whole characters, then … */
+}

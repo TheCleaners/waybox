@@ -48,6 +48,14 @@ std::optional<std::pair<int, int>> place_box(const std::vector<LayoutBox> &boxes
 /* Moved so the leftmost and topmost edges are at 0. */
 void normalize_layout(std::vector<LayoutBox> &boxes);
 
+/* The line under a monitor's name in the arranger: "make model" (the
+ * make once, if the model starts with it too), else its description less
+ * a trailing "(NAME)", which the name already says. Control characters
+ * become spaces, runs of spaces one, at most `max` bytes (cut at a UTF-8
+ * character, with "…"). Expects valid UTF-8. */
+std::string monitor_caption(std::string_view make, std::string_view model,
+		std::string_view description, std::string_view name, size_t max = 120);
+
 /* "1920,0" -> {1920, 0}; nullopt for anything else. */
 std::optional<std::pair<int, int>> parse_position(std::string_view s);
 

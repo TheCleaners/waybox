@@ -1,6 +1,7 @@
 #include "waybox/monitor_layout.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <climits>
 #include <cmath>
 #include <cstdlib>
@@ -142,6 +143,70 @@ void normalize_layout(std::vector<LayoutBox> &boxes) {
 		b.x -= mx;
 		b.y -= my;
 	}
+}
+
+namespace {
+
+/* Control characters to spaces, runs of spaces to one, trimmed. */
+std::string tidy(std::string_view s) {
+	std::string out;
+	bool space = true;  /* drops leading spaces */
+	for (char c : s) {
+		auto u = static_cast<unsigned char>(c);
+		if (u < 0x20 || u == 0x7f || c == ' ') {
+			if (!space)
+				out += ' ';
+			space = true;
+		} else {
+			out += c;
+			space = false;
+		}
+	}
+	while (!out.empty() && out.back() == ' ')
+		out.pop_back();
+	return out;
+}
+
+bool starts_with_ci(std::string_view s, std::string_view prefix) {
+	if (prefix.empty() || s.size() < prefix.size())
+		return false;
+	for (size_t i = 0; i < prefix.size(); ++i)
+		if (std::tolower(static_cast<unsigned char>(s[i])) !=
+				std::tolower(static_cast<unsigned char>(prefix[i])))
+			return false;
+	return true;
+}
+
+}  // namespace
+
+std::string monitor_caption(std::string_view make, std::string_view model,
+		std::string_view description, std::string_view name, size_t max) {
+	std::string mk = tidy(make), md = tidy(model), out;
+	if (!mk.empty() || !md.empty()) {
+		/* "Dell Inc." + "DELL U2723QE": the make's first word starts the
+		 * model already. */
+		std::string first = mk.substr(0, mk.find(' '));
+		if (md.empty())
+			out = mk;
+		else if (mk.empty() || starts_with_ci(md, first))
+			out = md;
+		else
+			out = mk + " " + md;
+	} else {
+		out = tidy(description);
+		std::string suffix = "(" + std::string(name) + ")";
+		if (!name.empty() && out.size() >= suffix.size() &&
+				out.compare(out.size() - suffix.size(), suffix.size(), suffix) == 0)
+			out = tidy(out.substr(0, out.size() - suffix.size()));
+	}
+	if (out.size() > max) {
+		size_t cut = max;
+		/* Not inside a UTF-8 character: back to a lead byte. */
+		while (cut > 0 && (static_cast<unsigned char>(out[cut]) & 0xc0) == 0x80)
+			--cut;
+		out = tidy(out.substr(0, cut)) + "\u2026";
+	}
+	return out;
 }
 
 std::optional<std::pair<int, int>> parse_position(std::string_view s) {
