@@ -317,32 +317,44 @@ std::unique_ptr<FontControl> make_font_control(const std::string &format,
 	gtk_label_set_wrap(GTK_LABEL(c->preview), TRUE);
 	gtk_label_set_max_width_chars(GTK_LABEL(c->preview), 52);
 	gtk_widget_set_size_request(c->preview, 540, -1);
-	gtk_box_append(GTK_BOX(pbox), c->preview);
-	GtkWidget *grid = gtk_grid_new();
-	gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
-	gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
+	/* In a tinted, outlined box: the font on its own. */
+	GtkWidget *frame = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_widget_add_css_class(frame, "wb-font-preview");
+	gtk_box_append(GTK_BOX(frame), c->preview);
+	/* One row: Weight, Width, Italic, and the way back to the font's own;
+	 * the preview under them. */
 	c->weight = named_drop(_("The font's own"), font::weights(), _("Weight"));
 	c->width = named_drop(_("The font's own"), font::widths(), _("Width"));
 	c->italic = GTK_SWITCH(gtk_switch_new());
-	gtk_widget_set_halign(GTK_WIDGET(c->italic), GTK_ALIGN_START);
-	const std::pair<const char *, GtkWidget *> rows[] = {{_("Weight:"), GTK_WIDGET(c->weight)},
-			{_("Width:"), GTK_WIDGET(c->width)}, {_("Italic:"), GTK_WIDGET(c->italic)}};
-	int r = 0;
-	for (const auto &[text, w] : rows) {
+	gtk_widget_set_valign(GTK_WIDGET(c->italic), GTK_ALIGN_CENTER);
+	GtkWidget *line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+	const std::pair<const char *, GtkWidget *> parts[] = {{_("Weight"), GTK_WIDGET(c->weight)},
+			{_("Width"), GTK_WIDGET(c->width)}, {_("Italic"), GTK_WIDGET(c->italic)}};
+	bool first = true;
+	for (const auto &[text, w] : parts) {
 		GtkWidget *l = gtk_label_new(text);
-		gtk_label_set_xalign(GTK_LABEL(l), 1);
-		gtk_grid_attach(GTK_GRID(grid), l, 0, r, 1, 1);
-		gtk_grid_attach(GTK_GRID(grid), w, 1, r++, 1, 1);
+		gtk_widget_add_css_class(l, "dim-label");
+		if (!first)
+			gtk_widget_set_margin_start(l, 10);
+		first = false;
+		gtk_box_append(GTK_BOX(line), l);
+		gtk_box_append(GTK_BOX(line), w);
 	}
-	gtk_box_append(GTK_BOX(pbox), grid);
-	GtkWidget *reset = gtk_button_new_with_label(_("The Font's Own Style"));
-	gtk_widget_set_halign(reset, GTK_ALIGN_END);
+	GtkWidget *spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_set_hexpand(spacer, TRUE);
+	gtk_box_append(GTK_BOX(line), spacer);
+	GtkWidget *reset = gtk_button_new_from_icon_name("edit-undo-symbolic");
+	gtk_widget_add_css_class(reset, "flat");
+	gtk_widget_set_valign(reset, GTK_ALIGN_CENTER);
+	gtk_widget_set_tooltip_text(reset, _("The font's own style"));
 	g_signal_connect_swapped(reset, "clicked", G_CALLBACK(+[](FontControl *fc) {
 		gtk_drop_down_set_selected(fc->weight, 0);
 		gtk_drop_down_set_selected(fc->width, 0);
 		gtk_switch_set_active(fc->italic, FALSE);
 	}), c.get());
-	gtk_box_append(GTK_BOX(pbox), reset);
+	gtk_box_append(GTK_BOX(line), reset);
+	gtk_box_append(GTK_BOX(pbox), line);
+	gtk_box_append(GTK_BOX(pbox), frame);
 	gtk_popover_set_child(GTK_POPOVER(pop), pbox);
 	gtk_menu_button_set_popover(GTK_MENU_BUTTON(c->style), pop);
 

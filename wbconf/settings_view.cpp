@@ -32,6 +32,9 @@ const char *kCss = R"(
 .wb-problem { background: alpha(@warning_color, 0.12); border-radius: 6px; padding: 6px 8px; }
 .wb-approval { background: alpha(currentColor, 0.05); border: 1px solid alpha(currentColor, 0.12);
                border-radius: 8px; padding: 10px 12px; margin: 2px 0 6px 0; }
+.wb-font-preview { background: alpha(@theme_selected_bg_color, 0.12);
+                   border: 1px solid alpha(@theme_selected_bg_color, 0.5);
+                   border-radius: 8px; padding: 14px 16px; }
 .wb-changed { background: alpha(@theme_selected_bg_color, 0.14); border-radius: 6px;
               padding: 6px 8px; }
 .wb-script { border: 1px solid alpha(currentColor, 0.12); border-radius: 6px; }
