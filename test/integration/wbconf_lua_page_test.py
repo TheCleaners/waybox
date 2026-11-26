@@ -90,6 +90,12 @@ Runs=true
 
 MINE_LUA = 'page { switch { "on", label = "On", value = true } }\n'
 
+# Full access: it may run a shell.
+RISKY = MINE.replace("Name=Mine", "Name=Risky").replace("mine.lua", "risky.lua") \
+    .replace("Runs=true", "Runs=true, sh")
+# In a data folder the user can write.
+LOCAL = MINE.replace("Name=Mine", "Name=Local").replace("mine.lua", "local.lua")
+
 # A runner gone wrong (wbconf checks again what it asks): its button asks
 # to run a program not in Runs=, its save to write a file not in Files=. With
 # "stuck", it never answers at all.
@@ -135,8 +141,20 @@ def main():
                        ("broken.integration", BROKEN), ("broken.lua", BROKEN_LUA)):
         with open(os.path.join(packaged, name), "w") as f:
             f.write(text)
-    for name, text in (("mine.integration", MINE), ("mine.lua", MINE_LUA)):
+    for name, text in (("mine.integration", MINE), ("mine.lua", MINE_LUA),
+                       ("risky.integration", RISKY), ("risky.lua", MINE_LUA)):
         with open(os.path.join(integ, name), "w") as f:
+            f.write(text)
+    # A package's files can't be changed by the user: trusted. A data folder
+    # the user can write (Waybox installed into ~/.local): asked about.
+    for root, dirs, files in os.walk(packaged):
+        for n in files:
+            os.chmod(os.path.join(root, n), 0o444)
+    os.chmod(packaged, 0o555)
+    local = os.path.join(workdir, "localshare", "waybox", "integrations")
+    os.makedirs(local)
+    for name, text in (("local.integration", LOCAL), ("local.lua", MINE_LUA)):
+        with open(os.path.join(local, name), "w") as f:
             f.write(text)
     with open(os.path.join(cfg, "waybox", "rc.xml"), "w") as f:
         f.write('<?xml version="1.0"?>\n<openbox_config xmlns="http://openbox.org/3.4/rc"/>\n')
@@ -149,7 +167,8 @@ def main():
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman", HOME=home,
                XDG_CONFIG_HOME=cfg, XDG_RUNTIME_DIR=runtime, WB_RC_XML="", WB_MENU_XML="",
-               XDG_DATA_DIRS=share, ASAN_OPTIONS="detect_leaks=0")
+               XDG_DATA_DIRS=share + ":" + os.path.join(workdir, "localshare"),
+               ASAN_OPTIONS="detect_leaks=0")
     env.pop("WAYLAND_DISPLAY", None)
     env.pop("DISPLAY", None)
     log = open(os.path.join(workdir, "waybox.log"), "w")
@@ -232,6 +251,20 @@ def main():
         _, e = a.communicate()
         return [l.split("|")[1:] for l in e.splitlines() if l.startswith("luapage-dump:mine")]
 
+    e_all = dict(wenv, WBCONF_TEST_TOC="luapage:local;luapage:risky")
+    a = subprocess.Popen([wbconf], env=e_all, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.PIPE, text=True)
+    wbtest.reap_on_exit(a)
+    time.sleep(0.8 * 4 + 1.5)
+    a.kill()
+    _, e = a.communicate()
+    local_d = [l for l in e.splitlines() if l.startswith("luapage-dump:local")]
+    risky_d = [l for l in e.splitlines() if l.startswith("luapage-dump:risky")]
+    if local_d != ["luapage-dump:local|approval:waiting"]:
+        failures.append(f"a page in a folder the user can write ran unasked: {local_d}")
+    if risky_d != ["luapage-dump:risky|approval:waiting:full"]:
+        failures.append(f"full access not said: {risky_d}")
+
     d = mine_dumps(["luapage:mine", "luaset:mine.approve=1", "luapage:mine"])
     if len(d) != 2 or d[0] != ["approval:waiting"] or d[1] != ["on=on"]:
         failures.append(f"approval: {d}")
@@ -297,6 +330,8 @@ def main():
     except subprocess.TimeoutExpired:
         proc.kill()
     log.close()
+    # Writable again, to be removed.
+    os.chmod(packaged, 0o755)
     if failures:
         for f in failures:
             print(f"FAIL: {f}", file=sys.stderr)

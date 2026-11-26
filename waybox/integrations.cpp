@@ -302,9 +302,17 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 	bool lua_page = in.page.size() > 4 && in.page.compare(in.page.size() - 4, 4, ".lua") == 0;
 	if (!lua_page && (!in.files.empty() || !in.runs.empty()))
 		warn(0, "Files= and Runs= are for a Lua page (Page=NAME.lua): ignored");
-	for (const std::string &r : in.runs)
+	for (const std::string &r : in.runs) {
 		if (r.find('/') != std::string::npos || r.find(' ') != std::string::npos)
 			warn(0, "Runs=" + r + ": a program's name, without a folder or arguments");
+		else if (std::string why = full_access_run(r); !why.empty())
+			warn(0, "Runs=" + r + " is full access to the account (" + why + "): a page "
+					"shouldn't need it");
+	}
+	for (const std::string &f : in.files)
+		if (std::string why = full_access_file(f); !why.empty())
+			warn(0, "Files=" + f + " is full access to the account (" + why + "): a page "
+					"shouldn't need it");
 	/* Options: what's dropped or guessed, said where it's written. */
 	std::set<std::string> first_seen;
 	std::vector<IntegrationOption> kept;
@@ -359,6 +367,120 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 
 std::optional<Integration> parse_integration(std::string_view id, std::string_view text) {
 	return check_integration(id, text).integration;
+}
+
+std::string full_access_run(const std::string &program) {
+	/* python3.13, perl5.40, lua5.4: as python, perl, lua. */
+	std::string name = program;
+	while (!name.empty() && (std::isdigit(static_cast<unsigned char>(name.back())) ||
+			name.back() == '.' || name.back() == '-'))
+		name.pop_back();
+	static const std::set<std::string> any = {
+		/* shells */
+		"sh", "bash", "dash", "zsh", "fish", "ksh", "mksh", "oksh", "tcsh", "csh", "yash",
+		"busybox", "toybox", "elvish", "nu", "xonsh",
+		/* interpreters */
+		"python", "pypy", "perl", "ruby", "irb", "lua", "luajit", "node", "nodejs", "deno",
+		"bun", "php", "tclsh", "wish", "guile", "racket", "R", "Rscript", "julia", "osascript",
+		"awk", "gawk", "mawk", "nawk", "busybox-awk",
+		/* running another command */
+		"env", "xargs", "nohup", "setsid", "timeout", "nice", "ionice", "stdbuf", "chrt",
+		"taskset", "systemd-run", "flatpak-spawn", "flatpak", "watch", "script", "expect",
+		"parallel", "unshare", "nsenter", "chroot", "dbus-launch", "uwsm", "exec",
+		/* privilege */
+		"sudo", "doas", "pkexec", "su", "runuser", "run0",
+		/* tools that can run commands themselves */
+		"find", "sed", "make", "git", "ssh", "gdb", "vi", "vim", "nvim", "emacs", "nano",
+		"ed", "ex", "less", "more", "man", "tar", "rsync", "crontab", "at", "batch",
+		"systemctl", "waybox-msg",
+		/* terminals: they run the command they're given */
+		"foot", "footclient", "kitty", "alacritty", "wezterm", "xterm", "uxterm", "st",
+		"urxvt", "rxvt", "gnome-terminal", "kgx", "ptyxis", "konsole", "tilix", "terminator",
+		"xfce4-terminal", "lxterminal", "qterminal", "sakura", "termite", "x-terminal-emulator",
+		/* D-Bus: asking other programs (systemd, the session) to start things */
+		"dbus-send", "gdbus", "busctl", "qdbus", "qdbus6", "dbus-update-activation-environment",
+		/* launchers and compositors' own commands */
+		"xdg-open", "gtk-launch", "gio", "kioclient", "kde-open", "swaymsg", "hyprctl",
+		"niri", "labwc", "riverctl",
+		/* typing keys: into a terminal, as anything */
+		"wtype", "ydotool", "xdotool", "kdotool", "dotool", "wlrctl",
+	};
+	return any.count(name) ? "it can run any command" : "";
+}
+
+std::string full_access_file(const std::string &path, const std::string &home) {
+	std::string p = path;
+	if (!home.empty() && p.compare(0, home.size(), home) == 0 &&
+			(p.size() == home.size() || p[home.size()] == '/'))
+		p = "~" + p.substr(home.size());
+	if (p.rfind("~/", 0) != 0)
+		return "";
+	std::string rel = p.substr(2);
+	static const std::set<std::string> startup = {
+		".bashrc", ".bash_profile", ".bash_login", ".bash_logout", ".profile", ".zshrc",
+		".zprofile", ".zshenv", ".zlogin", ".kshrc", ".cshrc", ".tcshrc", ".mkshrc",
+		".xinitrc", ".xprofile", ".xsession", ".xsessionrc", ".Xresources",
+		".pam_environment", ".inputrc", ".gitconfig",
+	};
+	if (startup.count(rel))
+		return "it runs at your next login";
+	static const std::vector<std::pair<std::string, const char *>> dirs = {
+		{".config/waybox/", "Waybox runs what it says"},
+		{".config/autostart/", "it runs at your next login"},
+		{".config/environment.d/", "it runs at your next login"},
+		{".config/fish/", "it runs at your next login"},
+		{".config/systemd/", "it runs at your next login"},
+		{".config/labwc/", "it runs at your next login"},
+		{".local/bin/", "it's run in place of a program"},
+		{"bin/", "it's run in place of a program"},
+		{".ssh/", "it opens access to your account"},
+		{".gnupg/", "it opens access to your account"},
+		{".config/git/", "it runs commands when you use git"},
+	};
+	for (const auto &[dir, why] : dirs)
+		if (rel.compare(0, dir.size(), dir) == 0)
+			return why;
+	return "";
+}
+
+namespace {
+
+/* "~/.config/mako/config" for mako: in a folder named after it. */
+bool own_file(const std::string &tilde_path, const std::string &binary) {
+	if (binary.empty())
+		return false;
+	size_t at = 0;
+	while ((at = tilde_path.find("/" + binary, at)) != std::string::npos) {
+		size_t end = at + 1 + binary.size();
+		if (end < tilde_path.size() && tilde_path[end] == '/')
+			return true;
+		at = end;
+	}
+	return false;
+}
+
+}  // namespace
+
+PageAccess run_access(const Integration &in, const std::string &program) {
+	if (std::string why = full_access_run(program); !why.empty())
+		return {Reach::Full, why};
+	const std::string &b = in.binary;
+	if (!b.empty() && program.compare(0, b.size(), b) == 0)
+		return {Reach::Own, ""};
+	return {Reach::Other, ""};
+}
+
+PageAccess file_access(const Integration &in, const std::string &path,
+		const std::string &home) {
+	if (std::string why = full_access_file(path, home); !why.empty())
+		return {Reach::Full, why};
+	std::string p = path;
+	if (!home.empty() && p.compare(0, home.size(), home) == 0 &&
+			(p.size() == home.size() || p[home.size()] == '/'))
+		p = "~" + p.substr(home.size());
+	if (own_file(p, in.binary))
+		return {Reach::Own, ""};
+	return {Reach::Other, ""};
 }
 
 std::string lua_page_path(const Integration &in) {

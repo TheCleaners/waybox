@@ -156,6 +156,32 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
  * for a built-in page or none. */
 std::string lua_page_path(const Integration &in);
 
+/* What a Lua page's Runs= and Files= amount to: full access to the account
+ * when a program can run any command (a shell, an interpreter, env, sudo,
+ * find, an editor...) or a file runs something later (a shell's startup
+ * file, Waybox's autostart or rc.xml, ~/.local/bin...). The reason, said
+ * after the program or file ("it can run any command"); "" if neither.
+ * `home` makes absolute paths under it count as "~/..." too. */
+std::string full_access_run(const std::string &program);
+std::string full_access_file(const std::string &path, const std::string &home = "");
+
+/* How far what a page may touch reaches. A list can't tell which programs
+ * are dangerous (any can start others), so only what's plainly the
+ * integration's own counts as routine:
+ * - Own: its program (Binary=) or a companion named after it (makoctl for
+ *   mako); a file in a folder named after it (~/.config/mako/config).
+ * - Other: anything else: another program, with the account's access, or
+ *   another program's file.
+ * - Full: known to be full access (full_access_run, full_access_file). */
+enum class Reach { Own, Other, Full };
+struct PageAccess {
+	Reach reach = Reach::Other;
+	std::string why;  /* Full: the reason */
+};
+PageAccess run_access(const Integration &in, const std::string &program);
+PageAccess file_access(const Integration &in, const std::string &path,
+		const std::string &home = "");
+
 /* Every *.integration in `dirs`, the first found of each id winning (pass
  * the user's directory first). Sorted by category, then name. */
 std::vector<Integration> load_integrations(const std::vector<std::string> &dirs);

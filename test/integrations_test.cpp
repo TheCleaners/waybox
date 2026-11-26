@@ -410,3 +410,58 @@ WB_TEST(shipped_integrations_are_clean) {
 	}
 	WB_CHECK(files > 20);
 }
+
+WB_TEST(full_access) {
+	/* Programs that can run anything, versioned names too. */
+	for (const char *p : {"sh", "bash", "python3", "python3.13", "perl5.40", "lua5.4", "env",
+			"xargs", "sudo", "pkexec", "find", "awk", "vim", "systemd-run", "busybox"})
+		WB_CHECK(wb::full_access_run(p) == "it can run any command");
+	for (const char *p : {"makoctl", "notify-send", "dunstctl", "swaync-client", "touch", ""})
+		WB_CHECK(wb::full_access_run(p).empty());
+	/* Files that run something later. */
+	WB_CHECK(wb::full_access_file("~/.bashrc") == "it runs at your next login");
+	WB_CHECK(wb::full_access_file("~/.config/waybox/autostart") == "Waybox runs what it says");
+	WB_CHECK(wb::full_access_file("~/.config/waybox/approved-pages") ==
+			"Waybox runs what it says");
+	WB_CHECK(wb::full_access_file("~/.config/autostart/x.desktop") ==
+			"it runs at your next login");
+	WB_CHECK(wb::full_access_file("~/.local/bin/makoctl") == "it's run in place of a program");
+	WB_CHECK(!wb::full_access_file("~/.ssh/authorized_keys").empty());
+	/* Absolute, under the home folder. */
+	WB_CHECK(wb::full_access_file("/home/u/.profile", "/home/u") == "it runs at your next login");
+	WB_CHECK(wb::full_access_file("/home/user/.profile", "/home/u").empty());
+	/* A program's own config: fine. */
+	for (const char *f : {"~/.config/mako/config", "~/.config/waybar/config.jsonc",
+			"~/.config/foot/foot.ini", "~/.bashrc.d", "/etc/x"})
+		WB_CHECK(wb::full_access_file(f).empty());
+	/* The checker says so. */
+	auto c = wb::check_integration("x", "[Integration]\nName=x\nExec=x\nPage=x.lua\n"
+			"Runs=makoctl, sh\nFiles=~/.config/x/config, ~/.profile\n");
+	WB_CHECK(c.integration && has_problem(c, 0, false, "Runs=sh is full access") &&
+			has_problem(c, 0, false, "Files=~/.profile is full access") &&
+			!has_problem(c, 0, false, "Runs=makoctl"));
+}
+
+WB_TEST(page_access_tiers) {
+	auto mako = *wb::parse_integration("mako", "[Integration]\nName=mako\nExec=mako\n");
+	using wb::Reach;
+	/* Its own program and companions; its own files. */
+	WB_CHECK(wb::run_access(mako, "mako").reach == Reach::Own);
+	WB_CHECK(wb::run_access(mako, "makoctl").reach == Reach::Own);
+	WB_CHECK(wb::file_access(mako, "~/.config/mako/config").reach == Reach::Own);
+	WB_CHECK(wb::file_access(mako, "/home/u/.config/mako/config", "/home/u").reach == Reach::Own);
+	/* Anything else: another program, another's file; not "safe". */
+	WB_CHECK(wb::run_access(mako, "notify-send").reach == Reach::Other);
+	WB_CHECK(wb::run_access(mako, "mak").reach == Reach::Other);
+	WB_CHECK(wb::file_access(mako, "~/.config/makoish/config").reach == Reach::Other);
+	WB_CHECK(wb::file_access(mako, "~/notes.txt").reach == Reach::Other);
+	/* Known full access wins, even if named after the program. */
+	for (const char *p : {"sh", "foot", "kitty", "xdg-open", "gdbus", "busctl", "wtype",
+			"ydotool", "swaymsg"}) {
+		auto a = wb::run_access(mako, p);
+		WB_CHECK(a.reach == Reach::Full && a.why == "it can run any command");
+	}
+	auto bashlike = *wb::parse_integration("b", "[Integration]\nName=b\nExec=bash -c x\n");
+	WB_CHECK(wb::run_access(bashlike, "bash").reach == Reach::Full);
+	WB_CHECK(wb::file_access(mako, "~/.config/waybox/rc.xml").reach == Reach::Full);
+}

@@ -106,12 +106,6 @@ WB_TEST(what_a_page_may_touch) {
 }
 
 WB_TEST(approvals) {
-	/* Only the user's own folder needs approval. */
-	WB_CHECK(!wb::page::page_trusted("/home/u/.config/waybox/integrations",
-			"/home/u/.config/waybox/integrations/"));
-	WB_CHECK(wb::page::page_trusted("/usr/share/waybox/integrations",
-			"/home/u/.config/waybox/integrations"));
-	WB_CHECK(!wb::page::page_trusted("", "/x"));
 	/* The file: lines kept, one replaced or added. */
 	std::string text = "# mine\nmako aaa\n\nwaybar bbb\nmako-extra ccc\n";
 	auto a = wb::page::parse_approvals(text);

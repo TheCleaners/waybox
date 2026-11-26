@@ -230,13 +230,27 @@ end
 	(colors); a section that repeats (mako's criteria) reads as one, a key
 	changed where it last appears.
 
-A page in the user's own folder (_$XDG_CONFIG_HOME/waybox/integrations_,
-where files from anywhere land) runs only once allowed: wbconf first shows
-where it came from, what it may read, change and run, and its script, and
-asks. Pages installed with Waybox or by packages (the data folders) aren't
-asked about. An approval is kept in _$XDG_CONFIG_HOME/waybox/approved-pages_
-for the page as it is: changing its integration file or script asks again,
-and deleting its line takes the approval back.
+A page runs only once allowed unless no one but the system could have
+changed it: its folder, its integration file and its script all unwritable
+by the user, as a package's files under _/usr_ are. Any other page (in
+_$XDG_CONFIG_HOME/waybox/integrations_, where files from anywhere land, or
+in a Waybox installed into the home folder) is asked about first: wbconf
+shows where it came from, what it may read, change and run, and its
+script. An approval is kept in _$XDG_CONFIG_HOME/waybox/approved-pages_ for
+the page as it is: changing its integration file or script asks again, and
+deleting its line takes the approval back.
+
+What it may touch is shown as routine only when it's plainly the
+program's own: the program itself or a companion named after it
+(*makoctl* for *mako*), and files in a folder named after it
+(_~/.config/mako/_). Anything else is "another program" or "not its own
+file": a program runs with the user's access, and many can start others.
+Some are known to be full access to the account, and said so: shells and
+interpreters, programs that run other commands (*env*, *sudo*, *find*,
+terminals, launchers, D-Bus tools, tools typing keys), and files that run
+something later (a shell's startup files, Waybox's own files, autostart,
+_~/.local/bin_). Allowing a page lets it run its programs as the user.
+*waybox-check-integration* warns about full access in *Files* and *Runs*.
 
 A Lua page runs in *wbconf-lua*, a process of its own, without *io*, *os*,
 *require*, *load* or *debug*: it can only reach what its integration file
