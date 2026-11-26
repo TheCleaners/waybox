@@ -1,5 +1,6 @@
 #include "waybox/font_spec.hpp"
 
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -85,6 +86,151 @@ int nearest_width(int width) {
 		if (std::abs(n.value - width) < std::abs(best - width))
 			best = n.value;
 	return best;
+}
+
+namespace {
+
+std::string lower(std::string_view s) {
+	std::string out(s);
+	for (char &c : out)
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	return out;
+}
+
+/* Without '-', '_' and ' ': "Semi-Bold", "semi bold", "semibold" alike. */
+std::string squashed(std::string_view s) {
+	std::string out;
+	for (char c : lower(s))
+		if (c != '-' && c != '_' && c != ' ')
+			out += c;
+	return out;
+}
+
+/* How Pango writes each weight and width. */
+const char *pango_weight(int w) {
+	switch (nearest_weight(w)) {
+	case 100: return "Thin";
+	case 200: return "Ultra-Light";
+	case 300: return "Light";
+	case 500: return "Medium";
+	case 600: return "Semi-Bold";
+	case 700: return "Bold";
+	case 800: return "Ultra-Bold";
+	case 900: return "Heavy";
+	default: return "";
+	}
+}
+
+const char *pango_width(int w) {
+	switch (nearest_width(w)) {
+	case 50: return "Ultra-Condensed";
+	case 63: return "Extra-Condensed";
+	case 75: return "Condensed";
+	case 87: return "Semi-Condensed";
+	case 113: return "Semi-Expanded";
+	case 125: return "Expanded";
+	case 150: return "Extra-Expanded";
+	case 200: return "Ultra-Expanded";
+	default: return "";
+	}
+}
+
+}  // namespace
+
+int weight_named(std::string_view name) {
+	std::string n = squashed(name);
+	if (n.empty())
+		return 0;
+	static const std::pair<const char *, int> names[] = {
+		{"thin", 100}, {"hairline", 100}, {"ultralight", 200}, {"extralight", 200},
+		{"light", 300}, {"semilight", 350}, {"book", 380}, {"regular", 400},
+		{"normal", 400}, {"medium", 500}, {"semibold", 600}, {"demibold", 600},
+		{"bold", 700}, {"ultrabold", 800}, {"extrabold", 800}, {"heavy", 900},
+		{"black", 900}, {"ultraheavy", 1000}, {"extrablack", 1000},
+	};
+	for (const auto &[k, v] : names)
+		if (n == k)
+			return v;
+	char *end = nullptr;
+	long v = std::strtol(n.c_str(), &end, 10);
+	return end && *end == '\0' && v >= 1 && v <= 1000 ? static_cast<int>(v) : 0;
+}
+
+int width_named(std::string_view name) {
+	std::string n = squashed(name);
+	if (n.empty())
+		return 0;
+	for (const Named &w : widths())
+		if (n == w.fc)
+			return w.value;
+	char *end = nullptr;
+	long v = std::strtol(n.c_str(), &end, 10);
+	return end && *end == '\0' && v >= 25 && v <= 400 ? static_cast<int>(v) : 0;
+}
+
+Styled from_pango(std::string_view text) {
+	std::vector<std::string> words;
+	std::string cur;
+	for (char c : text) {
+		if (c == ' ' || c == '\t') {
+			if (!cur.empty())
+				words.push_back(std::move(cur)), cur.clear();
+		} else {
+			cur += c;
+		}
+	}
+	if (!cur.empty())
+		words.push_back(cur);
+	Styled s;
+	/* The size: a number last ("3270 Nerd Font 11": only the last one). */
+	if (!words.empty()) {
+		char *end = nullptr;
+		double v = std::strtod(words.back().c_str(), &end);
+		if (end && *end == '\0' && v > 0) {
+			s.size = v;
+			words.pop_back();
+		}
+	}
+	/* Style words before it, from the end; the rest is the family. */
+	while (words.size() > 1) {
+		std::string n = squashed(words.back());
+		if (n == "italic" || n == "oblique") {
+			s.italic = true;
+		} else if (int w = width_named(n); w > 0 && n.find_first_of("0123456789") ==
+				std::string::npos) {
+			s.width = w;
+		} else if (int wt = weight_named(n); wt > 0 && n.find_first_of("0123456789") ==
+				std::string::npos) {
+			s.weight = wt;
+		} else if (n == "smallcaps" || n == "notrotated") {
+			/* drawn as is */
+		} else {
+			break;
+		}
+		words.pop_back();
+	}
+	for (size_t i = 0; i < words.size(); ++i)
+		s.family += (i ? " " : "") + words[i];
+	if (!s.family.empty() && s.family.back() == ',')
+		s.family.pop_back();
+	return s;
+}
+
+std::string to_pango(const Styled &s) {
+	std::string out = s.family;
+	auto word = [&out](const char *w) {
+		if (w && *w)
+			out += std::string(out.empty() ? "" : " ") + w;
+	};
+	if (s.weight != 400)
+		word(pango_weight(s.weight));
+	if (s.italic)
+		word("Italic");
+	if (s.width != 100)
+		word(pango_width(s.width));
+	if (s.size > 0)
+		out += (out.empty() ? "" : " ") + number(s.size);
+	return out;
 }
 
 Spec from_fontconfig(std::string_view text) {

@@ -44,3 +44,34 @@ WB_TEST(font_nearest) {
 	WB_CHECK(wb::font::nearest_weight(1000) == 900);
 	WB_CHECK(wb::font::nearest_width(80) == 75 && wb::font::nearest_width(300) == 200);
 }
+
+WB_TEST(font_pango_words) {
+	using wb::font::Styled;
+	auto s = wb::font::from_pango("Inter Semi-Bold Italic Condensed 11");
+	WB_CHECK(s.family == "Inter" && s.size == 11 && s.weight == 600 && s.italic &&
+			s.width == 75);
+	WB_CHECK(wb::font::to_pango(s) == "Inter Semi-Bold Italic Condensed 11");
+	/* Numbers in the family; no style. */
+	auto n = wb::font::from_pango("3270 Nerd Font 11");
+	WB_CHECK(n.family == "3270 Nerd Font" && n.size == 11 && n.weight == 400 && !n.italic);
+	WB_CHECK(wb::font::to_pango(n) == "3270 Nerd Font 11");
+	/* Spellings: as Pango, fontconfig or CSS write them. */
+	WB_CHECK(wb::font::from_pango("Sans Bold 10").weight == 700);
+	WB_CHECK(wb::font::from_pango("Sans semibold 10").weight == 600);
+	WB_CHECK(wb::font::from_pango("Sans Ultra-Light 10").weight == 200);
+	WB_CHECK(wb::font::from_pango("Sans Oblique 10").italic);
+	WB_CHECK(wb::font::from_pango("Sans Semi-Expanded 10").width == 113);
+	/* A family that is a style word alone stays the family. */
+	WB_CHECK(wb::font::from_pango("Light 10").family == "Light");
+	/* Fractions, and a normal style left out. */
+	WB_CHECK(wb::font::to_pango({"Inter", 11.5, 400, false, 100}) == "Inter 11.5");
+	WB_CHECK(wb::font::to_pango({"Inter", 0, 900, false, 100}) == "Inter Heavy");
+	/* rc.xml's names. */
+	WB_CHECK(wb::font::weight_named("bold") == 700 && wb::font::weight_named("normal") == 400 &&
+			wb::font::weight_named("Semi-Bold") == 600 && wb::font::weight_named("650") == 650 &&
+			wb::font::weight_named("fat") == 0 && wb::font::weight_named("") == 0);
+	WB_CHECK(wb::font::width_named("condensed") == 75 &&
+			wb::font::width_named("Semi-Expanded") == 113 && wb::font::width_named("90") == 90 &&
+			wb::font::width_named("wide") == 0);
+}
+

@@ -27,6 +27,7 @@ wb_src = [
   json_src,
   xml_strict_src,
   render_src,
+  font_spec_src,
   files(
     'action_xml.cpp',
     'conditions.cpp',

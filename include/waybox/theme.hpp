@@ -49,7 +49,10 @@ struct Texture {
 struct FontSpec {
 	std::string family = "sans";
 	int size_pt = 10;
-	bool bold = false;
+	int weight = 400;     /* 100..1000: 400 normal, 700 bold */
+	bool italic = false;  /* <slant>italic</slant> (or oblique) */
+	int width = 100;      /* percent: 75 condensed, 125 expanded */
+	bool bold() const { return weight >= 600; }
 };
 
 /* Text alignment for labels (themerc *.text.justify). */

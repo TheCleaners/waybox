@@ -5,6 +5,7 @@
  * plain WayboxSettings struct; this file is the XML glue and is unit-tested via
  * in-memory round-trips (test/wbconf_test.cpp).
  */
+#include "waybox/font_spec.hpp"
 #include "waybox/wbconf.hpp"
 #include "waybox/startup.hpp"
 
@@ -203,73 +204,29 @@ xmlNode *find_font(xmlNode *root, const char *place) {
 	return nullptr;
 }
 
-/* Compose a <font place="P"> into a Pango-style "Family [Bold] Size" string,
- * or nullopt if the place is absent. */
+/* Compose a <font place="P"> into a Pango-style string, "Inter Semi-Bold
+ * Italic Condensed 11" (wb::font::to_pango), or nullopt if it's absent. */
 std::optional<std::string> read_font(xmlNode *root, const char *place) {
 	xmlNode *font = find_font(root, place);
 	if (font == nullptr)
 		return std::nullopt;
-	std::string family = node_text(child_named(font, "name")).value_or("Sans");
-	std::optional<std::string> size = node_text(child_named(font, "size"));
-	std::optional<std::string> weight = node_text(child_named(font, "weight"));
-	std::string out = family;
-	if (weight) {
-		std::string w = *weight;
-		std::transform(w.begin(), w.end(), w.begin(),
+	wb::font::Styled st;
+	st.family = node_text(child_named(font, "name")).value_or("Sans");
+	if (auto size = node_text(child_named(font, "size")); size && !size->empty())
+		st.size = std::atof(size->c_str());
+	if (auto w = node_text(child_named(font, "weight")))
+		if (int v = wb::font::weight_named(*w); v > 0)
+			st.weight = v;
+	if (auto sl = node_text(child_named(font, "slant"))) {
+		std::string l = *sl;
+		std::transform(l.begin(), l.end(), l.begin(),
 				[](unsigned char c) { return std::tolower(c); });
-		if (w == "bold")
-			out += " Bold";
+		st.italic = l == "italic" || l == "oblique";
 	}
-	if (size && !size->empty())
-		out += " " + *size;
-	return out;
-}
-
-/* Split a Pango-style "Family [Bold] Size" string into (family, size, bold).
- * A trailing integer is the size; a "Bold" token sets weight; the rest is the
- * family. */
-void parse_font(const std::string &spec, std::string &family, std::string &size,
-		bool &bold) {
-	std::vector<std::string> tokens;
-	std::string cur;
-	for (char c : spec) {
-		if (c == ' ') {
-			if (!cur.empty()) { tokens.push_back(cur); cur.clear(); }
-		} else {
-			cur.push_back(c);
-		}
-	}
-	if (!cur.empty())
-		tokens.push_back(cur);
-
-	bold = false;
-	size.clear();
-	/* Only a final number is the size: "3270 Nerd Font 11" is the family
-	 * "3270 Nerd Font". */
-	if (!tokens.empty() && tokens.back().find_first_not_of("0123456789") ==
-			std::string::npos) {
-		size = tokens.back();
-		tokens.pop_back();
-	}
-	std::vector<std::string> fam;
-	for (const std::string &t : tokens) {
-		std::string lo = t;
-		std::transform(lo.begin(), lo.end(), lo.begin(),
-				[](unsigned char c) { return std::tolower(c); });
-		if (lo == "bold") {
-			bold = true;
-		} else if (lo == "regular" || lo == "normal" || lo == "italic" ||
-				lo == "oblique" || lo == "light" || lo == "medium") {
-			/* style/weight words we don't model: drop from the family name */
-		} else {
-			fam.push_back(t);
-		}
-	}
-	family.clear();
-	for (size_t i = 0; i < fam.size(); ++i)
-		family += (i ? " " : "") + fam[i];
-	if (family.empty())
-		family = "Sans";
+	if (auto wd = node_text(child_named(font, "width")))
+		if (int v = wb::font::width_named(*wd); v > 0)
+			st.width = v;
+	return wb::font::to_pango(st);
 }
 
 }  // namespace
@@ -667,7 +624,7 @@ void put_output(xmlNode *root, const OutputSetting &out, const OutputSetting *ba
 }
 
 /* Create/update or remove the <theme><font place="P"> element from a
- * Pango-style "Family [Bold] Size" string. */
+ * Pango-style string (wb::font::from_pango). */
 void put_font(xmlNode *root, const char *place,
 		const std::optional<std::string> &value) {
 	xmlNode *existing = find_font(root, place);
@@ -678,9 +635,9 @@ void put_font(xmlNode *root, const char *place,
 		}
 		return;
 	}
-	std::string family, size;
-	bool bold = false;
-	parse_font(*value, family, size, bold);
+	wb::font::Styled st = wb::font::from_pango(*value);
+	if (st.family.empty())
+		st.family = "Sans";
 
 	xmlNode *theme = ensure_child(root, "theme");
 	xmlNode *font = existing;
@@ -697,10 +654,41 @@ void put_font(xmlNode *root, const char *place,
 		}
 		xmlNodeSetContent(c, xc(text.c_str()));
 	};
-	set_child("name", family);
-	if (!size.empty())
-		set_child("size", size);
-	set_child("weight", bold ? "bold" : "normal");
+	auto drop_child = [&](const char *name) {
+		if (xmlNode *c = child_named(font, name)) {
+			xmlUnlinkNode(c);
+			xmlFreeNode(c);
+		}
+	};
+	set_child("name", st.family);
+	/* rc.xml's size is whole points. */
+	if (st.size > 0)
+		set_child("size", std::to_string(static_cast<int>(st.size + 0.5)));
+	/* Openbox's bold and normal; the other weights by name (Waybox's). */
+	std::string weight = "normal";
+	if (st.weight != 400) {
+		int w = wb::font::nearest_weight(st.weight);
+		weight = w == 700 ? "bold" : "normal";
+		for (const wb::font::Named &n : wb::font::weights())
+			if (n.value == w && w != 400 && w != 700)
+				weight = n.fc;
+	}
+	set_child("weight", weight);
+	/* Openbox's <slant>: written when italic, or when it was there. */
+	if (st.italic)
+		set_child("slant", "italic");
+	else if (child_named(font, "slant") != nullptr)
+		set_child("slant", "normal");
+	/* Waybox's <width> (Openbox has none): only when it isn't normal. */
+	if (st.width != 100) {
+		std::string name = std::to_string(st.width);
+		for (const wb::font::Named &n : wb::font::widths())
+			if (n.value == wb::font::nearest_width(st.width))
+				name = n.fc;
+		set_child("width", name);
+	} else {
+		drop_child("width");
+	}
 }
 
 }  // namespace

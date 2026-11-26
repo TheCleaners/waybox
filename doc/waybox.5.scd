@@ -46,7 +46,11 @@ The root element is *<openbox_config xmlns="http://openbox.org/3.4/rc">*.
 *<name>* is an Openbox theme (see *THEMES*). *<font>* sets the font for a
 _place_: *ActiveWindow*, *InactiveWindow*, *MenuHeader*, *MenuItem* or
 *ActiveOnScreenDisplay* (the window switcher). *<weight>* is *bold* or
-*normal*.
+*normal*, as in Openbox, or another weight: *thin*, *extralight*, *light*,
+*medium*, *semibold*, *extrabold*, *black* (or a number, 100 to 1000).
+*<slant>* is *italic* (or *oblique*) or *normal*, as in Openbox. *<width>*
+is Waybox's own (Openbox ignores it): *condensed*, *semicondensed*,
+*expanded* and the like, drawn where the font has them.
 
 *<titleLayout>* lays out the titlebar, as in Openbox: *N* the window's icon,
 *L* the title, *I* iconify, *M* maximize, *C* close, *S* shade (roll up or

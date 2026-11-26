@@ -14,6 +14,7 @@
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 
+#include "waybox/font_spec.hpp"
 #include "waybox/stall.hpp"
 #include "config.h"
 #include "waybox/action_xml.hpp"
@@ -875,8 +876,18 @@ static void parse_fonts(struct wb_config *config, xmlXPathContextPtr ctxt) {
 					if (s > 0)
 						target->size_pt = s;
 				} else if (xmlStrcmp(c->name, (const xmlChar *) "weight") == 0) {
-					target->bold = (xmlStrcasecmp((const xmlChar *) v,
-							(const xmlChar *) "bold") == 0);
+					/* Openbox's bold or normal; Waybox also takes the
+					 * other weights' names (semibold, light) or a number. */
+					int w = wb::font::weight_named(v);
+					target->weight = w > 0 ? w : 400;
+				} else if (xmlStrcmp(c->name, (const xmlChar *) "slant") == 0) {
+					target->italic = xmlStrcasecmp((const xmlChar *) v,
+							(const xmlChar *) "italic") == 0 || xmlStrcasecmp(
+							(const xmlChar *) v, (const xmlChar *) "oblique") == 0;
+				} else if (xmlStrcmp(c->name, (const xmlChar *) "width") == 0) {
+					/* Waybox's own (Openbox has none): condensed, expanded... */
+					int w = wb::font::width_named(v);
+					target->width = w > 0 ? w : 100;
 				}
 				if (content)
 					xmlFree(content);

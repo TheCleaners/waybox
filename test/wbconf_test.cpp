@@ -142,6 +142,40 @@ WB_TEST(round_trips_fonts) {
 	WB_CHECK(doc2->to_string().find("place=\"ActiveWindow\"") == std::string::npos);
 }
 
+WB_TEST(round_trips_font_styles) {
+	auto doc = RcDocument::from_string(kMinimalRc);
+	WB_CHECK(doc.has_value());
+	WayboxSettings s = doc->read();
+	/* Weight, italic and width as the font control writes them. */
+	s.font_active_window = "Inter Semi-Bold Italic Condensed 11";
+	s.font_menu_item = "Cantarell Light 10.5";
+	doc->apply(s);
+	std::string xml = doc->to_string();
+	WB_CHECK(xml.find("<weight>semibold</weight>") != std::string::npos);
+	WB_CHECK(xml.find("<slant>italic</slant>") != std::string::npos);
+	WB_CHECK(xml.find("<width>condensed</width>") != std::string::npos);
+	WB_CHECK(xml.find("<weight>light</weight>") != std::string::npos);
+	WB_CHECK(xml.find("<size>11</size>") != std::string::npos);  /* 10.5: whole points */
+	auto doc2 = RcDocument::from_string(xml);
+	WayboxSettings r = doc2->read();
+	WB_CHECK(r.font_active_window == std::optional<std::string>(
+			"Inter Semi-Bold Italic Condensed 11"));
+	/* Back to upright, normal width: <slant> kept as normal (it was there),
+	 * <width> gone (Waybox's own). */
+	r.font_active_window = "Inter Bold 11";
+	doc2->apply(r);
+	std::string again = doc2->to_string();
+	WB_CHECK(again.find("<weight>bold</weight>") != std::string::npos);
+	WB_CHECK(again.find("<slant>normal</slant>") != std::string::npos);
+	WB_CHECK(again.find("<width>") == std::string::npos);
+	/* Openbox's own: italic and normal, read. */
+	auto ob = RcDocument::from_string(
+		"<?xml version=\"1.0\"?>\n<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><theme>"
+		"<font place=\"MenuItem\"><name>Sans</name><size>9</size><weight>normal</weight>"
+		"<slant>italic</slant></font></theme></openbox_config>\n");
+	WB_CHECK(ob && ob->read().font_menu_item == std::optional<std::string>("Sans Italic 9"));
+}
+
 /* ---- Safety: strict loading, writing only what changed, safe saving ---- */
 
 #include <filesystem>

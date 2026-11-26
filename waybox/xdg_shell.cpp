@@ -493,7 +493,7 @@ int wb_identify_outputs(struct wb_server *server, const std::string &only, int d
 	/* The OSD's look, but always in the middle: it names the monitor. */
 	wb::SwitcherStyle base = wb_osd_style(server);
 	base.position = wb::OsdPosition::Center;
-	base.item_text.font.bold = true;
+	base.item_text.font.weight = 700;
 	server->identify_popups.clear();
 	int shown = 0;
 	struct wb_output *o;

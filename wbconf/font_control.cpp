@@ -182,7 +182,7 @@ void show(FontControl *c) {
 		fam = static_cast<guint>(it - c->families.begin());
 	}
 	gtk_drop_down_set_selected(c->family, fam);
-	double size = s.size > 0 ? s.size : 11;
+	double size = s.size > 0 ? s.size : c->default_size;
 	gtk_spin_button_set_digits(c->size, size == std::floor(size) ? 0 : 1);
 	gtk_spin_button_set_value(c->size, size);
 	guint w = 0;
@@ -263,6 +263,11 @@ std::unique_ptr<FontControl> make_font_control(const std::string &format,
 		const std::string &hint) {
 	auto c = std::make_unique<FontControl>();
 	c->fontconfig = format == "fontconfig";
+	/* "monospace 10", "monospace:size=10": the size the default has. */
+	double hinted = c->fontconfig ? font::from_fontconfig(hint).size
+			: font::from_pango(hint).size;
+	if (hinted > 0)
+		c->default_size = hinted;
 	c->box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 

@@ -81,12 +81,6 @@ struct MonitorInfo {
 /* The installed font families, sorted (fonts.cpp). */
 const std::vector<std::string> &font_families();
 
-struct FontPicker {
-	GtkDropDown *family = nullptr;
-	GtkSpinButton *size = nullptr;
-	GtkToggleButton *bold = nullptr;
-	std::vector<std::string> families;  /* parallel to the dropdown model */
-};
 
 /* ---- Widget set, bound to a WayboxSettings on save ------------------- */
 
@@ -134,6 +128,7 @@ struct FontControl {
 	GtkWidget *style = nullptr, *style_label = nullptr, *preview = nullptr;
 	std::vector<std::string> families;  /* parallel to the list; "" (Default) first */
 	bool fontconfig = false;            /* else as Pango writes it */
+	double default_size = 11;           /* the default's (its hint's), shown then */
 	wb::font::Spec spec;
 	PangoFontDescription *pango_desc = nullptr;  /* Pango: what was there */
 	std::string value;
@@ -406,7 +401,7 @@ struct Ui {
 		GtkEntry *entry = nullptr;
 		GtkTextView *text = nullptr;
 		std::unique_ptr<ColorControl> color;  /* type color */
-		FontPicker font;
+		std::unique_ptr<FontControl> font;
 		bool updating = false;                /* setting the control from code */
 		/* A problem found with it: an icon by its title, a note under it. */
 		std::optional<wb::SettingProblem> problem;
@@ -524,8 +519,6 @@ std::vector<std::string> split_names(const std::string &list);
 void select_value(GtkDropDown *dd, std::vector<std::string> &values,
 		const std::string &value);
 std::string selected_value(GtkDropDown *dd, const std::vector<std::string> &values);
-std::optional<std::string> font_value(const FontPicker *p);
-void font_set(FontPicker *p, const std::optional<std::string> &v);
 void to_cairo(cairo_t *cr, const wb::Color &c);
 void preview_draw(GtkDrawingArea *, cairo_t *cr, int width, int height,
 		gpointer data);
@@ -617,7 +610,6 @@ void apply_bindings(Ui *ui, wb::RcDocument &doc);
 void bindings_saved(Ui *ui);
 int bindings_unsaved(Ui *ui);
 bool binding_set(Ui *ui, const std::string &id);
-GtkWidget *make_font_picker(FontPicker *out, GCallback on_change, gpointer user);
 
 /* settings_view.cpp: the searchable list of every setting */
 GtkWidget *build_settings_view(Ui *ui);
