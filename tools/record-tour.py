@@ -11,8 +11,9 @@ user or host names.
 Usage:
   tools/record-tour.py [--build build] [--theme Onyx-Citrus] [--out screenshots]
                        [--no-stills] [--keep-frames DIR]
-  tools/record-tour.py --gallery [DIR]   (doc/gallery: stills at 2560x1440;
-                       also needs ffmpeg, mpv, vim and wlr-randr)
+  tools/record-tour.py --gallery [DIR]   (doc/gallery: WebP stills at 2560x1440;
+                       also needs ffmpeg, mpv, vim and wlr-randr; re-shoot at
+                       releases only: git keeps every version of each image)
 
 Writes <out>/tour.gif and, unless --no-stills, <out>/desktop.png, menu.png,
 alttab.png and wbconf-search.png. Requires: grim, wtype, wlrctl, swaybg, waybar, foot, dash,
@@ -522,16 +523,28 @@ def workspace(s, source, video):
             "--no-osc", "--no-input-default-bindings", "--really-quiet", video)
 
 
+def save_webp(src, dst, crop=None):
+    """WebP, the smaller of lossy (quality 90: photos, gradients, video) and
+    lossless (flat UI); metadata stripped. Re-shot only at releases: git
+    keeps every version of each image."""
+    base = ["magick", src] + (["-crop", crop, "+repage"] if crop else []) + ["-strip",
+            "-define", "webp:method=6"]
+    lossy, lossless = dst + ".q.webp", dst + ".l.webp"
+    subprocess.run(base + ["-quality", "90", lossy], check=True)
+    subprocess.run(base + ["-define", "webp:lossless=true", lossless], check=True)
+    best, other = sorted((lossy, lossless), key=os.path.getsize)
+    os.replace(best, dst)
+    os.remove(other)
+    print(f"wrote {dst} ({os.path.getsize(dst) // 1024} KB)")
+    return dst
+
+
 def shot(s, out, name, cursor=False, crop=None):
     """A still (the pointer left out unless asked; `crop` "WxH+X+Y" in
     output pixels), PNG, metadata stripped."""
-    raw = os.path.join(s.root, name)
+    raw = os.path.join(s.root, name + ".png")
     subprocess.run(["grim"] + (["-c"] if cursor else []) + [raw], env=s.env, check=True)
-    dst = os.path.join(out, name)
-    subprocess.run(["magick", raw] + (["-crop", crop, "+repage"] if crop else []) +
-                   ["-strip", "-define", "png:compression-level=9", dst], check=True)
-    print(f"wrote {dst} ({os.path.getsize(dst) // 1024} KB)")
-    return dst
+    return save_webp(raw, os.path.join(out, name), crop)
 
 
 def gallery_session(root, theme, waybox, rules, osd="", outputs=1):
@@ -576,12 +589,12 @@ def gallery(waybox, wbconf, out, theme):
             s.run("wlrctl", "pointer", "move", "-9000", "-9000")
             player = workspace(s, source, video)
             time.sleep(2.5)
-            shot(s, out, "workspace.png")
+            shot(s, out, "workspace.webp")
 
             holder = subprocess.Popen(["wtype", "-M", "alt", "-k", "Tab", "-s", "1500",
                                        "-m", "alt"], env=s.env)
             time.sleep(0.8)
-            shot(s, out, "switcher.png")
+            shot(s, out, "switcher.webp")
             holder.wait()
             time.sleep(0.8)
 
@@ -596,7 +609,7 @@ def gallery(waybox, wbconf, out, theme):
             time.sleep(1.2)
             # The menu and its submenu, close up (output pixels: x2).
             mx, my = (CODE_W + 40) * GALLERY_SCALE, 390 * GALLERY_SCALE
-            shot(s, out, "menu.png", cursor=True, crop=f"1200x700+{mx - 200}+{my - 120}")
+            shot(s, out, "menu.webp", cursor=True, crop=f"1200x700+{mx - 200}+{my - 120}")
         finally:
             s.close()
     finally:
@@ -640,18 +653,18 @@ def gallery(waybox, wbconf, out, theme):
                         "-undercolor", "#00000088", "-font", font_file("Inter", "DejaVu-Sans"),
                         "-pointsize", "26", "-annotate", "+16+12", f" {name} ", lab], check=True)
         labelled.append(lab)
-    dst = os.path.join(out, "themes.png")
+    sheet = os.path.join(out, ".themes.png")
     subprocess.run(["magick", "montage"] + labelled + ["-tile", "2x2", "-geometry", "+5+5",
-                    "-background", "#14171d", "-strip", dst], check=True)
-    for f in tiles + labelled:
+                    "-background", "#14171d", sheet], check=True)
+    save_webp(sheet, os.path.join(out, "themes.webp"))
+    for f in tiles + labelled + [sheet]:
         os.remove(f)
-    print(f"wrote {dst} ({os.path.getsize(dst) // 1024} KB)")
 
     if wbconf is None:
         return
     # 3. wbconf: its Appearance page; the monitors, three of them.
-    for name, outputs, steps in (("wbconf.png", 1, "dump;dump;dump"),
-                                 ("monitors.png", 3, "dump;dump;dump;click:Monitors")):
+    for name, outputs, steps in (("wbconf.webp", 1, "dump;dump;dump"),
+                                 ("monitors.webp", 3, "dump;dump;dump;click:Monitors")):
         root = tempfile.mkdtemp(prefix="wbgal.", dir="/tmp")
         try:
             s, _, wall = gallery_session(root, theme, waybox, WBCONF_RULES, outputs=outputs)
@@ -688,9 +701,7 @@ def gallery(waybox, wbconf, out, theme):
                 else:
                     # The first monitor only (where wbconf is).
                     subprocess.run(["grim", "-o", "HEADLESS-1", raw], env=s.env, check=True)
-                    dst = os.path.join(out, name)
-                    subprocess.run(["magick", raw, "-strip", dst], check=True)
-                    print(f"wrote {dst} ({os.path.getsize(dst) // 1024} KB)")
+                    save_webp(raw, os.path.join(out, name))
             finally:
                 s.close()
         finally:
