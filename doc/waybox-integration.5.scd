@@ -247,6 +247,19 @@ end
 	an array, any other as an object; *wb.json.array {}* is an empty array.
 	A file that isn't JSON is an error saying where.
 
+*wb.toml.read(*_path_*)*, *wb.toml.parse(*_text_*)*
+	A TOML file to edit in place, as Alacritty's and wpaperd's, with the
+	same calls as *wb.json*. A path is the value's full one however the
+	file spells it: *[font]* *size = 11*, *font.size = 11* and *font = {
+	size = 11 }* are all *{ "font", "size" }*; an array of tables'
+	element by its index, as *{ "keyboard", "bindings", 1, "key" }*. A
+	changed value is replaced where it is (a float stays one, 12 written
+	as 12.0); a new key goes after the last of its table, in its
+	indentation, or into its inline table; a new table goes at the end
+	under its own *[header]*, unless it's already made of dotted keys
+	where it is. Dates and times read as their text. TOML has no null,
+	and a page doesn't add elements to an array of tables.
+
 A page runs only once allowed unless no one but the system could have
 changed it: its folder, its integration file and its script all unwritable
 by the user, as a package's files under _/usr_ are. Any other page (in

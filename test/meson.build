@@ -227,6 +227,14 @@ jsonc_doc_test = executable(
   )
 test('jsonc_doc', jsonc_doc_test)
 
+# Lua pages' wb.toml: TOML files edited without disturbing them.
+toml_doc_test = executable(
+  'toml_doc_test',
+  ['toml_doc_test.cpp', 'wb_test_main.cpp', toml_doc_src, jsonc_doc_src],
+  include_directories: [inc_dir],
+  )
+test('toml_doc', toml_doc_test)
+
 # The bell: its style, its blinks, never strobing.
 bell_style_test = executable(
   'bell_style_test',
@@ -856,6 +864,7 @@ if python.found() and not get_option('tests_only')
       # Integrations' pages in Lua: the runner over its protocol, and in wbconf.
       integration_tests += [['page_runner', 'page_runner_test.py', [wbconf_lua_exe], 60]]
       integration_tests += [['json_page', 'json_page_test.py', [wbconf_lua_exe], 60]]
+      integration_tests += [['toml_page', 'toml_page_test.py', [wbconf_lua_exe], 60]]
       integration_tests += [['mako_page', 'mako_page_test.py',
           [wbconf_lua_exe, meson.project_source_root() / 'data' / 'integrations'], 60]]
       integration_tests += [['wbconf_lua_page', 'wbconf_lua_page_test.py',
