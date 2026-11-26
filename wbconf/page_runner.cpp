@@ -12,6 +12,7 @@
  * reading an undeclared one is an error, said with its line.
  */
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -26,6 +27,7 @@
 
 #include "waybox/json.hpp"
 #include "waybox/ini_doc.hpp"
+#include "waybox/jsonc_doc.hpp"
 #include "waybox/page_protocol.hpp"
 
 #if LUA_VERSION_NUM < 502  /* LuaJIT, Lua 5.1 */
@@ -355,11 +357,251 @@ void push_ini_api(lua_State *L) {
 	}
 }
 
+/* ---- wb.json's document, in C (jsonc_doc.cpp) ---- */
+
+const char *kJsonMeta = "wb.json.document";
+const char *kJsonArrayMeta = "wb.json.array";
+int json_null_tag;  /* wb.json.null: its address */
+
+wb::jsonc::Document *json_doc(lua_State *L) {
+	return static_cast<wb::jsonc::Document *>(luaL_checkudata(L, 1, kJsonMeta));
+}
+
+int json_gc(lua_State *L) {
+	json_doc(L)->~Document();
+	return 0;
+}
+
+/* parse(text) -> document | nil, "line 3, column 5: ..." */
+int json_parse(lua_State *L) {
+	size_t len = 0;
+	const char *text = luaL_optlstring(L, 1, "", &len);
+	auto d = wb::jsonc::Document::parse(std::string_view(text, len));
+	if (!d.ok()) {
+		lua_pushnil(L);
+		lua_pushstring(L, d.error().c_str());
+		return 2;
+	}
+	void *mem = lua_newuserdata(L, sizeof(wb::jsonc::Document));
+	new (mem) wb::jsonc::Document(std::move(d));
+	luaL_getmetatable(L, kJsonMeta);
+	lua_setmetatable(L, -2);
+	return 1;
+}
+
+/* A path: "key", 1 (an index, from 1), or { "key", 1, ... }. */
+wb::jsonc::Path json_path(lua_State *L, int at) {
+	wb::jsonc::Path path;
+	auto part = [L, &path](int i) {
+		if (lua_type(L, i) == LUA_TSTRING) {
+			size_t n = 0;
+			const char *s = lua_tolstring(L, i, &n);
+			path.emplace_back(std::string(s, n));
+		} else if (lua_type(L, i) == LUA_TNUMBER) {
+			lua_Number n = lua_tonumber(L, i);
+			if (n < 1 || n != std::floor(n) || n > 1e9)
+				luaL_error(L, "a path's index counts from 1");
+			path.emplace_back(static_cast<size_t>(n) - 1);
+		} else {
+			luaL_error(L, "a path is a key, an index or a table of them");
+		}
+	};
+	if (lua_type(L, at) == LUA_TTABLE) {
+		size_t n = lua_rawlen(L, at);
+		for (size_t i = 1; i <= n; ++i) {
+			lua_rawgeti(L, at, static_cast<int>(i));
+			part(lua_gettop(L));
+			lua_pop(L, 1);
+		}
+	} else if (!lua_isnoneornil(L, at)) {
+		part(at);
+	}
+	return path;
+}
+
+void push_json(lua_State *L, const wb::jsonc::Value &v) {
+	using T = wb::jsonc::Value::Type;
+	luaL_checkstack(L, 4, "nested too deeply");
+	switch (v.type) {
+	case T::Null: lua_pushlightuserdata(L, &json_null_tag); break;
+	case T::Bool: lua_pushboolean(L, v.boolean); break;
+	case T::Integer: lua_pushnumber(L, static_cast<lua_Number>(v.integer)); break;
+	case T::Number: lua_pushnumber(L, v.number); break;
+	case T::String: lua_pushlstring(L, v.string.data(), v.string.size()); break;
+	case T::Array:
+		lua_createtable(L, static_cast<int>(v.items.size()), 0);
+		for (size_t i = 0; i < v.items.size(); ++i) {
+			push_json(L, v.items[i]);
+			lua_rawseti(L, -2, static_cast<int>(i + 1));
+		}
+		luaL_getmetatable(L, kJsonArrayMeta);
+		lua_setmetatable(L, -2);
+		break;
+	case T::Object:
+		lua_createtable(L, 0, static_cast<int>(v.members.size()));
+		for (const auto &m : v.members) {
+			lua_pushlstring(L, m.first.data(), m.first.size());
+			push_json(L, m.second);
+			lua_rawset(L, -3);
+		}
+		break;
+	}
+}
+
+/* A Lua value as JSON: a table with 1..n (or marked wb.json.array) is an
+ * array, any other an object (keys sorted: the file doesn't change with
+ * Lua's table order). */
+wb::jsonc::Value lua_to_jsonc(lua_State *L, int at, int depth) {
+	using T = wb::jsonc::Value::Type;
+	wb::jsonc::Value v;
+	if (depth > 64)
+		luaL_error(L, "a value nested too deeply (or a table inside itself)");
+	at = at < 0 ? lua_gettop(L) + at + 1 : at;
+	switch (lua_type(L, at)) {
+	case LUA_TNIL: break;
+	case LUA_TLIGHTUSERDATA:
+		if (lua_touserdata(L, at) != &json_null_tag)
+			luaL_error(L, "a value JSON can't hold");
+		break;
+	case LUA_TBOOLEAN: v.type = T::Bool; v.boolean = lua_toboolean(L, at); break;
+	case LUA_TNUMBER: {
+		lua_Number n = lua_tonumber(L, at);
+		if (n == std::floor(n) && std::fabs(n) < 9007199254740992.0) {
+			v.type = T::Integer;
+			v.integer = static_cast<int64_t>(n);
+		} else {
+			v.type = T::Number;
+			v.number = n;
+		}
+		break;
+	}
+	case LUA_TSTRING: {
+		size_t len = 0;
+		const char *s = lua_tolstring(L, at, &len);
+		v.type = T::String;
+		v.string.assign(s, len);
+		break;
+	}
+	case LUA_TTABLE: {
+		luaL_checkstack(L, 6, "nested too deeply");
+		size_t n = lua_rawlen(L, at);
+		bool marked = false;
+		if (lua_getmetatable(L, at)) {
+			luaL_getmetatable(L, kJsonArrayMeta);
+			marked = lua_rawequal(L, -1, -2);
+			lua_pop(L, 2);
+		}
+		size_t keys = 0;
+		bool sequence = true;
+		std::vector<std::string> names;
+		lua_pushnil(L);
+		while (lua_next(L, at) != 0) {
+			++keys;
+			if (lua_type(L, -2) == LUA_TSTRING) {
+				sequence = false;
+				names.emplace_back(lua_tostring(L, -2));
+			} else if (lua_type(L, -2) != LUA_TNUMBER) {
+				lua_pop(L, 2);
+				luaL_error(L, "a table's keys are strings (an object) or 1..n (an array)");
+			}
+			lua_pop(L, 1);
+		}
+		if (marked || (sequence && keys == n && n > 0)) {
+			if (!sequence)
+				luaL_error(L, "an array (wb.json.array) with string keys");
+			v.type = T::Array;
+			for (size_t i = 1; i <= n; ++i) {
+				lua_rawgeti(L, at, static_cast<int>(i));
+				v.items.push_back(lua_to_jsonc(L, -1, depth + 1));
+				lua_pop(L, 1);
+			}
+		} else {
+			if (keys != names.size())
+				luaL_error(L, "a table with both string keys and numbered ones");
+			v.type = T::Object;
+			std::sort(names.begin(), names.end());
+			for (const std::string &k : names) {
+				lua_pushlstring(L, k.data(), k.size());
+				lua_rawget(L, at);
+				v.members.emplace_back(k, lua_to_jsonc(L, -1, depth + 1));
+				lua_pop(L, 1);
+			}
+		}
+		break;
+	}
+	default:
+		luaL_error(L, "a %s can't be written as JSON", luaL_typename(L, at));
+	}
+	return v;
+}
+
+int json_get(lua_State *L) {
+	auto v = json_doc(L)->get(json_path(L, 2));
+	if (v)
+		push_json(L, *v);
+	else
+		lua_pushnil(L);
+	return 1;
+}
+
+int json_set(lua_State *L) {
+	auto *d = json_doc(L);
+	wb::jsonc::Path path = json_path(L, 2);
+	wb::jsonc::Value v = lua_to_jsonc(L, 3, 0);
+	lua_pushboolean(L, d->set(path, v));
+	return 1;
+}
+
+int json_remove(lua_State *L) {
+	lua_pushboolean(L, json_doc(L)->remove(json_path(L, 2)));
+	return 1;
+}
+
+/* An object's keys, in the file's order. */
+int json_keys(lua_State *L) {
+	auto v = json_doc(L)->get(json_path(L, 2));
+	lua_newtable(L);
+	if (v && v->type == wb::jsonc::Value::Type::Object)
+		for (size_t i = 0; i < v->members.size(); ++i) {
+			lua_pushlstring(L, v->members[i].first.data(), v->members[i].first.size());
+			lua_rawseti(L, -2, static_cast<int>(i + 1));
+		}
+	return 1;
+}
+
+int json_text(lua_State *L) {
+	const std::string &t = json_doc(L)->text();
+	lua_pushlstring(L, t.data(), t.size());
+	return 1;
+}
+
+/* The C side of wb.json, handed to the prelude. */
+void push_json_api(lua_State *L) {
+	luaL_newmetatable(L, kJsonMeta);
+	lua_pushcfunction(L, json_gc);
+	lua_setfield(L, -2, "__gc");
+	lua_pop(L, 1);
+	luaL_newmetatable(L, kJsonArrayMeta);
+	lua_pop(L, 1);
+	lua_newtable(L);
+	const luaL_Reg fns[] = {{"parse", json_parse}, {"get", json_get}, {"set", json_set},
+			{"remove", json_remove}, {"keys", json_keys}, {"text", json_text},
+			{nullptr, nullptr}};
+	for (const luaL_Reg *f = fns; f->name != nullptr; ++f) {
+		lua_pushcfunction(L, f->func);
+		lua_setfield(L, -2, f->name);
+	}
+	lua_pushlightuserdata(L, &json_null_tag);
+	lua_setfield(L, -2, "null");
+	luaL_getmetatable(L, kJsonArrayMeta);
+	lua_setfield(L, -2, "array_mt");
+}
+
 /* ---- the page vocabulary, and strict globals (Lua) ---- */
 
 const char *kPrelude = R"LUA(
 local described, buttons, settings, values, nbuttons = nil, {}, {}, {}, 0
-local update, ini = ...
+local update, ini, json = ...
 
 -- wb.ini: an INI file edited without disturbing it (comments, order and
 -- spacing kept; new keys at the end of their section).
@@ -394,6 +636,46 @@ function Ini:text() return ini.text(self.doc) end
 wb.ini = {}
 function wb.ini.parse(text) return setmetatable({ doc = ini.parse(text or "") }, Ini) end
 function wb.ini.read(path) return wb.ini.parse(wb.read(path) or "") end
+
+-- wb.json: a JSON file (comments and trailing commas allowed, as Waybar's)
+-- edited without disturbing it. A path is a key, an index (from 1) or a
+-- table of them: cfg:get({ 1, "height" }).
+local Json = {}
+Json.__index = Json
+function Json:get(path, default)
+  local v = json.get(self.doc, path)
+  if v == nil or v == json.null then return default end
+  return v
+end
+function Json:set(path, value)
+  if value == nil then json.remove(self.doc, path) return end
+  if not json.set(self.doc, path, value) then
+    error("can't set " .. (type(path) == "table" and table.concat(path, ".") or
+        tostring(path)) .. ": something on the way isn't an object or array", 2)
+  end
+end
+function Json:keys(path) return json.keys(self.doc, path) end
+function Json:set_all(values, path)
+  local keys = {}
+  for k in pairs(values) do keys[#keys + 1] = k end
+  table.sort(keys)
+  for _, k in ipairs(keys) do
+    local p = {}
+    if type(path) == "table" then for i, part in ipairs(path) do p[i] = part end
+    elseif path ~= nil then p[1] = path end
+    p[#p + 1] = k
+    self:set(p, values[k])
+  end
+end
+function Json:text() return json.text(self.doc) end
+wb.json = { null = json.null }
+function wb.json.array(t) return setmetatable(t or {}, json.array_mt) end
+function wb.json.parse(text, name)
+  local doc, err = json.parse(text or "")
+  if not doc then error((name or "JSON") .. ": " .. err, 2) end
+  return setmetatable({ doc = doc }, Json)
+end
+function wb.json.read(path) return wb.json.parse(wb.read(path) or "", path) end
 
 local function distance(a, b)
   if math.abs(#a - #b) > 3 then return 99 end
@@ -620,7 +902,8 @@ bool open_page(const json::Value &msg) {
 	}
 	lua_pushcfunction(L, wb_update);
 	push_ini_api(L);
-	if (lua_pcall(L, 2, 1, 0) != 0) {
+	push_json_api(L);
+	if (lua_pcall(L, 3, 1, 0) != 0) {
 		emit_error(lua_tostring(L, -1));
 		return false;
 	}

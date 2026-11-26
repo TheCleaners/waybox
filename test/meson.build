@@ -219,6 +219,14 @@ ini_doc_test = executable(
   )
 test('ini_doc', ini_doc_test)
 
+# Lua pages' wb.json: JSON with comments edited without disturbing it.
+jsonc_doc_test = executable(
+  'jsonc_doc_test',
+  ['jsonc_doc_test.cpp', 'wb_test_main.cpp', jsonc_doc_src],
+  include_directories: [inc_dir],
+  )
+test('jsonc_doc', jsonc_doc_test)
+
 # The bell: its style, its blinks, never strobing.
 bell_style_test = executable(
   'bell_style_test',
@@ -847,6 +855,7 @@ if python.found() and not get_option('tests_only')
     if is_variable('wbconf_lua_exe')
       # Integrations' pages in Lua: the runner over its protocol, and in wbconf.
       integration_tests += [['page_runner', 'page_runner_test.py', [wbconf_lua_exe], 60]]
+      integration_tests += [['json_page', 'json_page_test.py', [wbconf_lua_exe], 60]]
       integration_tests += [['mako_page', 'mako_page_test.py',
           [wbconf_lua_exe, meson.project_source_root() / 'data' / 'integrations'], 60]]
       integration_tests += [['wbconf_lua_page', 'wbconf_lua_page_test.py',
