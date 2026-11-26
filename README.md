@@ -1,5 +1,7 @@
 # Waybox
 
+[![build](https://github.com/TheCleaners/waybox/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/TheCleaners/waybox/actions/workflows/build.yml?query=branch%3Amaster)
+
 A \*box-style (minimalist) Wayland compositor modeled on Openbox.
 
 ![A 50-second tour with the Onyx-Citrus theme: the root menu, server-side titlebars, tiling with Super+arrows, the window menu and rolling a window up, desktops shown in Waybar, the Alt+Tab switcher, and wbconf](screenshots/tour.gif)
