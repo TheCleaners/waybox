@@ -788,6 +788,7 @@ if python.found() and not get_option('tests_only')
     ['output_power', 'output_power_test.py', [power_client], 60],
     ['output_rules', 'output_rules_test.py', [], 60],
     ['panel_reflow', 'panel_reflow_test.py', [layer_client], 60],
+    ['layer_order', 'layer_order_test.py', [layer_client, desktop_client], 60],
     ['pipe_menu', 'pipe_menu_test.py', [], 60],
     ['apps_menu', 'apps_menu_test.py', [], 60],
     ['session_restore', 'session_restore_test.py', [session_client], 90],
