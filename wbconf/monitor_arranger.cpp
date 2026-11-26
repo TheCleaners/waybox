@@ -438,7 +438,7 @@ GtkWidget *build_arranger(Ui *ui) {
 	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 	GtkWidget *area = gtk_drawing_area_new();
 	ui->arranger.area = area;
-	gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(area), 260);
+	gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(area), 200);
 	gtk_widget_set_hexpand(area, TRUE);
 	gtk_widget_set_focusable(area, TRUE);
 	gtk_widget_set_cursor_from_name(area, "grab");

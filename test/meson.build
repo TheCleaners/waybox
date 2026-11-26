@@ -342,6 +342,9 @@ integration_env = {
   # ignores them when empty).
   'WB_RC_XML': '',
   'WB_MENU_XML': '',
+  # GTK programs under test (wbconf) abort on any critical: a test fails
+  # on one rather than letting it scroll by.
+  'G_DEBUG': 'fatal-criticals',
 }
 if python.found() and not get_option('tests_only')
   # A minimal ext-session-lock-v1 client for the session-lock test.
@@ -781,6 +784,10 @@ if python.found() and not get_option('tests_only')
     integration_tests += [['wbconf_monitors', 'wbconf_monitors_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_outputs', 'wbconf_outputs_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_reload', 'wbconf_reload_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_toc', 'wbconf_toc_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_color', 'wbconf_color_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', desktop_client], 60]]

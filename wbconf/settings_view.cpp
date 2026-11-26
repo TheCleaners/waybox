@@ -14,16 +14,19 @@ namespace wbconf {
 namespace {
 
 const char *kCss = R"(
-.wb-setting { padding: 6px 12px 10px 0; border-radius: 6px; }
+.wb-setting { padding: 3px 8px 5px 0; border-radius: 6px; }
 .wb-setting:hover { background: alpha(currentColor, 0.04); }
 .wb-setting .wb-gear { opacity: 0; }
 .wb-setting:hover .wb-gear, .wb-gear:checked { opacity: 1; }
 .wb-bar { min-width: 3px; margin-right: 12px; border-radius: 2px; }
 .wb-bar.wb-set { background: @theme_selected_bg_color; }
 .wb-bar.wb-unsaved { background: #e5a50a; }
-.wb-category { font-size: 1.5em; font-weight: bold; margin-top: 22px; margin-bottom: 2px; }
-.wb-section { font-size: 1.1em; font-weight: bold; margin-top: 12px; }
-.wb-toc row { padding: 4px 10px; }
+.wb-category { font-size: 1.25em; font-weight: bold; margin-top: 14px; margin-bottom: 0; }
+.wb-section { font-weight: bold; margin-top: 8px; margin-bottom: 1px; }
+.wb-toc row { padding: 1px 4px; min-height: 0; }
+.wb-toc row label { font-size: 0.95em; }
+.wb-toc .wb-toc-arrow { opacity: 0.6; -gtk-icon-size: 12px; }
+.wb-toc .wb-toc-section { margin-left: 18px; }
 )";
 
 /* The title in bold (with `crumb`, after its section or category, dimmed:
@@ -542,28 +545,100 @@ double y_in_list(Ui *ui, GtkWidget *w) {
 	return out.y;
 }
 
-void on_toc_activated(GtkListBox *, GtkListBoxRow *row, gpointer data) {
-	auto *ui = static_cast<Ui *>(data);
-	int i = gtk_list_box_row_get_index(row);
-	if (i >= 0 && i < static_cast<int>(ui->categories.size()))
-		focus_category(ui, ui->categories[i].id);
+/* The sidebar's rows as the tree is now: a category's sections shown
+ * while it's open (and their headings are, when searching). */
+void show_tree(Ui *ui) {
+	for (size_t i = 0; i < ui->categories.size(); ++i) {
+		Ui::CategoryView &c = ui->categories[i];
+		bool open = c.open_by_user || c.open_for_now;
+		if (c.arrow != nullptr)
+			gtk_image_set_from_icon_name(c.arrow, open ? "pan-down-symbolic" : "pan-end-symbolic");
+	}
+	for (const Ui::TocEntry &e : ui->toc_entries) {
+		const Ui::CategoryView &c = ui->categories[e.category];
+		bool there = gtk_widget_get_visible(c.heading) &&
+				(!e.section || gtk_widget_get_visible(e.heading));
+		bool open = c.open_by_user || c.open_for_now;
+		gtk_widget_set_visible(e.row, there && (!e.section || open));
+	}
 }
 
-/* While scrolling, the table of contents follows: the last category whose
- * heading is at or above the top of the view. */
+const Ui::TocEntry *entry_of(Ui *ui, GtkListBoxRow *row) {
+	for (const Ui::TocEntry &e : ui->toc_entries)
+		if (e.row == GTK_WIDGET(row))
+			return &e;
+	return nullptr;
+}
+
+void scroll_to(Ui *ui, GtkWidget *heading) {
+	GtkAdjustment *adj = gtk_scrolled_window_get_vadjustment(ui->scroller);
+	ui->scrolling_to = true;
+	gtk_adjustment_set_value(adj, y_in_list(ui, heading) - 8);
+	ui->scrolling_to = false;
+	bool first = ui->scroll_target == nullptr;
+	ui->scroll_target = heading;
+	ui->scroll_set = gtk_adjustment_get_value(adj);
+	if (!first)
+		return;  /* one already waiting: it takes this one */
+	g_timeout_add_once(250, [](gpointer data) {
+		auto *ui = static_cast<Ui *>(data);
+		GtkAdjustment *adj = gtk_scrolled_window_get_vadjustment(ui->scroller);
+		GtkWidget *target = ui->scroll_target;
+		ui->scroll_target = nullptr;
+		if (target == nullptr || std::abs(gtk_adjustment_get_value(adj) - ui->scroll_set) > 1)
+			return;  /* the user scrolled since */
+		ui->scrolling_to = true;
+		gtk_adjustment_set_value(adj, y_in_list(ui, target) - 8);
+		ui->scrolling_to = false;
+	}, ui);
+}
+
+void on_toc_activated(GtkListBox *, GtkListBoxRow *row, gpointer data) {
+	auto *ui = static_cast<Ui *>(data);
+	const Ui::TocEntry *e = entry_of(ui, row);
+	if (e == nullptr)
+		return;
+	Ui::CategoryView &c = ui->categories[e->category];
+	if (!e->section) {
+		/* A category: there, and open; clicked again where it is, closed. */
+		bool open = c.open_by_user || c.open_for_now;
+		bool here = gtk_list_box_get_selected_row(ui->toc) == row;
+		c.open_by_user = !(open && here);
+		c.open_for_now = false;
+	} else {
+		/* A section: its category open (for now, as being read). */
+		for (Ui::CategoryView &o : ui->categories)
+			o.open_for_now = &o == &c;
+	}
+	scroll_to(ui, e->heading);
+	gtk_list_box_select_row(ui->toc, row);
+	show_tree(ui);
+}
+
+/* While scrolling, the sidebar follows: the last heading (section or
+ * category) at or above the top of the view; its category opens for now,
+ * and one opened only for now closes when left. */
 void on_scrolled(GtkAdjustment *adj, gpointer data) {
 	auto *ui = static_cast<Ui *>(data);
 	if (ui->scrolling_to)
 		return;
 	double top = gtk_adjustment_get_value(adj) + 24;
-	GtkWidget *current = nullptr;
-	for (const Ui::CategoryView &c : ui->categories)
-		if (gtk_widget_get_visible(c.heading) && y_in_list(ui, c.heading) <= top)
-			current = c.toc;
-	if (current == nullptr && !ui->categories.empty())
-		current = ui->categories.front().toc;
-	if (current != nullptr && GTK_LIST_BOX_ROW(current) != gtk_list_box_get_selected_row(ui->toc))
-		gtk_list_box_select_row(ui->toc, GTK_LIST_BOX_ROW(current));
+	const Ui::TocEntry *current = nullptr;
+	for (const Ui::TocEntry &e : ui->toc_entries)
+		if (gtk_widget_get_visible(e.heading) && y_in_list(ui, e.heading) <= top)
+			current = &e;
+	if (current == nullptr && !ui->toc_entries.empty())
+		current = &ui->toc_entries.front();
+	if (current == nullptr)
+		return;
+	bool searching = ui->search != nullptr &&
+			*gtk_editable_get_text(GTK_EDITABLE(ui->search)) != '\0';
+	if (!searching)
+		for (size_t i = 0; i < ui->categories.size(); ++i)
+			ui->categories[i].open_for_now = static_cast<int>(i) == current->category;
+	show_tree(ui);
+	if (GTK_LIST_BOX_ROW(current->row) != gtk_list_box_get_selected_row(ui->toc))
+		gtk_list_box_select_row(ui->toc, GTK_LIST_BOX_ROW(current->row));
 }
 
 /* ---- Search ---- */
@@ -622,9 +697,11 @@ void on_search(GtkSearchEntry *entry, gpointer data) {
 		gtk_widget_set_visible(c.heading, cat_any);
 		if (c.description != nullptr)
 			gtk_widget_set_visible(c.description, cat_any && q.empty());
-		gtk_widget_set_visible(c.toc, cat_any);
+		/* Searching: every category with a match open, to show where. */
+		c.open_for_now = !q.empty() && cat_any;
 		any = any || cat_any;
 	}
+	show_tree(ui);
 	gtk_widget_set_visible(GTK_WIDGET(ui->no_results), !any);
 	gtk_adjustment_set_value(gtk_scrolled_window_get_vadjustment(ui->scroller), 0);
 }
@@ -676,7 +753,7 @@ GtkWidget *build_settings_view(Ui *ui) {
 	GtkWidget *toc_scroller = gtk_scrolled_window_new();
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(toc_scroller), GTK_POLICY_NEVER,
 			GTK_POLICY_AUTOMATIC);
-	gtk_widget_set_size_request(toc_scroller, 190, -1);
+	gtk_widget_set_size_request(toc_scroller, 170, -1);
 	GtkWidget *toc = gtk_list_box_new();
 	gtk_widget_add_css_class(toc, "navigation-sidebar");
 	gtk_widget_add_css_class(toc, "wb-toc");
@@ -693,9 +770,9 @@ GtkWidget *build_settings_view(Ui *ui) {
 	gtk_widget_set_vexpand(scroller, TRUE);
 	ui->scroller = GTK_SCROLLED_WINDOW(scroller);
 	GtkWidget *list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-	gtk_widget_set_margin_start(list, 18);
-	gtk_widget_set_margin_end(list, 18);
-	gtk_widget_set_margin_bottom(list, 24);
+	gtk_widget_set_margin_start(list, 12);
+	gtk_widget_set_margin_end(list, 12);
+	gtk_widget_set_margin_bottom(list, 16);
 	ui->list = list;
 	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), list);
 	gtk_box_append(GTK_BOX(paned), scroller);
@@ -714,11 +791,20 @@ GtkWidget *build_settings_view(Ui *ui) {
 			view.description = desc;
 		}
 
+		/* The sidebar: the category (with its arrow), its sections after. */
+		GtkWidget *toc_line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+		GtkWidget *arrow = gtk_image_new_from_icon_name("pan-end-symbolic");
+		gtk_widget_add_css_class(arrow, "wb-toc-arrow");
+		gtk_box_append(GTK_BOX(toc_line), arrow);
 		GtkWidget *toc_label = gtk_label_new(cat.title.c_str());
 		gtk_label_set_xalign(GTK_LABEL(toc_label), 0);
-		gtk_list_box_append(ui->toc, toc_label);
-		view.toc = GTK_WIDGET(gtk_list_box_get_row_at_index(ui->toc,
-				static_cast<int>(ui->categories.size())));
+		gtk_label_set_ellipsize(GTK_LABEL(toc_label), PANGO_ELLIPSIZE_END);
+		gtk_box_append(GTK_BOX(toc_line), toc_label);
+		gtk_list_box_append(ui->toc, toc_line);
+		view.toc = gtk_widget_get_parent(toc_line);
+		view.arrow = GTK_IMAGE(arrow);
+		int cat_index = static_cast<int>(ui->categories.size());
+		ui->toc_entries.push_back({view.toc, cat_index, view.heading, false});
 
 		std::string section = "\x01";  /* no section yet */
 		std::string group;
@@ -733,6 +819,12 @@ GtkWidget *build_settings_view(Ui *ui) {
 					gtk_label_set_xalign(GTK_LABEL(h), 0);
 					gtk_widget_add_css_class(h, "wb-section");
 					gtk_box_append(GTK_BOX(list), h);
+					GtkWidget *sl = gtk_label_new(section.c_str());
+					gtk_label_set_xalign(GTK_LABEL(sl), 0);
+					gtk_label_set_ellipsize(GTK_LABEL(sl), PANGO_ELLIPSIZE_END);
+					gtk_widget_add_css_class(sl, "wb-toc-section");
+					gtk_list_box_append(ui->toc, sl);
+					ui->toc_entries.push_back({gtk_widget_get_parent(sl), cat_index, h, true});
 				}
 				view.sections.push_back({h, {}});
 				group_leader = nullptr;  /* a group doesn't cross sections */
@@ -762,20 +854,102 @@ GtkWidget *build_settings_view(Ui *ui) {
 			G_CALLBACK(on_scrolled), ui);
 	if (ui->search != nullptr)
 		g_signal_connect(ui->search, "search-changed", G_CALLBACK(on_search), ui);
-	if (!ui->categories.empty())
+	if (!ui->categories.empty()) {
+		ui->categories.front().open_for_now = true;
 		gtk_list_box_select_row(ui->toc, GTK_LIST_BOX_ROW(ui->categories.front().toc));
+	}
+	show_tree(ui);
 	return paned;
+}
+
+namespace {
+
+std::string toc_text(GtkWidget *row) {
+	GtkWidget *child = gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(row));
+	if (GTK_IS_LABEL(child))
+		return gtk_label_get_text(GTK_LABEL(child));
+	for (GtkWidget *c = gtk_widget_get_first_child(child); c; c = gtk_widget_get_next_sibling(c))
+		if (GTK_IS_LABEL(c))
+			return gtk_label_get_text(GTK_LABEL(c));
+	return {};
+}
+
+/* WBCONF_TEST_TOC="click:Wallpaper;dump;search:bell;dump;scroll:0.6;dump":
+ * the sidebar driven and described (stderr), a step every 0.8 s, once the
+ * window is laid out. */
+struct TocScript {
+	Ui *ui;
+	std::vector<std::string> steps;
+	size_t next = 0;
+};
+
+gboolean toc_step(gpointer data) {
+	auto *s = static_cast<TocScript *>(data);
+	if (s->next >= s->steps.size()) {
+		delete s;
+		return G_SOURCE_REMOVE;
+	}
+	Ui *ui = s->ui;
+	std::string step = s->steps[s->next++];
+	if (step == "dump") {
+		std::string out = "toc-dump:";
+		GtkListBoxRow *sel = gtk_list_box_get_selected_row(ui->toc);
+		for (const Ui::TocEntry &e : ui->toc_entries) {
+			if (!gtk_widget_get_visible(e.row))
+				continue;
+			const Ui::CategoryView &c = ui->categories[e.category];
+			bool open = c.open_by_user || c.open_for_now;
+			out += std::string("|") + (e.section ? "." : open ? "v" : ">") + toc_text(e.row);
+			if (GTK_WIDGET(sel) == e.row)
+				out += "*";
+		}
+		fprintf(stderr, "%s\n", out.c_str());
+	} else if (step.rfind("click:", 0) == 0) {
+		for (const Ui::TocEntry &e : ui->toc_entries)
+			if (toc_text(e.row) == step.substr(6)) {
+				g_signal_emit_by_name(ui->toc, "row-activated", e.row);
+				break;
+			}
+	} else if (step.rfind("search:", 0) == 0) {
+		gtk_editable_set_text(GTK_EDITABLE(ui->search), step.substr(7).c_str());
+	} else if (step.rfind("scroll:", 0) == 0) {
+		/* To that fraction of the way down. */
+		GtkAdjustment *adj = gtk_scrolled_window_get_vadjustment(ui->scroller);
+		double f = g_ascii_strtod(step.c_str() + 7, nullptr);
+		gtk_adjustment_set_value(adj, f * (gtk_adjustment_get_upper(adj) -
+				gtk_adjustment_get_page_size(adj)));
+	}
+	return G_SOURCE_CONTINUE;
+}
+
+}  // namespace
+
+void start_toc_script(Ui *ui, const char *spec) {
+	auto *s = new TocScript{ui, {}};
+	std::string all = spec;
+	size_t start = 0;
+	while (start <= all.size()) {
+		size_t semi = all.find(';', start);
+		std::string step = all.substr(start, semi == std::string::npos ? std::string::npos
+				: semi - start);
+		if (!step.empty())
+			s->steps.push_back(step);
+		if (semi == std::string::npos)
+			break;
+		start = semi + 1;
+	}
+	g_timeout_add(800, toc_step, s);
 }
 
 void focus_category(Ui *ui, const std::string &category_id) {
 	for (const Ui::CategoryView &c : ui->categories) {
 		if (c.id != category_id)
 			continue;
-		GtkAdjustment *adj = gtk_scrolled_window_get_vadjustment(ui->scroller);
-		ui->scrolling_to = true;
-		gtk_adjustment_set_value(adj, y_in_list(ui, c.heading) - 8);
-		ui->scrolling_to = false;
+		scroll_to(ui, c.heading);
+		for (Ui::CategoryView &o : ui->categories)
+			o.open_for_now = &o == &c;
 		gtk_list_box_select_row(ui->toc, GTK_LIST_BOX_ROW(c.toc));
+		show_tree(ui);
 		return;
 	}
 }

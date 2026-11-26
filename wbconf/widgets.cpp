@@ -42,8 +42,8 @@ GtkWidget *section(GtkWidget *page, const char *title) {
 /* A grid for label/control rows, appended to a section's content box. */
 GtkWidget *section_grid(GtkWidget *content) {
 	GtkWidget *grid = gtk_grid_new();
-	gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
-	gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
+	gtk_grid_set_row_spacing(GTK_GRID(grid), 4);
+	gtk_grid_set_column_spacing(GTK_GRID(grid), 10);
 	gtk_box_append(GTK_BOX(content), grid);
 	return grid;
 }

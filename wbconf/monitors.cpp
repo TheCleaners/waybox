@@ -343,7 +343,7 @@ void populate_monitors(Ui *ui, const std::vector<wb::OutputSetting> &outputs) {
 
 /* One block per connected monitor. */
 GtkWidget *build_monitors_block(Ui *ui) {
-	GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+	GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
 
 	std::string why;
 	auto monitors = query_monitors(&why);
@@ -378,10 +378,10 @@ GtkWidget *build_monitors_block(Ui *ui) {
 		gtk_frame_set_label_widget(GTK_FRAME(frame), label);
 		gtk_widget_set_halign(frame, GTK_ALIGN_START);
 		GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-		gtk_widget_set_margin_top(card, 10);
-		gtk_widget_set_margin_bottom(card, 12);
-		gtk_widget_set_margin_start(card, 14);
-		gtk_widget_set_margin_end(card, 14);
+		gtk_widget_set_margin_top(card, 6);
+		gtk_widget_set_margin_bottom(card, 8);
+		gtk_widget_set_margin_start(card, 10);
+		gtk_widget_set_margin_end(card, 10);
 		gtk_frame_set_child(GTK_FRAME(frame), card);
 		gtk_box_append(GTK_BOX(inner), frame);
 		GtkWidget *grid = section_grid(card);

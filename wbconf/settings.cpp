@@ -17,12 +17,15 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 	if (ui->theme_names.empty() && !current.empty())
 		ui->theme_names.push_back(current);
 
-	/* Clear any existing rows, then repopulate. */
+	/* Clear any existing rows, then repopulate. The thumbnails are
+	 * forgotten first: removing the selected row changes the selection,
+	 * which redraws the previews (preview_refresh), and must not reach the
+	 * rows already gone. */
+	ui->theme_thumbs.clear();
 	GtkListBoxRow *row;
 	while ((row = gtk_list_box_get_row_at_index(ui->theme_list, 0)) != nullptr)
 		gtk_list_box_remove(ui->theme_list, GTK_WIDGET(row));
 	int sel = -1;
-	ui->theme_thumbs.clear();
 	for (size_t i = 0; i < ui->theme_names.size(); ++i) {
 		/* The name over a thumbnail of the theme's titlebars. */
 		GtkWidget *item = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
@@ -49,10 +52,14 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 		gtk_list_box_select_row(ui->theme_list, selected);
 		/* Scroll it into view within the theme list once laid out (not
 		 * by focusing it, which scrolled the whole settings list too). */
-		/* Retried until the window is shown and laid out (a few tries). */
+		/* Retried until the window is shown and laid out (a few tries).
+		 * The timer holds a reference: a reload meanwhile removes the row,
+		 * which then has no parent, and the timer just ends. */
 		g_object_set_data(G_OBJECT(selected), "wb-tries", GINT_TO_POINTER(0));
-		g_timeout_add(100, [](gpointer data) -> gboolean {
+		g_timeout_add_full(G_PRIORITY_DEFAULT, 100, [](gpointer data) -> gboolean {
 			GtkWidget *row = GTK_WIDGET(data);
+			if (gtk_widget_get_parent(row) == nullptr)
+				return G_SOURCE_REMOVE;
 			int tries = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(row), "wb-tries"));
 			g_object_set_data(G_OBJECT(row), "wb-tries", GINT_TO_POINTER(tries + 1));
 			GtkWidget *sw = gtk_widget_get_ancestor(row, GTK_TYPE_SCROLLED_WINDOW);
@@ -67,7 +74,7 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 			double page = gtk_adjustment_get_page_size(adj);
 			gtk_adjustment_set_value(adj, out.y - page / 2 + gtk_widget_get_height(row) / 2.0);
 			return G_SOURCE_REMOVE;
-		}, selected);
+		}, g_object_ref(selected), g_object_unref);
 	}
 
 	populate_monitors(ui, s.outputs);

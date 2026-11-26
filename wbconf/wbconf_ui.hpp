@@ -330,14 +330,30 @@ struct Ui {
 		GtkWidget *toc = nullptr;
 		GtkWidget *description = nullptr;
 		std::vector<std::pair<GtkWidget *, std::vector<GtkWidget *>>> sections;
+		/* In the sidebar: its arrow, and whether it's open (by the user,
+		 * or for now because it's what's being read or searched). */
+		GtkImage *arrow = nullptr;
+		bool open_by_user = false, open_for_now = false;
 	};
 	std::vector<CategoryView> categories;
+	/* The sidebar's rows, a tree: each category, then its sections. */
+	struct TocEntry {
+		GtkWidget *row = nullptr;
+		int category = 0;
+		GtkWidget *heading = nullptr;  /* what it scrolls to */
+		bool section = false;
+	};
+	std::vector<TocEntry> toc_entries;
 	GtkSearchEntry *search = nullptr;
 	GtkListBox *toc = nullptr;
 	GtkScrolledWindow *scroller = nullptr;
 	GtkWidget *list = nullptr;
 	GtkLabel *no_results = nullptr;
 	bool scrolling_to = false;            /* ToC click: don't re-select on scroll */
+	/* A sidebar click's heading, scrolled to again once things above it
+	 * have their sizes (images, statuses), unless the user scrolled since. */
+	GtkWidget *scroll_target = nullptr;
+	double scroll_set = -1;
 
 	/* What the custom editors (theme, monitors, programs) showed after
 	 * loading or the last save: Save writes only what differs. */
@@ -362,6 +378,8 @@ JsonObject *waybox_request(const std::string &request, int timeout_s = 1);
 /* The monitor arranger (monitor_arranger.cpp). */
 GtkWidget *build_arranger(Ui *ui);
 void arranger_changed(Ui *ui);   /* a monitor's settings changed: redraw */
+/* For tests: the sidebar driven step by step (WBCONF_TEST_TOC). */
+void start_toc_script(Ui *ui, const char *spec);
 void arranger_select(Ui *ui, int index);
 /* For tests: drop monitor NAME at logical x,y, as a drag would. */
 bool arranger_test_drop(Ui *ui, const std::string &name, int x, int y);
