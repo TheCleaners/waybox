@@ -145,8 +145,12 @@ function on_save(values)
   values.rules = nil
   for key, value in pairs(values) do
     if switches[key] then value = value == "on" and "1" or "0" end
-    -- Only what's changed from mako's default, or already in the file.
-    if cfg:get(key) ~= nil or value ~= defaults[key] then
+    if value == "" then
+      -- Empty (the font's "Default", a field cleared): mako's own, so the
+      -- line goes rather than staying blank.
+      cfg:set(key, nil)
+    elseif cfg:get(key) ~= nil or value ~= defaults[key] then
+      -- Only what's changed from mako's default, or already in the file.
       cfg:set(key, value)
     end
   end
