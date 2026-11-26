@@ -1,7 +1,8 @@
 /*
  * A font control (a page's font { }): family (searchable; "Default" first:
- * the program's own), size, weight, width and italic in one row, and a
- * line of text in the font below. Written as the page's format says: as
+ * the program's own) and size in a row, then a button saying its style
+ * ("Regular", "Bold · Italic") opening a popover with weight, width and
+ * italic and a larger preview; a line of text in the font below. Written as the page's format says: as
  * Pango writes it ("Inter Bold 11", mako), changed on a copy of what was
  * there (variations kept); or as fontconfig names ("Iosevka,Noto Color
  * Emoji:size=12:weight=bold", foot and fuzzel), fallbacks and the
@@ -112,13 +113,39 @@ std::string write_value(FontControl *c, const font::Spec &s) {
 	return out;
 }
 
-/* The sample line, in the font. */
+/* "Regular", "Bold · Italic · Condensed": what the style button says. */
+std::string style_text(const font::Spec &s) {
+	std::vector<std::string> parts;
+	for (const font::Named &n : font::weights())
+		if (s.weight > 0 && n.value == font::nearest_weight(s.weight))
+			parts.push_back(_(n.label));
+	if (!s.slant.empty())
+		parts.push_back(_("Italic"));
+	for (const font::Named &n : font::widths())
+		if (s.width > 0 && s.width != 100 && n.value == font::nearest_width(s.width))
+			parts.push_back(_(n.label));
+	if (parts.empty())
+		return _("Regular");
+	std::string out;
+	for (size_t i = 0; i < parts.size(); ++i)
+		out += (i ? " \xC2\xB7 " : "") + parts[i];
+	return out;
+}
+
+void set_font_attrs(GtkWidget *label, PangoFontDescription *d) {
+	PangoAttrList *attrs = pango_attr_list_new();
+	pango_attr_list_insert(attrs, pango_attr_font_desc_new(d));
+	gtk_label_set_attributes(GTK_LABEL(label), attrs);
+	pango_attr_list_unref(attrs);
+}
+
+/* The sample line (and the popover's preview), in the font. */
 void show_sample(FontControl *c) {
 	bool any = !c->spec.families.empty();
 	gtk_widget_set_visible(c->sample, any);
-	for (GtkWidget *w : {GTK_WIDGET(c->size), GTK_WIDGET(c->weight), GTK_WIDGET(c->width),
-			GTK_WIDGET(c->italic)})
-		gtk_widget_set_sensitive(w, any);
+	gtk_widget_set_sensitive(GTK_WIDGET(c->size), any);
+	gtk_widget_set_sensitive(c->style, any);
+	gtk_label_set_text(GTK_LABEL(c->style_label), style_text(c->spec).c_str());
 	if (!any)
 		return;
 	PangoFontDescription *d = pango_font_description_new();
@@ -131,10 +158,10 @@ void show_sample(FontControl *c) {
 		pango_font_description_set_style(d, PANGO_STYLE_ITALIC);
 	if (c->spec.width > 0)
 		pango_font_description_set_stretch(d, stretch_of(c->spec.width));
-	PangoAttrList *attrs = pango_attr_list_new();
-	pango_attr_list_insert(attrs, pango_attr_font_desc_new(d));
-	gtk_label_set_attributes(GTK_LABEL(c->sample), attrs);
-	pango_attr_list_unref(attrs);
+	set_font_attrs(c->sample, d);
+	/* The preview: larger, whatever the size. */
+	pango_font_description_set_size(d, 16 * PANGO_SCALE);
+	set_font_attrs(c->preview, d);
 	pango_font_description_free(d);
 }
 
@@ -168,7 +195,7 @@ void show(FontControl *c) {
 		if (s.width > 0 && font::widths()[i].value == font::nearest_width(s.width))
 			wd = static_cast<guint>(i + 1);
 	gtk_drop_down_set_selected(c->width, wd);
-	gtk_toggle_button_set_active(c->italic, !s.slant.empty());
+	gtk_switch_set_active(c->italic, !s.slant.empty());
 	show_sample(c);
 	c->syncing = false;
 }
@@ -192,7 +219,7 @@ void on_widget(FontControl *c) {
 	s.weight = w > 0 && w <= font::weights().size() ? font::weights()[w - 1].value : 0;
 	guint wd = gtk_drop_down_get_selected(c->width);
 	s.width = wd > 0 && wd <= font::widths().size() ? font::widths()[wd - 1].value : 0;
-	bool italic = gtk_toggle_button_get_active(c->italic);
+	bool italic = gtk_switch_get_active(c->italic);
 	if (!italic)
 		s.slant.clear();
 	else if (s.slant.empty())
@@ -265,17 +292,59 @@ std::unique_ptr<FontControl> make_font_control(const std::string &format,
 	c->size = GTK_SPIN_BUTTON(gtk_spin_button_new_with_range(4, 96, 0.5));
 	gtk_widget_set_tooltip_text(GTK_WIDGET(c->size), _("Size, in points"));
 	gtk_box_append(GTK_BOX(row), GTK_WIDGET(c->size));
-	c->weight = named_drop(_("Weight"), font::weights(), _("Weight (Default: the font's own)"));
-	gtk_box_append(GTK_BOX(row), GTK_WIDGET(c->weight));
-	c->width = named_drop(_("Width"), font::widths(), _("Width (Default: the font's own)"));
-	gtk_box_append(GTK_BOX(row), GTK_WIDGET(c->width));
-	c->italic = GTK_TOGGLE_BUTTON(gtk_toggle_button_new());
-	GtkWidget *i = gtk_label_new(nullptr);
-	gtk_label_set_markup(GTK_LABEL(i), "<i>I</i>");
-	gtk_button_set_child(GTK_BUTTON(c->italic), i);
-	gtk_widget_set_tooltip_text(GTK_WIDGET(c->italic), _("Italic"));
-	gtk_box_append(GTK_BOX(row), GTK_WIDGET(c->italic));
+	/* The style: a button saying it, opening the rest. */
+	c->style = gtk_menu_button_new();
+	c->style_label = gtk_label_new("");
+	gtk_label_set_ellipsize(GTK_LABEL(c->style_label), PANGO_ELLIPSIZE_END);
+	gtk_label_set_max_width_chars(GTK_LABEL(c->style_label), 28);
+	GtkWidget *style_line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+	gtk_box_append(GTK_BOX(style_line), c->style_label);
+	gtk_box_append(GTK_BOX(style_line), gtk_image_new_from_icon_name("pan-down-symbolic"));
+	gtk_menu_button_set_child(GTK_MENU_BUTTON(c->style), style_line);
+	gtk_widget_set_tooltip_text(c->style, _("Weight, width and italic"));
+	gtk_box_append(GTK_BOX(row), c->style);
 	gtk_box_append(GTK_BOX(c->box), row);
+
+	GtkWidget *pop = gtk_popover_new();
+	GtkWidget *pbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+	gtk_widget_set_margin_start(pbox, 12);
+	gtk_widget_set_margin_end(pbox, 12);
+	gtk_widget_set_margin_top(pbox, 12);
+	gtk_widget_set_margin_bottom(pbox, 12);
+	c->preview = gtk_label_new(_("The quick brown fox jumps over the lazy dog\n"
+			"ABCDEFGHIJKLM abcdefghijklm 0123456789"));
+	gtk_label_set_xalign(GTK_LABEL(c->preview), 0);
+	gtk_label_set_wrap(GTK_LABEL(c->preview), TRUE);
+	gtk_label_set_max_width_chars(GTK_LABEL(c->preview), 52);
+	gtk_widget_set_size_request(c->preview, 540, -1);
+	gtk_box_append(GTK_BOX(pbox), c->preview);
+	GtkWidget *grid = gtk_grid_new();
+	gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
+	gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
+	c->weight = named_drop(_("The font's own"), font::weights(), _("Weight"));
+	c->width = named_drop(_("The font's own"), font::widths(), _("Width"));
+	c->italic = GTK_SWITCH(gtk_switch_new());
+	gtk_widget_set_halign(GTK_WIDGET(c->italic), GTK_ALIGN_START);
+	const std::pair<const char *, GtkWidget *> rows[] = {{_("Weight:"), GTK_WIDGET(c->weight)},
+			{_("Width:"), GTK_WIDGET(c->width)}, {_("Italic:"), GTK_WIDGET(c->italic)}};
+	int r = 0;
+	for (const auto &[text, w] : rows) {
+		GtkWidget *l = gtk_label_new(text);
+		gtk_label_set_xalign(GTK_LABEL(l), 1);
+		gtk_grid_attach(GTK_GRID(grid), l, 0, r, 1, 1);
+		gtk_grid_attach(GTK_GRID(grid), w, 1, r++, 1, 1);
+	}
+	gtk_box_append(GTK_BOX(pbox), grid);
+	GtkWidget *reset = gtk_button_new_with_label(_("The Font's Own Style"));
+	gtk_widget_set_halign(reset, GTK_ALIGN_END);
+	g_signal_connect_swapped(reset, "clicked", G_CALLBACK(+[](FontControl *fc) {
+		gtk_drop_down_set_selected(fc->weight, 0);
+		gtk_drop_down_set_selected(fc->width, 0);
+		gtk_switch_set_active(fc->italic, FALSE);
+	}), c.get());
+	gtk_box_append(GTK_BOX(pbox), reset);
+	gtk_popover_set_child(GTK_POPOVER(pop), pbox);
+	gtk_menu_button_set_popover(GTK_MENU_BUTTON(c->style), pop);
 
 	c->sample = gtk_label_new(_("The quick brown fox jumps over the lazy dog · 0123456789"));
 	gtk_label_set_xalign(GTK_LABEL(c->sample), 0);
@@ -286,7 +355,7 @@ std::unique_ptr<FontControl> make_font_control(const std::string &format,
 	g_signal_connect(c->size, "value-changed", G_CALLBACK(on_signal), c.get());
 	g_signal_connect(c->weight, "notify::selected", G_CALLBACK(on_notify), c.get());
 	g_signal_connect(c->width, "notify::selected", G_CALLBACK(on_notify), c.get());
-	g_signal_connect(c->italic, "toggled", G_CALLBACK(on_signal), c.get());
+	g_signal_connect(c->italic, "notify::active", G_CALLBACK(on_notify), c.get());
 	show(c.get());
 	return c;
 }
@@ -300,6 +369,10 @@ void font_control_set(FontControl *c, const std::string &value) {
 /* Tests: "family:NAME" (as picked from the list), "size:N", "weight:N",
  * "width:N", "italic:on|off". */
 bool font_control_test(FontControl *c, const std::string &action) {
+	if (action == "open") {
+		gtk_menu_button_popup(GTK_MENU_BUTTON(c->style));
+		return true;
+	}
 	size_t colon = action.find(':');
 	if (colon == std::string::npos)
 		return false;
@@ -324,7 +397,7 @@ bool font_control_test(FontControl *c, const std::string &action) {
 				pick = static_cast<guint>(i + 1);
 		gtk_drop_down_set_selected(what == "weight" ? c->weight : c->width, pick);
 	} else if (what == "italic") {
-		gtk_toggle_button_set_active(c->italic, arg == "on");
+		gtk_switch_set_active(c->italic, arg == "on");
 	} else {
 		return false;
 	}

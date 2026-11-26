@@ -129,7 +129,9 @@ struct FontControl {
 	GtkWidget *box = nullptr, *sample = nullptr;
 	GtkDropDown *family = nullptr, *weight = nullptr, *width = nullptr;
 	GtkSpinButton *size = nullptr;
-	GtkToggleButton *italic = nullptr;
+	GtkSwitch *italic = nullptr;
+	/* Weight, width and italic: in a popover, behind a button saying which. */
+	GtkWidget *style = nullptr, *style_label = nullptr, *preview = nullptr;
 	std::vector<std::string> families;  /* parallel to the list; "" (Default) first */
 	bool fontconfig = false;            /* else as Pango writes it */
 	wb::font::Spec spec;
