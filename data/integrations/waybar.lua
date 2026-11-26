@@ -6,8 +6,10 @@
 local mine = { "~/.config/waybar/config.jsonc", "~/.config/waybar/config" }
 local default = "/etc/xdg/waybar/config.jsonc"
 
--- The file Waybar reads: the user's, else the default (saving then makes
--- the user's own copy of it).
+-- The file Waybar reads: the one its command names (-c), else the user's,
+-- else the default (saving then makes the user's own copy of it).
+local named = wb.option("config")
+if named then mine = { named } end
 local path, raw = mine[1], nil
 for _, p in ipairs(mine) do
   raw = wb.read(p)

@@ -583,6 +583,9 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 	gtk_box_append(GTK_BOX(body), GTK_WIDGET(row->status));
 	row->details = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
 	gtk_box_append(GTK_BOX(body), row->details);
+	/* Its command (made now, for a page to read; shown under the options). */
+	row->command = GTK_ENTRY(gtk_entry_new());
+	gtk_editable_set_text(GTK_EDITABLE(row->command), command.c_str());
 	if (in != nullptr && !in->options.empty()) {
 		/* With a page, the options go under it, folded. */
 		GtkWidget *options_parent = row->details;
@@ -613,13 +616,12 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 		if (GtkWidget *page = build_integration_page(ui, row.get()))
 			gtk_box_append(GTK_BOX(row->details), page);
 	}
-	row->command = GTK_ENTRY(gtk_entry_new());
 	gtk_widget_set_hexpand(GTK_WIDGET(row->command), TRUE);
 	gtk_entry_set_placeholder_text(row->command, _("Command"));
 	gtk_widget_set_tooltip_text(GTK_WIDGET(row->command), _("The command Waybox runs"));
 	gtk_box_append(GTK_BOX(row->details), GTK_WIDGET(row->command));
 	g_signal_connect(row->command, "changed", G_CALLBACK(on_command_changed), row.get());
-	gtk_editable_set_text(GTK_EDITABLE(row->command), command.c_str());
+	on_command_changed(GTK_EDITABLE(row->command), row.get());  /* the options from it */
 	g_signal_connect(row->on, "notify::active", G_CALLBACK(on_program_toggled), row.get());
 	on_program_toggled(nullptr, nullptr, row.get());
 	ui->programs.push_back(std::move(row));
@@ -894,7 +896,13 @@ GtkWidget *build_binding_block(Ui *ui, const std::string &id) {
 	gtk_box_append(GTK_BOX(b->details), GTK_WIDGET(b->command));
 	/* Its settings page, if it has one: shown while it's bound. */
 	if (!wb::lua_page_path(*in).empty()) {
-		GtkWidget *page = build_lua_page_for(ui, in, &b->page);
+		GtkEntry *cmd = b->command;
+		GtkWidget *page = build_lua_page_for(ui, in, &b->page, [cmd] {
+			return std::string(gtk_editable_get_text(GTK_EDITABLE(cmd)));
+		});
+		g_signal_connect(b->command, "changed", G_CALLBACK(+[](GtkEditable *, gpointer d) {
+			lua_page_command_changed(static_cast<Ui::BindingRow *>(d)->page);
+		}), b.get());
 		gtk_widget_set_margin_top(page, 8);
 		gtk_box_append(GTK_BOX(b->details), page);
 	}

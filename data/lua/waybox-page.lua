@@ -174,6 +174,13 @@ function wb.write(path, text) end
 ---@param argv string[]
 function wb.run(argv) end
 
+--- One of the integration's options ([Option ID]) as the program's command
+--- sets it now (waybar's -c FILE), or nil. A file or folder named this way
+--- may be read and written, as if in Files=.
+---@param id string
+---@return string?
+function wb.option(id) end
+
 --- The program takes its settings again, as the integration's Reload= says.
 function wb.reload() end
 

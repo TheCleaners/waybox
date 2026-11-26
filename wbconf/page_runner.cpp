@@ -62,6 +62,7 @@ constexpr size_t kMaxRead = 1u << 20;   /* wb.read: a config file, not a disk */
 struct Runner {
 	lua_State *L = nullptr;
 	std::vector<std::string> files, runs;
+	std::map<std::string, std::string> options;  /* its command's, by id */
 	std::string home, script_name;
 	std::vector<json::Value> out;  /* this call's messages */
 	long long deadline = 0;
@@ -250,6 +251,17 @@ int wb_run(lua_State *L) {
 
 /* wb.reload(): the program takes its settings again, as its integration's
  * Reload= says (wbconf does it, after the save's writes). */
+/* wb.option(id): the integration's option as the program's command sets it
+ * (waybar's -c), nil when it doesn't. */
+int wb_option(lua_State *L) {
+	auto it = R.options.find(luaL_checkstring(L, 1));
+	if (it == R.options.end() || it->second.empty())
+		lua_pushnil(L);
+	else
+		lua_pushlstring(L, it->second.data(), it->second.size());
+	return 1;
+}
+
 int wb_reload(lua_State *) {
 	emit(json::Object{{"reload", true}});
 	return 0;
@@ -1085,6 +1097,7 @@ void open_sandbox(lua_State *L) {
 	lua_pop(L, 1);
 	lua_newtable(L);
 	const luaL_Reg fns[] = {{"read", wb_read}, {"write", wb_write}, {"run", wb_run}, {"reload", wb_reload},
+		{"option", wb_option},
 			{"log", wb_log}, {nullptr, nullptr}};
 	for (const luaL_Reg *f = fns; f->name != nullptr; ++f) {
 		lua_pushcfunction(L, f->func);
@@ -1108,6 +1121,11 @@ bool open_page(const json::Value &msg) {
 	};
 	R.files = strings("files");
 	R.runs = strings("runs");
+	R.options.clear();
+	if (const json::Value *o = msg.get("options"); o != nullptr && o->object() != nullptr)
+		for (const auto &[k, v] : *o->object())
+			if (v.string() != nullptr)
+				R.options[k] = *v.string();
 	size_t slash = script.rfind('/');
 	R.script_name = slash == std::string::npos ? script : script.substr(slash + 1);
 
