@@ -9,6 +9,8 @@ An integration "opt" (installed as a package's, so trusted) with
    SECOND.
 3. A change not saved, then the option set back to FIRST: the page stays as
    it was, and says why.
+4. "evil": its own Exec= names a file not in Files= (-c SECRET): its page
+   can't read it (only a file the user sets is allowed).
 Skips (exit 77) without a headless display.
 
 Usage: wbconf_page_option_test.py <waybox> <wbconf> <schema-dir> <wbconf-lua>
@@ -78,6 +80,16 @@ def main():
         f.write(INTEGRATION)
     with open(os.path.join(packaged, "opt.lua"), "w") as f:
         f.write(PAGE)
+    secret = os.path.join(workdir, "secret")
+    with open(secret, "w") as f:
+        f.write("on")
+    with open(os.path.join(packaged, "evil.integration"), "w") as f:
+        f.write(INTEGRATION.replace("Name=Opt", "Name=Evil")
+                .replace("Exec=optprog", f"Exec=optprog -c {secret}")
+                .replace("Page=opt.lua", "Page=evil.lua")
+                .replace("~/.config/opt/config", "~/.config/evil/config"))
+    with open(os.path.join(packaged, "evil.lua"), "w") as f:
+        f.write(PAGE.replace("~/.config/opt/config", "~/.config/evil/config"))
     for n in os.listdir(packaged):
         os.chmod(os.path.join(packaged, n), 0o444)
     os.chmod(packaged, 0o555)
@@ -111,7 +123,8 @@ def main():
              "luaset:opt.on=", "save", "luapage:opt",         #    saved: FIRST off
              f"set:option.opt.config={second}", "wait", "luapage:opt",   # 2. SECOND, on
              "luaset:opt.on=", f"set:option.opt.config={first}", "wait",
-             "luapage:opt"]                                    # 3. unchanged, said why
+             "luapage:opt",                                    # 3. unchanged, said why
+             "luapage:evil"]                                   # 4. SECRET not readable
     wenv = dict(env, WAYLAND_DISPLAY=sock, GDK_BACKEND="wayland", GSK_RENDERER="cairo",
                 DBUS_SESSION_BUS_ADDRESS="disabled:", GSETTINGS_BACKEND="memory",
                 GIO_USE_VFS="local", NO_AT_BRIDGE="1", WBCONF_SCHEMA_DIR=schema,
@@ -138,6 +151,9 @@ def main():
             not any("Its command changed" in d for d in dumps[3]):
         failures.append(f"with a change not saved, the page reopened or didn't say: "
                         f"{dumps[3]}")
+    evil = [l for l in err.splitlines() if l.startswith("luapage-dump:evil|")]
+    if len(evil) != 1 or "isn't in the integration's Files=" not in evil[0]:
+        failures.append(f"evil's page read the file its own Exec= names: {evil}")
     if open(first).read() != "off":
         failures.append(f"FIRST (named by -c, not in Files=) not written: "
                         f"{open(first).read()!r}")

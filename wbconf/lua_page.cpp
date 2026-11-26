@@ -181,15 +181,21 @@ struct LuaPage {
 	}
 
 	/* Files= and the files the command names through a file or folder
-	 * option (waybar -c PATH): the user chose those. */
+	 * option (waybar -c PATH) that the user set: not one its Exec= names
+	 * (its author's: that goes in Files=, shown and graded on the card). */
 	std::vector<std::string> allowed_files(const std::map<std::string, std::string> &opts) const {
 		std::vector<std::string> out = in->files;
+		auto authors = wb::read_options(*in, in->exec);
 		for (const wb::IntegrationOption &o : in->options) {
 			if (o.type != wb::OptionType::File && o.type != wb::OptionType::Folder)
 				continue;
 			auto it = opts.find(o.id);
-			if (it != opts.end() && !it->second.empty())
-				out.push_back(it->second);
+			if (it == opts.end() || it->second.empty())
+				continue;
+			auto a = authors.find(o.id);
+			if (a != authors.end() && a->second == it->second)
+				continue;
+			out.push_back(it->second);
 		}
 		return out;
 	}
@@ -813,8 +819,8 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 	/* "Read and change the file its command names (-c, Config file)". */
 	for (const wb::IntegrationOption &o : in.options)
 		if (o.type == wb::OptionType::File || o.type == wb::OptionType::Folder) {
-			gchar *t = g_markup_printf_escaped(_("Read and change the file its command gives "
-					"with %s (%s), if any"), o.flag.c_str(), o.label.c_str());
+			gchar *t = g_markup_printf_escaped(_("Read and change the file you give it with %s "
+					"(%s), if you give one"), o.flag.c_str(), o.label.c_str());
 			gtk_box_append(GTK_BOX(list), permission_line("document-edit-symbolic", t));
 			g_free(t);
 		}
