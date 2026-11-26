@@ -40,13 +40,14 @@ def alive(pid):
 
 
 def process_state(pid):
-    """A process's state letter(s): /proc where there is one (Linux), else
-    ps (the BSDs, where /proc isn't mounted); "" if it's gone."""
+    """A process's state letter(s): Linux's /proc where there is one, else
+    ps (the BSDs: FreeBSD's procfs, when mounted, has no stat file); "" if
+    it's gone."""
     try:
         with open(f"/proc/{pid}/stat") as f:
             return f.read().rsplit(") ", 1)[1][0]
     except FileNotFoundError:
-        if os.path.isdir("/proc/self"):
+        if os.path.exists("/proc/self/stat"):
             return ""
     except (OSError, IndexError):
         return ""
