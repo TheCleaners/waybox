@@ -8,8 +8,9 @@ namespace wb {
 
 namespace {
 
-/* "“name”" */
-std::string quoted(const std::string &s) {
+/* "“name”". (Not "quoted": libc++'s std::quoted, found by argument-
+ * dependent lookup, wins over it for a non-const string.) */
+std::string in_quotes(const std::string &s) {
 	return "\xE2\x80\x9C" + s + "\xE2\x80\x9D";
 }
 
@@ -64,7 +65,7 @@ std::optional<SettingProblem> pointer_problem(const PointerState &s, Translate t
 	if (!check.has_cursors) {
 		std::string instead = xcursor_fallback_theme(s.path);
 		p.text = replace(_("Waybox's pointer theme, {theme}, has no cursors"), "{theme}",
-				quoted(waybox));
+				in_quotes(waybox));
 		if (!check.index_file.empty()) {
 			std::string who = written_by(check.index_file);
 			p.text += ": " + (who.empty()
@@ -76,11 +77,11 @@ std::optional<SettingProblem> pointer_problem(const PointerState &s, Translate t
 		}
 		p.text += ". " + (instead.empty()
 				? _("Waybox draws a stand-in pointer, whose size can't change.")
-				: replace(_("Waybox uses {theme} instead."), "{theme}", quoted(instead)));
+				: replace(_("Waybox uses {theme} instead."), "{theme}", in_quotes(instead)));
 	} else if (shown_ok && s.shown != waybox) {
 		p.text = replace(replace(_("Waybox draws the pointer with {waybox}, GTK programs with "
-				"{gtk}: it changes look between them."), "{waybox}", quoted(waybox)),
-				"{gtk}", quoted(s.shown));
+				"{gtk}: it changes look between them."), "{waybox}", in_quotes(waybox)),
+				"{gtk}", in_quotes(s.shown));
 	} else {
 		return std::nullopt;
 	}

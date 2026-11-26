@@ -44,7 +44,7 @@ def rc_xml(theme, sigmask_out):
   {theme_xml}
   <keyboard>
     <keybind key="W-x">
-      <action name="Execute"><execute>if [ -r /proc/self/status ]; then sed -n "s/^SigBlk:[[:space:]]*//p" /proc/self/status; else ps -o sigmask= -p $$; fi &gt; {sigmask_out}</execute></action>
+      <action name="Execute"><execute>if grep -q "^SigBlk:" /proc/self/status 2&gt;/dev/null; then sed -n "s/^SigBlk:[[:space:]]*//p" /proc/self/status; else ps -o sigmask= -p $$; fi &gt; {sigmask_out}</execute></action>
     </keybind>
   </keyboard>
   <applications>
