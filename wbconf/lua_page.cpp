@@ -440,7 +440,14 @@ struct LuaPage {
 			f.opt->width_chars = c.kind == page::Kind::Text && !c.wide ? 24 : 0;
 			f.opt->color_alpha = true;  /* a page's colors may be #rrggbbaa */
 			std::string key = c.key;
-			if (c.kind == page::Kind::Sections) {
+			if (c.kind == page::Kind::Font) {
+				f.field = std::make_unique<OptionField>();
+				f.field->opt = f.opt.get();
+				f.field->font = make_font_control(c.format, c.hint);
+				f.field->font->on_change = [this, key] { changed(key); };
+				f.field->widget = f.field->font->box;
+				set_option_field_value(*f.field, c.value);
+			} else if (c.kind == page::Kind::Sections) {
 				f.field = std::make_unique<OptionField>();
 				f.field->opt = f.opt.get();
 				f.field->sections = make_sections_control(c);
@@ -869,6 +876,10 @@ void lua_page_test(Ui *ui, const std::string &id, const std::string &what,
 			 * buttons do (and so through its on_change). */
 			if (it->second.field->list != nullptr && value.rfind('@', 0) == 0) {
 				list_control_test(it->second.field->list.get(), value.substr(1));
+				continue;
+			}
+			if (it->second.field->font != nullptr && value.rfind('@', 0) == 0) {
+				font_control_test(it->second.field->font.get(), value.substr(1));
 				continue;
 			}
 			if (it->second.field->sections != nullptr && value.rfind('@', 0) == 0) {

@@ -32,6 +32,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include "waybox/font_spec.hpp"
 #include "waybox/name_list.hpp"
 #include "waybox/page_protocol.hpp"
 #include "waybox/change_list.hpp"
@@ -77,6 +78,9 @@ struct MonitorInfo {
 
 /* ---- A lightweight font picker: family + size + bold ----------------- */
 
+/* The installed font families, sorted (fonts.cpp). */
+const std::vector<std::string> &font_families();
+
 struct FontPicker {
 	GtkDropDown *family = nullptr;
 	GtkSpinButton *size = nullptr;
@@ -120,6 +124,26 @@ std::unique_ptr<ListControl> make_list_control(const std::vector<std::string> &s
 void list_control_set(ListControl *c, const wb::names::List &items);
 bool list_control_test(ListControl *c, const std::string &action);
 
+/* A font (font_control.cpp): a page's font { }. */
+struct FontControl {
+	GtkWidget *box = nullptr, *sample = nullptr;
+	GtkDropDown *family = nullptr, *weight = nullptr, *width = nullptr;
+	GtkSpinButton *size = nullptr;
+	GtkToggleButton *italic = nullptr;
+	std::vector<std::string> families;  /* parallel to the list; "" (Default) first */
+	bool fontconfig = false;            /* else as Pango writes it */
+	wb::font::Spec spec;
+	PangoFontDescription *pango_desc = nullptr;  /* Pango: what was there */
+	std::string value;
+	std::function<void()> on_change;
+	bool syncing = false;
+	~FontControl();
+};
+std::unique_ptr<FontControl> make_font_control(const std::string &format,
+		const std::string &hint);
+void font_control_set(FontControl *c, const std::string &value);
+bool font_control_test(FontControl *c, const std::string &action);
+
 /* Repeated sections (sections_control.cpp): a page's sections { }. */
 struct OptionField;
 struct SectionsControl {
@@ -157,6 +181,7 @@ struct OptionField {
 	std::unique_ptr<ColorControl> color_control;
 	std::unique_ptr<ListControl> list;  /* list (pages only) */
 	std::unique_ptr<SectionsControl> sections;  /* sections (pages only) */
+	std::unique_ptr<FontControl> font;          /* font (pages only) */
 	bool syncing = false;
 	std::function<void()> on_change;  /* the user changed it */
 };

@@ -11,6 +11,7 @@
 #if defined(__FreeBSD__) || defined(__DragonFly__)
 #include <sys/types.h>
 #include <sys/sysctl.h>
+#include <cerrno>
 #include <sys/user.h>
 #endif
 
@@ -28,12 +29,22 @@ std::vector<ProcessInfo> list_processes() {
 	std::vector<ProcessInfo> out;
 #if defined(__FreeBSD__) || defined(__DragonFly__)
 	int mib[3] = {CTL_KERN, KERN_PROC, KERN_PROC_PROC};
+	/* Room for processes started meanwhile; more started than that
+	 * (ENOMEM): asked again, rather than coming back with none. */
+	std::vector<char> buf;
 	size_t len = 0;
-	if (sysctl(mib, 3, nullptr, &len, nullptr, 0) != 0)
-		return out;
-	len += len / 4;  /* room for processes started meanwhile */
-	std::vector<char> buf(len);
-	if (sysctl(mib, 3, buf.data(), &len, nullptr, 0) != 0)
+	bool read = false;
+	for (int attempt = 0; attempt < 8 && !read; ++attempt) {
+		if (sysctl(mib, 3, nullptr, &len, nullptr, 0) != 0)
+			return out;
+		len += len / 4 + static_cast<size_t>(attempt) * len / 2;
+		buf.resize(len);
+		if (sysctl(mib, 3, buf.data(), &len, nullptr, 0) == 0)
+			read = true;
+		else if (errno != ENOMEM)
+			return out;
+	}
+	if (!read)
 		return out;
 	for (size_t off = 0; off + sizeof(struct kinfo_proc) <= len; off += sizeof(struct kinfo_proc)) {
 		const auto *kp = reinterpret_cast<const struct kinfo_proc *>(buf.data() + off);

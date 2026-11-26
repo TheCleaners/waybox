@@ -917,7 +917,7 @@ local function setting(kind)
 end
 
 for _, kind in ipairs { "text", "number", "switch", "choice", "color", "file", "folder", "image",
-                        "list" } do
+                        "list", "font" } do
   _G[kind] = setting(kind)
 end
 

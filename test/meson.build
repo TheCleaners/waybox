@@ -243,6 +243,14 @@ name_list_test = executable(
   )
 test('name_list', name_list_test)
 
+# Font controls: fontconfig names read and written.
+font_spec_test = executable(
+  'font_spec_test',
+  ['font_spec_test.cpp', 'wb_test_main.cpp', font_spec_src],
+  include_directories: [inc_dir],
+  )
+test('font_spec', font_spec_test)
+
 # The bell: its style, its blinks, never strobing.
 bell_style_test = executable(
   'bell_style_test',

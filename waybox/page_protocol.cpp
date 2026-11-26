@@ -16,6 +16,7 @@ const KindName kKinds[] = {
 	{Kind::Number, "number"}, {Kind::Switch, "switch"}, {Kind::Choice, "choice"},
 	{Kind::Color, "color"}, {Kind::File, "file"}, {Kind::Folder, "folder"},
 	{Kind::Image, "image"}, {Kind::List, "list"}, {Kind::Sections, "sections"},
+	{Kind::Font, "font"},
 	{Kind::Button, "button"},
 };
 
@@ -72,6 +73,11 @@ bool read_control(const json::Value &v, int depth, Control &out, std::set<std::s
 			out.choices.push_back(value);
 			out.choice_labels.push_back(label);
 		}
+	out.format = v.str("format");
+	if (out.kind == Kind::Font && !out.format.empty() && out.format != "pango" &&
+			out.format != "fontconfig")
+		return fail("the font \"" + out.key + "\": its format is pango or fontconfig, not " +
+				out.format);
 	if (const json::Value *b = v.get("wide"); b != nullptr && b->boolean() != nullptr)
 		out.wide = *b->boolean();
 	if (const json::Value *n = v.get("min"); n != nullptr && n->number() != nullptr)
@@ -129,6 +135,7 @@ json::Value write_control(const Control &c) {
 	if (is_setting(c.kind)) o["value"] = c.value;
 	if (!c.unit.empty()) o["unit"] = c.unit;
 	if (!c.hint.empty()) o["hint"] = c.hint;
+	if (!c.format.empty()) o["format"] = c.format;
 	if (!c.choices.empty()) {
 		json::Array a;
 		for (size_t i = 0; i < c.choices.size(); ++i) {

@@ -210,6 +210,17 @@ end
 	table of names, and so is what *on_change*, *on_save* and *wb.get*
 	give.
 
+*font {* _"key"_, *format =* _"pango"_ | _"fontconfig"_, ... *}*
+	A font: its family (or the program's default, with *hint* saying
+	which), size, weight, width and italic, and a line of text in it. Its
+	value is written as the program takes it: as Pango writes it
+	(*"Inter Bold 11"*, the default format; mako) or as fontconfig names
+	(*"Iosevka,Noto Color Emoji:size=12:weight=bold"*; foot, fuzzel).
+	What it doesn't edit is kept: fallback families and other properties
+	(*antialias=true*, *fontfeatures=...*); a Pango font's variations.
+	Letter spacing and line height are the program's own settings: a
+	*number* each.
+
 *sections {* _"key"_, *fields = {* ... *}*, ... *}*
 	Repeated sections (mako's criteria, *[urgency=high]*): each named,
 	moved, removed or opened to change its name and its *fields* (made

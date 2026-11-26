@@ -278,6 +278,8 @@ std::unique_ptr<OptionField> make_option_field(const wb::IntegrationOption &o,
 }
 
 std::string option_field_value(const OptionField &f) {
+	if (f.font != nullptr)
+		return f.font->value;
 	if (f.sections != nullptr)
 		return wb::page::sections_to_text(f.sections->items);
 	if (f.list != nullptr)
@@ -293,7 +295,9 @@ std::string option_field_value(const OptionField &f) {
 
 void set_option_field_value(OptionField &f, const std::string &value) {
 	f.syncing = true;
-	if (f.sections != nullptr) {
+	if (f.font != nullptr) {
+		font_control_set(f.font.get(), value);
+	} else if (f.sections != nullptr) {
 		sections_control_set(f.sections.get(), wb::page::sections_from_text(value));
 	} else if (f.list != nullptr) {
 		list_control_set(f.list.get(), wb::names::from_text(value));

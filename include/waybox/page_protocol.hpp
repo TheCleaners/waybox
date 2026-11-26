@@ -38,6 +38,7 @@ enum class Kind {
 	Text, Number, Switch, Choice, Color, File, Folder, Image,  /* settings */
 	List,     /* names in order; its value one a line */
 	Sections, /* repeated sections, each named, its fields the children's */
+	Font,     /* a font, written as its format says (pango, fontconfig) */
 	Button,   /* a button: "click" with its key */
 };
 
@@ -48,6 +49,7 @@ struct Control {
 	std::string description;
 	std::string value;        /* settings: as text */
 	std::string unit, hint;
+	std::string format;       /* Font: "pango" (the default) or "fontconfig" */
 	std::vector<std::string> choices;  /* Choice: the values */
 	std::vector<std::string> choice_labels;  /* as shown ("" : the value) */
 	bool wide = false;                 /* Text: the row's whole width */
