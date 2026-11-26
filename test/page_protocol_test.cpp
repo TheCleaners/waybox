@@ -159,3 +159,11 @@ WB_TEST(page_sections) {
 			wb::page::sections_from_text("{}").empty());
 }
 
+WB_TEST(page_font_monospace) {
+	auto v = wb::json::parse(R"({"controls": [{"kind": "font", "key": "f", "format": "fontconfig",
+		"monospace": true, "value": "monospace:size=10"}]})");
+	auto p = wb::page::page_from_json(*v);
+	WB_CHECK(p && p->controls[0].monospace && p->controls[0].format == "fontconfig");
+	WB_CHECK(wb::page::page_from_json(wb::page::page_to_json(*p)) == p);
+}
+

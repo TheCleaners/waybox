@@ -13,6 +13,10 @@ Its fonts: one written as fontconfig names (a fallback and antialias=true
 kept when the family, weight and slant change), one as Pango writes it
 (its size changed, its weight back to the font's own, then + twice, each
 followed by the field losing focus: a whole point each).
+A font starting with monospace families only (monospace = true): a
+proportional family searched for isn't found; with the toggle off, it
+is; on again, a monospace one is (families found with fc-list; that
+part skipped without both kinds).
 A program bound to a key (Kind=binding) has its page too: its change
 listed as not saved, and saved.
 Skips (exit 77) without a headless display.
@@ -62,7 +66,8 @@ page { list { "items", label = "Items", value = { "a", "b", "c" },
                              choice { "h", label = "Shown", choices = { "0", "1" } } } },
        font { "mono", label = "Mono", format = "fontconfig", hint = "monospace 10",
               value = "Iosevka,Noto Color Emoji:size=12:antialias=true" },
-       font { "ui", label = "UI", value = "Inter Bold 11" } }
+       font { "ui", label = "UI", value = "Inter Bold 11" },
+       font { "term", label = "Terminal", monospace = true, hint = "monospace 10" } }
 function on_change(key, value)
   local want = (key == "items" or key == "rules") and "table" or "string"
   if type(value) ~= want then error(key .. ": not a " .. want .. ": " .. type(value)) end
@@ -77,6 +82,27 @@ function on_save(v)
       table.concat(rules, ",") .. ";" .. v.mono .. ";" .. v.ui)
 end
 '''
+
+
+def unique_family(monospace):
+    """A monospace family (fc-list's spacing 100 or 90) or a proportional
+    one (with no spacing: fontconfig marks only the others) whose name no
+    other family's has in it: a search finds it alone."""
+    def families(pattern):
+        try:
+            out = subprocess.run(["fc-list", pattern, "family"], capture_output=True,
+                                 text=True, timeout=20).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return set()
+        return {l.split(",")[0].strip() for l in out.splitlines() if l.strip()}
+    names = families(":")
+    mono = families(":spacing=100") | families(":spacing=90")
+    pool = mono if monospace else names - mono
+    for cand in sorted(pool):
+        if cand and not any(cand.lower() in n.lower() for n in names if n != cand) and \
+                all(ord(ch) < 128 for ch in cand) and ";" not in cand:
+            return cand
+    return None
 
 
 def main():
@@ -141,6 +167,21 @@ def main():
              "luaset:lists.ui=@size-update:",
              "luaset:keyed.word=hello", "luapage:keyed",
              "luapage:lists", "changes", "save", "luapage:lists"]
+    mono_family, prop_family = unique_family(True), unique_family(False)
+    term_final = ""
+    if mono_family and prop_family:
+        at = steps.index("luaset:keyed.word=hello")
+        steps[at:at] = [f"luaset:lists.term=@family-search:{prop_family}",
+                        "luapage:lists",
+                        "luaset:lists.term=@mono:off",
+                        f"luaset:lists.term=@family-search:{prop_family}",
+                        "luapage:lists",
+                        "luaset:lists.term=@mono:on",
+                        f"luaset:lists.term=@family-search:{mono_family}"]
+        term_final = f"{mono_family} 10"
+    else:
+        print("note: no unique monospace and proportional families: the filter "
+              "not tried", file=sys.stderr)
     wenv = dict(env, WAYLAND_DISPLAY=sock, GDK_BACKEND="wayland", GSK_RENDERER="cairo",
                 DBUS_SESSION_BUS_ADDRESS="disabled:", GSETTINGS_BACKEND="memory",
                 GIO_USE_VFS="local", NO_AT_BRIDGE="1", WBCONF_SCHEMA_DIR=schema,
@@ -159,10 +200,19 @@ def main():
         _, err = app.communicate()
     lines = err.splitlines()
     d = [l.split("|")[1:] for l in lines if l.startswith("luapage-dump:lists")]
+    if mono_family and prop_family and len(d) == 5:
+        # Searched with the toggle on: not found; off: picked.
+        if "term=" not in d[1]:
+            failures.append(f"{prop_family} picked while only monospace ones are listed: "
+                            f"{[x for x in d[1] if x.startswith('term=')]}")
+        if f"term={prop_family} 10" not in d[2]:
+            failures.append(f"with the toggle off, {prop_family} not picked: {d[2]}")
+        d = [d[0]] + d[3:]
     rules0 = 'rules=[{"name":"a=1","values":{"t":"1"}}]'
-    fonts0 = ["mono=Iosevka,Noto Color Emoji:size=12:antialias=true", "ui=Inter Bold 11"]
+    fonts0 = ["mono=Iosevka,Noto Color Emoji:size=12:antialias=true", "ui=Inter Bold 11",
+              "term="]
     fonts1 = ["mono=DejaVu Sans Mono,Noto Color Emoji:size=12:weight=bold:slant=italic:"
-              "antialias=true", "ui=Inter 15"]
+              "antialias=true", "ui=Inter 15", "term=" + term_final]
     rules1 = ('rules=[{"name":"a=1","values":{}},{"name":"app-name=foot","values":{}},'
               '{"name":"urgency=high","values":{"t":"5"}}]')
     if len(d) != 3:

@@ -253,23 +253,50 @@ void offer_styles(FontControl *c) {
 	c->syncing = was;
 }
 
+/* The monospace families (as Pango knows them), once. */
+const std::set<std::string> &monospace_families() {
+	static const std::set<std::string> mono = [] {
+		std::set<std::string> out;
+		PangoFontFamily **fams = nullptr;
+		int n = 0;
+		pango_font_map_list_families(pango_cairo_font_map_get_default(), &fams, &n);
+		for (int i = 0; i < n; ++i)
+			if (pango_font_family_is_monospace(fams[i]))
+				out.insert(pango_font_family_get_name(fams[i]));
+		g_free(fams);
+		return out;
+	}();
+	return mono;
+}
+
+/* The button says the family chosen. */
+void show_family(FontControl *c) {
+	const std::string &name = c->family_index == 0 ? c->default_label
+			: c->families[c->family_index];
+	gtk_label_set_text(GTK_LABEL(c->family_label), name.c_str());
+}
+
+/* That family chosen (one not installed added, shown as it is). */
+void choose_family(FontControl *c, const std::string &name) {
+	if (name.empty() || name == c->default_label) {
+		c->family_index = 0;
+	} else {
+		auto it = std::find(c->families.begin() + 1, c->families.end(), name);
+		if (it == c->families.end()) {
+			gtk_string_list_append(c->family_model, name.c_str());
+			c->families.push_back(name);
+			it = c->families.end() - 1;
+		}
+		c->family_index = static_cast<guint>(it - c->families.begin());
+	}
+	show_family(c);
+}
+
 /* The widgets as the spec says. */
 void show(FontControl *c) {
 	c->syncing = true;
 	const font::Spec &s = c->spec;
-	guint fam = 0;  /* Default */
-	if (!s.families.empty()) {
-		auto it = std::find(c->families.begin(), c->families.end(), s.families[0]);
-		if (it == c->families.end()) {
-			/* Not installed: shown as it is, not as the first one. */
-			gtk_string_list_append(GTK_STRING_LIST(gtk_drop_down_get_model(c->family)),
-					s.families[0].c_str());
-			c->families.push_back(s.families[0]);
-			it = c->families.end() - 1;
-		}
-		fam = static_cast<guint>(it - c->families.begin());
-	}
-	gtk_drop_down_set_selected(c->family, fam);
+	choose_family(c, s.families.empty() ? "" : s.families[0]);
 	double size = s.size > 0 ? s.size : c->default_size;
 	gtk_spin_button_set_digits(c->size, size == std::floor(size) ? 0 : 1);
 	gtk_spin_button_set_value(c->size, size);
@@ -285,7 +312,7 @@ void on_widget(FontControl *c) {
 		return;
 	font::Spec &s = c->spec;
 	std::string was_family = s.families.empty() ? "" : s.families[0];
-	guint fam = gtk_drop_down_get_selected(c->family);
+	guint fam = c->family_index;
 	if (fam == 0 || fam >= c->families.size()) {
 		s.families.clear();
 	} else if (s.families.empty()) {
@@ -330,12 +357,16 @@ GtkDropDown *style_drop(const char *tip) {
 }  // namespace
 
 FontControl::~FontControl() {
+	if (family_filtered != nullptr)
+		g_object_unref(family_filtered);
+	if (family_model != nullptr)
+		g_object_unref(family_model);
 	if (pango_desc != nullptr)
 		pango_font_description_free(pango_desc);
 }
 
 std::unique_ptr<FontControl> make_font_control(const std::string &format,
-		const std::string &hint) {
+		const std::string &hint, bool monospace) {
 	auto c = std::make_unique<FontControl>();
 	c->fontconfig = format == "fontconfig";
 	/* "monospace 10", "monospace:size=10": the size the default has. */
@@ -347,27 +378,147 @@ std::unique_ptr<FontControl> make_font_control(const std::string &format,
 	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 
 	/* Family: "Default" (with the program's, if the page says it), then
-	 * the installed ones, searchable. */
+	 * the installed ones: a button opening a search, a Monospace toggle
+	 * and the list, each name in its own font. */
 	c->families = {""};
 	for (const std::string &f : font_families())
 		c->families.push_back(f);
-	std::string def = hint.empty() ? _("Default") : std::string(_("Default")) + " (" + hint + ")";
-	std::vector<const char *> items = {def.c_str()};
+	c->default_label = hint.empty() ? _("Default") : std::string(_("Default")) + " (" + hint + ")";
+	c->family_model = gtk_string_list_new(nullptr);
+	gtk_string_list_append(c->family_model, c->default_label.c_str());
 	for (size_t i = 1; i < c->families.size(); ++i)
-		items.push_back(c->families[i].c_str());
-	items.push_back(nullptr);
-	GtkWidget *fam = gtk_drop_down_new_from_strings(items.data());
-	gtk_widget_set_size_request(fam, 220, -1);
-	gtk_drop_down_set_expression(GTK_DROP_DOWN(fam),
-			gtk_property_expression_new(GTK_TYPE_STRING_OBJECT, nullptr, "string"));
-	gtk_drop_down_set_enable_search(GTK_DROP_DOWN(fam), TRUE);
-#if GTK_CHECK_VERSION(4, 12, 0)
-	gtk_drop_down_set_search_match_mode(GTK_DROP_DOWN(fam),
-			GTK_STRING_FILTER_MATCH_MODE_SUBSTRING);
-#endif
-	gtk_widget_set_tooltip_text(fam, _("Font"));
-	c->family = GTK_DROP_DOWN(fam);
-	gtk_box_append(GTK_BOX(row), fam);
+		gtk_string_list_append(c->family_model, c->families[i].c_str());
+
+	c->family_button = gtk_menu_button_new();
+	GtkWidget *fam_line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+	c->family_label = gtk_label_new("");
+	gtk_label_set_xalign(GTK_LABEL(c->family_label), 0);
+	gtk_label_set_ellipsize(GTK_LABEL(c->family_label), PANGO_ELLIPSIZE_END);
+	gtk_widget_set_hexpand(c->family_label, TRUE);
+	gtk_box_append(GTK_BOX(fam_line), c->family_label);
+	gtk_box_append(GTK_BOX(fam_line), gtk_image_new_from_icon_name("pan-down-symbolic"));
+	gtk_menu_button_set_child(GTK_MENU_BUTTON(c->family_button), fam_line);
+	gtk_widget_set_size_request(c->family_button, 220, -1);
+	gtk_widget_set_tooltip_text(c->family_button, _("Font"));
+	gtk_box_append(GTK_BOX(row), c->family_button);
+
+	c->family_pop = gtk_popover_new();
+	GtkWidget *pbox0 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+	gtk_widget_set_margin_start(pbox0, 8);
+	gtk_widget_set_margin_end(pbox0, 8);
+	gtk_widget_set_margin_top(pbox0, 8);
+	gtk_widget_set_margin_bottom(pbox0, 8);
+	GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+	c->family_search = gtk_search_entry_new();
+	gtk_widget_set_hexpand(c->family_search, TRUE);
+	gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(c->family_search), _("Search fonts"));
+	gtk_box_append(GTK_BOX(bar), c->family_search);
+	c->mono_toggle = gtk_toggle_button_new();
+	gtk_button_set_icon_name(GTK_BUTTON(c->mono_toggle), "utilities-terminal-symbolic");
+	gtk_widget_set_tooltip_text(c->mono_toggle, _("Monospace fonts only"));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(c->mono_toggle), monospace);
+	gtk_box_append(GTK_BOX(bar), c->mono_toggle);
+	gtk_box_append(GTK_BOX(pbox0), bar);
+
+	/* Default always; the rest as the search and the toggle say. */
+	c->family_filter = gtk_custom_filter_new(+[](gpointer item, gpointer data) -> gboolean {
+		auto *fc = static_cast<FontControl *>(data);
+		const char *name = gtk_string_object_get_string(GTK_STRING_OBJECT(item));
+		if (fc->default_label == name)
+			return TRUE;
+		if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(fc->mono_toggle)) &&
+				!monospace_families().count(name))
+			return FALSE;
+		const char *q = gtk_editable_get_text(GTK_EDITABLE(fc->family_search));
+		if (q == nullptr || *q == '\0')
+			return TRUE;
+		gchar *hay = g_utf8_casefold(name, -1), *needle = g_utf8_casefold(q, -1);
+		gboolean hit = strstr(hay, needle) != nullptr;
+		g_free(hay);
+		g_free(needle);
+		return hit;
+	}, c.get(), nullptr);
+	g_object_ref(c->family_model);
+	c->family_filtered = gtk_filter_list_model_new(G_LIST_MODEL(c->family_model),
+			GTK_FILTER(c->family_filter));
+	auto refilter = +[](FontControl *fc) {
+		gtk_filter_changed(GTK_FILTER(fc->family_filter), GTK_FILTER_CHANGE_DIFFERENT);
+	};
+	g_signal_connect_swapped(c->family_search, "search-changed", G_CALLBACK(refilter), c.get());
+	g_signal_connect_swapped(c->mono_toggle, "toggled", G_CALLBACK(refilter), c.get());
+
+	/* Each name in its own font (Default in the window's). */
+	GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
+	g_signal_connect(factory, "setup", G_CALLBACK(+[](GtkSignalListItemFactory *,
+			GObject *obj, gpointer) {
+		GtkWidget *l = gtk_label_new("");
+		gtk_label_set_xalign(GTK_LABEL(l), 0);
+		gtk_label_set_ellipsize(GTK_LABEL(l), PANGO_ELLIPSIZE_END);
+		gtk_widget_set_margin_start(l, 6);
+		gtk_widget_set_margin_top(l, 3);
+		gtk_widget_set_margin_bottom(l, 3);
+		gtk_list_item_set_child(GTK_LIST_ITEM(obj), l);
+	}), nullptr);
+	g_signal_connect(factory, "bind", G_CALLBACK(+[](GtkSignalListItemFactory *,
+			GObject *obj, gpointer data) {
+		auto *fc = static_cast<FontControl *>(data);
+		GtkWidget *l = gtk_list_item_get_child(GTK_LIST_ITEM(obj));
+		const char *name = gtk_string_object_get_string(GTK_STRING_OBJECT(
+				gtk_list_item_get_item(GTK_LIST_ITEM(obj))));
+		gtk_label_set_text(GTK_LABEL(l), name);
+		if (fc->default_label == name) {
+			gtk_label_set_attributes(GTK_LABEL(l), nullptr);
+			return;
+		}
+		PangoFontDescription *d = pango_font_description_new();
+		pango_font_description_set_family(d, name);
+		pango_font_description_set_size(d, 12 * PANGO_SCALE);
+		PangoAttrList *attrs = pango_attr_list_new();
+		pango_attr_list_insert(attrs, pango_attr_font_desc_new(d));
+		gtk_label_set_attributes(GTK_LABEL(l), attrs);
+		pango_attr_list_unref(attrs);
+		pango_font_description_free(d);
+	}), c.get());
+	g_object_ref(c->family_filtered);
+	GtkSelectionModel *sel = GTK_SELECTION_MODEL(gtk_no_selection_new(
+			G_LIST_MODEL(c->family_filtered)));
+	c->family_view = gtk_list_view_new(sel, factory);
+	gtk_list_view_set_single_click_activate(GTK_LIST_VIEW(c->family_view), TRUE);
+	gtk_widget_add_css_class(c->family_view, "navigation-sidebar");
+	g_signal_connect(c->family_view, "activate", G_CALLBACK(+[](GtkListView *, guint pos,
+			gpointer data) {
+		auto *fc = static_cast<FontControl *>(data);
+		GObject *item = G_OBJECT(g_list_model_get_item(G_LIST_MODEL(fc->family_filtered), pos));
+		if (item == nullptr)
+			return;
+		choose_family(fc, gtk_string_object_get_string(GTK_STRING_OBJECT(item)));
+		g_object_unref(item);
+		gtk_popover_popdown(GTK_POPOVER(fc->family_pop));
+		on_widget(fc);
+	}), c.get());
+	/* Enter in the search: the first one found (after Default). */
+	g_signal_connect(c->family_search, "activate", G_CALLBACK(+[](GtkSearchEntry *,
+			gpointer data) {
+		auto *fc = static_cast<FontControl *>(data);
+		/* The list as typed now (the search says so only after a pause:
+		 * typing and Enter at once picked from the list before it). */
+		gtk_filter_changed(GTK_FILTER(fc->family_filter), GTK_FILTER_CHANGE_DIFFERENT);
+		guint n = g_list_model_get_n_items(G_LIST_MODEL(fc->family_filtered));
+		if (n > 1)
+			g_signal_emit_by_name(fc->family_view, "activate", 1u);
+	}), c.get());
+	GtkWidget *scroll = gtk_scrolled_window_new();
+	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER,
+			GTK_POLICY_AUTOMATIC);
+	gtk_widget_set_size_request(scroll, 340, 320);
+	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), c->family_view);
+	gtk_box_append(GTK_BOX(pbox0), scroll);
+	gtk_popover_set_child(GTK_POPOVER(c->family_pop), pbox0);
+	gtk_menu_button_set_popover(GTK_MENU_BUTTON(c->family_button), c->family_pop);
+	g_signal_connect(c->family_pop, "show", G_CALLBACK(+[](GtkWidget *, gpointer data) {
+		auto *fc = static_cast<FontControl *>(data);
+		gtk_widget_grab_focus(fc->family_search);
+	}), c.get());
 
 	/* Whole points a step (what's shown is what it holds: a step of 0.5
 	 * shown as a whole number went back on losing focus). */
@@ -449,7 +600,6 @@ std::unique_ptr<FontControl> make_font_control(const std::string &format,
 	gtk_label_set_ellipsize(GTK_LABEL(c->sample), PANGO_ELLIPSIZE_END);
 	gtk_box_append(GTK_BOX(c->box), c->sample);
 
-	g_signal_connect(fam, "notify::selected", G_CALLBACK(on_notify), c.get());
 	g_signal_connect(c->size, "value-changed", G_CALLBACK(on_signal), c.get());
 	g_signal_connect(c->weight, "notify::selected", G_CALLBACK(on_notify), c.get());
 	g_signal_connect(c->width, "notify::selected", G_CALLBACK(on_notify), c.get());
@@ -472,19 +622,24 @@ bool font_control_test(FontControl *c, const std::string &action) {
 		gtk_menu_button_popup(GTK_MENU_BUTTON(c->style));
 		return true;
 	}
+	if (action == "open-family") {
+		gtk_menu_button_popup(GTK_MENU_BUTTON(c->family_button));
+		return true;
+	}
 	size_t colon = action.find(':');
 	if (colon == std::string::npos)
 		return false;
 	std::string what = action.substr(0, colon), arg = action.substr(colon + 1);
 	if (what == "family") {
-		auto it = std::find(c->families.begin(), c->families.end(), arg);
-		if (it == c->families.end()) {
-			gtk_string_list_append(GTK_STRING_LIST(gtk_drop_down_get_model(c->family)),
-					arg.c_str());
-			c->families.push_back(arg);
-			it = c->families.end() - 1;
-		}
-		gtk_drop_down_set_selected(c->family, static_cast<guint>(it - c->families.begin()));
+		choose_family(c, arg);
+		on_widget(c);
+	} else if (what == "family-search") {
+		/* Typed in the search, then Enter: the first one found. */
+		gtk_editable_set_text(GTK_EDITABLE(c->family_search), arg.c_str());
+		g_signal_emit_by_name(c->family_search, "activate");
+	} else if (what == "mono") {
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(c->mono_toggle), arg == "on");
+
 	} else if (what == "size") {
 		gtk_spin_button_set_value(c->size, atof(arg.c_str()));
 	} else if (what == "size-step") {

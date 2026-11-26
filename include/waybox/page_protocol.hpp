@@ -50,6 +50,7 @@ struct Control {
 	std::string value;        /* settings: as text */
 	std::string unit, hint;
 	std::string format;       /* Font: "pango" (the default) or "fontconfig" */
+	bool monospace = false;   /* Font: its list starts with monospace ones only */
 	std::vector<std::string> choices;  /* Choice: the values */
 	std::vector<std::string> choice_labels;  /* as shown ("" : the value) */
 	bool wide = false;                 /* Text: the row's whole width */

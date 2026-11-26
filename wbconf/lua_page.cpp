@@ -442,7 +442,7 @@ struct LuaPage {
 			if (c.kind == page::Kind::Font) {
 				f.field = std::make_unique<OptionField>();
 				f.field->opt = f.opt.get();
-				f.field->font = make_font_control(c.format, c.hint);
+				f.field->font = make_font_control(c.format, c.hint, c.monospace);
 				f.field->font->on_change = [this, key] { changed(key); };
 				f.field->widget = f.field->font->box;
 				set_option_field_value(*f.field, c.value);
