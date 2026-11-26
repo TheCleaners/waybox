@@ -237,4 +237,73 @@ bool run_allowed(const std::vector<std::string> &argv, const std::vector<std::st
 	return false;
 }
 
+namespace {
+
+std::string without_trailing_slash(std::string p) {
+	while (p.size() > 1 && p.back() == '/')
+		p.pop_back();
+	return p;
+}
+
+}  // namespace
+
+bool page_trusted(const std::string &dir, const std::string &user_dir) {
+	return !dir.empty() && without_trailing_slash(dir) != without_trailing_slash(user_dir);
+}
+
+std::map<std::string, std::string> parse_approvals(const std::string &text) {
+	std::map<std::string, std::string> out;
+	size_t start = 0;
+	while (start < text.size()) {
+		size_t nl = text.find('\n', start);
+		std::string line = text.substr(start, nl == std::string::npos ? std::string::npos
+				: nl - start);
+		start = nl == std::string::npos ? text.size() : nl + 1;
+		size_t b = line.find_first_not_of(" \t");
+		if (b == std::string::npos || line[b] == '#')
+			continue;
+		size_t sp = line.find_first_of(" \t", b);
+		if (sp == std::string::npos)
+			continue;
+		size_t h = line.find_first_not_of(" \t", sp);
+		if (h == std::string::npos)
+			continue;
+		size_t e = line.find_first_of(" \t\r", h);
+		out[line.substr(b, sp - b)] = line.substr(h, e == std::string::npos ? std::string::npos
+				: e - h);
+	}
+	return out;
+}
+
+std::string approvals_with(const std::string &text, const std::string &id,
+		const std::string &hash) {
+	std::string out, line;
+	bool done = false;
+	size_t start = 0;
+	while (start < text.size()) {
+		size_t nl = text.find('\n', start);
+		line = text.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
+		start = nl == std::string::npos ? text.size() : nl + 1;
+		size_t b = line.find_first_not_of(" \t");
+		bool mine = b != std::string::npos && line[b] != '#' &&
+				line.compare(b, id.size(), id) == 0 &&
+				(line.size() == b + id.size() || line[b + id.size()] == ' ' ||
+				 line[b + id.size()] == '\t');
+		if (mine) {
+			if (!done)
+				out += id + " " + hash + "\n";
+			done = true;
+		} else {
+			out += line + "\n";
+		}
+	}
+	if (!done) {
+		if (out.empty())
+			out = "# Lua pages from your own integrations folder, allowed to run: id and the\n"
+					"# SHA-256 of its integration file and script (changing either asks again).\n";
+		out += id + " " + hash + "\n";
+	}
+	return out;
+}
+
 }  // namespace wb::page

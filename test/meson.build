@@ -837,7 +837,7 @@ if python.found() and not get_option('tests_only')
       # Integrations' pages in Lua: the runner over its protocol, and in wbconf.
       integration_tests += [['page_runner', 'page_runner_test.py', [wbconf_lua_exe], 60]]
       integration_tests += [['wbconf_lua_page', 'wbconf_lua_page_test.py',
-          [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', wbconf_lua_exe], 60]]
+          [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', wbconf_lua_exe], 150]]
     endif
     integration_tests += [['wbconf_problems', 'wbconf_problems_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]

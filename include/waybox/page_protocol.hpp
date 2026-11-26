@@ -22,6 +22,7 @@
  * a switch "on" or "". Not tied to Lua: any program speaking this can
  * describe a page. Pure; unit-tested.
  */
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -85,6 +86,20 @@ bool path_allowed(const std::string &path, const std::vector<std::string> &files
 		const std::string &home);
 bool run_allowed(const std::vector<std::string> &argv, const std::vector<std::string> &runs);
 std::string expand_home(const std::string &path, const std::string &home);
+
+/* Approval: a page from the user's own integrations folder (where files
+ * from anywhere land) runs only once allowed; pages installed with Waybox
+ * or by packages (the data folders) are trusted. */
+bool page_trusted(const std::string &dir, const std::string &user_dir);
+
+/* The approvals file: "ID SHA256" lines (# comments, blank lines
+ * ignored); an id's approval holds while its hash (of the integration file
+ * and its script together) is the same. */
+std::map<std::string, std::string> parse_approvals(const std::string &text);
+/* The file's text with `id` approved for `hash`: its line replaced, or
+ * added; the rest kept as it was. */
+std::string approvals_with(const std::string &text, const std::string &id,
+		const std::string &hash);
 
 }  // namespace wb::page
 

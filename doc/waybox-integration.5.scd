@@ -216,6 +216,14 @@ end
 *wb.log(*...*)*, *print(*...*)*
 	To wbconf's log.
 
+A page in the user's own folder (_$XDG_CONFIG_HOME/waybox/integrations_,
+where files from anywhere land) runs only once allowed: wbconf first shows
+where it came from, what it may read, change and run, and its script, and
+asks. Pages installed with Waybox or by packages (the data folders) aren't
+asked about. An approval is kept in _$XDG_CONFIG_HOME/waybox/approved-pages_
+for the page as it is: changing its integration file or script asks again,
+and deleting its line takes the approval back.
+
 A Lua page runs in *wbconf-lua*, a process of its own, without *io*, *os*,
 *require*, *load* or *debug*: it can only reach what its integration file
 declares, and wbconf checks every write and run again. Each call has a

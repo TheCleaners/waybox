@@ -30,6 +30,10 @@ const char *kCss = R"(
 .wb-problem-icon { color: @warning_color; }
 .wb-toc .wb-problem-icon { -gtk-icon-size: 12px; }
 .wb-problem { background: alpha(@warning_color, 0.12); border-radius: 6px; padding: 6px 8px; }
+.wb-approval { background: alpha(currentColor, 0.05); border: 1px solid alpha(currentColor, 0.12);
+               border-radius: 8px; padding: 10px 12px; margin: 2px 0 6px 0; }
+.wb-script { border: 1px solid alpha(currentColor, 0.12); border-radius: 6px; }
+.wb-script textview, .wb-script text { background: alpha(currentColor, 0.03); }
 )";
 
 /* The title in bold (with `crumb`, after its section or category, dimmed:

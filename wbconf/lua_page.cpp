@@ -19,6 +19,7 @@
 
 #include "waybox/json.hpp"
 #include "waybox/page_protocol.hpp"
+#include "waybox/setting_problems.hpp"
 
 namespace wbconf {
 
@@ -37,6 +38,91 @@ std::string runner_path() {
 #else
 	return "";
 #endif
+}
+
+std::string config_dir() {
+	const char *x = getenv("XDG_CONFIG_HOME");
+	return x != nullptr && *x ? x : home_dir() + "/.config";
+}
+
+std::string user_integrations_dir() {
+	return config_dir() + "/waybox/integrations";
+}
+
+std::string approvals_path() {
+	return config_dir() + "/waybox/approved-pages";
+}
+
+std::string read_text(const std::string &path) {
+	gchar *text = nullptr;
+	gsize len = 0;
+	if (!g_file_get_contents(path.c_str(), &text, &len, nullptr))
+		return "";
+	std::string s(text, len);
+	g_free(text);
+	return s;
+}
+
+/* What an approval is for: the integration file and its script together. */
+std::string page_hash(const wb::Integration &in) {
+	std::string both = read_text(in.dir + "/" + in.id + ".integration");
+	both.push_back('\0');
+	both += read_text(wb::lua_page_path(in));
+	gchar *h = g_compute_checksum_for_data(G_CHECKSUM_SHA256,
+			reinterpret_cast<const guchar *>(both.data()), both.size());
+	std::string out = h != nullptr ? h : "";
+	g_free(h);
+	return out;
+}
+
+/* A line of the "what it may do" list: an icon, then text with the
+ * path or program in monospace. */
+GtkWidget *permission_line(const char *icon, const std::string &markup) {
+	GtkWidget *line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+	GtkWidget *img = gtk_image_new_from_icon_name(icon);
+	gtk_widget_add_css_class(img, "dim-label");
+	gtk_widget_set_valign(img, GTK_ALIGN_START);
+	gtk_box_append(GTK_BOX(line), img);
+	GtkWidget *l = gtk_label_new(nullptr);
+	gtk_label_set_markup(GTK_LABEL(l), markup.c_str());
+	gtk_label_set_xalign(GTK_LABEL(l), 0);
+	gtk_label_set_wrap(GTK_LABEL(l), TRUE);
+	gtk_label_set_wrap_mode(GTK_LABEL(l), PANGO_WRAP_WORD_CHAR);
+	gtk_label_set_selectable(GTK_LABEL(l), TRUE);
+	gtk_box_append(GTK_BOX(line), l);
+	return line;
+}
+
+std::string mono(const std::string &s) {
+	gchar *e = g_markup_escape_text(s.c_str(), -1);
+	std::string out = std::string("<tt>") + e + "</tt>";
+	g_free(e);
+	return out;
+}
+
+/* The script, with line numbers, as errors give them. */
+std::string numbered(const std::string &code) {
+	std::string out;
+	int n = 1;
+	size_t start = 0;
+	int width = 1;
+	for (size_t lines = std::count(code.begin(), code.end(), '\n') + 1; lines >= 10;
+			lines /= 10)
+		++width;
+	while (start <= code.size()) {
+		size_t nl = code.find('\n', start);
+		std::string line = code.substr(start, nl == std::string::npos ? std::string::npos
+				: nl - start);
+		if (nl == std::string::npos && line.empty())
+			break;
+		std::string num = std::to_string(n++);
+		out += std::string(static_cast<size_t>(width) - num.size(), ' ') + num + "  " + line +
+				"\n";
+		if (nl == std::string::npos)
+			break;
+		start = nl + 1;
+	}
+	return out;
 }
 
 wb::OptionType option_type(page::Kind k) {
@@ -75,6 +161,9 @@ struct LuaPage {
 	std::map<std::string, Field> fields;
 	GtkWidget *box = nullptr;
 	GtkLabel *error = nullptr;
+	GtkWidget *approval = nullptr;  /* the card asking first, while shown */
+	bool approval_changed = false;  /* asking again: it changed since allowed */
+	std::string hash;               /* what an approval would be for */
 	bool syncing = false;
 
 	/* The runner gone: its pipes closed, the process ended and reaped. */
@@ -443,6 +532,105 @@ struct LuaPage {
 	}
 };
 
+namespace {
+
+/* Allow: remembered, the card gone, the page started. */
+void on_allow(GtkButton *, gpointer data) {
+	auto *p = static_cast<LuaPage *>(data);
+	std::string path = approvals_path();
+	std::string text = page::approvals_with(read_text(path), p->in->id, p->hash);
+	g_mkdir_with_parents((config_dir() + "/waybox").c_str(), 0755);
+	std::string err;
+	if (!write_file_atomic(path, text, &err)) {
+		p->fail(std::string(_("Can't remember the approval: ")) + err);
+		return;
+	}
+	if (p->approval != nullptr) {
+		gtk_box_remove(GTK_BOX(p->box), p->approval);
+		p->approval = nullptr;
+	}
+	p->start();
+}
+
+/* Before a page from the user's own folder runs: where it's from, what it
+ * may touch, its script, and Allow. */
+GtkWidget *approval_card(LuaPage *p, bool changed) {
+	const wb::Integration &in = *p->in;
+	GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+	gtk_widget_add_css_class(card, "wb-approval");
+
+	GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+	GtkWidget *icon = gtk_image_new_from_icon_name("channel-secure-symbolic");
+	gtk_box_append(GTK_BOX(head), icon);
+	GtkWidget *title = gtk_label_new(changed ? _("This page changed since you allowed it")
+			: _("A settings page from outside Waybox"));
+	gtk_widget_add_css_class(title, "heading");
+	gtk_label_set_xalign(GTK_LABEL(title), 0);
+	gtk_label_set_wrap(GTK_LABEL(title), TRUE);
+	gtk_box_append(GTK_BOX(head), title);
+	gtk_box_append(GTK_BOX(card), head);
+
+	std::string where = wb::tilde(in.dir, home_dir());
+	gchar *intro = g_markup_printf_escaped(changed
+			? _("%s's page in %s isn't the one you allowed. Before it runs, it may:")
+			: _("%s's page comes from %s, not with Waybox. Before it runs, it may:"),
+			in.name.c_str(), where.c_str());
+	GtkWidget *body = gtk_label_new(nullptr);
+	gtk_label_set_markup(GTK_LABEL(body), intro);
+	g_free(intro);
+	gtk_label_set_xalign(GTK_LABEL(body), 0);
+	gtk_label_set_wrap(GTK_LABEL(body), TRUE);
+	gtk_box_append(GTK_BOX(card), body);
+
+	GtkWidget *list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+	gtk_widget_set_margin_start(list, 4);
+	for (const std::string &f : in.files)
+		gtk_box_append(GTK_BOX(list), permission_line("document-edit-symbolic",
+				std::string(_("Read and change")) + " " + mono(f)));
+	for (const std::string &r : in.runs)
+		gtk_box_append(GTK_BOX(list), permission_line("system-run-symbolic",
+				std::string(_("Run")) + " " + mono(r)));
+	if (in.files.empty() && in.runs.empty())
+		gtk_box_append(GTK_BOX(list), permission_line("channel-secure-symbolic",
+				_("Nothing outside the page itself")));
+	gtk_box_append(GTK_BOX(card), list);
+
+	/* The script, to read before allowing it. */
+	GtkWidget *expander = gtk_expander_new(_("View the Script"));
+	GtkWidget *view = gtk_text_view_new();
+	gtk_text_view_set_editable(GTK_TEXT_VIEW(view), FALSE);
+	gtk_text_view_set_monospace(GTK_TEXT_VIEW(view), TRUE);
+	gtk_text_view_set_left_margin(GTK_TEXT_VIEW(view), 6);
+	gtk_text_view_set_top_margin(GTK_TEXT_VIEW(view), 4);
+	gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(view), 4);
+	std::string code = numbered(read_text(wb::lua_page_path(in)));
+	gtk_text_buffer_set_text(gtk_text_view_get_buffer(GTK_TEXT_VIEW(view)), code.c_str(), -1);
+	GtkWidget *scroll = gtk_scrolled_window_new();
+	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC,
+			GTK_POLICY_AUTOMATIC);
+	gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scroll), TRUE);
+	gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(scroll), 140);
+	gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(scroll), 280);
+	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), view);
+	gtk_widget_add_css_class(scroll, "wb-script");
+	gtk_widget_set_margin_top(scroll, 4);
+	gtk_expander_set_child(GTK_EXPANDER(expander), scroll);
+
+	/* The script the card's whole width; the one action under it, at the
+	 * end, as dialogs have it. */
+	gtk_box_append(GTK_BOX(card), expander);
+	GtkWidget *allow = gtk_button_new_with_label(_("Allow This Page"));
+	gtk_widget_add_css_class(allow, "suggested-action");
+	gtk_widget_set_halign(allow, GTK_ALIGN_END);
+	g_signal_connect(allow, "clicked", G_CALLBACK(on_allow), p);
+	g_object_set_data(G_OBJECT(card), "wb-allow", allow);
+	g_object_set_data(G_OBJECT(card), "wb-script", expander);
+	gtk_box_append(GTK_BOX(card), allow);
+	return card;
+}
+
+}  // namespace
+
 GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row) {
 	auto p = std::make_shared<LuaPage>();
 	p->ui = ui;
@@ -458,6 +646,19 @@ GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row) {
 	gtk_box_append(GTK_BOX(p->box), GTK_WIDGET(p->error));
 	GtkWidget *box = p->box;
 	row->page = p;
+	/* A page from the user's own folder runs once allowed, for what it is
+	 * now; changing it asks again. */
+	if (!page::page_trusted(row->in->dir, user_integrations_dir())) {
+		p->hash = page_hash(*row->in);
+		auto approved = page::parse_approvals(read_text(approvals_path()));
+		auto it = approved.find(row->in->id);
+		if (it == approved.end() || it->second != p->hash) {
+			p->approval_changed = it != approved.end();
+			p->approval = approval_card(p.get(), p->approval_changed);
+			gtk_box_append(GTK_BOX(p->box), p->approval);
+			return box;
+		}
+	}
 	p->start();
 	return box;
 }
@@ -496,7 +697,15 @@ void lua_page_test(Ui *ui, const std::string &id, const std::string &what,
 				wb::lua_page_path(*row->in).empty())
 			continue;
 		auto *p = static_cast<LuaPage *>(row->page.get());
-		if (what == "click") {
+		if (what == "script") {
+			if (p->approval != nullptr)
+				gtk_expander_set_expanded(GTK_EXPANDER(g_object_get_data(
+						G_OBJECT(p->approval), "wb-script")), TRUE);
+		} else if (what == "approve") {
+			if (p->approval != nullptr)
+				g_signal_emit_by_name(g_object_get_data(G_OBJECT(p->approval), "wb-allow"),
+						"clicked");
+		} else if (what == "click") {
 			auto it = p->fields.find(value);
 			if (it != p->fields.end() && it->second.button != nullptr)
 				g_signal_emit_by_name(it->second.button, "clicked");
@@ -517,6 +726,9 @@ std::string lua_page_dump(Ui *ui, const std::string &id) {
 			continue;
 		auto *p = static_cast<LuaPage *>(row->page.get());
 		std::string out;
+		if (p->approval != nullptr)
+			out += std::string("|approval:") + (p->pid > 0 ? "running!"
+					: p->approval_changed ? "changed" : "waiting");
 		for (const auto &[k, v] : p->values()) {
 			const page::Control *c = page::find_control(p->model, k);
 			out += "|" + k + "=" + v;
