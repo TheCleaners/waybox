@@ -565,7 +565,12 @@ GtkWidget *build_wallpaper_page(Ui *ui, Ui::ProgramRow *row);
  * changes listed and saved with the rest. */
 GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row);
 /* A key-bound program's page (owned by `holder`). */
-GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in, std::shared_ptr<void> *holder);
+/* A page's command line changed: it opens again for it (if nothing's unsaved). */
+void lua_page_command_changed(const std::shared_ptr<void> &page);
+/* `command`: the program's command line as its row has it now (its options
+ * given to the page, wb.option), if it has one. */
+GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in, std::shared_ptr<void> *holder,
+		std::function<std::string()> command = {});
 struct UnsavedChange;
 void lua_page_changes(Ui *ui, const std::string &id, const std::string &where,
 		GtkWidget *target, std::vector<UnsavedChange> &out);

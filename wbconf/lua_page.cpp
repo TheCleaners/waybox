@@ -167,6 +167,73 @@ struct LuaPage {
 	std::string reloaded;           /* the last wb.reload(): tests */
 	std::string hash;               /* what an approval would be for */
 	bool syncing = false;
+	/* The program's command, as its row has it now (none: no row). */
+	std::function<std::string()> command;
+	std::map<std::string, std::string> options;  /* the command's, as opened */
+	std::vector<std::string> allowed;            /* Files= and what the command names */
+	guint refresh_source = 0;
+	std::weak_ptr<LuaPage> self;
+
+	std::map<std::string, std::string> options_now() const {
+		if (!command)
+			return {};
+		return wb::read_options(*in, command());
+	}
+
+	/* Files= and the files the command names through a file or folder
+	 * option (waybar -c PATH): the user chose those. */
+	std::vector<std::string> allowed_files(const std::map<std::string, std::string> &opts) const {
+		std::vector<std::string> out = in->files;
+		for (const wb::IntegrationOption &o : in->options) {
+			if (o.type != wb::OptionType::File && o.type != wb::OptionType::Folder)
+				continue;
+			auto it = opts.find(o.id);
+			if (it != opts.end() && !it->second.empty())
+				out.push_back(it->second);
+		}
+		return out;
+	}
+
+	/* Its command changed (an option, or the command line): the page opened
+	 * again for it, unless it has changes not saved. */
+	void command_changed() {
+		if (refresh_source != 0)
+			g_source_remove(refresh_source);
+		auto *weak = new std::weak_ptr<LuaPage>(self);
+		refresh_source = g_timeout_add_full(G_PRIORITY_DEFAULT, 500, [](gpointer d) {
+			if (auto p = static_cast<std::weak_ptr<LuaPage> *>(d)->lock()) {
+				p->refresh_source = 0;
+				p->reopen_if_changed();
+			}
+			return G_SOURCE_REMOVE;
+		}, weak, [](gpointer d) { delete static_cast<std::weak_ptr<LuaPage> *>(d); });
+	}
+
+	void reopen_if_changed() {
+		if (approval != nullptr || options_now() == options)
+			return;
+		bool unsaved = false;
+		for (const auto &[k, v] : values())
+			unsaved = unsaved || saved[k] != v;
+		if (unsaved) {
+			fail(_("Its command changed: save, or undo the page's changes, to see the page "
+					"for the new command."));
+			return;
+		}
+		stop();
+		dead = false;
+		fields.clear();
+		model = page::Page{};
+		saved.clear();
+		for (GtkWidget *c = gtk_widget_get_first_child(box); c != nullptr;) {
+			GtkWidget *next = gtk_widget_get_next_sibling(c);
+			if (c != GTK_WIDGET(error))
+				gtk_box_remove(GTK_BOX(box), c);
+			c = next;
+		}
+		gtk_widget_set_visible(GTK_WIDGET(error), FALSE);
+		start();
+	}
 
 	/* The runner gone: its pipes closed, the process ended and reaped. */
 	void stop() {
@@ -183,6 +250,8 @@ struct LuaPage {
 	}
 
 	~LuaPage() {
+		if (refresh_source != 0)
+			g_source_remove(refresh_source);
 		stop();
 	}
 
@@ -551,14 +620,20 @@ struct LuaPage {
 			return false;
 		}
 		const char *home = g_get_home_dir();
+		options = options_now();
+		allowed = allowed_files(options);
 		json::Array files, runs;
-		for (const std::string &f : in->files)
+		json::Object opts;
+		for (const auto &[k, v] : options)
+			opts[k] = v;
+		for (const std::string &f : allowed)
 			files.emplace_back(f);
 		for (const std::string &r : in->runs)
 			runs.emplace_back(r);
 		auto replies = ask(json::Object{{"open", json::Object{
 				{"script", wb::lua_page_path(*in)}, {"home", std::string(home ? home : "")},
-				{"files", std::move(files)}, {"runs", std::move(runs)}}}});
+				{"files", std::move(files)}, {"runs", std::move(runs)},
+				{"options", std::move(opts)}}}});
 		for (const json::Value &r : replies)
 			if (const json::Value *p = r.get("page")) {
 				std::string why;
@@ -596,7 +671,7 @@ struct LuaPage {
 			if (w == nullptr)
 				continue;
 			std::string path = w->str("path");
-			if (!page::path_allowed(path, in->files, g_get_home_dir())) {
+			if (!page::path_allowed(path, allowed, g_get_home_dir())) {
 				*err = in->name + ": " + path + _(" isn't in the integration's Files=");
 				g_warning("%s's page: writing %s isn't allowed (Files=): refused",
 						in->name.c_str(), path.c_str());
@@ -735,6 +810,14 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 		gtk_box_append(GTK_BOX(list), permission_line(line_icon(files[i], "document-edit-symbolic"),
 				std::string(_("Read and change")) + " " + mono(in.files[i]) +
 				note(files[i], true)));
+	/* "Read and change the file its command names (-c, Config file)". */
+	for (const wb::IntegrationOption &o : in.options)
+		if (o.type == wb::OptionType::File || o.type == wb::OptionType::Folder) {
+			gchar *t = g_markup_printf_escaped(_("Read and change the file its command gives "
+					"with %s (%s), if any"), o.flag.c_str(), o.label.c_str());
+			gtk_box_append(GTK_BOX(list), permission_line("document-edit-symbolic", t));
+			g_free(t);
+		}
 	for (size_t i = 0; i < in.runs.size(); ++i)
 		gtk_box_append(GTK_BOX(list), permission_line(line_icon(runs[i], "system-run-symbolic"),
 				std::string(_("Run")) + " " + mono(in.runs[i]) + note(runs[i], false)));
@@ -801,15 +884,31 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 
 }  // namespace
 
+void lua_page_command_changed(const std::shared_ptr<void> &page) {
+	if (page)
+		std::static_pointer_cast<LuaPage>(page)->command_changed();
+}
+
 GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row) {
-	return build_lua_page_for(ui, row->in, &row->page);
+	GtkEntry *cmd = row->command;
+	GtkWidget *w = build_lua_page_for(ui, row->in, &row->page, [cmd] {
+		return std::string(gtk_editable_get_text(GTK_EDITABLE(cmd)));
+	});
+	std::weak_ptr<LuaPage> weak = std::static_pointer_cast<LuaPage>(row->page);
+	row->page_refresh = [weak] {
+		if (auto p = weak.lock())
+			p->command_changed();
+	};
+	return w;
 }
 
 GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in_ptr,
-		std::shared_ptr<void> *holder) {
+		std::shared_ptr<void> *holder, std::function<std::string()> command) {
 	auto p = std::make_shared<LuaPage>();
 	p->ui = ui;
 	p->in = in_ptr;
+	p->command = std::move(command);
+	p->self = p;
 	p->box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
 	p->error = GTK_LABEL(gtk_label_new(""));
 	gtk_label_set_xalign(p->error, 0);
