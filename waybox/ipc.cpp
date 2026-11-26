@@ -30,6 +30,7 @@
 #include "waybox/desktops.hpp"
 #include "waybox/json.hpp"
 #include "waybox/output.h"
+#include "waybox/desktop_popup.hpp"
 #include "waybox/xdg_shell.h"
 
 using wb::json::Array;
@@ -247,6 +248,46 @@ Value handle(Client *c, const Value &req) {
 		}
 		std::string shown = bell_ring(server, first_toplevel(server), any ? &preview : nullptr);
 		return Object{{"ok", true}, {"shown", shown}};
+	}
+	/* An on-screen display shown for a moment (wbconf's Test): "message"
+	 * (else "On-screen display"), with "position", "opacity", "cornerRadius",
+	 * "bg", "text", "border" over rc.xml's <osd>, as a preview. */
+	if (cmd == "osd") {
+		wb::OsdConfig base = server->config != nullptr ? server->config->osd : wb::OsdConfig{};
+		auto str = [&req](const char *k) -> std::string {
+			const Value *v = req.get(k);
+			if (v == nullptr)
+				return "";
+			if (v->string() != nullptr)
+				return v->string()->substr(0, 64);
+			if (v->number() != nullptr)
+				return std::to_string(static_cast<long>(std::clamp(*v->number(), -1e9, 1e9)));
+			return "";
+		};
+		std::vector<std::string> problems;
+		wb::OsdConfig over = wb::parse_osd_config(str("position"), str("opacity"),
+				str("cornerRadius"), str("bg"), str("text"), str("border"), &problems);
+		if (!problems.empty())
+			return error("not an on-screen display setting: " + problems.front());
+		if (req.get("position") != nullptr)
+			base.position = over.position;
+		if (over.opacity) base.opacity = over.opacity;
+		if (over.corner_radius) base.corner_radius = over.corner_radius;
+		if (over.bg) base.bg = over.bg;
+		if (over.text) base.text = over.text;
+		if (over.border) base.border = over.border;
+		wb::Theme theme = server->config != nullptr ? server->config->theme
+				: wb::default_theme();
+		std::string message = "On-screen display";
+		if (const Value *m = req.get("message"); m != nullptr && m->string() != nullptr &&
+				!m->string()->empty())
+			message = m->string()->substr(0, 200);
+		if (server->desktop_popup != nullptr)
+			server->desktop_popup->hide();  /* not two at once */
+		server->osd_preview = std::make_unique<wb::DesktopPopup>(server,
+				wb::osd_style(theme, base));
+		server->osd_preview->show(message, 2000);
+		return Object{{"ok", true}};
 	}
 	/* A color from the screen (wbconf's eyedropper): the pointer becomes a
 	 * crosshair, and the answer comes with the click ({"ok": true,

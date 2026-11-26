@@ -97,6 +97,22 @@ struct MenuColors {
 	Color separator;
 };
 
+/* themerc osd.* (Openbox's on-screen display keys): each only where the
+ * theme sets it; otherwise the displays keep the menu's look. */
+struct OsdColors {
+	Texture bg;              /* osd.bg */
+	bool bg_set = false;
+	Texture hilight_bg;      /* osd.hilight.bg: the switcher's selected row */
+	bool hilight_set = false;
+	Color text;              /* osd.label.text.color, osd.inactive.label.text.color */
+	bool text_set = false;
+	Color active_text;       /* osd.active.label.text.color: the selected row's */
+	bool active_text_set = false;
+	int border_width = -1;   /* osd.border.width; -1: not set */
+	Color border_color;      /* osd.border.color */
+	bool border_color_set = false;
+};
+
 struct Theme {
 	int border_width = 1;
 	Color border_color{0, 0, 0, 255};  /* global fallback border colour */
@@ -116,6 +132,7 @@ struct Theme {
 	WindowColors window_active;
 	WindowColors window_inactive;
 	MenuColors menu;
+	OsdColors osd;
 
 	/* Per-place fonts (rc.xml <theme><font place="...">). Openbox keeps fonts
 	 * in rc.xml rather than themerc; config.cpp fills these in. All default to

@@ -721,6 +721,24 @@ static void parse_bell(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><osd position= opacity= cornerRadius= bg= text= border=/>. */
+static void parse_osd(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:osd", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *n = object->nodesetval->nodeTab[0];
+		auto a = [n](const char *k) { return std::string((const char *) get_attribute(n, k)); };
+		std::vector<std::string> problems;
+		config->osd = wb::parse_osd_config(a("position"), a("opacity"), a("cornerRadius"),
+				a("bg"), a("text"), a("border"), &problems);
+		for (const std::string &p : problems)
+			wlr_log(WLR_ERROR, "Ignoring the on-screen display setting %s", p.c_str());
+	}
+	xmlXPathFreeObject(object);
+}
+
 /* Parse <waybox><scripts budget="ms"><script>path</script>.. */
 static void parse_scripts(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
@@ -1007,6 +1025,7 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	parse_tearing(config, ctxt);
 	parse_shortcuts_inhibit(config, ctxt);
 	parse_bell(config, ctxt);
+	parse_osd(config, ctxt);
 	parse_cursor(config, ctxt);
 	parse_scripts(config, ctxt);
 	parse_ipc(config, ctxt);

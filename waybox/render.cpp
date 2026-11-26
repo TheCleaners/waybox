@@ -4,6 +4,10 @@
  */
 #include "waybox/render.hpp"
 
+#include <cmath>
+
+#include <algorithm>
+
 #include <string>
 
 #include <pango/pangocairo.h>
@@ -74,6 +78,41 @@ void paint_texture(cairo_t *cr, double x, double y, double w, double h,
 		return;
 	}
 	paint_rect(cr, x, y, w, h, texture.color);
+}
+
+namespace {
+
+void rounded_path(cairo_t *cr, double x, double y, double w, double h, double r) {
+	r = std::max(0.0, std::min(r, std::min(w, h) / 2));
+	cairo_new_sub_path(cr);
+	if (r <= 0) {
+		cairo_rectangle(cr, x, y, w, h);
+		return;
+	}
+	cairo_arc(cr, x + w - r, y + r, r, -M_PI / 2, 0);
+	cairo_arc(cr, x + w - r, y + h - r, r, 0, M_PI / 2);
+	cairo_arc(cr, x + r, y + h - r, r, M_PI / 2, M_PI);
+	cairo_arc(cr, x + r, y + r, r, M_PI, 3 * M_PI / 2);
+	cairo_close_path(cr);
+}
+
+}  // namespace
+
+void paint_panel(cairo_t *cr, double w, double h, const Surface &panel) {
+	const Border &bd = panel.border;
+	double r = bd.radius;
+	cairo_save(cr);
+	if (bd.width > 0) {
+		rounded_path(cr, 0, 0, w, h, r);
+		cairo_clip(cr);
+		paint_rect(cr, 0, 0, w, h, bd.color);
+		cairo_reset_clip(cr);
+	}
+	double b = bd.width;
+	rounded_path(cr, b, b, w - 2 * b, h - 2 * b, std::max(0.0, r - b));
+	cairo_clip(cr);
+	paint_fill(cr, b, b, w - 2 * b, h - 2 * b, panel.fill);
+	cairo_restore(cr);
 }
 
 void paint_fill(cairo_t *cr, double x, double y, double w, double h,

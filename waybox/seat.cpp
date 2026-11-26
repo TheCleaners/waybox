@@ -193,9 +193,7 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 			ordered.begin());
 	int sel = reverse ? (current - 1 + n) % n : (current + 1) % n;
 	wins = std::move(ordered);
-	wb::SwitcherStyle style = server->config
-			? wb::switcher_style_from_theme(server->config->theme)
-			: wb::switcher_style_from_theme(wb::default_theme());
+	wb::SwitcherStyle style = wb_osd_style(server);
 	wb::StallScope timing("switcher");
 	auto widget = std::make_unique<wb::SwitcherWidget>(server, style, behavior);
 	std::vector<wb::SwitcherWidget::Entry> rows;

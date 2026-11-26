@@ -736,6 +736,7 @@ if python.found() and not get_option('tests_only')
     ['input_method', 'input_method_test.py', [ime_client, text_input_client], 90],
     ['input_method_setting', 'input_method_setting_test.py', [], 60],
     ['ipc', 'ipc_test.py', [waybox_msg, lock_client], 60],
+    ['osd_look', 'osd_look_test.py', [waybox_msg], 60],
     ['python_ipc', 'python_ipc_test.py', [touch_client, python_src_dir], 60],
     ['desktop_context', 'desktop_context_test.py', [desktop_client, vpointer_client], 60],
     ['openbox_actions', 'openbox_actions_test.py', [touch_client], 60],
@@ -824,6 +825,8 @@ if python.found() and not get_option('tests_only')
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', fake_daemon], 60]]
     integration_tests += [['bell_wbconf', 'bell_styles_test.py',
         [bell_client, waybox_msg, wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_osd', 'wbconf_osd_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['identify', 'identify_test.py',
         [waybox_msg, wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
   endif

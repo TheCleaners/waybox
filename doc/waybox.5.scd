@@ -257,6 +257,7 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
   <virtualInput allow="unlocked"/>
   <xwayland enabled="yes"/>
   <bell flash="yes" command="paplay /usr/share/sounds/freedesktop/stereo/bell.oga"/>
+  <osd position="bottom" opacity="90" cornerRadius="8"/>
   <hdr outputs="HDMI-A-1"/>
   <cursor theme="Adwaita" size="32"/>
   <outputs>
@@ -312,6 +313,18 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 *<xwayland>*
 	Run X11 programs through Xwayland, started when the first one
 	connects (default *yes*).
+
+*<osd>*
+	The on-screen displays: the window switcher, the desktop name, the
+	bell's note and *wb.osd*'s messages. Each attribute is optional; unset,
+	the theme decides (see *THEMES*).
+	- *position*: *center* (default), *top* or *bottom* of the monitor (a
+	  tenth of its height in from the edge). Identify always shows in the
+	  middle.
+	- *opacity*: percent, 10 to 100.
+	- *cornerRadius*: pixels, 0 to 64.
+	- *bg*, *text*, *border*: *#rrggbb* or *#rrggbbaa*, over the theme's.
+	The font is *<theme><font place="ActiveOnScreenDisplay">*.
 
 *<bell>*
 	What a program ringing the bell (a terminal's \\a, a toolkit's error
@@ -522,6 +535,15 @@ A theme is a directory containing *openbox-3/themerc*. Waybox looks for
 _name_ in _$XDG_DATA_HOME/themes_ (normally _~/.local/share/themes_),
 _~/.themes_, and the _themes_ directory of each entry in *XDG_DATA_DIRS*.
 Openbox themes work as they are.
+
+The on-screen displays use Openbox's *osd.\** keys where a theme has them:
+*osd.bg* (and its *.color*, *.colorTo*), *osd.border.width*,
+*osd.border.color*, *osd.label.text.color* (or
+*osd.inactive.label.text.color*), and for the switcher's selected row
+*osd.hilight.bg* and *osd.active.label.text.color*. What a theme leaves
+out comes from its menu: *menu.items.bg*, *menu.items.text.color*,
+*menu.items.active.bg*, the border, *waybox.menu.corner.radius* and
+*waybox.menu.opacity*. *<osd>* in rc.xml goes over both.
 
 # SEE ALSO
 

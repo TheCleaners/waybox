@@ -188,9 +188,9 @@ any action.
 	the menu shows a note instead.
 
 *wb.osd(*_text_*,* _ms_*)*
-	Shows _text_ centered on the monitor under the pointer for _ms_
-	milliseconds (default 1500), in the style of the desktop popup; showing
-	again replaces it, and *""* hides it.
+	Shows _text_ on the monitor under the pointer for _ms_ milliseconds
+	(default 1500), as the desktop name shows (where rc.xml's *<osd>* puts
+	it, in its look); showing again replaces it, and *""* hides it.
 
 *wb.timer(*_ms_*,* _function_*)*, *wb.every(*_ms_*,* _function_*)*
 	Runs the function once after _ms_ milliseconds, or every _ms_ (at least

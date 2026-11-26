@@ -1001,7 +1001,8 @@ int wb_show_menu(lua_State *L) {
 	return 1;
 }
 
-/* wb.osd(text[, ms]): show text for a moment, centred; "" hides it. */
+/* wb.osd(text[, ms]): show text for a moment, as the desktop name shows;
+ * "" hides it. */
 int wb_osd(lua_State *L) {
 	luaL_checkstring(L, 1);
 	lua_Integer ms = luaL_optinteger(L, 2, 1500);

@@ -247,6 +247,8 @@ struct wlr_box output_usable_area(struct wb_server *server, struct wlr_output *o
 /* Show `text` for a moment, centred, in the on-screen display style (the
  * desktop popup's; showing again replaces it). */
 void wb_show_popup(struct wb_server *server, const std::string &text, int duration_ms);
+/* The on-screen displays' style: the theme's, with rc.xml's <osd> over it. */
+wb::SwitcherStyle wb_osd_style(struct wb_server *server);
 /* Each monitor's name on it, large (or only `only`'s, if not ""), for
  * `duration_ms`; how many were shown. */
 int wb_identify_outputs(struct wb_server *server, const std::string &only, int duration_ms);

@@ -91,7 +91,7 @@ struct ColorControl {
 	GtkEntry *entry = nullptr;  /* the value: its "changed" is the owner's */
 	GtkColorDialogButton *button = nullptr;
 	GtkWidget *pick = nullptr;
-	std::string css_class, default_value;
+	std::string css_class, default_value, hint;
 	bool alpha = false, syncing = false, picking = false;
 	std::shared_ptr<ColorControl *> self;  /* nulled when gone: a late pick */
 	~ColorControl();
