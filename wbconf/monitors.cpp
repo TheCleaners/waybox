@@ -484,7 +484,7 @@ void revert_monitors(Ui *ui, const std::string &outputs_xml, const std::string &
 	wb::WayboxSettings back = doc->read();
 	populate_monitors(ui, back.outputs);
 	populate_hdr(ui, back.hdr_outputs);
-	ui->shown = collect(ui);
+	ui->shown = shown_settings(ui);
 	signal_waybox_reload();
 	refresh_save_state(ui);
 	set_status(ui, _("The previous monitor settings are back."));

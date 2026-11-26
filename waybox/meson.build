@@ -45,6 +45,7 @@ wb_src = [
     'xdg_session.cpp',
     'bell.cpp',
     'color_pick.cpp',
+    'xcursor_themes.cpp',
     'bell_style.cpp',
     'stall_watch.cpp',
     'script.cpp',

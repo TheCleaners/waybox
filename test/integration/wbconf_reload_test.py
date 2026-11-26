@@ -5,6 +5,8 @@ Two made-up Openbox themes installed, one chosen in rc.xml: the theme list
 is rebuilt on each reload. Removing its selected row once redrew the
 thumbnails of rows already gone (a GTK critical per theme, every save).
 Here wbconf runs with G_DEBUG=fatal-criticals: any critical aborts it.
+Then saved, unchanged: rc.xml's <cursor> had a size only, and gets the
+pointer theme shown (GTK's) too, so Waybox draws the pointer shown.
 Skips (exit 77) without a headless display.
 
 Usage: wbconf_reload_test.py <waybox> <wbconf> <schema-dir>
@@ -42,11 +44,19 @@ def main():
         os.makedirs(d)
         with open(os.path.join(d, "themerc"), "w") as f:
             f.write(THEMERC.format(color=color))
+    cursors = os.path.join(share, "icons", "TestCursors", "cursors")
+    os.makedirs(cursors)
+    with open(os.path.join(cursors, "left_ptr"), "w") as f:
+        f.write("Xcur")
     cfg = os.path.join(workdir, "config")
     os.makedirs(os.path.join(cfg, "waybox"))
+    os.makedirs(os.path.join(cfg, "gtk-4.0"))
+    with open(os.path.join(cfg, "gtk-4.0", "settings.ini"), "w") as f:
+        f.write("[Settings]\ngtk-cursor-theme-name=TestCursors\n")
     with open(os.path.join(cfg, "waybox", "rc.xml"), "w") as f:
         f.write('<?xml version="1.0"?>\n<openbox_config xmlns="http://openbox.org/3.4/rc">'
-                '<theme><name>TestTwo</name></theme></openbox_config>\n')
+                '<theme><name>TestTwo</name></theme>'
+                '<waybox><cursor size="24"/></waybox></openbox_config>\n')
     runtime = os.path.join(workdir, "run")
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman", HOME=workdir,
@@ -77,7 +87,7 @@ def main():
                 DBUS_SESSION_BUS_ADDRESS="disabled:", GSETTINGS_BACKEND="memory",
                 GIO_USE_VFS="local", NO_AT_BRIDGE="1", WBCONF_SCHEMA_DIR=schema,
                 WAYBOX_PID=str(proc.pid), G_DEBUG="fatal-criticals",
-                WBCONF_TEST_SET="reload=1;reload=1")
+                WBCONF_TEST_SET="reload=1;reload=1;save=1")
     failures = []
     app = subprocess.Popen([wbconf], env=wenv, stdout=subprocess.DEVNULL,
                            stderr=subprocess.PIPE, text=True)
@@ -89,6 +99,9 @@ def main():
     else:
         app.kill()
     app.wait()
+    rc = open(os.path.join(cfg, "waybox", "rc.xml")).read()
+    if 'theme="TestCursors"' not in rc or 'size="24"' not in rc:
+        failures.append(f"<cursor> not completed with the theme shown:\n{rc}")
     proc.send_signal(signal.SIGTERM)
     try:
         proc.wait(timeout=10)

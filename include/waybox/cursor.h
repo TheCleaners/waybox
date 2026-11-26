@@ -27,6 +27,7 @@ struct wb_cursor {
 	std::string theme, start_theme;
 	unsigned size = 24, start_size = 24;
 	bool start_theme_set = false, start_size_set = false;
+	std::string failed_theme;  /* last theme found without cursors (logged once) */
 
 	/* Show the theme's cursor `name` ("default", "text", ...). */
 	void show_xcursor(const char *name);

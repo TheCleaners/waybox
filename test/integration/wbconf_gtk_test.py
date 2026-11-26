@@ -124,6 +124,13 @@ def main():
                      "gtk-enable-animations=true", "gtk-cursor-theme-size=40"):
             if want not in out:
                 failures.append(f"settings.ini lacks {want!r}:\n{out}")
+        # Only the size was changed, but rc.xml gets the pointer theme
+        # shown too (GTK's): theme and size are one, so Waybox draws the
+        # pointer shown, not whatever "default" gives.
+        shown = [l.split("=", 1)[1] for l in out.splitlines()
+                 if l.startswith("gtk-cursor-theme-name=")]
+        if shown and shown[0] and f'theme="{shown[0]}"' not in rc_text:
+            failures.append(f"rc.xml's <cursor> lacks the theme shown ({shown[0]}):\n{rc_text}")
     except RuntimeError as e:
         failures.append(str(e))
     finally:

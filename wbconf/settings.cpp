@@ -96,7 +96,7 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 	populate_input_method(ui, s.input_method);
 	populate_rows(ui, doc);
 
-	ui->shown = collect(ui);
+	ui->shown = shown_settings(ui);
 	preview_refresh(ui);
 }
 
@@ -111,6 +111,17 @@ void populate_hdr(Ui *ui, const std::optional<std::string> &hdr_outputs) {
 	for (auto &[name, check] : ui->hdr)
 		gtk_check_button_set_active(check,
 				std::find(hdr.begin(), hdr.end(), name) != hdr.end());
+}
+
+wb::WayboxSettings shown_settings(Ui *ui) {
+	wb::WayboxSettings s = collect(ui);
+	/* Only where rc.xml has a <cursor> (half of one, say: a size alone):
+	 * one that has none isn't given one until the pointer is changed. */
+	if (ui->gtk.rc_cursor_theme || ui->gtk.rc_cursor_size) {
+		s.cursor_theme = ui->gtk.rc_cursor_theme;
+		s.cursor_size = ui->gtk.rc_cursor_size;
+	}
+	return s;
 }
 
 wb::WayboxSettings collect(Ui *ui) {
