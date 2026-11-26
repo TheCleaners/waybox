@@ -1,0 +1,6 @@
+# For waybox-check-integration's test: a newer major format, skipped (an
+# error), so the check fails.
+[Integration]
+FormatVersion=2
+Name=Newer
+Exec=true

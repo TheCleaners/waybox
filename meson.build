@@ -188,6 +188,14 @@ if not tests_only
   endif
 endif
 
+# waybox-check-integration: an integration file checked as wbconf reads it,
+# for packagers and CI. Pure C++ (built in tests_only too).
+waybox_check_integration = executable('waybox-check-integration',
+  ['msg/waybox-check-integration.cpp', integrations_src, startup_src],
+  include_directories: [inc_dir],
+  install: not get_option('tests_only'),
+)
+
 # waybox-msg: the scripting socket from the shell.
 if not get_option('tests_only')
   msg_version_h = vcs_tag(

@@ -547,4 +547,4 @@ out comes from its menu: *menu.items.bg*, *menu.items.text.color*,
 
 # SEE ALSO
 
-*waybox*(1), *openbox*(1), *xkeyboard-config*(7), *libinput*(4)
+*waybox*(1), *waybox-integration*(5), *openbox*(1), *xkeyboard-config*(7), *libinput*(4)
