@@ -129,6 +129,8 @@ struct FontControl {
 	std::vector<std::string> families;  /* parallel to the list; "" (Default) first */
 	bool fontconfig = false;            /* else as Pango writes it */
 	double default_size = 11;           /* the default's (its hint's), shown then */
+	/* What the weight and width lists offer: 0 (the font's own) first. */
+	std::vector<int> weight_values, width_values;
 	wb::font::Spec spec;
 	PangoFontDescription *pango_desc = nullptr;  /* Pango: what was there */
 	std::string value;
