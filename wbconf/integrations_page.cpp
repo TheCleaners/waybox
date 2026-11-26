@@ -717,7 +717,7 @@ const char *integration_category_title(const std::string &category) {
 		{"Panel", N_("Panel")}, {"Notifications", N_("Notifications")},
 		{"Wallpaper", N_("Wallpaper")}, {"NightLight", N_("Night Light")},
 		{"Idle", N_("Idle and Locking")}, {"Clipboard", N_("Clipboard")},
-		{"Pickers", N_("Pickers")},
+		{"Pickers", N_("Pickers")}, {"Launcher", N_("App Launchers")},
 		{"Tray", N_("Tray Applets")}, {"Polkit", N_("Password Prompts")},
 		{"Displays", N_("Displays")}, {"Screenshots", N_("Screenshots")},
 	};
@@ -892,6 +892,12 @@ GtkWidget *build_binding_block(Ui *ui, const std::string &id) {
 	gtk_widget_set_hexpand(GTK_WIDGET(b->command), TRUE);
 	gtk_entry_set_placeholder_text(b->command, _("Command"));
 	gtk_box_append(GTK_BOX(b->details), GTK_WIDGET(b->command));
+	/* Its settings page, if it has one: shown while it's bound. */
+	if (!wb::lua_page_path(*in).empty()) {
+		GtkWidget *page = build_lua_page_for(ui, in, &b->page);
+		gtk_widget_set_margin_top(page, 8);
+		gtk_box_append(GTK_BOX(b->details), page);
+	}
 	gtk_box_append(GTK_BOX(box), b->details);
 
 	g_signal_connect_swapped(b->on, "notify::active", G_CALLBACK(on_binding_changed), b.get());
