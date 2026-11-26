@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration test for the scripting socket (<waybox><ipc enabled="yes"/>).
+"""Integration test for the scripting socket (on unless <waybox><ipc enabled="no"/>).
 
 1. The socket is there, only for the user (0600).
 2. A subscriber gets events: a window opening (new, focus), a desktop
@@ -7,7 +7,7 @@
 3. waybox-msg: get_windows lists the window (focused), get_desktops the
    current one, actions run (GoToDesktop, Close by app_id), an unknown
    action is an error; programs Waybox starts get WAYBOX_SOCK.
-4. Without the setting, there's no socket.
+4. With <ipc enabled="no"/>, there's no socket.
 
 Skips (exit 77) without foot, or a headless display.
 
@@ -52,7 +52,7 @@ def main():
             f.write(f"""<?xml version="1.0" encoding="UTF-8"?>
 <openbox_config xmlns="http://openbox.org/3.4/rc">
   <desktops><number>3</number></desktops>
-  <waybox>{'<ipc enabled="yes"/>' if ipc else ''}</waybox>
+  <waybox>{'' if ipc else '<ipc enabled="no"/>'}</waybox>
 </openbox_config>
 """)
         runtime = os.path.join(workdir, f"run-{tag}")
@@ -239,7 +239,7 @@ def main():
 
         # The socket turned off by a Reconfigure sent through it.
         rc_path = os.path.join(cenv["XDG_CONFIG_HOME"], "waybox", "rc.xml")
-        text = open(rc_path).read().replace('<ipc enabled="yes"/>', "")
+        text = open(rc_path).read().replace("<waybox>", '<waybox><ipc enabled="no"/>', 1)
         open(rc_path, "w").write(text)
         run_msg(cenv2, "action", "Reconfigure")
         time.sleep(0.8)
@@ -251,7 +251,7 @@ def main():
 
     def without(cenv, runtime, sock, proc, children):
         if os.path.exists(os.path.join(runtime, f"waybox-{sock}.sock")):
-            failures.append("a socket without <ipc enabled=\"yes\"/>")
+            failures.append("a socket with <ipc enabled=\"no\"/>")
         rc, out, err = run_msg(cenv, "get_windows")
         if rc == 0:
             failures.append("waybox-msg succeeded without a socket")

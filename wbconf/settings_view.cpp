@@ -255,7 +255,7 @@ GtkWidget *preview_button(Ui *ui, void (*run)(Ui *)) {
 	} else {
 		gtk_widget_set_sensitive(b, FALSE);
 		gtk_widget_set_tooltip_text(b, _("Needs Waybox's scripting socket: "
-				"<ipc enabled=\"yes\"/> in rc.xml"));
+				"turned off in rc.xml (<ipc enabled=\"no\"/>)"));
 	}
 	g_signal_connect_swapped(b, "clicked", G_CALLBACK(run), ui);
 	return b;

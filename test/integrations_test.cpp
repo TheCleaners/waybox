@@ -498,8 +498,10 @@ WB_TEST(integration_reload) {
 	c = read("signal SIGHUP");
 	WB_CHECK(c.integration->reload.kind == K::Signal && c.integration->reload.signal == "HUP");
 	WB_CHECK(read("none").integration->reload.kind == K::None);
+	WB_CHECK(read("restart").integration->reload.kind == K::Restart);
 	/* Not one of those: said, and ignored. */
-	for (const char *bad : {"signal KILL", "signal TERM", "signal", "command", "restart", "x y"}) {
+	for (const char *bad : {"signal KILL", "signal TERM", "signal", "command", "restart now",
+			"x y"}) {
 		c = read(bad);
 		WB_CHECK(c.integration->reload.kind == K::Unset &&
 				has_problem(c, 5, false, ("Reload=" + std::string(bad) + ": command PROGRAM").c_str()));

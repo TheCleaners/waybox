@@ -1,6 +1,6 @@
 /*
- * waybox-msg: talk to Waybox's scripting socket (<waybox><ipc
- * enabled="yes"/>) from the shell. Prints the reply (one line of JSON;
+ * waybox-msg: talk to Waybox's scripting socket (on unless <waybox><ipc
+ * enabled="no"/>) from the shell. Prints the reply (one line of JSON;
  * pipe to jq to pick it apart), or each event as it comes.
  *
  *   waybox-msg get_windows | get_desktops | get_outputs | get_version
@@ -8,6 +8,7 @@
  *                                              action Close window=app_id:foot
  *   waybox-msg identify [OUTPUT]               each monitor's name, on it
  *   waybox-msg pick_color                      the color clicked next
+ *   waybox-msg restart_program NAME            a startup program, again
  *   waybox-msg subscribe window,desktop,output,config
  *   waybox-msg raw '{"request": ...}'
  *
@@ -36,6 +37,7 @@ int usage() {
 		"       waybox-msg action NAME [key=value ...]   (to=, command=, window=, ...)\n"
 		"       waybox-msg identify [OUTPUT]\n"
 		"       waybox-msg pick_color\n"
+		"       waybox-msg restart_program NAME\n"
 		"       waybox-msg subscribe window,desktop,output,config\n"
 		"       waybox-msg raw JSON\n");
 	return 2;
@@ -99,6 +101,11 @@ int main(int argc, char **argv) {
 		if (argc != 2)
 			return usage();
 		req["request"] = "pick_color";
+	} else if (cmd == "restart_program") {
+		if (argc != 3)
+			return usage();
+		req["request"] = "restart_program";
+		req["name"] = argv[2];
 	} else if (cmd == "identify") {
 		if (argc > 3)
 			return usage();

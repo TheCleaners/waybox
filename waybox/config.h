@@ -132,7 +132,7 @@ struct wb_config {
 
 	/* rc.xml <waybox><ipc enabled="yes"/>: the scripting socket. Off
 	 * unless set. */
-	bool ipc_enabled = false;
+	bool ipc_enabled = true;  /* <ipc enabled="no"/> turns it off */
 
 	/* rc.xml <waybox><inputMethod command="fcitx5"><env name="XMODIFIERS"
 	 * value="@im=fcitx"/></inputMethod>: the input method (IBus, Fcitx5,

@@ -68,8 +68,9 @@
     </inputMethod>
     -->
     <!-- The scripting socket ($WAYBOX_SOCK; see waybox-msg): list windows,
-         run actions, follow events. Off unless set.
-    <ipc enabled="yes"/>
+         run actions, follow events; wbconf's previews and restarting a
+         program use it too. On; only your own programs can reach it.
+    <ipc enabled="no"/>
     -->
     <!-- A focused VM viewer or remote desktop may take the keyboard
          shortcuts (Super+Escape takes them back); "no" never lets it.

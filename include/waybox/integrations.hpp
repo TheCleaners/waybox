@@ -84,7 +84,7 @@ bool option_value_valid(const IntegrationOption &o, std::string_view value);
 /* Reload=: how the program takes its settings again once a page saved
  * them (the page's wb.reload()). */
 struct IntegrationReload {
-	enum class Kind { Unset, None, Command, Signal };
+	enum class Kind { Unset, None, Command, Signal, Restart };
 	Kind kind = Kind::Unset;
 	std::vector<std::string> argv;  /* command: what to run, as written */
 	std::string signal;             /* signal: USR1, USR2 or HUP */

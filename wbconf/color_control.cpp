@@ -170,7 +170,7 @@ std::unique_ptr<ColorControl> make_color_control(const std::string &hint,
 	} else {
 		gtk_widget_set_sensitive(c->pick, FALSE);
 		gtk_widget_set_tooltip_text(c->pick, _("Picking from the screen needs Waybox's "
-				"scripting socket: <ipc enabled=\"yes\"/> in rc.xml"));
+				"scripting socket, turned off in rc.xml (<ipc enabled=\"no\"/>)"));
 	}
 	g_signal_connect(c->pick, "clicked", G_CALLBACK(on_pick), c.get());
 	gtk_box_append(GTK_BOX(c->box), c->pick);
