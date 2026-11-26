@@ -70,8 +70,7 @@ page {
     text { "border-radius", label = "Corner radius", value = now("border-radius"), hint = "0" },
   },
   group "Look" {
-    text { "font", label = "Font", value = now("font"), hint = "monospace 10",
-           description = "A family and size, as Pango writes it." },
+    font { "font", label = "Font", value = now("font"), hint = "monospace 10" },
     color { "background-color", label = "Background", value = now("background-color") },
     color { "text-color", label = "Text", value = now("text-color") },
     color { "border-color", label = "Border", value = now("border-color") },
