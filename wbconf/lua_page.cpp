@@ -329,6 +329,7 @@ struct LuaPage {
 
 	void build(GtkWidget *parent, const std::vector<page::Control> &controls) {
 		GtkWidget *grid = nullptr;
+		GtkWidget *buttons = nullptr;  /* buttons one after another: side by side */
 		int r = 0;
 		for (const page::Control &c : controls) {
 			if (c.kind == page::Kind::Group) {
@@ -342,6 +343,7 @@ struct LuaPage {
 				gtk_box_append(GTK_BOX(parent), inner);
 				build(inner, c.children);
 				grid = nullptr;
+				buttons = nullptr;
 				continue;
 			}
 			if (c.kind == page::Kind::Label) {
@@ -350,6 +352,7 @@ struct LuaPage {
 				gtk_label_set_xalign(GTK_LABEL(l), 0);
 				gtk_box_append(GTK_BOX(parent), l);
 				grid = nullptr;
+				buttons = nullptr;
 				continue;
 			}
 			Field &f = fields[c.key];
@@ -367,11 +370,17 @@ struct LuaPage {
 				if (!c.description.empty())
 					gtk_widget_set_tooltip_text(f.button, c.description.c_str());
 				f.row = f.button;
-				gtk_box_append(GTK_BOX(parent), f.button);
+				if (buttons == nullptr) {
+					buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+					gtk_widget_set_margin_top(buttons, 6);
+					gtk_box_append(GTK_BOX(parent), buttons);
+				}
+				gtk_box_append(GTK_BOX(buttons), f.button);
 				grid = nullptr;
 				show_control(c);
 				continue;
 			}
+			buttons = nullptr;
 			/* A setting, in a grid of label and control. */
 			if (grid == nullptr)
 				grid = section_grid(parent);
@@ -380,18 +389,26 @@ struct LuaPage {
 			f.opt->label = c.label.empty() ? c.key : c.label;
 			f.opt->type = option_type(c.kind);
 			f.opt->choices = c.choices;
+			f.opt->choice_labels = c.choice_labels;
+			f.opt->no_default_choice = true;
 			f.opt->min = c.min;
 			f.opt->max = c.max;
 			f.opt->hint = c.hint;
+			f.opt->unit = c.unit;
+			f.opt->width_chars = c.kind == page::Kind::Text && !c.wide ? 24 : 0;
+			f.opt->color_alpha = true;  /* a page's colors may be #rrggbbaa */
 			std::string key = c.key;
 			f.field = make_option_field(*f.opt, [this, key] { changed(key); });
 			GtkWidget *label = grid_label(grid, r, (f.opt->label + ":").c_str());
+			/* Level with the field, not with the field and its description. */
+			gtk_widget_set_valign(label, GTK_ALIGN_START);
+			gtk_widget_set_margin_top(label, 8);
 			GtkWidget *cell = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
 			GtkWidget *line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 			gtk_box_append(GTK_BOX(line), f.field->widget);
-			if (!c.unit.empty()) {
+			/* A number's unit comes with its field; another kind's after it. */
+			if (!c.unit.empty() && c.kind != page::Kind::Number) {
 				GtkWidget *u = gtk_label_new(c.unit.c_str());
-				gtk_widget_add_css_class(u, "dim-label");
 				gtk_box_append(GTK_BOX(line), u);
 			}
 			gtk_box_append(GTK_BOX(cell), line);

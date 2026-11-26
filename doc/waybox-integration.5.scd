@@ -188,9 +188,11 @@ end
 
 *text*, *number*, *switch*, *choice*, *color*, *file*, *folder*, *image* *{* _"key"_, ... *}*
 	A setting: its key first, then *label*, *value*, *description*,
-	*hint*; *unit*, *min*, *max* for a *number*; *choices* for a *choice*;
-	*on_change* (a function of the new value). A value reaches the page as
-	text; a switch's is *"on"* or *""*.
+	*hint*, *unit*; *min*, *max* for a *number*; *choices* for a *choice*,
+	each a value or *{* _value_*,* _label_ *}* (*{ "top-right", "Top right" }*);
+	*wide = true* for a *text* to take the row's width; *on_change* (a
+	function of the new value). A value reaches the page as text; a
+	switch's is *"on"* or *""*.
 
 *group* _"Title"_ *{* ... *}*, *label* _"text"_
 	A titled group of controls; a line of text.
@@ -215,6 +217,18 @@ end
 
 *wb.log(*...*)*, *print(*...*)*
 	To wbconf's log.
+
+*wb.ini.read(*_path_*)*, *wb.ini.parse(*_text_*)*
+	An INI file to edit in place: what isn't changed stays as it was,
+	comments, blank lines, order and spacing included; a new key goes at
+	the end of its section, a new section at the end. Keys before any
+	*[section]* are the file's own: *doc:get(*_key_*,* _default_*)*,
+	*doc:set(*_key_*,* _value_*)* (nil removes it), *doc:set_all(*_table_*)*,
+	*doc:entries()*; a section's through *doc:section(*_name_*)*, with the
+	same calls. *doc:sections()* lists them, *doc:text()* is the file to
+	write. A value is everything after the first *=*, a *#* in it included
+	(colors); a section that repeats (mako's criteria) reads as one, a key
+	changed where it last appears.
 
 A page in the user's own folder (_$XDG_CONFIG_HOME/waybox/integrations_,
 where files from anywhere land) runs only once allowed: wbconf first shows

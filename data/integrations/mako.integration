@@ -3,3 +3,6 @@ Name=mako
 Category=Notifications
 Comment=Notification daemon (settings in ~/.config/mako/config)
 Exec=mako
+Page=mako.lua
+Files=~/.config/mako/config
+Runs=makoctl, notify-send

@@ -25,6 +25,7 @@
 #include <lua.hpp>
 
 #include "waybox/json.hpp"
+#include "waybox/ini_doc.hpp"
 #include "waybox/page_protocol.hpp"
 
 #if LUA_VERSION_NUM < 502  /* LuaJIT, Lua 5.1 */
@@ -266,11 +267,133 @@ int wb_log(lua_State *L) {
 	return 0;
 }
 
+/* ---- wb.ini's document, in C (ini_doc.cpp) ---- */
+
+const char *kIniMeta = "wb.ini.document";
+
+wb::ini::Document *ini_doc(lua_State *L) {
+	return static_cast<wb::ini::Document *>(luaL_checkudata(L, 1, kIniMeta));
+}
+
+int ini_gc(lua_State *L) {
+	ini_doc(L)->~Document();
+	return 0;
+}
+
+int ini_parse(lua_State *L) {
+	size_t len = 0;
+	const char *text = luaL_optlstring(L, 1, "", &len);
+	void *mem = lua_newuserdata(L, sizeof(wb::ini::Document));
+	new (mem) wb::ini::Document(wb::ini::Document::parse(std::string_view(text, len)));
+	luaL_getmetatable(L, kIniMeta);
+	lua_setmetatable(L, -2);
+	return 1;
+}
+
+int ini_get(lua_State *L) {
+	auto v = ini_doc(L)->get(luaL_checkstring(L, 2), luaL_checkstring(L, 3));
+	if (v)
+		lua_pushlstring(L, v->data(), v->size());
+	else
+		lua_pushnil(L);
+	return 1;
+}
+
+int ini_set(lua_State *L) {
+	ini_doc(L)->set(luaL_checkstring(L, 2), luaL_checkstring(L, 3), luaL_checkstring(L, 4));
+	return 0;
+}
+
+int ini_remove(lua_State *L) {
+	lua_pushboolean(L, ini_doc(L)->remove(luaL_checkstring(L, 2), luaL_checkstring(L, 3)));
+	return 1;
+}
+
+int ini_sections(lua_State *L) {
+	auto s = ini_doc(L)->sections();
+	lua_newtable(L);
+	for (size_t i = 0; i < s.size(); ++i) {
+		lua_pushstring(L, s[i].c_str());
+		lua_rawseti(L, -2, static_cast<int>(i + 1));
+	}
+	return 1;
+}
+
+int ini_entries(lua_State *L) {
+	auto e = ini_doc(L)->entries(luaL_checkstring(L, 2));
+	lua_newtable(L);
+	for (size_t i = 0; i < e.size(); ++i) {
+		lua_newtable(L);
+		lua_pushstring(L, e[i].first.c_str());
+		lua_setfield(L, -2, "key");
+		lua_pushstring(L, e[i].second.c_str());
+		lua_setfield(L, -2, "value");
+		lua_rawseti(L, -2, static_cast<int>(i + 1));
+	}
+	return 1;
+}
+
+int ini_text(lua_State *L) {
+	std::string t = ini_doc(L)->text();
+	lua_pushlstring(L, t.data(), t.size());
+	return 1;
+}
+
+/* The C side of wb.ini, handed to the prelude. */
+void push_ini_api(lua_State *L) {
+	luaL_newmetatable(L, kIniMeta);
+	lua_pushcfunction(L, ini_gc);
+	lua_setfield(L, -2, "__gc");
+	lua_pop(L, 1);
+	lua_newtable(L);
+	const luaL_Reg fns[] = {{"parse", ini_parse}, {"get", ini_get}, {"set", ini_set},
+			{"remove", ini_remove}, {"sections", ini_sections}, {"entries", ini_entries},
+			{"text", ini_text}, {nullptr, nullptr}};
+	for (const luaL_Reg *f = fns; f->name != nullptr; ++f) {
+		lua_pushcfunction(L, f->func);
+		lua_setfield(L, -2, f->name);
+	}
+}
+
 /* ---- the page vocabulary, and strict globals (Lua) ---- */
 
 const char *kPrelude = R"LUA(
 local described, buttons, settings, values, nbuttons = nil, {}, {}, {}, 0
-local update = ...
+local update, ini = ...
+
+-- wb.ini: an INI file edited without disturbing it (comments, order and
+-- spacing kept; new keys at the end of their section).
+local Section = {}
+Section.__index = Section
+function Section:get(key, default)
+  local v = ini.get(self.doc, self.name, key)
+  if v == nil then return default end
+  return v
+end
+function Section:set(key, value)
+  if value == nil then ini.remove(self.doc, self.name, key)
+  else ini.set(self.doc, self.name, key, tostring(value)) end
+end
+function Section:entries() return ini.entries(self.doc, self.name) end
+function Section:set_all(values)
+  -- Sorted: a new key's place doesn't depend on Lua's table order.
+  local keys = {}
+  for k in pairs(values) do keys[#keys + 1] = k end
+  table.sort(keys)
+  for _, k in ipairs(keys) do self:set(k, values[k]) end
+end
+local Ini = {}
+Ini.__index = Ini
+function Ini:section(name) return setmetatable({ doc = self.doc, name = name or "" }, Section) end
+function Ini:get(key, default) return self:section(""):get(key, default) end
+function Ini:set(key, value) return self:section(""):set(key, value) end
+function Ini:set_all(values) return self:section(""):set_all(values) end
+function Ini:entries() return self:section(""):entries() end
+function Ini:sections() return ini.sections(self.doc) end
+function Ini:text() return ini.text(self.doc) end
+wb.ini = {}
+function wb.ini.parse(text) return setmetatable({ doc = ini.parse(text or "") }, Ini) end
+function wb.ini.read(path) return wb.ini.parse(wb.read(path) or "") end
 
 local function distance(a, b)
   if math.abs(#a - #b) > 3 then return 99 end
@@ -496,7 +619,8 @@ bool open_page(const json::Value &msg) {
 		return false;
 	}
 	lua_pushcfunction(L, wb_update);
-	if (lua_pcall(L, 1, 1, 0) != 0) {
+	push_ini_api(L);
+	if (lua_pcall(L, 2, 1, 0) != 0) {
 		emit_error(lua_tostring(L, -1));
 		return false;
 	}

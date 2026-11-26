@@ -52,10 +52,27 @@ bool read_control(const json::Value &v, int depth, Control &out, std::set<std::s
 	out.hint = v.str("hint");
 	if (const json::Value *val = v.get("value"))
 		out.value = as_text(*val);
+	/* A choice: "value", or ["value", "Label"], or {"value": .., "label": ..}. */
 	if (const json::Value *c = v.get("choices"); c != nullptr && c->array() != nullptr)
-		for (const json::Value &e : *c->array())
-			if (std::string t = as_text(e); !t.empty())
-				out.choices.push_back(t);
+		for (const json::Value &e : *c->array()) {
+			std::string value, label;
+			if (const json::Array *pair = e.array(); pair != nullptr && !pair->empty()) {
+				value = as_text((*pair)[0]);
+				if (pair->size() > 1)
+					label = as_text((*pair)[1]);
+			} else if (e.object() != nullptr) {
+				value = e.str("value");
+				label = e.str("label");
+			} else {
+				value = as_text(e);
+			}
+			if (value.empty())
+				continue;
+			out.choices.push_back(value);
+			out.choice_labels.push_back(label);
+		}
+	if (const json::Value *b = v.get("wide"); b != nullptr && b->boolean() != nullptr)
+		out.wide = *b->boolean();
 	if (const json::Value *n = v.get("min"); n != nullptr && n->number() != nullptr)
 		out.min = *n->number();
 	if (const json::Value *n = v.get("max"); n != nullptr && n->number() != nullptr)
@@ -98,10 +115,16 @@ json::Value write_control(const Control &c) {
 	if (!c.hint.empty()) o["hint"] = c.hint;
 	if (!c.choices.empty()) {
 		json::Array a;
-		for (const std::string &s : c.choices)
-			a.emplace_back(s);
+		for (size_t i = 0; i < c.choices.size(); ++i) {
+			const std::string label = i < c.choice_labels.size() ? c.choice_labels[i] : "";
+			if (label.empty())
+				a.emplace_back(c.choices[i]);
+			else
+				a.emplace_back(json::Array{json::Value(c.choices[i]), json::Value(label)});
+		}
 		o["choices"] = std::move(a);
 	}
+	if (c.wide) o["wide"] = true;
 	if (c.min) o["min"] = *c.min;
 	if (c.max) o["max"] = *c.max;
 	if (!c.visible) o["visible"] = false;
