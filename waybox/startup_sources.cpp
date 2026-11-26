@@ -1,6 +1,7 @@
 #include "waybox/startup_sources.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <set>
 #include <map>
 #include <sstream>
@@ -667,6 +668,14 @@ std::string autostart_set_enabled(std::string_view text, bool on) {
 	for (size_t i = 0; i < out.size(); ++i)
 		s += out[i] + "\n";
 	return s;
+}
+
+int find_script_entry(const std::vector<ScriptEntry> &now, const std::string &command, int was) {
+	int best = -1;
+	for (const ScriptEntry &e : now)
+		if (e.command == command && (best < 0 || std::abs(e.line - was) < std::abs(best - was)))
+			best = e.line;
+	return best;
 }
 
 }  // namespace wb
