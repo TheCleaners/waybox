@@ -39,6 +39,7 @@ void refresh_save_state(Ui *ui) {
 	int n = static_cast<int>(changes.size());
 	gtk_widget_set_sensitive(ui->save, n > 0);
 	refresh_changes_button(ui, changes);
+	refresh_problems(ui);
 	bool showing = g_object_get_data(G_OBJECT(ui->status), kUnsavedTag) != nullptr;
 	if (n > 0) {
 		char *t = g_strdup_printf(ngettext("%d change not saved yet",
@@ -78,7 +79,14 @@ void on_save(GtkButton *, gpointer data) {
 	/* The monitor rules as they are, to put back exactly if not kept. */
 	std::string outputs_xml = doc->snapshot({"waybox", "outputs"});
 	std::string hdr_xml = doc->snapshot({"waybox", "hdr"});
-	doc->apply(now, ui->shown);
+	/* The pointer's fix chosen: compared with rc.xml's own pointer (none,
+	 * say), so the theme shown is written. */
+	wb::WayboxSettings base = ui->shown;
+	if (ui->gtk.pointer_to_rc) {
+		base.cursor_theme = ui->gtk.rc_cursor_theme;
+		base.cursor_size = ui->gtk.rc_cursor_size;
+	}
+	doc->apply(now, base);
 	apply_bindings(ui, *doc);
 	std::string err;
 	if (!doc->save_file(path, &err)) {
@@ -93,6 +101,7 @@ void on_save(GtkButton *, gpointer data) {
 		populate_hdr(ui, written.hdr_outputs);
 		ui->gtk.rc_cursor_theme = written.cursor_theme;
 		ui->gtk.rc_cursor_size = written.cursor_size;
+		ui->gtk.pointer_to_rc = false;
 	}
 	ui->shown = shown_settings(ui);
 	rows_saved(ui);
@@ -242,7 +251,7 @@ void build_window(GtkApplication *app, Ui *ui) {
 	gtk_window_set_titlebar(ui->window, header);
 	GtkWidget *search = gtk_search_entry_new();
 	gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(search),
-			_("Search settings (@modified, @id:...)"));
+			_("Search settings (@modified, @problems, @id:...)"));
 	gtk_widget_set_size_request(search, 420, -1);
 	gtk_header_bar_set_title_widget(GTK_HEADER_BAR(header), search);
 	ui->search = GTK_SEARCH_ENTRY(search);

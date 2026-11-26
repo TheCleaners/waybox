@@ -46,6 +46,10 @@ WB_TEST(search_matches_words_modified_and_ids) {
 	WB_CHECK(!wb::setting_matches(s, "Window Switcher", "icons font", false));
 	WB_CHECK(!wb::setting_matches(s, "Window Switcher", "@modified", false));
 	WB_CHECK(wb::setting_matches(s, "Window Switcher", "@modified icons", true));
+	WB_CHECK(!wb::setting_matches(s, "Window Switcher", "@problems", true));
+	WB_CHECK(wb::setting_matches(s, "Window Switcher", "@problems", false, true));
+	WB_CHECK(!wb::setting_matches(s, "Window Switcher", "@problems nothing", false, true));
+	WB_CHECK(wb::setting_matches(s, "Window Switcher", "@PROBLEMS icons", false, true));
 	WB_CHECK(wb::setting_matches(s, "", "@id:switcher.ic", false));
 	WB_CHECK(!wb::setting_matches(s, "", "@id:menu", false));
 }

@@ -27,6 +27,9 @@ const char *kCss = R"(
 .wb-toc row label { font-size: 0.95em; }
 .wb-toc .wb-toc-arrow { opacity: 0.6; -gtk-icon-size: 12px; }
 .wb-toc .wb-toc-section { margin-left: 18px; }
+.wb-problem-icon { color: @warning_color; }
+.wb-toc .wb-problem-icon { -gtk-icon-size: 12px; }
+.wb-problem { background: alpha(@warning_color, 0.12); border-radius: 6px; padding: 6px 8px; }
 )";
 
 /* The title in bold (with `crumb`, after its section or category, dimmed:
@@ -520,9 +523,39 @@ GtkWidget *add_row(Ui *ui, const wb::SettingDef &d, const std::string &category,
 		r->title = GTK_LABEL(title);
 		gtk_label_set_xalign(GTK_LABEL(title), 0);
 		gtk_label_set_wrap(GTK_LABEL(title), TRUE);
-		gtk_box_append(GTK_BOX(body), title);
+		/* A warning sign before the title when a problem is found. */
+		GtkWidget *title_line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+		r->problem_icon = gtk_image_new_from_icon_name("dialog-warning-symbolic");
+		gtk_widget_add_css_class(r->problem_icon, "wb-problem-icon");
+		gtk_widget_set_visible(r->problem_icon, FALSE);
+		gtk_box_append(GTK_BOX(title_line), r->problem_icon);
+		gtk_box_append(GTK_BOX(title_line), title);
+		gtk_box_append(GTK_BOX(body), title_line);
 		if (!d.description.empty())
 			gtk_box_append(GTK_BOX(body), wrapped_label(d.description, true));
+		/* The problem: what's wrong, why, and a fix where there's one. */
+		r->problem_note = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+		gtk_widget_add_css_class(r->problem_note, "wb-problem");
+		gtk_widget_set_margin_top(r->problem_note, 2);
+		GtkWidget *note_icon = gtk_image_new_from_icon_name("dialog-warning-symbolic");
+		gtk_widget_add_css_class(note_icon, "wb-problem-icon");
+		gtk_widget_set_valign(note_icon, GTK_ALIGN_START);
+		gtk_box_append(GTK_BOX(r->problem_note), note_icon);
+		GtkWidget *text = gtk_label_new("");
+		gtk_label_set_wrap(GTK_LABEL(text), TRUE);
+		gtk_label_set_wrap_mode(GTK_LABEL(text), PANGO_WRAP_WORD_CHAR);
+		gtk_label_set_xalign(GTK_LABEL(text), 0);
+		gtk_label_set_selectable(GTK_LABEL(text), TRUE);  /* file names to copy */
+		gtk_widget_set_hexpand(text, TRUE);
+		r->problem_text = GTK_LABEL(text);
+		gtk_box_append(GTK_BOX(r->problem_note), text);
+		r->problem_fix = gtk_button_new_with_label("");
+		gtk_widget_set_valign(r->problem_fix, GTK_ALIGN_CENTER);
+		g_object_set_data(G_OBJECT(r->problem_fix), "wb-row", r.get());
+		g_signal_connect(r->problem_fix, "clicked", G_CALLBACK(on_problem_fix), ui);
+		gtk_box_append(GTK_BOX(r->problem_note), r->problem_fix);
+		gtk_widget_set_visible(r->problem_note, FALSE);
+		gtk_box_append(GTK_BOX(body), r->problem_note);
 		gtk_widget_set_margin_top(control, 2);
 		gtk_box_append(GTK_BOX(body), control);
 	}
@@ -700,7 +733,8 @@ void on_search(GtkSearchEntry *entry, gpointer data) {
 					bool modified = r->def->type == wb::SettingType::Custom
 							? custom_set(r->def->widget) : r->value.has_value();
 					std::string cat = r->category + " " + r->def->group;
-					show = show || wb::setting_matches(*r->def, cat, q, modified);
+					show = show || wb::setting_matches(*r->def, cat, q, modified,
+							r->problem.has_value());
 				}
 				gtk_widget_set_visible(w, show);
 				sec_any = sec_any || show;
@@ -814,12 +848,18 @@ GtkWidget *build_settings_view(Ui *ui) {
 		GtkWidget *toc_label = gtk_label_new(cat.title.c_str());
 		gtk_label_set_xalign(GTK_LABEL(toc_label), 0);
 		gtk_label_set_ellipsize(GTK_LABEL(toc_label), PANGO_ELLIPSIZE_END);
+		gtk_widget_set_hexpand(toc_label, TRUE);
 		gtk_box_append(GTK_BOX(toc_line), toc_label);
+		view.problem_icon = gtk_image_new_from_icon_name("dialog-warning-symbolic");
+		gtk_widget_add_css_class(view.problem_icon, "wb-problem-icon");
+		gtk_widget_set_visible(view.problem_icon, FALSE);
+		gtk_box_append(GTK_BOX(toc_line), view.problem_icon);
 		gtk_list_box_append(ui->toc, toc_line);
 		view.toc = gtk_widget_get_parent(toc_line);
 		view.arrow = GTK_IMAGE(arrow);
 		int cat_index = static_cast<int>(ui->categories.size());
-		ui->toc_entries.push_back({view.toc, cat_index, view.heading, false});
+		ui->toc_entries.push_back({view.toc, cat_index, view.heading, false,
+				view.problem_icon});
 
 		std::string section = "\x01";  /* no section yet */
 		std::string group;
@@ -837,9 +877,17 @@ GtkWidget *build_settings_view(Ui *ui) {
 					GtkWidget *sl = gtk_label_new(section.c_str());
 					gtk_label_set_xalign(GTK_LABEL(sl), 0);
 					gtk_label_set_ellipsize(GTK_LABEL(sl), PANGO_ELLIPSIZE_END);
-					gtk_widget_add_css_class(sl, "wb-toc-section");
-					gtk_list_box_append(ui->toc, sl);
-					ui->toc_entries.push_back({gtk_widget_get_parent(sl), cat_index, h, true});
+					gtk_widget_set_hexpand(sl, TRUE);
+					GtkWidget *sline = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+					gtk_widget_add_css_class(sline, "wb-toc-section");
+					gtk_box_append(GTK_BOX(sline), sl);
+					GtkWidget *sicon = gtk_image_new_from_icon_name("dialog-warning-symbolic");
+					gtk_widget_add_css_class(sicon, "wb-problem-icon");
+					gtk_widget_set_visible(sicon, FALSE);
+					gtk_box_append(GTK_BOX(sline), sicon);
+					gtk_list_box_append(ui->toc, sline);
+					ui->toc_entries.push_back({gtk_widget_get_parent(sline), cat_index, h, true,
+							sicon});
 				}
 				view.sections.push_back({h, {}});
 				group_leader = nullptr;  /* a group doesn't cross sections */
@@ -953,6 +1001,34 @@ gboolean toc_step(gpointer data) {
 		for (const UnsavedChange &c : changes)
 			out += "|" + c.item.where + "=" + wb::change_values(c.item, 30);
 		fprintf(stderr, "%s\n", out.c_str());
+	} else if (step == "problems") {
+		/* "problems-dump:N|TITLE=TEXT=>FIX|...|toc:NAME,NAME" (FIX "-": no
+		 * button; the sidebar entries showing a mark) */
+		std::string out;
+		int n = 0;
+		for (auto &r : ui->rows) {
+			if (!r->problem)
+				continue;
+			++n;
+			bool fix = r->problem_fix != nullptr && gtk_widget_get_visible(r->problem_fix);
+			out += "|" + r->def->title + "=" +
+					(r->problem_text ? gtk_label_get_text(r->problem_text) : "") + "=>" +
+					(fix ? gtk_button_get_label(GTK_BUTTON(r->problem_fix)) : "-") +
+					(gtk_widget_get_visible(r->problem_note) ? "" : " (note hidden)");
+		}
+		std::string toc;
+		for (const Ui::TocEntry &e : ui->toc_entries)
+			if (e.problem_icon != nullptr && gtk_widget_get_visible(e.problem_icon))
+				toc += (toc.empty() ? "" : ",") + toc_text(e.row);
+		fprintf(stderr, "problems-dump:%d%s|toc:%s\n", n, out.c_str(), toc.c_str());
+	} else if (step.rfind("fix:", 0) == 0) {
+		/* Click the Nth problem's fix. */
+		int want = atoi(step.c_str() + 4), n = 0;
+		for (auto &r : ui->rows)
+			if (r->problem && n++ == want && r->problem_fix != nullptr)
+				g_signal_emit_by_name(r->problem_fix, "clicked");
+	} else if (step == "save") {
+		on_save(nullptr, ui);
 	} else if (step == "open-changes") {
 		open_changes(ui);
 	} else if (step == "popover-size") {

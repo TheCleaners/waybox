@@ -403,11 +403,19 @@ GtkWidget *build_gtk_block(Ui *ui) {
 	return grid;
 }
 
+Ui::GtkLook gtk_look_now(Ui *ui) {
+	return current_look(ui);
+}
+
 void gtk_changes(Ui *ui, const std::string &where, GtkWidget *target,
 		std::vector<UnsavedChange> &out) {
 	if (!ui->gtk.built)
 		return;
 	Ui::GtkLook was = ui->gtk.saved, now = current_look(ui);
+	/* The pointer's fix: the theme shown, for Waybox too. */
+	if (ui->gtk.pointer_to_rc && was.cursor == now.cursor)
+		out.push_back({{where + " \xE2\x80\xBA " + _("Pointer for Waybox"),
+				ui->gtk.rc_cursor_theme.value_or("default"), now.cursor}, target});
 	auto one = [&](const char *what, const std::string &a, const std::string &b) {
 		if (a != b)
 			out.push_back({{where + " \xE2\x80\xBA " + what, a, b}, target});
@@ -422,7 +430,7 @@ void gtk_changes(Ui *ui, const std::string &where, GtkWidget *target,
 int gtk_unsaved(Ui *ui) {
 	if (!ui->gtk.built)
 		return 0;
-	return current_look(ui) == ui->gtk.saved ? 0 : 1;
+	return current_look(ui) == ui->gtk.saved && !ui->gtk.pointer_to_rc ? 0 : 1;
 }
 
 bool save_gtk(Ui *ui, std::string *error) {

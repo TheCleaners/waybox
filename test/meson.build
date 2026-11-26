@@ -181,6 +181,14 @@ change_list_test = executable(
   )
 test('change_list', change_list_test)
 
+# Problems wbconf shows beside settings: the pointer's.
+setting_problems_test = executable(
+  'setting_problems_test',
+  ['setting_problems_test.cpp', 'wb_test_main.cpp', setting_problems_src, xcursor_themes_src],
+  include_directories: [inc_dir],
+  )
+test('setting_problems', setting_problems_test)
+
 # The bell: its style, its blinks, never strobing.
 bell_style_test = executable(
   'bell_style_test',
@@ -801,6 +809,8 @@ if python.found() and not get_option('tests_only')
     integration_tests += [['wbconf_monitors', 'wbconf_monitors_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_outputs', 'wbconf_outputs_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_problems', 'wbconf_problems_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_changes', 'wbconf_changes_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 90]]
