@@ -15,10 +15,11 @@ namespace wb {
 
 /*
  * The desktop name shown for a moment after switching desktops (Openbox's
- * desktop popup, rc.xml <desktops><popupTime>). Centred on the monitor
- * under the pointer, above windows and panels, in the theme's on-screen
- * display style (as the window switcher). Showing it again while it is up
- * replaces the text and restarts the timer.
+ * desktop popup, rc.xml <desktops><popupTime>). On the monitor under the
+ * pointer, above windows and panels, placed and styled as the on-screen
+ * displays are (wb_osd_style: the theme's osd.* keys, rc.xml's <osd>), as
+ * the window switcher. Showing it again while it is up replaces the text
+ * and restarts the timer.
  */
 class DesktopPopup {
 public:

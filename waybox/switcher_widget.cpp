@@ -92,7 +92,7 @@ void SwitcherWidget::open(std::vector<Entry> entries, int selected) {
 	rect_.width = panel_w;
 	rect_.height = panel_h;
 	rect_.x = b.x + (b.width - panel_w) / 2;
-	rect_.y = b.y + (b.height - panel_h) / 2;
+	rect_.y = osd_y(style_.position, b.y, b.height, panel_h);
 
 	canvas_ = std::make_unique<SceneCanvas>(tree_, rect_.width, rect_.height,
 			output_scale());
@@ -133,11 +133,8 @@ void SwitcherWidget::render() {
 		return;
 	cairo_t *cr = canvas_->cr();
 
+	paint_panel(cr, rect_.width, rect_.height, style_.panel);
 	const Border &bd = style_.panel.border;
-	if (bd.width > 0)
-		paint_rect(cr, 0, 0, rect_.width, rect_.height, bd.color);
-	paint_fill(cr, bd.width, bd.width, rect_.width - 2 * bd.width,
-			rect_.height - 2 * bd.width, style_.panel.fill);
 
 	const int pad_x = std::max(style_.panel.padding.left, 8);
 	const int pad_y = std::max(style_.panel.padding.top, 6);
@@ -177,6 +174,8 @@ void SwitcherWidget::render() {
 	}
 
 	canvas_->commit();
+	wlr_scene_buffer_set_opacity(canvas_->node(),
+			static_cast<float>(std::clamp(style_.panel.opacity, 0.1, 1.0)));
 }
 
 }  // namespace wb

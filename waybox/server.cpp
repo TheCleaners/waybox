@@ -83,6 +83,7 @@ void wb_reconfigure(struct wb_server *server) {
 	server->menu.reset();
 	server->switcher.reset();
 	server->desktop_popup.reset();  /* restyled from the new theme */
+	server->osd_preview.reset();
 	server->switcher_windows.clear();
 	server->switcher_mods = 0;
 	server->active_keychain = nullptr;
@@ -510,6 +511,7 @@ bool wb_terminate(struct wb_server* server) {
 	finish_input_method(server);
 
 	server->desktop_popup.reset();  /* its timer is on the event loop */
+	server->osd_preview.reset();
 	server->identify_popups.clear();
 	finish_color_pick(server);
 	finish_bell(server);  /* its flashes' timers too */

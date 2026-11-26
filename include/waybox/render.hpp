@@ -42,6 +42,11 @@ void paint_texture(cairo_t *cr, double x, double y, double w, double h,
 void paint_fill(cairo_t *cr, double x, double y, double w, double h,
 		const Paint &paint);
 
+/* An on-screen display's panel, w x h at (0, 0): its border, then its fill
+ * inside, both with the corners rounded to panel.border.radius (outside
+ * them left clear). Its opacity isn't applied here (the scene does that). */
+void paint_panel(cairo_t *cr, double w, double h, const Surface &panel);
+
 /* Draw one line of text with its top-left at (x, y). */
 /* max_width > 0: cut the text to that width with an ellipsis. */
 void paint_text(cairo_t *cr, double x, double y, std::string_view text,

@@ -203,22 +203,21 @@ void on_changed(Ui::SettingRow *r) {
 	read_value(static_cast<Ui *>(g_object_get_data(G_OBJECT(r->row), "wb-ui")), r);
 }
 
-/* Test: ring it with the settings on screen. */
-void ring_bell_test(Ui *ui) {
+/* A preview request to Waybox: `request` with each setting on screen
+ * (saved or not) as `key`; a setting not set, its default, or left out
+ * when that's empty (unless `keep_empty` names it). nullptr: no answer. */
+JsonObject *preview_request(Ui *ui, const char *request,
+		std::initializer_list<std::pair<const char *, const char *>> keys,
+		const char *keep_empty = nullptr) {
 	JsonBuilder *jb = json_builder_new();
 	json_builder_begin_object(jb);
 	json_builder_set_member_name(jb, "request");
-	json_builder_add_string_value(jb, "bell");
-	static const std::pair<const char *, const char *> keys[] = {
-		{"waybox.bell.flash", "flash"}, {"waybox.bell.color", "color"},
-		{"waybox.bell.duration", "duration"}, {"waybox.bell.count", "count"},
-		{"waybox.bell.width", "width"}, {"waybox.bell.command", "command"}};
+	json_builder_add_string_value(jb, request);
 	for (const auto &[id, key] : keys)
 		for (auto &r : ui->rows)
 			if (r->def->id == id) {
-				/* Not set: the default ("" for the command: none). */
 				std::string v = r->value.value_or(r->def->def);
-				if (v.empty() && strcmp(key, "command") != 0)
+				if (v.empty() && (keep_empty == nullptr || strcmp(key, keep_empty) != 0))
 					continue;
 				json_builder_set_member_name(jb, key);
 				json_builder_add_string_value(jb, v.c_str());
@@ -233,6 +232,32 @@ void ring_bell_test(Ui *ui) {
 	json_node_unref(root);
 	g_object_unref(gen);
 	g_object_unref(jb);
+	return reply;
+}
+
+/* A Test button for a preview: greyed, saying why, without the socket. */
+GtkWidget *preview_button(Ui *ui, void (*run)(Ui *)) {
+	GtkWidget *b = gtk_button_new_with_mnemonic(_("_Test"));
+	gtk_widget_set_halign(b, GTK_ALIGN_START);
+	JsonObject *probe = waybox_request("{\"request\":\"get_version\"}");
+	if (probe != nullptr) {
+		json_object_unref(probe);
+	} else {
+		gtk_widget_set_sensitive(b, FALSE);
+		gtk_widget_set_tooltip_text(b, _("Needs Waybox's scripting socket: "
+				"<ipc enabled=\"yes\"/> in rc.xml"));
+	}
+	g_signal_connect_swapped(b, "clicked", G_CALLBACK(run), ui);
+	return b;
+}
+
+/* Test: ring it with the settings on screen. */
+void ring_bell_test(Ui *ui) {
+	/* Not set: the default ("" for the command: none). */
+	JsonObject *reply = preview_request(ui, "bell", {
+		{"waybox.bell.flash", "flash"}, {"waybox.bell.color", "color"},
+		{"waybox.bell.duration", "duration"}, {"waybox.bell.count", "count"},
+		{"waybox.bell.width", "width"}, {"waybox.bell.command", "command"}}, "command");
 	if (reply == nullptr) {
 		set_status(ui, _("Waybox didn't answer: is its scripting socket on?"));
 		return;
@@ -251,18 +276,27 @@ void ring_bell_test(Ui *ui) {
 /* The bell with the settings on screen (saved or not): Waybox rings it as
  * the window in front would, without asking a script or telling anyone. */
 GtkWidget *build_bell_test(Ui *ui) {
-	GtkWidget *b = gtk_button_new_with_mnemonic(_("_Test"));
-	gtk_widget_set_halign(b, GTK_ALIGN_START);
-	JsonObject *probe = waybox_request("{\"request\":\"get_version\"}");
-	if (probe != nullptr) {
-		json_object_unref(probe);
-	} else {
-		gtk_widget_set_sensitive(b, FALSE);
-		gtk_widget_set_tooltip_text(b, _("Needs Waybox's scripting socket: "
-				"<ipc enabled=\"yes\"/> in rc.xml"));
+	return preview_button(ui, ring_bell_test);
+}
+
+/* Test: a sample on-screen display with the settings on screen. */
+void show_osd_test(Ui *ui) {
+	JsonObject *reply = preview_request(ui, "osd", {
+		{"waybox.osd.position", "position"}, {"waybox.osd.opacity", "opacity"},
+		{"waybox.osd.cornerRadius", "cornerRadius"}, {"waybox.osd.bg", "bg"},
+		{"waybox.osd.text", "text"}, {"waybox.osd.border", "border"}});
+	if (reply == nullptr) {
+		set_status(ui, _("Waybox didn't answer: is its scripting socket on?"));
+		return;
 	}
-	g_signal_connect_swapped(b, "clicked", G_CALLBACK(ring_bell_test), ui);
-	return b;
+	bool ok = json_object_get_boolean_member_with_default(reply, "ok", FALSE);
+	std::string error = json_object_get_string_member_with_default(reply, "error", "");
+	json_object_unref(reply);
+	set_status(ui, ok ? "" : error);
+}
+
+GtkWidget *build_osd_test(Ui *ui) {
+	return preview_button(ui, show_osd_test);
 }
 
 /* ---- The row's menu: reset, copy ---- */
@@ -450,6 +484,8 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 			return build_xdg_block(ui);
 		if (d.widget == "bell-test")
 			return build_bell_test(ui);
+		if (d.widget == "osd-test")
+			return build_osd_test(ui);
 		return wrapped_label(_("(This setting's editor isn't available.)"), true);
 	}
 	return nullptr;
@@ -1193,6 +1229,9 @@ void apply_test_values(Ui *ui, const char *spec) {
 				monitor_test_set(ui, path.substr(0, dot), path.substr(dot + 1),
 						item.substr(eq + 1));
 		}
+		/* "osd-test=1": click the on-screen display's Test. */
+		if (eq != std::string::npos && item.substr(0, eq) == "osd-test")
+			show_osd_test(ui);
 		/* "bell-test=1": click the bell's Test. */
 		if (eq != std::string::npos && item.substr(0, eq) == "bell-test")
 			ring_bell_test(ui);

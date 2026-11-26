@@ -129,14 +129,18 @@ void color_control_refresh(ColorControl *c) {
 	else
 		tint_rules.erase(c->css_class);
 	apply_tints();
-	/* The button shows the value, or (left out) the default. */
+	/* The button shows the value; left out, the default, else the example
+	 * the field shows greyed; else nothing (clear), never GTK's own red. */
 	GdkRGBA rgba;
-	std::string shown = v.empty() ? c->default_value : v;
-	if (!shown.empty() && rgba_of(shown, &rgba)) {
-		c->syncing = true;
-		gtk_color_dialog_button_set_rgba(c->button, &rgba);
-		c->syncing = false;
+	std::string shown = !v.empty() ? v : !c->default_value.empty() ? c->default_value : c->hint;
+	if (shown.empty() || !rgba_of(shown, &rgba)) {
+		if (!v.empty())
+			return;  /* being typed: the last good one stays */
+		rgba = GdkRGBA{0, 0, 0, 0};
 	}
+	c->syncing = true;
+	gtk_color_dialog_button_set_rgba(c->button, &rgba);
+	c->syncing = false;
 }
 
 std::unique_ptr<ColorControl> make_color_control(const std::string &hint,
@@ -145,6 +149,7 @@ std::unique_ptr<ColorControl> make_color_control(const std::string &hint,
 	c->self = std::make_shared<ColorControl *>(c.get());
 	c->alpha = alpha;
 	c->default_value = default_value;
+	c->hint = hint;
 	c->css_class = "wb-color-" + std::to_string(next_class++);
 	c->box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 	GtkColorDialog *dialog = gtk_color_dialog_new();

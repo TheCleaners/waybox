@@ -158,10 +158,7 @@ std::string show_bell(struct wb_server *server, struct wb_toplevel *t,
 		struct wlr_output *o = output_for(server, t);
 		if (o == nullptr)
 			return "none";
-		wb::Theme theme = server->config != nullptr ? server->config->theme
-				: wb::default_theme();
-		state->note = std::make_unique<wb::DesktopPopup>(server,
-				wb::switcher_style_from_theme(theme));
+		state->note = std::make_unique<wb::DesktopPopup>(server, wb_osd_style(server));
 		std::string text = _("Bell");
 		const char *title = t != nullptr ? view_title(t) : nullptr;
 		const char *app = t != nullptr ? view_app_id(t) : nullptr;

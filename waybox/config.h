@@ -126,6 +126,9 @@ struct wb_config {
 	std::vector<std::string> scripts;
 	int script_budget_ms = 10;
 	std::string bell_command;
+	/* rc.xml <waybox><osd position= opacity= cornerRadius= bg= text=
+	 * border=/>: the on-screen displays' place and look over the theme's. */
+	wb::OsdConfig osd;
 
 	/* rc.xml <waybox><ipc enabled="yes"/>: the scripting socket. Off
 	 * unless set. */

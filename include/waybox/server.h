@@ -178,6 +178,8 @@ struct wb_server {
 	std::unique_ptr<wb::SwitcherWidget> switcher;
 	/* The desktop name shown after switching (<desktops><popupTime>). */
 	std::unique_ptr<wb::DesktopPopup> desktop_popup;
+	/* wbconf's Test for the on-screen display: settings not saved yet. */
+	std::unique_ptr<wb::DesktopPopup> osd_preview;
 	/* "identify" (IPC): each monitor's name, large, on it, for a moment. */
 	std::vector<std::unique_ptr<wb::DesktopPopup>> identify_popups;
 	std::vector<struct wb_toplevel *> switcher_windows;

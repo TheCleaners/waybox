@@ -477,18 +477,22 @@ void focus_current_desktop(struct wb_server *server) {
 }
 
 void wb_show_popup(struct wb_server *server, const std::string &text, int duration_ms) {
-	if (server->desktop_popup == nullptr) {
-		wb::Theme theme = server->config != nullptr ? server->config->theme
-				: wb::default_theme();
+	if (server->desktop_popup == nullptr)
 		server->desktop_popup = std::make_unique<wb::DesktopPopup>(server,
-				wb::switcher_style_from_theme(theme));
-	}
+				wb_osd_style(server));
 	server->desktop_popup->show(text, duration_ms);
 }
 
+wb::SwitcherStyle wb_osd_style(struct wb_server *server) {
+	if (server->config == nullptr)
+		return wb::switcher_style_from_theme(wb::default_theme());
+	return wb::osd_style(server->config->theme, server->config->osd);
+}
+
 int wb_identify_outputs(struct wb_server *server, const std::string &only, int duration_ms) {
-	wb::Theme theme = server->config != nullptr ? server->config->theme : wb::default_theme();
-	wb::SwitcherStyle base = wb::switcher_style_from_theme(theme);
+	/* The OSD's look, but always in the middle: it names the monitor. */
+	wb::SwitcherStyle base = wb_osd_style(server);
+	base.position = wb::OsdPosition::Center;
 	base.item_text.font.bold = true;
 	server->identify_popups.clear();
 	int shown = 0;
