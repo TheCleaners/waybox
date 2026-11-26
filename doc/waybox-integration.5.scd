@@ -241,9 +241,9 @@ the page as it is: changing its integration file or script asks again, and
 deleting its line takes the approval back.
 
 What it may touch is shown as routine only when it's plainly the
-program's own: the program itself or a companion named after it
-(*makoctl* for *mako*), and files in a folder named after it
-(_~/.config/mako/_). Anything else is "another program" or "not its own
+program's own: the program itself or a companion named after it, its name
+followed by _ctl_, _msg_, _client_ or _cli_ (*makoctl* for *mako*), and files in its own folder in _~/.config_,
+_~/.local/share_, _~/.local/state_ or _~/.cache_, or _~/.mako_. Anything else is "another program" or "not its own
 file": a program runs with the user's access, and many can start others.
 Some are known to be full access to the account, and said so: shells and
 interpreters, programs that run other commands (*env*, *sudo*, *find*,

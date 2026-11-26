@@ -445,16 +445,18 @@ std::string full_access_file(const std::string &path, const std::string &home) {
 
 namespace {
 
-/* "~/.config/mako/config" for mako: in a folder named after it. */
+/* "~/.config/mako/config" for mako: in its own folder in one of the
+ * places programs keep theirs (not any folder of that name: a page
+ * naming its program "share" doesn't own ~/.local/share). */
 bool own_file(const std::string &tilde_path, const std::string &binary) {
-	if (binary.empty())
+	if (binary.empty() || binary.find('/') != std::string::npos || binary[0] == '.')
 		return false;
-	size_t at = 0;
-	while ((at = tilde_path.find("/" + binary, at)) != std::string::npos) {
-		size_t end = at + 1 + binary.size();
-		if (end < tilde_path.size() && tilde_path[end] == '/')
+	for (const char *base : {"~/.config/", "~/.local/share/", "~/.local/state/", "~/.cache/",
+			"~/."}) {
+		std::string dir = std::string(base) + binary + "/";
+		if (tilde_path.size() > dir.size() && tilde_path.compare(0, dir.size(), dir) == 0 &&
+				tilde_path.find("/../") == std::string::npos)
 			return true;
-		at = end;
 	}
 	return false;
 }
@@ -464,9 +466,16 @@ bool own_file(const std::string &tilde_path, const std::string &binary) {
 PageAccess run_access(const Integration &in, const std::string &program) {
 	if (std::string why = full_access_run(program); !why.empty())
 		return {Reach::Full, why};
+	/* Its program, or a companion named after it: makoctl, swaymsg,
+	 * footclient. Exactly so: the page names its program itself, and a
+	 * prefix would let "s" cover strace or steam. */
 	const std::string &b = in.binary;
-	if (!b.empty() && program.compare(0, b.size(), b) == 0)
-		return {Reach::Own, ""};
+	if (!b.empty() && program.compare(0, b.size(), b) == 0) {
+		static const std::set<std::string> companion = {"", "ctl", "-ctl", "msg", "-msg",
+				"client", "-client", "cli", "-cli"};
+		if (companion.count(program.substr(b.size())))
+			return {Reach::Own, ""};
+	}
 	return {Reach::Other, ""};
 }
 

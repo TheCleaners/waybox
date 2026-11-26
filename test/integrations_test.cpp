@@ -453,6 +453,22 @@ WB_TEST(page_access_tiers) {
 	/* Anything else: another program, another's file; not "safe". */
 	WB_CHECK(wb::run_access(mako, "notify-send").reach == Reach::Other);
 	WB_CHECK(wb::run_access(mako, "mak").reach == Reach::Other);
+	WB_CHECK(wb::run_access(mako, "mako-client").reach == Reach::Own);
+	WB_CHECK(wb::run_access(mako, "makoish").reach == Reach::Other);
+	/* A page claiming a short program doesn't make others its own. */
+	auto s = *wb::parse_integration("s", "[Integration]\nName=s\nExec=s\n");
+	WB_CHECK(wb::run_access(s, "s").reach == Reach::Own);
+	WB_CHECK(wb::run_access(s, "sctl").reach == Reach::Own);
+	for (const char *p : {"strace", "steam", "ssh-agent", "scp"})
+		WB_CHECK(wb::run_access(s, p).reach != Reach::Own);
+	/* Files: its folder where programs keep theirs, not any of that name. */
+	WB_CHECK(wb::file_access(mako, "~/.local/share/mako/history").reach == Reach::Own);
+	WB_CHECK(wb::file_access(mako, "~/.mako/x").reach == Reach::Own);
+	WB_CHECK(wb::file_access(mako, "~/src/mako/x").reach == Reach::Other);
+	WB_CHECK(wb::file_access(mako, "~/.config/mako/../foot/foot.ini").reach == Reach::Other);
+	auto share = *wb::parse_integration("share", "[Integration]\nName=share\nExec=share\n");
+	WB_CHECK(wb::file_access(share, "~/.local/share/applications/x.desktop").reach !=
+			Reach::Own);
 	WB_CHECK(wb::file_access(mako, "~/.config/makoish/config").reach == Reach::Other);
 	WB_CHECK(wb::file_access(mako, "~/notes.txt").reach == Reach::Other);
 	/* Known full access wins, even if named after the program. */
