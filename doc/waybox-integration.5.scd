@@ -230,6 +230,23 @@ end
 	(colors); a section that repeats (mako's criteria) reads as one, a key
 	changed where it last appears.
 
+*wb.json.read(*_path_*)*, *wb.json.parse(*_text_*)*
+	A JSON file to edit in place, comments (*//* and */\* \*/*) and
+	trailing commas allowed, as in Waybar's config: what isn't changed
+	stays as it was; a changed value is replaced where it is; a new key
+	goes after the last of its object, in that object's indentation and
+	style (a trailing comma kept); a removed one takes its line. A value is
+	reached by a path: a key, an index (from 1) or a table of them, as
+	*{ 1, "clock", "format" }* for the first bar's clock format.
+	*doc:get(*_path_*,* _default_*)* gives strings, numbers, booleans and
+	tables (*wb.json.null* for null); *doc:set(*_path_*,* _value_*)* (nil
+	removes it) makes the objects on the way that aren't there;
+	*doc:set_all(*_table_*,* _path_*)* sets an object's keys one by one,
+	keeping the rest; *doc:keys(*_path_*)* lists an object's keys in order;
+	*doc:text()* is the file to write. A table with keys 1..n is written as
+	an array, any other as an object; *wb.json.array {}* is an empty array.
+	A file that isn't JSON is an error saying where.
+
 A page runs only once allowed unless no one but the system could have
 changed it: its folder, its integration file and its script all unwritable
 by the user, as a package's files under _/usr_ are. Any other page (in
