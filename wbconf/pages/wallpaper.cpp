@@ -27,7 +27,7 @@ namespace {
 namespace fs = std::filesystem;
 
 constexpr size_t kMaxImages = 400;   /* per folder: thumbnails are made for each */
-constexpr int kThumbW = 160, kThumbH = 100;
+constexpr int kThumbW = 128, kThumbH = 80;
 
 std::string home_dir() {
 	const char *h = getenv("HOME");
@@ -622,8 +622,8 @@ GtkWidget *build_wallpaper_page(Ui *, Ui::ProgramRow *row) {
 	GtkWidget *top = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
 	gtk_box_append(GTK_BOX(box), top);
 	p->preview = gtk_drawing_area_new();
-	gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(p->preview), 320);
-	gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(p->preview), 200);
+	gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(p->preview), 288);
+	gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(p->preview), 180);
 	gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(p->preview), draw_preview, p, nullptr);
 	gtk_box_append(GTK_BOX(top), p->preview);
 

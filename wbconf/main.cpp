@@ -362,6 +362,8 @@ void build_window(GtkApplication *app, Ui *ui) {
 		ui->test_choice = choice;
 	if (const char *set = getenv("WBCONF_TEST_SET"))
 		apply_test_values(ui, set);
+	if (const char *toc = getenv("WBCONF_TEST_TOC"))
+		start_toc_script(ui, toc);
 	refresh_save_state(ui);
 	/* The custom editors (theme, monitors, programs) change in many ways:
 	 * check now and then rather than wire every widget. */
