@@ -294,7 +294,9 @@ std::unique_ptr<FontControl> make_font_control(const std::string &format,
 	c->family = GTK_DROP_DOWN(fam);
 	gtk_box_append(GTK_BOX(row), fam);
 
-	c->size = GTK_SPIN_BUTTON(gtk_spin_button_new_with_range(4, 96, 0.5));
+	/* Whole points a step (what's shown is what it holds: a step of 0.5
+	 * shown as a whole number went back on losing focus). */
+	c->size = GTK_SPIN_BUTTON(gtk_spin_button_new_with_range(4, 96, 1));
 	gtk_widget_set_tooltip_text(GTK_WIDGET(c->size), _("Size, in points"));
 	gtk_box_append(GTK_BOX(row), GTK_WIDGET(c->size));
 	/* The style: a button saying it, opening the rest. */
@@ -383,7 +385,8 @@ void font_control_set(FontControl *c, const std::string &value) {
 	show(c);
 }
 
-/* Tests: "family:NAME" (as picked from the list), "size:N", "weight:N",
+/* Tests: "family:NAME" (as picked from the list), "size:N",
+ * "size-step:up|down", "size-update:", "weight:N",
  * "width:N", "italic:on|off". */
 bool font_control_test(FontControl *c, const std::string &action) {
 	if (action == "open") {
@@ -405,6 +408,12 @@ bool font_control_test(FontControl *c, const std::string &action) {
 		gtk_drop_down_set_selected(c->family, static_cast<guint>(it - c->families.begin()));
 	} else if (what == "size") {
 		gtk_spin_button_set_value(c->size, atof(arg.c_str()));
+	} else if (what == "size-step") {
+		/* "+" or "−" clicked; then "size-update": as when it loses focus. */
+		gtk_spin_button_spin(c->size, arg == "down" ? GTK_SPIN_STEP_BACKWARD
+				: GTK_SPIN_STEP_FORWARD, 0);
+	} else if (what == "size-update") {
+		gtk_spin_button_update(c->size);
 	} else if (what == "weight" || what == "width") {
 		const auto &names = what == "weight" ? font::weights() : font::widths();
 		int v = atoi(arg.c_str());
