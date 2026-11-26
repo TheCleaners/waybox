@@ -104,3 +104,26 @@ WB_TEST(what_a_page_may_touch) {
 	WB_CHECK(!wb::page::run_allowed({}, runs));
 	WB_CHECK(wb::page::expand_home("~", "/h") == "/h" && wb::page::expand_home("~x", "/h") == "~x");
 }
+
+WB_TEST(approvals) {
+	/* Only the user's own folder needs approval. */
+	WB_CHECK(!wb::page::page_trusted("/home/u/.config/waybox/integrations",
+			"/home/u/.config/waybox/integrations/"));
+	WB_CHECK(wb::page::page_trusted("/usr/share/waybox/integrations",
+			"/home/u/.config/waybox/integrations"));
+	WB_CHECK(!wb::page::page_trusted("", "/x"));
+	/* The file: lines kept, one replaced or added. */
+	std::string text = "# mine\nmako aaa\n\nwaybar bbb\nmako-extra ccc\n";
+	auto a = wb::page::parse_approvals(text);
+	WB_CHECK(a.size() == 3 && a["mako"] == "aaa" && a["waybar"] == "bbb");
+	std::string t2 = wb::page::approvals_with(text, "mako", "zzz");
+	WB_CHECK(t2 == "# mine\nmako zzz\n\nwaybar bbb\nmako-extra ccc\n");
+	std::string t3 = wb::page::approvals_with(t2, "fuzzel", "fff");
+	WB_CHECK(wb::page::parse_approvals(t3)["fuzzel"] == "fff" &&
+			wb::page::parse_approvals(t3)["mako"] == "zzz");
+	/* A new file starts with a note saying what it is. */
+	std::string fresh = wb::page::approvals_with("", "demo", "h1");
+	WB_CHECK(fresh.rfind("# ", 0) == 0 && wb::page::parse_approvals(fresh)["demo"] == "h1");
+	/* Odd lines: ignored. */
+	WB_CHECK(wb::page::parse_approvals("lonely\n  # x y\n\tid  hash  extra\n")["id"] == "hash");
+}

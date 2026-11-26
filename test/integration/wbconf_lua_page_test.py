@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Integration test: an integration's settings page written in Lua, in wbconf.
 
-Two integration files in the user's folder, each with Page=NAME.lua:
+Integration files with Page=NAME.lua, two as a package installs them
+(trusted), one in the user's own folder:
 - demo: its page reads ~/.config/demo/config (Files=); may run touch
   (Runs=). wbconf (driven by WBCONF_TEST_TOC) shows its values from the
   file; a timeout under a second shows a problem (on_change), and the
@@ -10,6 +11,9 @@ Two integration files in the user's folder, each with Page=NAME.lua:
   page's reload (touch).
 - broken: its script has a syntax error: the page says so, with the line,
   and wbconf goes on.
+- mine (the user's folder): its page waits, its runner not started,
+  until allowed; then it runs, and is remembered; changed, it's asked
+  about again.
 Then a runner gone wrong (a fake one): wbconf refuses its write outside
 Files= and its run outside Runs=; and one that never answers: wbconf says
 so after 3 s and goes on.
@@ -75,6 +79,17 @@ Page=broken.lua
 
 BROKEN_LUA = "page {\n  number { \"x\", value = 1 \n"
 
+# In the user's own folder: run only once allowed.
+MINE = """[Integration]
+Name=Mine
+Category=Notifications
+Exec=true
+Page=mine.lua
+Runs=true
+"""
+
+MINE_LUA = 'page { switch { "on", label = "On", value = true } }\n'
+
 # A runner gone wrong (wbconf checks again what it asks): its button asks
 # to run a program not in Runs=, its save to write a file not in Files=. With
 # "stuck", it never answers at all.
@@ -109,10 +124,18 @@ def main():
     workdir = tempfile.mkdtemp(prefix="waybox-wbluapage-", dir="/tmp")
     home = workdir
     cfg = os.path.join(workdir, "config")
+    # demo and broken as a package installs them (a data folder: trusted);
+    # mine in the user's own folder (asked about first).
+    share = os.path.join(workdir, "share")
+    packaged = os.path.join(share, "waybox", "integrations")
     integ = os.path.join(cfg, "waybox", "integrations")
+    os.makedirs(packaged)
     os.makedirs(integ)
     for name, text in (("demo.integration", DEMO), ("demo.lua", DEMO_LUA),
                        ("broken.integration", BROKEN), ("broken.lua", BROKEN_LUA)):
+        with open(os.path.join(packaged, name), "w") as f:
+            f.write(text)
+    for name, text in (("mine.integration", MINE), ("mine.lua", MINE_LUA)):
         with open(os.path.join(integ, name), "w") as f:
             f.write(text)
     with open(os.path.join(cfg, "waybox", "rc.xml"), "w") as f:
@@ -126,7 +149,7 @@ def main():
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman", HOME=home,
                XDG_CONFIG_HOME=cfg, XDG_RUNTIME_DIR=runtime, WB_RC_XML="", WB_MENU_XML="",
-               ASAN_OPTIONS="detect_leaks=0")
+               XDG_DATA_DIRS=share, ASAN_OPTIONS="detect_leaks=0")
     env.pop("WAYLAND_DISPLAY", None)
     env.pop("DISPLAY", None)
     log = open(os.path.join(workdir, "waybox.log"), "w")
@@ -195,6 +218,34 @@ def main():
     bak = conf + ".bak"
     if not os.path.exists(bak) or open(bak).read() != original:
         failures.append("no backup of the file as it was")
+    # Approval: mine waits (its runner not started), runs once allowed, is
+    # remembered; changed, it's asked about again.
+    approvals = os.path.join(cfg, "waybox", "approved-pages")
+
+    def mine_dumps(steps3):
+        e3 = dict(wenv, WBCONF_TEST_TOC=";".join(steps3))
+        a = subprocess.Popen([wbconf], env=e3, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.PIPE, text=True)
+        wbtest.reap_on_exit(a)
+        time.sleep(0.8 * (len(steps3) + 2) + 1.5)
+        a.kill()
+        _, e = a.communicate()
+        return [l.split("|")[1:] for l in e.splitlines() if l.startswith("luapage-dump:mine")]
+
+    d = mine_dumps(["luapage:mine", "luaset:mine.approve=1", "luapage:mine"])
+    if len(d) != 2 or d[0] != ["approval:waiting"] or d[1] != ["on=on"]:
+        failures.append(f"approval: {d}")
+    if "mine " not in (open(approvals).read() if os.path.exists(approvals) else ""):
+        failures.append("the approval wasn't remembered")
+    d = mine_dumps(["luapage:mine"])
+    if d != [["on=on"]]:
+        failures.append(f"allowed before, asked again: {d}")
+    with open(os.path.join(integ, "mine.lua"), "a") as f:
+        f.write("-- changed\n")
+    d = mine_dumps(["luapage:mine"])
+    if d != [["approval:changed"]]:
+        failures.append(f"changed, not asked again: {d}")
+
     # A runner gone wrong: wbconf refuses what isn't allowed. One that never
     # answers: wbconf gives up on it after 3 s and goes on.
     outside = os.path.join(workdir, "outside")
