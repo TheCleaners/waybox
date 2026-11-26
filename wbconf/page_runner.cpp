@@ -248,6 +248,13 @@ int wb_run(lua_State *L) {
 	return 0;
 }
 
+/* wb.reload(): the program takes its settings again, as its integration's
+ * Reload= says (wbconf does it, after the save's writes). */
+int wb_reload(lua_State *) {
+	emit(json::Object{{"reload", true}});
+	return 0;
+}
+
 /* The prelude's wb.set calls this once the key is checked. */
 int wb_update(lua_State *L) {
 	std::string key = luaL_checkstring(L, 1);
@@ -957,7 +964,7 @@ void open_sandbox(lua_State *L) {
 	lua_setfield(L, -2, "dump");
 	lua_pop(L, 1);
 	lua_newtable(L);
-	const luaL_Reg fns[] = {{"read", wb_read}, {"write", wb_write}, {"run", wb_run},
+	const luaL_Reg fns[] = {{"read", wb_read}, {"write", wb_write}, {"run", wb_run}, {"reload", wb_reload},
 			{"log", wb_log}, {nullptr, nullptr}};
 	for (const luaL_Reg *f = fns; f->name != nullptr; ++f) {
 		lua_pushcfunction(L, f->func);

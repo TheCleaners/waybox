@@ -1085,6 +1085,9 @@ gboolean toc_step(gpointer data) {
 	} else if (step.rfind("set:", 0) == 0) {
 		/* "set:ID=VALUE": as WBCONF_TEST_SET, timed as the steps are. */
 		apply_test_values(ui, step.c_str() + 4);
+	} else if (step == "status") {
+		fprintf(stderr, "status-dump:%s\n",
+				ui->status != nullptr ? gtk_label_get_text(ui->status) : "");
 	} else if (step == "sources") {
 		fprintf(stderr, "sources-dump:%s\n", sources_dump(ui).c_str());
 	} else if (step == "open-changes") {

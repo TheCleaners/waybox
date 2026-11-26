@@ -80,6 +80,16 @@ OptionType option_type_from_name(std::string_view name);
  * types take any text (a path may be "~/x" or "$VAR"). */
 bool option_value_valid(const IntegrationOption &o, std::string_view value);
 
+/* Reload=: how the program takes its settings again once a page saved
+ * them (the page's wb.reload()). */
+struct IntegrationReload {
+	enum class Kind { Unset, None, Command, Signal };
+	Kind kind = Kind::Unset;
+	std::vector<std::string> argv;  /* command: what to run, as written */
+	std::string signal;             /* signal: USR1, USR2 or HUP */
+	bool operator==(const IntegrationReload &) const = default;
+};
+
 struct Integration {
 	std::string id;        /* the file's name without .integration */
 	std::string name;
@@ -114,6 +124,7 @@ struct Integration {
 	 * the file; Files= the files it may read and write ("~/..." allowed),
 	 * Runs= the programs it may run, both comma-separated. */
 	std::vector<std::string> files, runs;
+	IntegrationReload reload;
 	/* The directory the file was read from (load_integrations): where a
 	 * Lua page is looked for. */
 	std::string dir;

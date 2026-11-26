@@ -112,6 +112,7 @@ void on_save(GtkButton *, gpointer data) {
 		return;
 	}
 	sources_saved(ui);
+	ui->save_notes.clear();
 	if (!save_lua_pages(ui, &err)) {
 		refresh_save_state(ui);
 		set_status(ui, std::string(_("Saved rc.xml, but not a program's own settings: ")) + err);
@@ -137,6 +138,12 @@ void on_save(GtkButton *, gpointer data) {
 	else if (n <= 0)
 		set_status(ui, std::string(_("Saved to ")) + path + " " +
 				_("(no running waybox to reload)."));
+	if (!ui->save_notes.empty() && ui->status != nullptr) {
+		std::string text = gtk_label_get_text(ui->status);
+		for (const std::string &note : ui->save_notes)
+			text += " " + note;
+		set_status(ui, text);
+	}
 }
 
 void on_close(GtkButton *, gpointer data) {

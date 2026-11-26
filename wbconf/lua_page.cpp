@@ -164,6 +164,7 @@ struct LuaPage {
 	GtkWidget *approval = nullptr;  /* the card asking first, while shown */
 	bool approval_changed = false;  /* asking again: it changed since allowed */
 	bool approval_full = false;     /* what it may touch is full access */
+	std::string reloaded;           /* the last wb.reload(): tests */
 	std::string hash;               /* what an approval would be for */
 	bool syncing = false;
 
@@ -293,6 +294,8 @@ struct LuaPage {
 					if (w.string() != nullptr)
 						argv.push_back(*w.string());
 				run_program(argv);
+			} else if (r.get("reload") != nullptr) {
+				reload();
 			}
 		}
 		show_errors(replies);
@@ -314,6 +317,43 @@ struct LuaPage {
 				nullptr, nullptr, &err)) {
 			fail(std::string(_("Can't run ")) + argv[0] + ": " + err->message);
 			g_error_free(err);
+		}
+	}
+
+	/* wb.reload(): as the integration's Reload= says. A signal goes to
+	 * its program, yours and in this session only (never Waybox). */
+	void reload() {
+		using K = wb::IntegrationReload::Kind;
+		const wb::IntegrationReload &r = in->reload;
+		if (r.kind == K::Command) {
+			std::vector<char *> args;
+			for (const std::string &a : r.argv)
+				args.push_back(const_cast<char *>(a.c_str()));
+			args.push_back(nullptr);
+			GError *err = nullptr;
+			if (!g_spawn_async(nullptr, args.data(), nullptr, G_SPAWN_SEARCH_PATH, nullptr,
+					nullptr, nullptr, &err)) {
+				fail(std::string(_("Can't run ")) + r.argv[0] + ": " + err->message);
+				g_error_free(err);
+			}
+			reloaded = "command";
+		} else if (r.kind == K::Signal) {
+			int sig = r.signal == "USR1" ? SIGUSR1 : r.signal == "USR2" ? SIGUSR2 : SIGHUP;
+			std::string name = in->binary.substr(0, 15);
+			int sent = 0;
+			for (const ProcessInfo &pi : list_processes())
+				if (pi.uid == getuid() && pi.name == name && name != "waybox" &&
+						pi.pid != getpid() && in_this_session(pi.pid) &&
+						kill(pi.pid, sig) == 0)
+					++sent;
+			reloaded = "signal:" + std::to_string(sent);
+		} else if (r.kind == K::Unset) {
+			/* Nothing said: it takes them when it starts. */
+			ui->save_notes.push_back(in->name + _(" reads its settings when it starts: "
+					"restart it to see them."));
+			reloaded = "unset";
+		} else {
+			reloaded = "none";
 		}
 	}
 
@@ -593,9 +633,14 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 		runs.push_back(wb::run_access(in, r));
 	for (const std::string &f : in.files)
 		files.push_back(wb::file_access(in, page::expand_home(f, home), home));
+	using RK = wb::IntegrationReload::Kind;
+	std::optional<wb::PageAccess> reload_run;
+	if (in.reload.kind == RK::Command)
+		reload_run = wb::run_access(in, in.reload.argv[0]);
 	auto is_full = [](const wb::PageAccess &a) { return a.reach == wb::Reach::Full; };
 	bool full = std::any_of(runs.begin(), runs.end(), is_full) ||
-			std::any_of(files.begin(), files.end(), is_full);
+			std::any_of(files.begin(), files.end(), is_full) ||
+			(reload_run && is_full(*reload_run));
 	p->approval_full = full;
 	GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
 	gtk_widget_add_css_class(card, "wb-approval");
@@ -656,7 +701,22 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 	for (size_t i = 0; i < in.runs.size(); ++i)
 		gtk_box_append(GTK_BOX(list), permission_line(line_icon(runs[i], "system-run-symbolic"),
 				std::string(_("Run")) + " " + mono(in.runs[i]) + note(runs[i], false)));
-	if (in.files.empty() && in.runs.empty())
+	/* Reloading: "Reload it with makoctl reload", "Reload it: send USR2 to
+	 * waybar". */
+	if (reload_run) {
+		std::string cmd;
+		for (const std::string &w : in.reload.argv)
+			cmd += (cmd.empty() ? "" : " ") + w;
+		gtk_box_append(GTK_BOX(list), permission_line(
+				line_icon(*reload_run, "view-refresh-symbolic"),
+				std::string(_("Reload it with")) + " " + mono(cmd) + note(*reload_run, false)));
+	} else if (in.reload.kind == RK::Signal) {
+		gchar *t = g_markup_printf_escaped(_("Reload it: send %s to %s"),
+				in.reload.signal.c_str(), in.binary.c_str());
+		gtk_box_append(GTK_BOX(list), permission_line("view-refresh-symbolic", t));
+		g_free(t);
+	}
+	if (in.files.empty() && in.runs.empty() && !reload_run && in.reload.kind != RK::Signal)
 		gtk_box_append(GTK_BOX(list), permission_line("channel-secure-symbolic",
 				_("Nothing outside the page itself")));
 	gtk_box_append(GTK_BOX(card), list);
@@ -815,6 +875,8 @@ std::string lua_page_dump(Ui *ui, const std::string &id) {
 		const char *err = p->error ? gtk_label_get_text(p->error) : "";
 		if (err != nullptr && *err)
 			out += std::string("|error:") + err;
+		if (!p->reloaded.empty())
+			out += "|reloaded:" + p->reloaded;
 		return out;
 	}
 	return "|no page";

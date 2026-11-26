@@ -90,7 +90,7 @@ namespace {
 
 const std::set<std::string> kIntegrationKeys = {"Name", "Category", "Comment", "Exec", "Binary",
 		"Version", "Configure", "Manages", "Page", "Kind", "Env", "Key", "FormatVersion",
-		"Files", "Runs"};
+		"Files", "Runs", "Reload"};
 
 /* "a, b ,c" */
 std::vector<std::string> comma_list(const std::string &value) {
@@ -228,6 +228,29 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 			}
 			else if (key == "Files") in.files = comma_list(value);
 			else if (key == "Runs") in.runs = comma_list(value);
+			else if (key == "Reload") {
+				/* command PROGRAM ARGS, signal USR2, none */
+				std::vector<std::string> words;
+				std::istringstream in_words(value);
+				for (std::string w; in_words >> w;)
+					words.push_back(w);
+				std::string sig = words.size() == 2 ? words[1] : "";
+				if (sig.rfind("SIG", 0) == 0)
+					sig = sig.substr(3);
+				if (words.size() == 1 && words[0] == "none") {
+					in.reload.kind = IntegrationReload::Kind::None;
+				} else if (words.size() >= 2 && words[0] == "command") {
+					in.reload.kind = IntegrationReload::Kind::Command;
+					in.reload.argv.assign(words.begin() + 1, words.end());
+				} else if (words.size() == 2 && words[0] == "signal" &&
+						(sig == "USR1" || sig == "USR2" || sig == "HUP")) {
+					in.reload.kind = IntegrationReload::Kind::Signal;
+					in.reload.signal = sig;
+				} else {
+					warn(n, "Reload=" + value + ": command PROGRAM ARGS, signal USR1, USR2 "
+							"or HUP, or none; ignored");
+				}
+			}
 			else if (key == "Kind") {
 				in.binding = value == "binding";
 				in.input_method = value == "inputmethod";
@@ -313,6 +336,16 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 		if (std::string why = full_access_file(f); !why.empty())
 			warn(0, "Files=" + f + " is full access to the account (" + why + "): a page "
 					"shouldn't need it");
+	if (in.reload.kind == IntegrationReload::Kind::Command) {
+		const std::string &r = in.reload.argv[0];
+		if (r.find('/') != std::string::npos)
+			warn(0, "Reload=command " + r + ": a program's name, without a folder");
+		else if (std::string why = full_access_run(r); !why.empty())
+			warn(0, "Reload=command " + r + " is full access to the account (" + why + ")");
+	}
+	if (in.reload.kind == IntegrationReload::Kind::Signal &&
+			(in.binary.empty() ? startup_name("", in.exec) : in.binary) == "waybox")
+		fail(0, "Reload=signal: not to Waybox itself");
 	/* Options: what's dropped or guessed, said where it's written. */
 	std::set<std::string> first_seen;
 	std::vector<IntegrationOption> kept;

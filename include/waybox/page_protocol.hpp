@@ -16,6 +16,7 @@
  *   {"update": {KEY: {"value"|"visible"|"enabled"|"problem": ...}}}
  *   {"write": {"path": PATH, "text": TEXT}}  (to do on save)
  *   {"run": [ARGV...]}
+ *   {"reload": true}                       (as the integration's Reload= says)
  *   {"error": {"line": N, "message": TEXT}}
  *
  * Values are text, as an integration option's are: a number as written,

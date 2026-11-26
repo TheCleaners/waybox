@@ -243,6 +243,9 @@ struct Ui {
 	GtkWidget *script_note = nullptr, *xdg_note = nullptr;      /* "changed outside..." */
 	std::vector<GFileMonitor *> source_monitors;
 	guint source_refill = 0;  /* the debounce timeout */
+	/* Said after a save's own message ("Saved and reloaded waybox."): what
+	 * the programs' pages want known (restart one to see its settings). */
+	std::vector<std::string> save_notes;
 
 	/* Integrations: one row per known program (from the integration files)
 	 * and per other program in <startup>. */
