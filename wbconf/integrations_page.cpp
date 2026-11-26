@@ -481,6 +481,8 @@ GtkWidget *build_integration_page(Ui *ui, Ui::ProgramRow *row) {
 		return nullptr;
 	if (row->in->page == "wallpaper")
 		return build_wallpaper_page(ui, row);
+	if (!wb::lua_page_path(*row->in).empty())
+		return build_lua_page(ui, row);
 	return nullptr;
 }
 
@@ -606,6 +608,10 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 				gtk_box_append(GTK_BOX(row->details), page);
 			gtk_box_append(GTK_BOX(row->details), expander);
 		}
+	} else if (in != nullptr && !in->page.empty()) {
+		/* A page with no options of the command's (a Lua page). */
+		if (GtkWidget *page = build_integration_page(ui, row.get()))
+			gtk_box_append(GTK_BOX(row->details), page);
 	}
 	row->command = GTK_ENTRY(gtk_entry_new());
 	gtk_widget_set_hexpand(GTK_WIDGET(row->command), TRUE);

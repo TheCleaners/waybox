@@ -159,6 +159,7 @@ std::vector<UnsavedChange> unsaved_changes(Ui *ui) {
 					auto a = was_started.find(p->name), b = now_started.find(p->name);
 					startup_change(a == was_started.end() ? nullptr : a->second,
 							b == now_started.end() ? nullptr : b->second, where, r.row, out);
+					lua_page_changes(ui, p.get(), where, r.row, out);
 				}
 		} else if (w == "programs-other") {
 			/* Every other <startup> entry: custom programs, by name. */

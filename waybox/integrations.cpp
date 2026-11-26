@@ -89,7 +89,25 @@ bool option_value_valid(const IntegrationOption &o, std::string_view value) {
 namespace {
 
 const std::set<std::string> kIntegrationKeys = {"Name", "Category", "Comment", "Exec", "Binary",
-		"Version", "Configure", "Manages", "Page", "Kind", "Env", "Key", "FormatVersion"};
+		"Version", "Configure", "Manages", "Page", "Kind", "Env", "Key", "FormatVersion",
+		"Files", "Runs"};
+
+/* "a, b ,c" */
+std::vector<std::string> comma_list(const std::string &value) {
+	std::vector<std::string> out;
+	size_t start = 0;
+	while (start <= value.size()) {
+		size_t comma = value.find(',', start);
+		std::string item(trim(std::string_view(value).substr(start,
+				comma == std::string::npos ? std::string::npos : comma - start)));
+		if (!item.empty() && std::find(out.begin(), out.end(), item) == out.end())
+			out.push_back(item);
+		if (comma == std::string::npos)
+			break;
+		start = comma + 1;
+	}
+	return out;
+}
 const std::set<std::string> kOptionKeys = {"Label", "Flag", "Hint", "Type", "Default",
 		"Choices", "Min", "Max"};
 const std::set<std::string> kTypeNames = {"text", "file", "folder", "image", "image-folder",
@@ -198,7 +216,18 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 				if (value != "outputs")
 					warn(n, "Manages=" + value + ": only \"outputs\" is known");
 			}
-			else if (key == "Page") in.page = value;
+			else if (key == "Page") {
+				in.page = value;
+				bool lua = value.size() > 4 && value.compare(value.size() - 4, 4, ".lua") == 0;
+				if (lua && value.find('/') != std::string::npos)
+					warn(n, "Page=" + value + ": a page's script is beside the file, named "
+							"without a folder");
+				else if (!lua && value != "wallpaper")
+					warn(n, "Page=" + value + ": not a known page (wallpaper) or a .lua "
+							"script; none shown");
+			}
+			else if (key == "Files") in.files = comma_list(value);
+			else if (key == "Runs") in.runs = comma_list(value);
 			else if (key == "Kind") {
 				in.binding = value == "binding";
 				in.input_method = value == "inputmethod";
@@ -270,6 +299,12 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 		fail(0, "Exec= has no command");
 	if (in.binding && in.key.empty())
 		warn(0, "Kind=binding without a Key=: none suggested");
+	bool lua_page = in.page.size() > 4 && in.page.compare(in.page.size() - 4, 4, ".lua") == 0;
+	if (!lua_page && (!in.files.empty() || !in.runs.empty()))
+		warn(0, "Files= and Runs= are for a Lua page (Page=NAME.lua): ignored");
+	for (const std::string &r : in.runs)
+		if (r.find('/') != std::string::npos || r.find(' ') != std::string::npos)
+			warn(0, "Runs=" + r + ": a program's name, without a folder or arguments");
 	/* Options: what's dropped or guessed, said where it's written. */
 	std::set<std::string> first_seen;
 	std::vector<IntegrationOption> kept;
@@ -326,6 +361,14 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
 	return check_integration(id, text).integration;
 }
 
+std::string lua_page_path(const Integration &in) {
+	const std::string &p = in.page;
+	if (p.size() <= 4 || p.compare(p.size() - 4, 4, ".lua") != 0 || p.find('/') != std::string::npos
+			|| in.dir.empty())
+		return "";
+	return in.dir + "/" + p;
+}
+
 std::vector<Integration> load_integrations(const std::vector<std::string> &dirs) {
 	std::vector<Integration> out;
 	std::set<std::string> seen;
@@ -345,6 +388,7 @@ std::vector<Integration> load_integrations(const std::vector<std::string> &dirs)
 			std::stringstream text;
 			text << in.rdbuf();
 			if (auto parsed = parse_integration(id, text.str())) {
+				parsed->dir = dir;
 				seen.insert(id);
 				out.push_back(std::move(*parsed));
 			}

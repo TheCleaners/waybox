@@ -203,6 +203,14 @@ setting_problems_test = executable(
   )
 test('setting_problems', setting_problems_test)
 
+# Settings pages from another process: the page model and its JSON.
+page_protocol_test = executable(
+  'page_protocol_test',
+  ['page_protocol_test.cpp', 'wb_test_main.cpp', page_protocol_src, json_src],
+  include_directories: [inc_dir],
+  )
+test('page_protocol', page_protocol_test)
+
 # The bell: its style, its blinks, never strobing.
 bell_style_test = executable(
   'bell_style_test',
@@ -825,6 +833,12 @@ if python.found() and not get_option('tests_only')
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_outputs', 'wbconf_outputs_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    if is_variable('wbconf_lua_exe')
+      # Integrations' pages in Lua: the runner over its protocol, and in wbconf.
+      integration_tests += [['page_runner', 'page_runner_test.py', [wbconf_lua_exe], 60]]
+      integration_tests += [['wbconf_lua_page', 'wbconf_lua_page_test.py',
+          [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', wbconf_lua_exe], 60]]
+    endif
     integration_tests += [['wbconf_problems', 'wbconf_problems_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_changes', 'wbconf_changes_test.py',

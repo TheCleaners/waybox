@@ -1063,6 +1063,17 @@ gboolean toc_step(gpointer data) {
 		for (auto &r : ui->rows)
 			if (r->problem && n++ == want && r->problem_fix != nullptr)
 				g_signal_emit_by_name(r->problem_fix, "clicked");
+	} else if (step.rfind("luapage:", 0) == 0) {
+		/* "luapage-dump:ID|KEY=VALUE[!PROBLEM][(hidden)]...|error:..." */
+		std::string id = step.substr(8);
+		fprintf(stderr, "luapage-dump:%s%s\n", id.c_str(), lua_page_dump(ui, id).c_str());
+	} else if (step.rfind("luaset:", 0) == 0) {
+		/* "luaset:ID.KEY=VALUE" (or ID.click=KEY), timed as the steps are. */
+		std::string rest = step.substr(7);
+		size_t dot = rest.find('.'), eq = rest.find('=');
+		if (dot != std::string::npos && eq != std::string::npos && dot < eq)
+			lua_page_test(ui, rest.substr(0, dot), rest.substr(dot + 1, eq - dot - 1),
+					rest.substr(eq + 1));
 	} else if (step == "save") {
 		on_save(nullptr, ui);
 	} else if (step == "open-changes") {
@@ -1228,6 +1239,14 @@ void apply_test_values(Ui *ui, const char *spec) {
 			if (dot != std::string::npos)
 				monitor_test_set(ui, path.substr(0, dot), path.substr(dot + 1),
 						item.substr(eq + 1));
+		}
+		/* "luapage.ID.KEY=VALUE" sets a Lua page's control; "luapage.ID.click=KEY"
+		 * clicks its button. */
+		if (eq != std::string::npos && item.rfind("luapage.", 0) == 0) {
+			std::string path = item.substr(8, eq - 8);
+			size_t dot = path.find('.');
+			if (dot != std::string::npos)
+				lua_page_test(ui, path.substr(0, dot), path.substr(dot + 1), item.substr(eq + 1));
 		}
 		/* "osd-test=1": click the on-screen display's Test. */
 		if (eq != std::string::npos && item.substr(0, eq) == "osd-test")

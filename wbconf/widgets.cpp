@@ -48,10 +48,11 @@ GtkWidget *section_grid(GtkWidget *content) {
 	return grid;
 }
 
-void grid_label(GtkWidget *grid, int row, const char *text) {
+GtkWidget *grid_label(GtkWidget *grid, int row, const char *text) {
 	GtkWidget *label = gtk_label_new(text);
 	gtk_widget_set_halign(label, GTK_ALIGN_START);
 	gtk_grid_attach(GTK_GRID(grid), label, 0, row, 1, 1);
+	return label;
 }
 
 GtkWidget *grid_control(GtkWidget *grid, int row, GtkWidget *w) {
