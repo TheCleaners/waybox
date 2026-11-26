@@ -881,6 +881,12 @@ if python.found() and not get_option('tests_only')
       # Integrations' pages in Lua: the runner over its protocol, and in wbconf.
       integration_tests += [['page_runner', 'page_runner_test.py', [wbconf_lua_exe], 60]]
       integration_tests += [['json_page', 'json_page_test.py', [wbconf_lua_exe], 60]]
+      # The checker running pages (wbconf-lua, an empty home).
+      test('check_pages', python3,
+        args: [meson.current_source_dir() / 'integration' / 'check_pages_test.py',
+               waybox_check_integration, wbconf_lua_exe,
+               meson.project_source_root() / 'data' / 'integrations'],
+        timeout: 120)
       integration_tests += [['toml_page', 'toml_page_test.py', [wbconf_lua_exe], 60]]
       integration_tests += [['mako_page', 'mako_page_test.py',
           [wbconf_lua_exe, meson.project_source_root() / 'data' / 'integrations'], 60]]
