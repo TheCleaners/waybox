@@ -238,6 +238,8 @@ headless Waybox, drives it with `wlrctl` and `wtype`, and captures it with
 
 ![wbconf searching its settings for "night": wlsunset, to start with the session](screenshots/wbconf-search.png)
 
+More, in high resolution: the [gallery](doc/gallery.md).
+
 ## Companion programs
 
 Like Openbox, Waybox leaves most desktop functions to separate programs.
