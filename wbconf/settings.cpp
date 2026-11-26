@@ -82,6 +82,7 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 	/* The pointer: rc.xml's <cursor> over GTK's own value. */
 	ui->gtk.rc_cursor_theme = s.cursor_theme;
 	ui->gtk.rc_cursor_size = s.cursor_size;
+	ui->gtk.pointer_to_rc = false;
 	if (ui->gtk.cursor != nullptr && s.cursor_theme && !s.cursor_theme->empty()) {
 		select_value(ui->gtk.cursor, ui->gtk.cursor_values, *s.cursor_theme);
 		ui->gtk.saved.cursor = *s.cursor_theme;

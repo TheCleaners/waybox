@@ -61,9 +61,10 @@ std::vector<SettingCategory> load_settings_schema(const std::vector<std::string>
 
 /* Whether a setting matches a search: every word must be in its title,
  * description, keywords, id, section or category title (ignoring case);
- * "@modified" keeps only settings set in rc.xml, "@id:text" matches ids. */
+ * "@modified" keeps only settings set in rc.xml, "@problems" only those
+ * with a problem found, "@id:text" matches ids. */
 bool setting_matches(const SettingDef &s, std::string_view category_title,
-		std::string_view query, bool modified);
+		std::string_view query, bool modified, bool problem = false);
 
 /* "yes"/"true"/"on"/"1" (any case) */
 bool setting_true(std::string_view value);

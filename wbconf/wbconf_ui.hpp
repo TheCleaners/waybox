@@ -33,6 +33,7 @@
 #include <unistd.h>
 
 #include "waybox/change_list.hpp"
+#include "waybox/setting_problems.hpp"
 #include "waybox/wbconf.hpp"
 #include "waybox/settings_schema.hpp"
 #include "waybox/integrations.hpp"
@@ -209,6 +210,9 @@ struct Ui {
 		GtkWidget *fill = nullptr, *undo = nullptr;
 		GtkLook saved;
 		bool built = false;
+		/* The pointer's fix chosen: Save writes the theme shown to rc.xml
+		 * (Waybox's pointer) even if nothing else changed. */
+		bool pointer_to_rc = false;
 		/* rc.xml's <cursor>, which the pointer controls show (and write) for
 		 * every program, not only GTK's: applied whichever of the page and
 		 * the settings comes first. */
@@ -320,6 +324,12 @@ struct Ui {
 		std::unique_ptr<ColorControl> color;  /* type color */
 		FontPicker font;
 		bool updating = false;                /* setting the control from code */
+		/* A problem found with it: an icon by its title, a note under it. */
+		std::optional<wb::SettingProblem> problem;
+		GtkWidget *problem_icon = nullptr;
+		GtkWidget *problem_note = nullptr;
+		GtkLabel *problem_text = nullptr;
+		GtkWidget *problem_fix = nullptr;
 	};
 	std::vector<wb::SettingCategory> schema;
 	std::vector<std::unique_ptr<SettingRow>> rows;
@@ -335,6 +345,7 @@ struct Ui {
 		 * or for now because it's what's being read or searched). */
 		GtkImage *arrow = nullptr;
 		bool open_by_user = false, open_for_now = false;
+		GtkWidget *problem_icon = nullptr;  /* a setting in it has a problem */
 	};
 	std::vector<CategoryView> categories;
 	/* The sidebar's rows, a tree: each category, then its sections. */
@@ -343,6 +354,7 @@ struct Ui {
 		int category = 0;
 		GtkWidget *heading = nullptr;  /* what it scrolls to */
 		bool section = false;
+		GtkWidget *problem_icon = nullptr;  /* a setting in it has a problem */
 	};
 	std::vector<TocEntry> toc_entries;
 	GtkSearchEntry *search = nullptr;
@@ -563,6 +575,15 @@ void binding_changes(Ui *ui, const std::string &id, const std::string &where,
 GtkWidget *build_changes_button(Ui *ui);
 void refresh_changes_button(Ui *ui, const std::vector<UnsavedChange> &changes);
 void open_changes(Ui *ui);
+/* Check the settings for problems again: each row's note, the sidebar's
+ * marks. (From refresh_save_state: after every change, load and save.) */
+void refresh_problems(Ui *ui);
+/* A problem note's fix button. */
+void on_problem_fix(GtkButton *button, gpointer data);
+/* The GTK page's settings as shown now. */
+Ui::GtkLook gtk_look_now(Ui *ui);
+/* The pointer check's inputs, as they are now. */
+wb::PointerState pointer_state(Ui *ui);
 /* Scroll the settings to `w` (clearing a search that hides it). */
 void reveal_in_list(Ui *ui, GtkWidget *w);
 
