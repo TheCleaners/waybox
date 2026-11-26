@@ -45,7 +45,9 @@ struct Control {
 	std::string description;
 	std::string value;        /* settings: as text */
 	std::string unit, hint;
-	std::vector<std::string> choices;  /* Choice */
+	std::vector<std::string> choices;  /* Choice: the values */
+	std::vector<std::string> choice_labels;  /* as shown ("" : the value) */
+	bool wide = false;                 /* Text: the row's whole width */
 	std::optional<double> min, max;    /* Number */
 	bool visible = true, enabled = true;
 	std::string problem;      /* shown under it while not empty */

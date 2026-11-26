@@ -211,6 +211,14 @@ page_protocol_test = executable(
   )
 test('page_protocol', page_protocol_test)
 
+# Lua pages' wb.ini: INI files edited without disturbing them.
+ini_doc_test = executable(
+  'ini_doc_test',
+  ['ini_doc_test.cpp', 'wb_test_main.cpp', ini_doc_src],
+  include_directories: [inc_dir],
+  )
+test('ini_doc', ini_doc_test)
+
 # The bell: its style, its blinks, never strobing.
 bell_style_test = executable(
   'bell_style_test',
@@ -836,6 +844,8 @@ if python.found() and not get_option('tests_only')
     if is_variable('wbconf_lua_exe')
       # Integrations' pages in Lua: the runner over its protocol, and in wbconf.
       integration_tests += [['page_runner', 'page_runner_test.py', [wbconf_lua_exe], 60]]
+      integration_tests += [['mako_page', 'mako_page_test.py',
+          [wbconf_lua_exe, meson.project_source_root() / 'data' / 'integrations'], 60]]
       integration_tests += [['wbconf_lua_page', 'wbconf_lua_page_test.py',
           [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', wbconf_lua_exe], 150]]
     endif

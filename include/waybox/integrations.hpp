@@ -60,6 +60,15 @@ struct IntegrationOption {
 	/* Default=: what the program does with the option left out
 	 * (swaybg's mode: stretch), shown as such; never written. */
 	std::string default_value;
+	/* For pages (wbconf's Lua pages), not read from integration files:
+	 * each choice's label (in step with `choices`; empty: the value),
+	 * no "Default" entry (a page's choice always has a value), the unit
+	 * after a number, a text field's width in characters (0: the row's). */
+	std::vector<std::string> choice_labels;
+	bool no_default_choice = false;
+	std::string unit;
+	int width_chars = 0;
+	bool color_alpha = false;  /* a color with transparency (#rrggbbaa) */
 	bool operator==(const IntegrationOption &) const = default;
 };
 

@@ -38,7 +38,7 @@ wbconf_exe = executable(
 if lua.found()
   wbconf_lua_exe = executable(
     'wbconf-lua',
-    ['page_runner.cpp', json_src, page_protocol_src],
+    ['page_runner.cpp', json_src, page_protocol_src, ini_doc_src],
     include_directories: [inc_dir],
     dependencies: [lua],
     install: true,

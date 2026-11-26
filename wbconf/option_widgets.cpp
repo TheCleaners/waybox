@@ -177,17 +177,22 @@ std::unique_ptr<OptionField> make_option_field(const wb::IntegrationOption &o,
 	case OptionType::Choice: {
 		/* The first item leaves the option out: the program's default. */
 		f->drop_model = gtk_string_list_new(nullptr);
-		if (o.default_value.empty()) {
+		if (o.no_default_choice) {
+			/* A page's choice: always one of them. */
+		} else if (o.default_value.empty()) {
 			gtk_string_list_append(f->drop_model, _("Default"));
+			f->drop_values.push_back("");
 		} else {
 			char *d = g_strdup_printf(_("Default (%s)"), o.default_value.c_str());
 			gtk_string_list_append(f->drop_model, d);
 			g_free(d);
+			f->drop_values.push_back("");
 		}
-		f->drop_values.push_back("");
-		for (const std::string &c : o.choices) {
-			gtk_string_list_append(f->drop_model, c.c_str());
-			f->drop_values.push_back(c);
+		for (size_t i = 0; i < o.choices.size(); ++i) {
+			const std::string &label = i < o.choice_labels.size() && !o.choice_labels[i].empty()
+					? o.choice_labels[i] : o.choices[i];
+			gtk_string_list_append(f->drop_model, label.c_str());
+			f->drop_values.push_back(o.choices[i]);
 		}
 		f->drop = GTK_DROP_DOWN(gtk_drop_down_new(G_LIST_MODEL(f->drop_model), nullptr));
 		g_signal_connect(f->drop, "notify::selected", G_CALLBACK(on_drop_selected), fp);
@@ -196,7 +201,7 @@ std::unique_ptr<OptionField> make_option_field(const wb::IntegrationOption &o,
 	}
 	case OptionType::Color:
 		/* The shared color control, its field the option's value. */
-		f->color_control = make_color_control(o.hint, o.default_value, false);
+		f->color_control = make_color_control(o.hint, o.default_value, o.color_alpha);
 		f->entry = f->color_control->entry;
 		f->color = f->color_control->button;
 		g_signal_connect(f->entry, "changed", G_CALLBACK(on_entry_changed), fp);
@@ -210,6 +215,10 @@ std::unique_ptr<OptionField> make_option_field(const wb::IntegrationOption &o,
 	gtk_widget_set_hexpand(GTK_WIDGET(f->entry), TRUE);
 	g_signal_connect(f->entry, "changed", G_CALLBACK(on_entry_changed), fp);
 	if (o.type == OptionType::Text) {
+		if (o.width_chars > 0) {
+			gtk_editable_set_width_chars(GTK_EDITABLE(f->entry), o.width_chars);
+			gtk_widget_set_hexpand(GTK_WIDGET(f->entry), FALSE);
+		}
 		f->widget = GTK_WIDGET(f->entry);
 		return f;
 	}
@@ -220,6 +229,8 @@ std::unique_ptr<OptionField> make_option_field(const wb::IntegrationOption &o,
 		gtk_editable_set_width_chars(GTK_EDITABLE(f->entry), 8);
 		gtk_widget_set_hexpand(GTK_WIDGET(f->entry), FALSE);
 		gtk_box_append(GTK_BOX(box), GTK_WIDGET(f->entry));
+		if (!o.unit.empty())  /* right after the field: "300 px" */
+			gtk_box_append(GTK_BOX(box), gtk_label_new(o.unit.c_str()));
 		if (o.min || o.max) {
 			char *range = nullptr;
 			if (o.min && o.max)
