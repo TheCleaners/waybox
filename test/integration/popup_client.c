@@ -4,6 +4,11 @@
  * Prints "configured", "popup-shown", "popup-done" (the compositor
  * dismissed it) and "key" for each key it receives. Runs until stdin
  * closes.
+ *
+ * "reposition" on stdin places the open popup anew (xdg_popup.reposition,
+ * as GTK does once it knows a popover's size): 100x500, under the window's
+ * bottom edge, allowed to flip or slide up. Prints each configure as
+ * "popup-configure X Y W H" and "popup-repositioned TOKEN".
  */
 #define _GNU_SOURCE
 #include <poll.h>
@@ -63,10 +68,15 @@ static void pxs_configure(void *d, struct xdg_surface *xs, uint32_t serial) {
 	say("popup-shown");
 }
 static const struct xdg_surface_listener pxs_listener = { .configure = pxs_configure };
+static struct xdg_popup *popup;
 static void popup_configure(void *d, struct xdg_popup *p, int32_t x, int32_t y,
-		int32_t w, int32_t h) {}
+		int32_t w, int32_t h) {
+	say("popup-configure %d %d %d %d", x, y, w, h);
+}
 static void popup_done(void *d, struct xdg_popup *p) { say("popup-done"); }
-static void popup_repositioned(void *d, struct xdg_popup *p, uint32_t token) {}
+static void popup_repositioned(void *d, struct xdg_popup *p, uint32_t token) {
+	say("popup-repositioned %u", token);
+}
 static const struct xdg_popup_listener popup_listener = {
 	.configure = popup_configure, .popup_done = popup_done,
 	.repositioned = popup_repositioned,
@@ -79,7 +89,7 @@ static void open_popup(uint32_t serial) {
 	struct xdg_positioner *pos = xdg_wm_base_create_positioner(wm_base);
 	xdg_positioner_set_size(pos, 100, 60);
 	xdg_positioner_set_anchor_rect(pos, 50, 50, 1, 1);
-	struct xdg_popup *popup = xdg_surface_get_popup(pxs, xsurface, pos);
+	popup = xdg_surface_get_popup(pxs, xsurface, pos);
 	xdg_popup_add_listener(popup, &popup_listener, NULL);
 	xdg_popup_grab(popup, seat, serial);
 	wl_surface_commit(popup_surface);
@@ -155,14 +165,29 @@ static void reg_global(void *d, struct wl_registry *r, uint32_t name,
 	else if (strcmp(iface, wl_seat_interface.name) == 0)
 		seat = wl_registry_bind(r, name, &wl_seat_interface, 5);
 	else if (strcmp(iface, xdg_wm_base_interface.name) == 0)
-		wm_base = wl_registry_bind(r, name, &xdg_wm_base_interface, 1);
+		wm_base = wl_registry_bind(r, name, &xdg_wm_base_interface,
+				version < 3 ? version : 3);  /* 3: reposition */
 }
 static void reg_remove(void *d, struct wl_registry *r, uint32_t name) {}
 static const struct wl_registry_listener reg_listener = {
 	.global = reg_global, .global_remove = reg_remove,
 };
 
-static void command(const char *line) {}
+static void command(const char *line) {
+	if (strcmp(line, "reposition") == 0 && popup != NULL &&
+			xdg_popup_get_version(popup) >= XDG_POPUP_REPOSITION_SINCE_VERSION) {
+		struct xdg_positioner *pos = xdg_wm_base_create_positioner(wm_base);
+		xdg_positioner_set_size(pos, 100, 500);
+		xdg_positioner_set_anchor_rect(pos, 0, 299, 100, 1);
+		xdg_positioner_set_anchor(pos, XDG_POSITIONER_ANCHOR_BOTTOM);
+		xdg_positioner_set_gravity(pos, XDG_POSITIONER_GRAVITY_BOTTOM);
+		xdg_positioner_set_constraint_adjustment(pos,
+				XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_Y |
+				XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_Y);
+		xdg_popup_reposition(popup, pos, 7);
+		xdg_positioner_destroy(pos);
+	}
+}
 
 int main(void) {
 	struct wl_display *display = wl_display_connect(NULL);

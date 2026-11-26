@@ -22,6 +22,7 @@ namespace wb { class FrameView; }
 struct wb_popup {
 	struct wlr_xdg_popup *xdg_popup = nullptr;
 	wb::Listener commit;
+	wb::Listener reposition;  /* xdg_popup.reposition: placed again, kept on screen */
 	wb::Listener destroy;
 };
 

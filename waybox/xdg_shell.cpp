@@ -1605,6 +1605,39 @@ static struct wb_toplevel *popup_root_toplevel(struct wlr_xdg_popup *xdg_popup) 
 	return NULL;
 }
 
+/* Flip, slide or resize the popup (as its positioner allows) to fit the
+ * output its window is on, below the top margin. False if it has no
+ * window or output to fit (nothing is scheduled then). */
+static bool popup_keep_on_screen(struct wb_popup *popup) {
+	struct wb_toplevel *toplevel = popup_root_toplevel(popup->xdg_popup);
+	if (toplevel == NULL)
+		return false;
+	struct wlr_output *wlr_output = wlr_output_layout_output_at(
+			toplevel->server->output_layout,
+			toplevel->geometry.x + popup->xdg_popup->scheduled.geometry.x,
+			toplevel->geometry.y + popup->xdg_popup->scheduled.geometry.y);
+	if (wlr_output == NULL)  /* its corner off every output: the window's */
+		wlr_output = wlr_output_layout_output_at(toplevel->server->output_layout,
+				toplevel->geometry.x, toplevel->geometry.y);
+	if (wlr_output == NULL || wlr_output->data == NULL)
+		return false;
+	struct wb_output *output = static_cast<struct wb_output *>(wlr_output->data);
+	int top = toplevel->server->config ? toplevel->server->config->margins.top : 0;
+	if (top < 0 || top >= output->geometry.height)
+		top = 0;
+	/* In the window's coordinates, as wlroots wants it. The top margin
+	 * moves the top edge down (a panel there). */
+	struct wlr_box box = {
+		.x = output->geometry.x - toplevel->geometry.x,
+		.y = output->geometry.y + top - toplevel->geometry.y,
+		.width = output->geometry.width,
+		.height = output->geometry.height - top,
+	};
+	/* Schedules the configure too. */
+	wlr_xdg_popup_unconstrain_from_box(popup->xdg_popup, &box);
+	return true;
+}
+
 static void xdg_popup_commit(struct wb_popup *popup, void *data) {
 	if (!popup->xdg_popup) return;
 	struct wlr_xdg_surface *base = popup->xdg_popup->base;
@@ -1621,35 +1654,11 @@ static void xdg_popup_commit(struct wb_popup *popup, void *data) {
 					static_cast<int32_t>(ceil(o->scale)));
 		}
 
-	/* Unconstrain the popup against its toplevel's output. This must happen
-	 * here, on the initial commit, rather than when the popup is created:
-	 * wlr_xdg_popup_unconstrain_from_box() schedules a configure, which
-	 * asserts the surface is initialized, and it is not yet initialized at
-	 * creation time. */
-	struct wb_toplevel *toplevel = popup_root_toplevel(popup->xdg_popup);
-	if (toplevel != NULL) {
-		struct wlr_output *wlr_output = wlr_output_layout_output_at(
-				toplevel->server->output_layout,
-				toplevel->geometry.x + popup->xdg_popup->current.geometry.x,
-				toplevel->geometry.y + popup->xdg_popup->current.geometry.y);
-		if (wlr_output != NULL && wlr_output->data != NULL) {
-			struct wb_output *output = static_cast<struct wb_output *>(wlr_output->data);
-			int top_margin = toplevel->server->config ?
-				toplevel->server->config->margins.top : 0;
-			struct wlr_box output_toplevel_box = {
-				.x = output->geometry.x - toplevel->geometry.x,
-				.y = output->geometry.y - toplevel->geometry.y,
-				.width = output->geometry.width,
-				.height = output->geometry.height - top_margin,
-			};
-			wlr_xdg_popup_unconstrain_from_box(popup->xdg_popup,
-					&output_toplevel_box);
-			/* unconstrain_from_box schedules the configure for us. */
-			return;
-		}
-	}
-
-	wlr_xdg_surface_schedule_configure(base);
+	/* Kept on screen from its first commit (not at creation:
+	 * unconstraining schedules a configure, which asserts the surface is
+	 * initialized), and again each time the client places it anew. */
+	if (!popup_keep_on_screen(popup))
+		wlr_xdg_surface_schedule_configure(base);
 }
 
 static void xdg_popup_destroy(struct wb_popup *popup, void *data) {
@@ -1680,6 +1689,14 @@ static void handle_new_xdg_popup(struct wb_server *server, void *data) {
 	popup->xdg_popup = xdg_popup;
 	popup->commit.connect(&xdg_popup->base->surface->events.commit,
 			[popup](void *data) { xdg_popup_commit(popup, data); });
+	/* Placed anew (GTK does it once it knows its size, and on each
+	 * change): kept on screen again. */
+	popup->reposition.connect(&xdg_popup->events.reposition,
+			[popup](void *) {
+				/* Before its first commit: done then. */
+				if (popup->xdg_popup->base->initialized)
+					popup_keep_on_screen(popup);
+			});
 	popup->destroy.connect(&xdg_popup->events.destroy,
 			[popup](void *data) { xdg_popup_destroy(popup, data); });
 }

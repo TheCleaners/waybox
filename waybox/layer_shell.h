@@ -25,6 +25,8 @@ struct wb_layer_popup {
 	struct wlr_scene_tree *scene = nullptr;
 
 	wb::Listener commit;
+	wb::Listener reposition;     /* xdg_popup.reposition: kept on screen again */
+	wb::Listener popup_destroy;  /* the popup role's: reposition goes first */
 	wb::Listener destroy;
 	wb::Listener new_popup;
 };
