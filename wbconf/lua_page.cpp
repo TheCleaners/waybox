@@ -163,6 +163,7 @@ struct LuaPage {
 	GtkLabel *error = nullptr;
 	GtkWidget *approval = nullptr;  /* the card asking first, while shown */
 	bool approval_changed = false;  /* asking again: it changed since allowed */
+	bool approval_full = false;     /* what it may touch is full access */
 	std::string hash;               /* what an approval would be for */
 	bool syncing = false;
 
@@ -569,17 +570,42 @@ void on_allow(GtkButton *, gpointer data) {
 	p->start();
 }
 
-/* Before a page from the user's own folder runs: where it's from, what it
- * may touch, its script, and Allow. */
-GtkWidget *approval_card(LuaPage *p, bool changed) {
+/* Why a page is asked about. */
+enum class Asking { Own, Writable, Changed };
+
+/* Something you (or a program you run) can change: the page could be
+ * anyone's. A package's files under /usr aren't. */
+bool writable(const std::string &path) {
+	return access(path.c_str(), W_OK) == 0;
+}
+
+/* Before a page runs that wbconf can't tell came with Waybox or a
+ * package: where it's from, what it may touch (full access said so), its
+ * script, and Allow. */
+GtkWidget *approval_card(LuaPage *p, Asking why) {
 	const wb::Integration &in = *p->in;
+	const std::string home = home_dir();
+	/* How far each reaches: the integration's own (plain), another program
+	 * or file (a caution), full access (said line by line, and in the
+	 * heading). */
+	std::vector<wb::PageAccess> runs, files;
+	for (const std::string &r : in.runs)
+		runs.push_back(wb::run_access(in, r));
+	for (const std::string &f : in.files)
+		files.push_back(wb::file_access(in, page::expand_home(f, home), home));
+	auto is_full = [](const wb::PageAccess &a) { return a.reach == wb::Reach::Full; };
+	bool full = std::any_of(runs.begin(), runs.end(), is_full) ||
+			std::any_of(files.begin(), files.end(), is_full);
+	p->approval_full = full;
 	GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
 	gtk_widget_add_css_class(card, "wb-approval");
 
 	GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-	GtkWidget *icon = gtk_image_new_from_icon_name("channel-secure-symbolic");
+	GtkWidget *icon = gtk_image_new_from_icon_name(full ? "dialog-warning-symbolic" : "channel-secure-symbolic");
 	gtk_box_append(GTK_BOX(head), icon);
-	GtkWidget *title = gtk_label_new(changed ? _("This page changed since you allowed it")
+	GtkWidget *title = gtk_label_new(full ? _("This page asks for full access to your account")
+			: why == Asking::Changed ? _("This page changed since you allowed it")
+			: why == Asking::Writable ? _("A settings page in a folder you can change")
 			: _("A settings page from outside Waybox"));
 	gtk_widget_add_css_class(title, "heading");
 	gtk_label_set_xalign(GTK_LABEL(title), 0);
@@ -587,9 +613,12 @@ GtkWidget *approval_card(LuaPage *p, bool changed) {
 	gtk_box_append(GTK_BOX(head), title);
 	gtk_box_append(GTK_BOX(card), head);
 
-	std::string where = wb::tilde(in.dir, home_dir());
-	gchar *intro = g_markup_printf_escaped(changed
+	std::string where = wb::tilde(in.dir, home);
+	gchar *intro = g_markup_printf_escaped(why == Asking::Changed
 			? _("%s's page in %s isn't the one you allowed. Before it runs, it may:")
+			: why == Asking::Writable
+			? _("%s's page is in %s, which you (or a program you run) can change, so Waybox "
+					"can't tell whether it's the one it came with. Before it runs, it may:")
 			: _("%s's page comes from %s, not with Waybox. Before it runs, it may:"),
 			in.name.c_str(), where.c_str());
 	GtkWidget *body = gtk_label_new(nullptr);
@@ -601,12 +630,32 @@ GtkWidget *approval_card(LuaPage *p, bool changed) {
 
 	GtkWidget *list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
 	gtk_widget_set_margin_start(list, 4);
-	for (const std::string &f : in.files)
-		gtk_box_append(GTK_BOX(list), permission_line("document-edit-symbolic",
-				std::string(_("Read and change")) + " " + mono(f)));
-	for (const std::string &r : in.runs)
-		gtk_box_append(GTK_BOX(list), permission_line("system-run-symbolic",
-				std::string(_("Run")) + " " + mono(r)));
+	/* "Run sh: full access, it can run any command." */
+	auto note = [&in](const wb::PageAccess &a, bool file) {
+		if (a.reach == wb::Reach::Own)
+			return std::string();
+		if (a.reach == wb::Reach::Other) {
+			gchar *e = g_markup_printf_escaped(file ? _(": not %s's own file")
+					: _(": another program, with your account's access"), in.name.c_str());
+			std::string s = e;
+			g_free(e);
+			return s;
+		}
+		gchar *e = g_markup_escape_text(a.why.c_str(), -1);
+		std::string s = std::string(": <b>") + _("full access") + "</b>, " + e;
+		g_free(e);
+		return s;
+	};
+	auto line_icon = [](const wb::PageAccess &a, const char *own) {
+		return a.reach == wb::Reach::Own ? own : "dialog-warning-symbolic";
+	};
+	for (size_t i = 0; i < in.files.size(); ++i)
+		gtk_box_append(GTK_BOX(list), permission_line(line_icon(files[i], "document-edit-symbolic"),
+				std::string(_("Read and change")) + " " + mono(in.files[i]) +
+				note(files[i], true)));
+	for (size_t i = 0; i < in.runs.size(); ++i)
+		gtk_box_append(GTK_BOX(list), permission_line(line_icon(runs[i], "system-run-symbolic"),
+				std::string(_("Run")) + " " + mono(in.runs[i]) + note(runs[i], false)));
 	if (in.files.empty() && in.runs.empty())
 		gtk_box_append(GTK_BOX(list), permission_line("channel-secure-symbolic",
 				_("Nothing outside the page itself")));
@@ -636,8 +685,9 @@ GtkWidget *approval_card(LuaPage *p, bool changed) {
 	/* The script the card's whole width; the one action under it, at the
 	 * end, as dialogs have it. */
 	gtk_box_append(GTK_BOX(card), expander);
-	GtkWidget *allow = gtk_button_new_with_label(_("Allow This Page"));
-	gtk_widget_add_css_class(allow, "suggested-action");
+	GtkWidget *allow = gtk_button_new_with_label(full ? _("Allow Full Access")
+			: _("Allow This Page"));
+	gtk_widget_add_css_class(allow, full ? "destructive-action" : "suggested-action");
 	gtk_widget_set_halign(allow, GTK_ALIGN_END);
 	g_signal_connect(allow, "clicked", G_CALLBACK(on_allow), p);
 	g_object_set_data(G_OBJECT(card), "wb-allow", allow);
@@ -663,15 +713,22 @@ GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row) {
 	gtk_box_append(GTK_BOX(p->box), GTK_WIDGET(p->error));
 	GtkWidget *box = p->box;
 	row->page = p;
-	/* A page from the user's own folder runs once allowed, for what it is
-	 * now; changing it asks again. */
-	if (!page::page_trusted(row->in->dir, user_integrations_dir())) {
-		p->hash = page_hash(*row->in);
+	/* Trusted only when no one but root could have changed it (a package's
+	 * files): its folder, its integration file and its script. Else it
+	 * runs once allowed, for what it is now; changing it asks again. */
+	const wb::Integration &in = *row->in;
+	bool trusted = !writable(in.dir) && !writable(in.dir + "/" + in.id + ".integration") &&
+			!writable(wb::lua_page_path(in));
+	if (!trusted) {
+		p->hash = page_hash(in);
 		auto approved = page::parse_approvals(read_text(approvals_path()));
-		auto it = approved.find(row->in->id);
+		auto it = approved.find(in.id);
 		if (it == approved.end() || it->second != p->hash) {
 			p->approval_changed = it != approved.end();
-			p->approval = approval_card(p.get(), p->approval_changed);
+			Asking why = p->approval_changed ? Asking::Changed
+					: page::expand_home(in.dir, home_dir()) == user_integrations_dir()
+					? Asking::Own : Asking::Writable;
+			p->approval = approval_card(p.get(), why);
 			gtk_box_append(GTK_BOX(p->box), p->approval);
 			return box;
 		}
@@ -745,7 +802,8 @@ std::string lua_page_dump(Ui *ui, const std::string &id) {
 		std::string out;
 		if (p->approval != nullptr)
 			out += std::string("|approval:") + (p->pid > 0 ? "running!"
-					: p->approval_changed ? "changed" : "waiting");
+					: p->approval_changed ? "changed" : "waiting") +
+					(p->approval_full ? ":full" : "");
 		for (const auto &[k, v] : p->values()) {
 			const page::Control *c = page::find_control(p->model, k);
 			out += "|" + k + "=" + v;

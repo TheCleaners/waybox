@@ -260,20 +260,6 @@ bool run_allowed(const std::vector<std::string> &argv, const std::vector<std::st
 	return false;
 }
 
-namespace {
-
-std::string without_trailing_slash(std::string p) {
-	while (p.size() > 1 && p.back() == '/')
-		p.pop_back();
-	return p;
-}
-
-}  // namespace
-
-bool page_trusted(const std::string &dir, const std::string &user_dir) {
-	return !dir.empty() && without_trailing_slash(dir) != without_trailing_slash(user_dir);
-}
-
 std::map<std::string, std::string> parse_approvals(const std::string &text) {
 	std::map<std::string, std::string> out;
 	size_t start = 0;
