@@ -403,6 +403,22 @@ GtkWidget *build_gtk_block(Ui *ui) {
 	return grid;
 }
 
+void gtk_changes(Ui *ui, const std::string &where, GtkWidget *target,
+		std::vector<UnsavedChange> &out) {
+	if (!ui->gtk.built)
+		return;
+	Ui::GtkLook was = ui->gtk.saved, now = current_look(ui);
+	auto one = [&](const char *what, const std::string &a, const std::string &b) {
+		if (a != b)
+			out.push_back({{where + " \xE2\x80\xBA " + what, a, b}, target});
+	};
+	one(_("Icons"), was.icons, now.icons);
+	one(_("GTK theme"), was.theme, now.theme);
+	one(_("Pointer"), was.cursor, now.cursor);
+	one(_("Pointer size"), std::to_string(was.size), std::to_string(now.size));
+	one(_("Style"), was.scheme, now.scheme);
+}
+
 int gtk_unsaved(Ui *ui) {
 	if (!ui->gtk.built)
 		return 0;

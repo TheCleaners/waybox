@@ -173,6 +173,14 @@ xcursor_themes_test = executable(
   )
 test('xcursor_themes', xcursor_themes_test)
 
+# wbconf's list of changes not saved: one line each, kept short.
+change_list_test = executable(
+  'change_list_test',
+  ['change_list_test.cpp', 'wb_test_main.cpp', change_list_src],
+  include_directories: [inc_dir],
+  )
+test('change_list', change_list_test)
+
 # The bell: its style, its blinks, never strobing.
 bell_style_test = executable(
   'bell_style_test',
@@ -794,6 +802,8 @@ if python.found() and not get_option('tests_only')
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_outputs', 'wbconf_outputs_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_changes', 'wbconf_changes_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 90]]
     integration_tests += [['wbconf_reload', 'wbconf_reload_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_toc', 'wbconf_toc_test.py',

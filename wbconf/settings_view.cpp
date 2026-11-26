@@ -570,6 +570,21 @@ const Ui::TocEntry *entry_of(Ui *ui, GtkListBoxRow *row) {
 	return nullptr;
 }
 
+void scroll_to(Ui *ui, GtkWidget *heading);
+
+}  // namespace
+
+void reveal_in_list(Ui *ui, GtkWidget *w) {
+	/* A search may hide it: cleared first, the page laid out again, then
+	 * scrolled to (scroll_to tries again once sizes settle). */
+	if (ui->search != nullptr && *gtk_editable_get_text(GTK_EDITABLE(ui->search)) != '\0')
+		gtk_editable_set_text(GTK_EDITABLE(ui->search), "");
+	scroll_to(ui, w);
+	gtk_widget_grab_focus(w);
+}
+
+namespace {
+
 void scroll_to(Ui *ui, GtkWidget *heading) {
 	GtkAdjustment *adj = gtk_scrolled_window_get_vadjustment(ui->scroller);
 	ui->scrolling_to = true;
@@ -918,6 +933,52 @@ gboolean toc_step(gpointer data) {
 		double f = g_ascii_strtod(step.c_str() + 7, nullptr);
 		gtk_adjustment_set_value(adj, f * (gtk_adjustment_get_upper(adj) -
 				gtk_adjustment_get_page_size(adj)));
+	} else if (step == "changes") {
+		/* "changes-dump:N|tip:LINES,LONGEST|where=values|..." */
+		std::vector<UnsavedChange> changes = unsaved_changes(ui);
+		const char *tip = gtk_widget_get_tooltip_text(ui->changes_button);
+		size_t lines = 0, longest = 0;
+		if (tip != nullptr) {
+			for (const char *line = tip; line != nullptr;) {
+				const char *nl = strchr(line, '\n');
+				std::string l(line, nl ? static_cast<size_t>(nl - line) : strlen(line));
+				longest = std::max(longest, static_cast<size_t>(g_utf8_strlen(l.c_str(), -1)));
+				++lines;
+				line = nl ? nl + 1 : nullptr;
+			}
+		}
+		std::string out = "changes-dump:" + std::to_string(changes.size()) + "|tip:" +
+				std::to_string(lines) + "," + std::to_string(longest) + "|button:" +
+				(gtk_widget_get_visible(ui->changes_button) ? "shown" : "hidden");
+		for (const UnsavedChange &c : changes)
+			out += "|" + c.item.where + "=" + wb::change_values(c.item, 30);
+		fprintf(stderr, "%s\n", out.c_str());
+	} else if (step == "open-changes") {
+		open_changes(ui);
+	} else if (step == "popover-size") {
+		/* "popover-size:W,H,WINDOW_W,WINDOW_H" */
+		GtkWidget *win = gtk_widget_get_ancestor(ui->changes_button, GTK_TYPE_WINDOW);
+		fprintf(stderr, "popover-size:%d,%d,%d,%d\n",
+				gtk_widget_get_width(ui->changes_popover),
+				gtk_widget_get_height(ui->changes_popover),
+				win ? gtk_widget_get_width(win) : 0, win ? gtk_widget_get_height(win) : 0);
+	} else if (step.rfind("goto-change:", 0) == 0) {
+		/* Click the popover's Nth line; then "goto:OFFSET" (the target's
+		 * distance from the top of the view: small when scrolled to). */
+		size_t n = static_cast<size_t>(atoi(step.c_str() + 12));
+		auto *list = static_cast<GtkListBox *>(
+				g_object_get_data(G_OBJECT(ui->changes_popover), "wb-list"));
+		std::vector<UnsavedChange> changes = unsaved_changes(ui);
+		if (list != nullptr && n < changes.size()) {
+			GtkWidget *target = changes[n].target;
+			g_signal_emit_by_name(list, "row-activated", gtk_list_box_get_row_at_index(list,
+					static_cast<int>(n)));
+			GtkAdjustment *adj = gtk_scrolled_window_get_vadjustment(ui->scroller);
+			if (target != nullptr)
+				fprintf(stderr, "goto:%.0f|popover:%s\n",
+						y_in_list(ui, target) - gtk_adjustment_get_value(adj),
+						gtk_widget_get_visible(ui->changes_popover) ? "open" : "closed");
+		}
 	}
 	return G_SOURCE_CONTINUE;
 }
