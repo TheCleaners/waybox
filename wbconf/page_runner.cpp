@@ -343,6 +343,16 @@ int ini_entries(lua_State *L) {
 	return 1;
 }
 
+int ini_remove_section(lua_State *L) {
+	lua_pushboolean(L, ini_doc(L)->remove_section(luaL_checkstring(L, 2)));
+	return 1;
+}
+
+int ini_move_section_to_end(lua_State *L) {
+	lua_pushboolean(L, ini_doc(L)->move_section_to_end(luaL_checkstring(L, 2)));
+	return 1;
+}
+
 int ini_text(lua_State *L) {
 	std::string t = ini_doc(L)->text();
 	lua_pushlstring(L, t.data(), t.size());
@@ -358,7 +368,8 @@ void push_ini_api(lua_State *L) {
 	lua_newtable(L);
 	const luaL_Reg fns[] = {{"parse", ini_parse}, {"get", ini_get}, {"set", ini_set},
 			{"remove", ini_remove}, {"sections", ini_sections}, {"entries", ini_entries},
-			{"text", ini_text}, {nullptr, nullptr}};
+			{"text", ini_text}, {"remove_section", ini_remove_section},
+			{"move_section_to_end", ini_move_section_to_end}, {nullptr, nullptr}};
 	for (const luaL_Reg *f = fns; f->name != nullptr; ++f) {
 		lua_pushcfunction(L, f->func);
 		lua_setfield(L, -2, f->name);
@@ -583,6 +594,22 @@ int json_text(lua_State *L) {
 	return 1;
 }
 
+/* A value as the page protocol's JSON text, and back (sections' values). */
+int json_wire_encode(lua_State *L) {
+	std::string t = json::dump(to_json(L, 1, 0));
+	lua_pushlstring(L, t.data(), t.size());
+	return 1;
+}
+
+int json_wire_decode(lua_State *L) {
+	auto v = json::parse(luaL_optstring(L, 1, ""));
+	if (v)
+		push_json(L, *v);
+	else
+		lua_newtable(L);
+	return 1;
+}
+
 /* The C side of wb.json, handed to the prelude. */
 void push_json_api(lua_State *L) {
 	luaL_newmetatable(L, kJsonMeta);
@@ -594,6 +621,7 @@ void push_json_api(lua_State *L) {
 	lua_newtable(L);
 	const luaL_Reg fns[] = {{"parse", json_parse}, {"get", json_get}, {"set", json_set},
 			{"remove", json_remove}, {"keys", json_keys}, {"text", json_text},
+			{"wire_encode", json_wire_encode}, {"wire_decode", json_wire_decode},
 			{nullptr, nullptr}};
 	for (const luaL_Reg *f = fns; f->name != nullptr; ++f) {
 		lua_pushcfunction(L, f->func);
@@ -724,6 +752,12 @@ function Ini:set(key, value) return self:section(""):set(key, value) end
 function Ini:set_all(values) return self:section(""):set_all(values) end
 function Ini:entries() return self:section(""):entries() end
 function Ini:sections() return ini.sections(self.doc) end
+-- A [section] gone (each time it appears, its comment too); the sections
+-- put in this order (those not named stay first, as they are).
+function Ini:remove_section(name) return ini.remove_section(self.doc, name) end
+function Ini:order(names)
+  for _, name in ipairs(names) do ini.move_section_to_end(self.doc, name) end
+end
 function Ini:text() return ini.text(self.doc) end
 wb.ini = {}
 function wb.ini.parse(text) return setmetatable({ doc = ini.parse(text or "") }, Ini) end
@@ -806,7 +840,37 @@ local function unknown(key, level)
       best and (" (" .. best .. "?)") or ""), level + 1)
 end
 
-local function as_value(kind, v)
+-- A setting's constructor's registration, to undo for a sections' fields.
+local prior = setmetatable({}, { __mode = "k" })
+
+-- A sections' value as sent: names and their fields' values as text.
+local function sections_value(fields, v, level)
+  if type(v) ~= "table" then
+    error("a sections' value is a table of { name = ..., values = { ... } }", level + 1)
+  end
+  local out = {}
+  for i, s in ipairs(v) do
+    local vals = {}
+    for k, x in pairs(type(s) == "table" and s.values or {}) do
+      local kind = fields[k]
+      if kind == nil then error("'" .. tostring(k) .. "' isn't one of its fields", level + 1) end
+      local t
+      if x == nil then t = ""
+      elseif kind == "switch" and type(x) == "boolean" then t = x and "on" or ""
+      else t = tostring(x) end
+      if t ~= "" then vals[k] = t end
+    end
+    out[i] = { name = tostring(type(s) == "table" and s.name or s), values = vals }
+  end
+  return json.wire_encode(out)
+end
+
+local function as_value(kind, v, key)
+  if v == nil then v = kind == "sections" and {} or nil end
+  if kind == "sections" then
+    local text = sections_value(settings[key].fields, v, 3)  -- not a tail call: levels
+    return text
+  end
   if v == nil then return "" end
   if kind == "switch" and type(v) == "boolean" then return v and "on" or "" end
   if kind == "list" then
@@ -820,6 +884,11 @@ end
 
 -- What a page gets: a list's names as a table, the rest as text.
 local function from_wire(kind, text)
+  if kind == "sections" then
+    local out = json.wire_decode(text)
+    for _, s in ipairs(out) do s.values = s.values or {} end
+    return out
+  end
   if kind ~= "list" then return text end
   local names = {}
   for name in (text or ""):gmatch("[^\n]+") do names[#names + 1] = name end
@@ -839,6 +908,7 @@ local function setting(kind)
     for k, v in pairs(t) do
       if type(k) == "string" and k ~= "key" and k ~= "on_change" then c[k] = v end
     end
+    prior[c] = { value = values[key], setting = settings[key] }
     c.value = as_value(kind, t.value)
     values[key] = c.value
     settings[key] = { kind = kind, on_change = t.on_change }
@@ -849,6 +919,40 @@ end
 for _, kind in ipairs { "text", "number", "switch", "choice", "color", "file", "folder", "image",
                         "list" } do
   _G[kind] = setting(kind)
+end
+
+-- Repeated sections: each named, with the fields given (made with text,
+-- number, color...; theirs, not the page's settings).
+function sections(t)
+  if type(t) ~= "table" then error('sections { "key", fields = { ... } } takes a table', 2) end
+  local key = t[1] or t.key
+  if type(key) ~= "string" or key == "" then
+    error('sections needs its key first: sections { "key", fields = { ... } }', 2)
+  end
+  local kinds, children = {}, {}
+  for i, f in ipairs(t.fields or {}) do
+    if type(f) ~= "table" or not f.key or not prior[f] then
+      error("a sections' fields are settings: text { ... }, number { ... }...", 2)
+    end
+    -- Not the page's: whatever the key was before, back.
+    local p = prior[f]
+    values[f.key] = p.value
+    settings[f.key] = p.setting
+    f.value = nil
+    kinds[f.key] = f.kind
+    children[i] = f
+  end
+  local c = { kind = "sections", key = key, children = children }
+  for k, v in pairs(t) do
+    if type(k) == "string" and k ~= "key" and k ~= "on_change" and k ~= "fields" and
+        k ~= "value" then
+      c[k] = v
+    end
+  end
+  settings[key] = { kind = "sections", fields = kinds, on_change = t.on_change }
+  c.value = sections_value(kinds, t.value or {}, 2)
+  values[key] = c.value
+  return c
 end
 
 function group(title)
@@ -891,7 +995,7 @@ wb.set = function(key, fields)
     error("wb.set(key, { value = ..., visible = ..., enabled = ..., problem = ... })", 2)
   end
   if fields.value ~= nil and values[key] ~= nil then
-    fields.value = as_value(settings[key].kind, fields.value)
+    fields.value = as_value(settings[key].kind, fields.value, key)
     values[key] = fields.value
   end
   update(key, fields)

@@ -278,6 +278,8 @@ std::unique_ptr<OptionField> make_option_field(const wb::IntegrationOption &o,
 }
 
 std::string option_field_value(const OptionField &f) {
+	if (f.sections != nullptr)
+		return wb::page::sections_to_text(f.sections->items);
 	if (f.list != nullptr)
 		return wb::names::to_text(f.list->items);
 	if (f.sw != nullptr)
@@ -291,7 +293,9 @@ std::string option_field_value(const OptionField &f) {
 
 void set_option_field_value(OptionField &f, const std::string &value) {
 	f.syncing = true;
-	if (f.list != nullptr) {
+	if (f.sections != nullptr) {
+		sections_control_set(f.sections.get(), wb::page::sections_from_text(value));
+	} else if (f.list != nullptr) {
 		list_control_set(f.list.get(), wb::names::from_text(value));
 	} else if (f.sw != nullptr) {
 		gtk_switch_set_active(f.sw, !value.empty());

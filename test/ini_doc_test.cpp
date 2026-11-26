@@ -102,3 +102,39 @@ WB_TEST(ini_removes) {
 	auto m = Document::parse("[a]\nk=1\n[b]\nk=2\n[a]\nk=3\n");
 	WB_CHECK(m.remove("a", "k") && m.text() == "[a]\n[b]\nk=2\n[a]\n");
 }
+
+WB_TEST(ini_sections_removed_and_moved) {
+	const char *t =
+		"font=x\n"
+		"\n"
+		"# urgent ones\n"
+		"[urgency=high]\n"
+		"border-color=#f00\n"
+		"\n"
+		"[app-name=firefox]\n"
+		"default-timeout=2000\n"
+		"\n"
+		"[urgency=high]\n"
+		"ignore-timeout=1\n";
+	/* Removed: each time it appears, with its comment. */
+	auto d = Document::parse(t);
+	WB_CHECK(d.remove_section("urgency=high"));
+	WB_CHECK(d.text() == "font=x\n\n[app-name=firefox]\ndefault-timeout=2000\n");
+	WB_CHECK(!d.remove_section("urgency=high") && !d.remove_section(""));
+	/* Moved to the end, as it is (its comment too), once together. */
+	auto m = Document::parse(t);
+	WB_CHECK(m.move_section_to_end("urgency=high"));
+	WB_CHECK(m.text() == "font=x\n\n[app-name=firefox]\ndefault-timeout=2000\n"
+			"\n# urgent ones\n[urgency=high]\nborder-color=#f00\n"
+			"\n[urgency=high]\nignore-timeout=1\n");
+	WB_CHECK(m.get("urgency=high", "ignore-timeout") == "1");
+	/* An order, by moving each in it. */
+	m.move_section_to_end("app-name=firefox");
+	WB_CHECK(m.sections() == (std::vector<std::string>{"", "urgency=high", "app-name=firefox"}));
+	WB_CHECK(m.text().find("font=x\n\n# urgent ones\n[urgency=high]") == 0);
+	/* A file of sections only: no blank line on top. */
+	auto s = Document::parse("[a]\nk=1\n\n[b]\nk=2\n");
+	WB_CHECK(s.move_section_to_end("a") && s.text() == "[b]\nk=2\n\n[a]\nk=1\n");
+	WB_CHECK(!s.move_section_to_end("nope"));
+}
+

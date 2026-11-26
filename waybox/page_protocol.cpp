@@ -15,7 +15,8 @@ const KindName kKinds[] = {
 	{Kind::Group, "group"}, {Kind::Label, "label"}, {Kind::Text, "text"},
 	{Kind::Number, "number"}, {Kind::Switch, "switch"}, {Kind::Choice, "choice"},
 	{Kind::Color, "color"}, {Kind::File, "file"}, {Kind::Folder, "folder"},
-	{Kind::Image, "image"}, {Kind::List, "list"}, {Kind::Button, "button"},
+	{Kind::Image, "image"}, {Kind::List, "list"}, {Kind::Sections, "sections"},
+	{Kind::Button, "button"},
 };
 
 /* A value as text: a number without a needless ".0", a bool "on"/"". */
@@ -90,6 +91,21 @@ bool read_control(const json::Value &v, int depth, Control &out, std::set<std::s
 	}
 	if (out.kind == Kind::Choice && out.choices.empty())
 		return fail("the choice \"" + out.key + "\" has nothing to choose");
+	if (out.kind == Kind::Sections) {
+		/* Its fields: settings, their keys its own (each section has them). */
+		std::set<std::string> field_keys;
+		if (const json::Value *c = v.get("children"); c != nullptr && c->array() != nullptr)
+			for (const json::Value &e : *c->array()) {
+				Control child;
+				if (!read_control(e, depth + 1, child, field_keys, error))
+					return false;
+				if (!is_setting(child.kind) || child.kind == Kind::Sections ||
+						child.kind == Kind::List)
+					return fail("the sections \"" + out.key + "\" can only have settings "
+							"as fields (text, number, switch, choice, color...)");
+				out.children.push_back(std::move(child));
+			}
+	}
 	if (out.kind == Kind::Group) {
 		if (depth >= 4)
 			return fail("groups nested more than 4 deep");
@@ -130,7 +146,7 @@ json::Value write_control(const Control &c) {
 	if (!c.visible) o["visible"] = false;
 	if (!c.enabled) o["enabled"] = false;
 	if (!c.problem.empty()) o["problem"] = c.problem;
-	if (c.kind == Kind::Group) {
+	if (c.kind == Kind::Group || c.kind == Kind::Sections) {
 		json::Array a;
 		for (const Control &ch : c.children)
 			a.push_back(write_control(ch));
@@ -144,7 +160,8 @@ void collect(const std::vector<Control> &cs,
 	for (const Control &c : cs) {
 		if (is_setting(c.kind))
 			out.emplace_back(c.key, c.value);
-		collect(c.children, out);
+		if (c.kind == Kind::Group)  /* a sections' fields are each section's */
+			collect(c.children, out);
 	}
 }
 
@@ -152,6 +169,8 @@ Control *find_in(std::vector<Control> &cs, const std::string &key) {
 	for (Control &c : cs) {
 		if (!c.key.empty() && c.key == key && c.kind != Kind::Group)
 			return &c;
+		if (c.kind != Kind::Group)  /* a sections' fields aren't the page's */
+			continue;
 		if (Control *f = find_in(c.children, key))
 			return f;
 	}
@@ -172,6 +191,37 @@ const char *kind_name(Kind k) {
 		if (n.kind == k)
 			return n.name;
 	return "text";
+}
+
+std::vector<Section> sections_from_text(const std::string &text) {
+	std::vector<Section> out;
+	auto v = json::parse(text);
+	if (!v || v->array() == nullptr)
+		return out;
+	for (const json::Value &e : *v->array()) {
+		if (e.object() == nullptr)
+			continue;
+		Section s;
+		s.name = e.str("name");
+		if (const json::Value *vals = e.get("values"); vals != nullptr && vals->object())
+			for (const auto &[k, x] : *vals->object())
+				if (std::string t = as_text(x); !t.empty())
+					s.values[k] = t;
+		out.push_back(std::move(s));
+	}
+	return out;
+}
+
+std::string sections_to_text(const std::vector<Section> &sections) {
+	json::Array a;
+	for (const Section &s : sections) {
+		json::Object vals;
+		for (const auto &[k, x] : s.values)
+			if (!x.empty())
+				vals[k] = x;
+		a.push_back(json::Object{{"name", s.name}, {"values", std::move(vals)}});
+	}
+	return json::dump(a);
 }
 
 bool is_setting(Kind k) {

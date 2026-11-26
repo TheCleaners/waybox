@@ -37,6 +37,7 @@ enum class Kind {
 	Label,    /* text */
 	Text, Number, Switch, Choice, Color, File, Folder, Image,  /* settings */
 	List,     /* names in order; its value one a line */
+	Sections, /* repeated sections, each named, its fields the children's */
 	Button,   /* a button: "click" with its key */
 };
 
@@ -53,7 +54,7 @@ struct Control {
 	std::optional<double> min, max;    /* Number */
 	bool visible = true, enabled = true;
 	std::string problem;      /* shown under it while not empty */
-	std::vector<Control> children;     /* Group */
+	std::vector<Control> children;     /* Group; Sections: its fields */
 	bool operator==(const Control &) const = default;
 };
 
@@ -73,6 +74,16 @@ bool is_setting(Kind k);
  * groups nested more than 4 deep) is nullopt, with why in `error`. */
 std::optional<Page> page_from_json(const json::Value &v, std::string *error = nullptr);
 json::Value page_to_json(const Page &p);
+
+/* A sections control's value (JSON text): [{"name": NAME, "values":
+ * {FIELD: TEXT}}], in order; a field left empty isn't in it. */
+struct Section {
+	std::string name;
+	std::map<std::string, std::string> values;
+	bool operator==(const Section &) const = default;
+};
+std::vector<Section> sections_from_text(const std::string &text);
+std::string sections_to_text(const std::vector<Section> &sections);
 
 /* Every setting's key -> value, depth first. */
 std::vector<std::pair<std::string, std::string>> page_values(const Page &p);
