@@ -12,6 +12,9 @@
 
 #include "waybox/font_spec.hpp"
 
+#include <pango/pangocairo.h>
+#include <set>
+
 namespace wbconf {
 
 namespace {
@@ -165,6 +168,91 @@ void show_sample(FontControl *c) {
 	pango_font_description_free(d);
 }
 
+/* What a family comes in: its faces' weights and widths. A variable one,
+ * or one Pango doesn't know (an alias, "monospace"): everything. Bold can
+ * be made from a regular face (emboldened); a width can't. */
+struct Available {
+	bool all = true;
+	std::set<int> weights, widths;
+};
+
+Available available(const std::string &family) {
+	Available a;
+	if (family.empty())
+		return a;
+	PangoFontMap *map = pango_cairo_font_map_get_default();
+	PangoFontFamily *fam = pango_font_map_get_family(map, family.c_str());
+	if (fam == nullptr || pango_font_family_is_variable(fam))
+		return a;
+	PangoFontFace **faces = nullptr;
+	int n = 0;
+	pango_font_family_list_faces(fam, &faces, &n);
+	if (n == 0) {
+		g_free(faces);
+		return a;
+	}
+	a.all = false;
+	for (int i = 0; i < n; ++i) {
+		PangoFontDescription *d = pango_font_face_describe(faces[i]);
+		a.weights.insert(font::nearest_weight(pango_font_description_get_weight(d)));
+		a.widths.insert(font::nearest_width(width_of(pango_font_description_get_stretch(d))));
+		pango_font_description_free(d);
+	}
+	g_free(faces);
+	if (*a.weights.begin() <= 500)
+		a.weights.insert(700);
+	return a;
+}
+
+/* A list's entries: the font's own, then those offered; one set but not
+ * offered (from the file) kept, saying so. */
+void fill(GtkDropDown *drop, std::vector<int> &values, const std::vector<font::Named> &names,
+		const std::set<int> &offered, bool all, int current) {
+	GtkStringList *model = gtk_string_list_new(nullptr);
+	values.assign(1, 0);
+	gtk_string_list_append(model, _("The font's own"));
+	for (const font::Named &n : names) {
+		bool there = all || offered.count(n.value);
+		if (!there && n.value != current)
+			continue;
+		std::string label = _(n.label);
+		if (!there)
+			label += std::string(" ") + _("(not in this font)");
+		gtk_string_list_append(model, label.c_str());
+		values.push_back(n.value);
+	}
+	gtk_drop_down_set_model(drop, G_LIST_MODEL(model));
+	g_object_unref(model);
+}
+
+/* The weight and width lists for the family chosen, the spec's selected. */
+void offer_styles(FontControl *c) {
+	bool was = c->syncing;
+	c->syncing = true;
+	std::string family = c->spec.families.empty() ? "" : c->spec.families[0];
+	Available a = available(family);
+	int weight = c->spec.weight > 0 ? font::nearest_weight(c->spec.weight) : 0;
+	int width = c->spec.width > 0 ? font::nearest_width(c->spec.width) : 0;
+	fill(c->weight, c->weight_values, font::weights(), a.weights, a.all, weight);
+	fill(c->width, c->width_values, font::widths(), a.widths, a.all, width);
+	auto select = [](GtkDropDown *d, const std::vector<int> &values, int v) {
+		guint at = 0;
+		for (size_t i = 0; i < values.size(); ++i)
+			if (values[i] == v)
+				at = static_cast<guint>(i);
+		gtk_drop_down_set_selected(d, at);
+	};
+	select(c->weight, c->weight_values, weight);
+	select(c->width, c->width_values, width);
+	/* One width only (and none set otherwise): nothing to choose. */
+	bool one_width = c->width_values.size() <= 2 && !a.all &&
+			(c->width_values.size() == 1 || c->width_values[1] == 100);
+	gtk_widget_set_sensitive(GTK_WIDGET(c->width), !one_width);
+	gtk_widget_set_tooltip_text(GTK_WIDGET(c->width), one_width
+			? _("This font comes in one width") : _("Width"));
+	c->syncing = was;
+}
+
 /* The widgets as the spec says. */
 void show(FontControl *c) {
 	c->syncing = true;
@@ -185,16 +273,7 @@ void show(FontControl *c) {
 	double size = s.size > 0 ? s.size : c->default_size;
 	gtk_spin_button_set_digits(c->size, size == std::floor(size) ? 0 : 1);
 	gtk_spin_button_set_value(c->size, size);
-	guint w = 0;
-	for (size_t i = 0; i < font::weights().size(); ++i)
-		if (s.weight > 0 && font::weights()[i].value == font::nearest_weight(s.weight))
-			w = static_cast<guint>(i + 1);
-	gtk_drop_down_set_selected(c->weight, w);
-	guint wd = 0;
-	for (size_t i = 0; i < font::widths().size(); ++i)
-		if (s.width > 0 && font::widths()[i].value == font::nearest_width(s.width))
-			wd = static_cast<guint>(i + 1);
-	gtk_drop_down_set_selected(c->width, wd);
+	offer_styles(c);
 	gtk_switch_set_active(c->italic, !s.slant.empty());
 	show_sample(c);
 	c->syncing = false;
@@ -205,6 +284,7 @@ void on_widget(FontControl *c) {
 	if (c->syncing)
 		return;
 	font::Spec &s = c->spec;
+	std::string was_family = s.families.empty() ? "" : s.families[0];
 	guint fam = gtk_drop_down_get_selected(c->family);
 	if (fam == 0 || fam >= c->families.size()) {
 		s.families.clear();
@@ -216,9 +296,12 @@ void on_widget(FontControl *c) {
 	bool had = !s.families.empty();
 	s.size = had ? gtk_spin_button_get_value(c->size) : 0;
 	guint w = gtk_drop_down_get_selected(c->weight);
-	s.weight = w > 0 && w <= font::weights().size() ? font::weights()[w - 1].value : 0;
+	s.weight = w < c->weight_values.size() ? c->weight_values[w] : 0;
 	guint wd = gtk_drop_down_get_selected(c->width);
-	s.width = wd > 0 && wd <= font::widths().size() ? font::widths()[wd - 1].value : 0;
+	s.width = wd < c->width_values.size() ? c->width_values[wd] : 0;
+	/* Another family: what it comes in. */
+	if ((s.families.empty() ? "" : s.families[0]) != was_family)
+		offer_styles(c);
 	bool italic = gtk_switch_get_active(c->italic);
 	if (!italic)
 		s.slant.clear();
@@ -238,16 +321,8 @@ void on_signal(GtkWidget *, gpointer data) {
 	on_widget(static_cast<FontControl *>(data));
 }
 
-GtkDropDown *named_drop(const char *first, const std::vector<font::Named> &names,
-		const char *tip) {
-	std::vector<std::string> labels = {first};
-	for (const font::Named &n : names)
-		labels.push_back(_(n.label));
-	std::vector<const char *> items;
-	for (const std::string &l : labels)
-		items.push_back(l.c_str());
-	items.push_back(nullptr);
-	GtkWidget *d = gtk_drop_down_new_from_strings(items.data());
+GtkDropDown *style_drop(const char *tip) {
+	GtkWidget *d = gtk_drop_down_new(nullptr, nullptr);
 	gtk_widget_set_tooltip_text(d, tip);
 	return GTK_DROP_DOWN(d);
 }
@@ -323,15 +398,19 @@ std::unique_ptr<FontControl> make_font_control(const std::string &format,
 	gtk_label_set_xalign(GTK_LABEL(c->preview), 0);
 	gtk_label_set_wrap(GTK_LABEL(c->preview), TRUE);
 	gtk_label_set_max_width_chars(GTK_LABEL(c->preview), 52);
-	gtk_widget_set_size_request(c->preview, 540, -1);
+	/* A fixed size, whatever the font: the popover doesn't move. */
+	gtk_label_set_lines(GTK_LABEL(c->preview), 2);
+	gtk_label_set_ellipsize(GTK_LABEL(c->preview), PANGO_ELLIPSIZE_END);
+	gtk_widget_set_size_request(c->preview, 540, 64);
+	gtk_widget_set_valign(c->preview, GTK_ALIGN_CENTER);
 	/* In a tinted, outlined box: the font on its own. */
 	GtkWidget *frame = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 	gtk_widget_add_css_class(frame, "wb-font-preview");
 	gtk_box_append(GTK_BOX(frame), c->preview);
 	/* One row: Weight, Width, Italic, and the way back to the font's own;
 	 * the preview under them. */
-	c->weight = named_drop(_("The font's own"), font::weights(), _("Weight"));
-	c->width = named_drop(_("The font's own"), font::widths(), _("Width"));
+	c->weight = style_drop(_("Weight"));
+	c->width = style_drop(_("Width"));
 	c->italic = GTK_SWITCH(gtk_switch_new());
 	gtk_widget_set_valign(GTK_WIDGET(c->italic), GTK_ALIGN_CENTER);
 	GtkWidget *line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -415,12 +494,12 @@ bool font_control_test(FontControl *c, const std::string &action) {
 	} else if (what == "size-update") {
 		gtk_spin_button_update(c->size);
 	} else if (what == "weight" || what == "width") {
-		const auto &names = what == "weight" ? font::weights() : font::widths();
+		const auto &values = what == "weight" ? c->weight_values : c->width_values;
 		int v = atoi(arg.c_str());
 		guint pick = 0;
-		for (size_t i = 0; i < names.size(); ++i)
-			if (names[i].value == v)
-				pick = static_cast<guint>(i + 1);
+		for (size_t i = 0; i < values.size(); ++i)
+			if (values[i] == v)
+				pick = static_cast<guint>(i);
 		gtk_drop_down_set_selected(what == "weight" ? c->weight : c->width, pick);
 	} else if (what == "italic") {
 		gtk_switch_set_active(c->italic, arg == "on");
