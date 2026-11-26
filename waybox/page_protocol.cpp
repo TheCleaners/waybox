@@ -15,7 +15,7 @@ const KindName kKinds[] = {
 	{Kind::Group, "group"}, {Kind::Label, "label"}, {Kind::Text, "text"},
 	{Kind::Number, "number"}, {Kind::Switch, "switch"}, {Kind::Choice, "choice"},
 	{Kind::Color, "color"}, {Kind::File, "file"}, {Kind::Folder, "folder"},
-	{Kind::Image, "image"}, {Kind::Button, "button"},
+	{Kind::Image, "image"}, {Kind::List, "list"}, {Kind::Button, "button"},
 };
 
 /* A value as text: a number without a needless ".0", a bool "on"/"". */

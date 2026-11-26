@@ -20,7 +20,7 @@
  *   {"error": {"line": N, "message": TEXT}}
  *
  * Values are text, as an integration option's are: a number as written,
- * a switch "on" or "". Not tied to Lua: any program speaking this can
+ * a switch "on" or "", a list its names one a line. Not tied to Lua: any program speaking this can
  * describe a page. Pure; unit-tested.
  */
 #include <map>
@@ -36,6 +36,7 @@ enum class Kind {
 	Group,    /* a titled group of the controls in it */
 	Label,    /* text */
 	Text, Number, Switch, Choice, Color, File, Folder, Image,  /* settings */
+	List,     /* names in order; its value one a line */
 	Button,   /* a button: "click" with its key */
 };
 
