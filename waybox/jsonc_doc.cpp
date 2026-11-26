@@ -344,6 +344,128 @@ size_t quiet_line_end(std::string_view t, size_t at) {
 	return i == std::string_view::npos ? t.size() : i;
 }
 
+bool same_scalar(const Value &a, const Value &b) {
+	if (a.type != b.type)
+		return false;
+	switch (a.type) {
+	case Type::Null: return true;
+	case Type::Bool: return a.boolean == b.boolean;
+	case Type::Integer: return a.integer == b.integer;
+	case Type::Number: return a.number == b.number;
+	case Type::String: return a.string == b.string;
+	default: return false;
+	}
+}
+
+/* An array one item a line (or with comments in it), replaced by another
+ * of scalars: line by line, so what's in it stays. An item kept keeps its
+ * line (its comment after it too); comment lines go with the item below
+ * them, or stay where they were when it's gone; a new item gets the
+ * items' indentation. False (replace it whole): not laid out so. */
+bool rewrite_lines(const std::string &t, const Node &old, const Value &value,
+		std::string *out) {
+	if (old.type != Type::Array || value.type != Type::Array || old.items.empty())
+		return false;
+	for (const Value &v : value.items)
+		if (!scalar(v))
+			return false;
+	std::string_view span(t.data() + old.start, old.end - old.start);
+	if (span.find('\n') == std::string_view::npos)
+		return false;
+	for (const Node &it : old.items)
+		if (it.type == Type::Array || it.type == Type::Object || !starts_line(t, it.start))
+			return false;
+	size_t close = old.end - 1;  /* ']' */
+	if (!starts_line(t, close))
+		return false;
+	auto line_start = [&t](size_t at) {
+		while (at > 0 && t[at - 1] != '\n')
+			--at;
+		return at;
+	};
+	auto after_line = [&t](size_t at) {  /* past the line's '\n' */
+		size_t nl = t.find('\n', at);
+		return nl == std::string::npos ? t.size() : nl + 1;
+	};
+	/* '[' and the rest of its line. */
+	size_t first_line = line_start(old.items[0].start);
+	size_t head_end = after_line(old.start);
+	if (head_end > first_line)
+		return false;  /* an item on the '[' line */
+	struct Item {
+		std::string lead;    /* comment and blank lines above it */
+		std::string indent, text, after;  /* its line: the value, then a comment */
+		Value value;
+		bool used = false;
+	};
+	std::vector<Item> items;
+	size_t prev = head_end;
+	bool trailing_comma = false;
+	for (size_t k = 0; k < old.items.size(); ++k) {
+		const Node &it = old.items[k];
+		Item item;
+		size_t ls = line_start(it.start);
+		item.lead = t.substr(prev, ls - prev);
+		item.indent = t.substr(ls, it.start - ls);
+		item.text = t.substr(it.start, it.end - it.start);
+		size_t rest = it.end;
+		size_t comma = comma_after(t, it.end);
+		size_t eol = t.find('\n', it.end);
+		if (eol == std::string::npos)
+			eol = t.size();
+		if (comma != std::string::npos && comma < eol) {
+			rest = comma + 1;
+			if (k + 1 == old.items.size())
+				trailing_comma = true;
+		}
+		item.after = t.substr(rest, eol - rest);
+		/* Another item, or the ']', on its line: not one a line. */
+		if (item.after.find_first_not_of(" \t") != std::string::npos &&
+				item.after.find("//") == std::string::npos &&
+				item.after.find("/*") == std::string::npos)
+			return false;
+		item.value = to_value(it);
+		prev = after_line(it.end);
+		items.push_back(std::move(item));
+	}
+	std::string tail = t.substr(prev, line_start(close) - prev);
+	std::string closer = t.substr(line_start(close), old.end - line_start(close));
+	std::string indent = items[0].indent;
+	/* Each new item: an old one with its value (its line), or a new line. */
+	std::vector<int> from(value.items.size(), -1);
+	for (size_t j = 0; j < value.items.size(); ++j)
+		for (size_t k = 0; k < items.size(); ++k)
+			if (!items[k].used && same_scalar(items[k].value, value.items[j])) {
+				items[k].used = true;
+				from[j] = static_cast<int>(k);
+				break;
+			}
+	/* A gone item's comment lines: with the next one kept, else at the end. */
+	std::string pending;
+	for (Item &item : items) {
+		if (item.used) {
+			item.lead = pending + item.lead;
+			pending.clear();
+		} else {
+			pending += item.lead;
+		}
+	}
+	std::string s = t.substr(old.start, head_end - old.start);
+	for (size_t j = 0; j < value.items.size(); ++j) {
+		bool last = j + 1 == value.items.size();
+		std::string comma = !last || trailing_comma ? "," : "";
+		if (from[j] >= 0) {
+			const Item &item = items[static_cast<size_t>(from[j])];
+			s += item.lead + item.indent + item.text + comma + item.after + "\n";
+		} else {
+			s += indent + serialize(value.items[j]) + comma + "\n";
+		}
+	}
+	s += pending + tail + closer;
+	*out = s;
+	return true;
+}
+
 }  // namespace
 
 std::string serialize(const Value &v, const std::string &indent, const std::string &unit) {
@@ -501,8 +623,12 @@ bool Document::set(const Path &path, const Value &value) {
 		--have;
 	if (have == path.size()) {
 		const Node *n = find(path);
-		edit(n->start, n->end - n->start,
-				serialize(value, line_indent(text_, n->start), unit));
+		std::string kept;
+		if (rewrite_lines(text_, *n, value, &kept))
+			edit(n->start, n->end - n->start, kept);
+		else
+			edit(n->start, n->end - n->start,
+					serialize(value, line_indent(text_, n->start), unit));
 		reparse();
 		return ok();
 	}

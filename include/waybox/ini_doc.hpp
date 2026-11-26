@@ -29,6 +29,12 @@ public:
 	void set(std::string_view section, std::string_view key, std::string_view value);
 	/* False if it wasn't there. */
 	bool remove(std::string_view section, std::string_view key);
+	/* A whole [section] (each time it appears): its header, its lines and
+	 * the comments just above it. Not "" (the keys before any section). */
+	bool remove_section(std::string_view section);
+	/* Moved to the end of the file, as they are (each time it appears, in
+	 * order): sections put in an order by moving each, in that order. */
+	bool move_section_to_end(std::string_view section);
 	/* The sections in order, each once ("" first if it has keys). */
 	std::vector<std::string> sections() const;
 	/* A section's keys and (last) values, in order. */
@@ -48,6 +54,9 @@ private:
 	bool final_newline_ = true;
 
 	int last_entry(std::string_view section, std::string_view key) const;
+	/* Its lines: [from, to) for each time it appears, from the comments
+	 * just above its header to the next one's. */
+	std::vector<std::pair<size_t, size_t>> section_spans(std::string_view section) const;
 	size_t insert_at(std::string_view section) const;
 };
 

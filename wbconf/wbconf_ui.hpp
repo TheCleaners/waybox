@@ -33,6 +33,7 @@
 #include <unistd.h>
 
 #include "waybox/name_list.hpp"
+#include "waybox/page_protocol.hpp"
 #include "waybox/change_list.hpp"
 #include "waybox/setting_problems.hpp"
 #include "waybox/wbconf.hpp"
@@ -119,6 +120,29 @@ std::unique_ptr<ListControl> make_list_control(const std::vector<std::string> &s
 void list_control_set(ListControl *c, const wb::names::List &items);
 bool list_control_test(ListControl *c, const std::string &action);
 
+/* Repeated sections (sections_control.cpp): a page's sections { }. */
+struct OptionField;
+struct SectionsControl {
+	GtkWidget *box = nullptr, *rows = nullptr, *add = nullptr, *popover = nullptr;
+	GtkEntry *entry = nullptr;
+	GtkWidget *suggest_box = nullptr, *suggest_scroll = nullptr;
+	std::vector<wb::page::Section> items;
+	std::vector<bool> expanded;
+	std::vector<wb::page::Control> fields;  /* each section's */
+	std::vector<std::string> suggestions, suggestion_labels;
+	/* Shown now, a row at a time. */
+	std::vector<std::vector<std::unique_ptr<wb::IntegrationOption>>> row_opts;
+	std::vector<std::vector<std::unique_ptr<OptionField>>> row_fields;
+	std::vector<GtkLabel *> summaries;
+	std::vector<GtkEntry *> name_entries;
+	std::function<void()> on_change;
+	bool syncing = false;
+	~SectionsControl();
+};
+std::unique_ptr<SectionsControl> make_sections_control(const wb::page::Control &control);
+void sections_control_set(SectionsControl *c, const std::vector<wb::page::Section> &items);
+bool sections_control_test(SectionsControl *c, const std::string &action);
+
 /* One integration option's widget (option_widgets.cpp), by its Type=. */
 struct OptionField {
 	const wb::IntegrationOption *opt = nullptr;
@@ -132,6 +156,7 @@ struct OptionField {
 	GtkColorDialogButton *color = nullptr;
 	std::unique_ptr<ColorControl> color_control;
 	std::unique_ptr<ListControl> list;  /* list (pages only) */
+	std::unique_ptr<SectionsControl> sections;  /* sections (pages only) */
 	bool syncing = false;
 	std::function<void()> on_change;  /* the user changed it */
 };

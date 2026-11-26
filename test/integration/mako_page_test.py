@@ -6,6 +6,8 @@ through wbconf-lua, with wb.ini underneath.
 2. A config with comments, a value with '#', and criteria sections: its
    values shown (a switch from 0/1).
 3. A margin that isn't up to four numbers: a problem shown.
+5. Rules (its criteria sections): read; saved with one added before the
+   other and a field emptied, the file has them in that order.
 4. Save, with the width and icons changed: the file written back with only
    those lines changed (comments, spacing and sections as they were), a key
    left at its default not added, and mako reloaded.
@@ -123,6 +125,26 @@ def main():
     reloads = [m for m in r_save if "reload" in m]
     if runs or reloads != [{"reload": True}]:
         failures.append(f"save: runs {runs}, reloads {reloads} (wb.reload(), not makoctl)")
+
+    # 5. Rules (criteria sections): read; one added before the other, a
+    # field emptied: the file in that order, the emptied key gone.
+    with open(conf, "w") as f:
+        f.write(CONFIG)
+    rules = json.dumps([{"name": "app-name=firefox", "values": {"invisible": "1"}},
+                        {"name": "urgency=high", "values": {"border-color": "#f38ba8"}}])
+    r_open, r_save = run([opened, {"save": {"rules": rules}}])
+    pages = [m["page"] for m in r_open if "page" in m]
+    got = [c.get("value") for g in (pages[0]["controls"] if pages else [])
+           if g["kind"] == "group" for c in g.get("children", []) if c.get("key") == "rules"]
+    want_rules = [{"name": "urgency=high",
+                   "values": {"border-color": "#f38ba8", "default-timeout": "0"}}]
+    if not got or json.loads(got[0]) != want_rules:
+        failures.append(f"the rules read: {got}")
+    writes = [m["write"] for m in r_save if "write" in m]
+    want = ("# my notifications\nfont = Inter 11\nbackground-color=#1e1e2eee\nicons=0\n"
+            "\n[app-name=firefox]\ninvisible=1\n\n[urgency=high]\nborder-color=#f38ba8\n")
+    if len(writes) != 1 or writes[0]["text"] != want:
+        failures.append(f"the rules saved: {r_save}")
 
     if failures:
         for f in failures:

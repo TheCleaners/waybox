@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Integration test: a Lua page's list { } in wbconf.
+"""Integration test: a Lua page's list { } and sections { } in wbconf.
 
 A trusted page with a list (a, b, c) and suggestions (x, a): moved,
 removed and added to as its buttons do (an add of a name already in it
 ignored), its on_change given a table each time (said as a problem with
 the count), the change listed as not saved, and Save & Apply has the page
 write the names in their new order.
+Its sections (one, "a=1", with t=1): one added (urgency=high) and its t
+set, one added from a start ("app-name=") and renamed, moved up, the
+first's t emptied: saved in that order, the emptied field left out.
 Skips (exit 77) without a headless display.
 
 Usage: wbconf_page_list_test.py <waybox> <wbconf> <schema-dir> <wbconf-lua>
@@ -31,13 +34,22 @@ Files=~/.config/lists/config
 
 PAGE = r'''
 page { list { "items", label = "Items", value = { "a", "b", "c" },
-              choices = { "x", { "a", "The first" } } } }
+              choices = { "x", { "a", "The first" } } },
+       sections { "rules", label = "Rules", value = { { name = "a=1", values = { t = 1 } } },
+                  choices = { "urgency=high", { "app-name=", "A program" } },
+                  fields = { number { "t", label = "Time" },
+                             choice { "h", label = "Shown", choices = { "0", "1" } } } } }
 function on_change(key, value)
   if type(value) ~= "table" then error("not a table: " .. type(value)) end
-  wb.problem("items", #value .. " items")
+  if key == "items" then wb.problem("items", #value .. " items") end
 end
 function on_save(v)
-  wb.write("~/.config/lists/config", table.concat(v.items, ","))
+  local rules = {}
+  for _, r in ipairs(v.rules) do
+    rules[#rules + 1] = r.name .. "(" .. (r.values.t or "") .. (r.values.h or "") .. ")"
+  end
+  wb.write("~/.config/lists/config", table.concat(v.items, ",") .. ";" ..
+      table.concat(rules, ","))
 end
 '''
 
@@ -90,6 +102,9 @@ def main():
         sys.exit(SKIP)
     steps = ["luapage:lists", "luaset:lists.items=@down:0", "luaset:lists.items=@remove:2",
              "luaset:lists.items=@add:x", "luaset:lists.items=@add:a", "luaset:lists.items=@up:0",
+             "luaset:lists.rules=@add:urgency=high", "luaset:lists.rules=@set:1:t=5",
+             "luaset:lists.rules=@add:app-name=", "luaset:lists.rules=@rename:2:app-name=foot",
+             "luaset:lists.rules=@up:2", "luaset:lists.rules=@set:0:t=",
              "luapage:lists", "changes", "save", "luapage:lists"]
     wenv = dict(env, WAYLAND_DISPLAY=sock, GDK_BACKEND="wayland", GSK_RENDERER="cairo",
                 DBUS_SESSION_BUS_ADDRESS="disabled:", GSETTINGS_BACKEND="memory",
@@ -109,22 +124,26 @@ def main():
         _, err = app.communicate()
     lines = err.splitlines()
     d = [l.split("|")[1:] for l in lines if l.startswith("luapage-dump:lists")]
+    rules0 = 'rules=[{"name":"a=1","values":{"t":"1"}}]'
+    rules1 = ('rules=[{"name":"a=1","values":{}},{"name":"app-name=foot","values":{}},'
+              '{"name":"urgency=high","values":{"t":"5"}}]')
     if len(d) != 3:
         failures.append(f"{len(d)} dumps, not 3: {lines[-10:]}")
     else:
-        if d[0] != ["items=a\\nb\\nc"]:
-            failures.append(f"the list as given: {d[0]}")
+        if d[0] != ["items=a\\nb\\nc", rules0]:
+            failures.append(f"as given: {d[0]}")
         # down:0 -> b a c; remove:2 -> b a; add x -> b a x; add a: no;
         # up:0 -> no (the first): b a x.
-        if d[1] != ["items=b\\na\\nx!3 items"]:
-            failures.append(f"after moving, removing and adding: {d[1]}")
-        if d[2] != ["items=b\\na\\nx!3 items"]:
+        if d[1] != ["items=b\\na\\nx!3 items", rules1]:
+            failures.append(f"after the changes: {d[1]}")
+        if d[2] != d[1]:
             failures.append(f"after saving: {d[2]}")
     changes = [l for l in lines if l.startswith("changes-dump:")]
     if not changes or "Items" not in changes[0]:
         failures.append(f"the change not listed: {changes}")
     conf = os.path.join(cfg, "lists", "config")
-    if not os.path.exists(conf) or open(conf).read() != "b,a,x":
+    if not os.path.exists(conf) or \
+            open(conf).read() != "b,a,x;a=1(),app-name=foot(),urgency=high(5)":
         failures.append(f"the file as saved: {open(conf).read() if os.path.exists(conf) else None}")
     proc.terminate()
     try:

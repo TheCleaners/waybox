@@ -121,3 +121,41 @@ WB_TEST(approvals) {
 	/* Odd lines: ignored. */
 	WB_CHECK(wb::page::parse_approvals("lonely\n  # x y\n\tid  hash  extra\n")["id"] == "hash");
 }
+
+WB_TEST(page_sections) {
+	auto v = wb::json::parse(R"({"controls": [
+		{"kind": "number", "key": "timeout", "value": "5"},
+		{"kind": "sections", "key": "rules", "label": "Rules",
+		 "value": "[{\"name\":\"urgency=high\",\"values\":{\"timeout\":\"0\"}}]",
+		 "choices": ["urgency=high", ["app-name=", "A program"]],
+		 "children": [
+			{"kind": "number", "key": "timeout", "label": "Disappear after"},
+			{"kind": "color", "key": "background-color"}]}]})");
+	std::string err;
+	auto p = wb::page::page_from_json(*v, &err);
+	WB_CHECK(p && err.empty());
+	if (!p)
+		return;
+	/* Its fields' keys are its own: "timeout" twice is fine. */
+	auto vals = wb::page::page_values(*p);
+	WB_CHECK(vals.size() == 2 && vals[0].first == "timeout" && vals[1].first == "rules");
+	WB_CHECK(wb::page::find_control(*p, "background-color") == nullptr);
+	WB_CHECK(wb::page::find_control(*p, "rules")->children.size() == 2);
+	WB_CHECK(wb::page::page_from_json(wb::page::page_to_json(*p)) == p);
+	/* Only settings as fields. */
+	auto bad = wb::json::parse(R"({"controls": [{"kind": "sections", "key": "s", "children": [
+		{"kind": "button", "key": "b", "label": "B"}]}]})");
+	WB_CHECK(!wb::page::page_from_json(*bad, &err) && err.find("only have settings") !=
+			std::string::npos);
+	/* The value. */
+	auto secs = wb::page::sections_from_text(p->controls[1].value);
+	WB_CHECK(secs.size() == 1 && secs[0].name == "urgency=high" &&
+			secs[0].values.at("timeout") == "0");
+	secs.push_back({"app-name=firefox", {{"timeout", "2000"}, {"background-color", ""}}});
+	std::string text = wb::page::sections_to_text(secs);
+	auto back = wb::page::sections_from_text(text);
+	WB_CHECK(back.size() == 2 && back[1].values.size() == 1);  /* empty left out */
+	WB_CHECK(wb::page::sections_from_text("").empty() &&
+			wb::page::sections_from_text("{}").empty());
+}
+

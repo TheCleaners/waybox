@@ -17,6 +17,28 @@ local defaults = {
 local switches = { icons = true, ["ignore-timeout"] = true }
 
 -- What the file says, else mako's default; a switch's 0/1 as on/off.
+-- Criteria sections ([urgency=high], [app-name=firefox]): the rules.
+local rule_keys = { "default-timeout", "background-color", "text-color", "border-color",
+  "invisible" }
+local function rule_fields()
+  return {
+    number { "default-timeout", label = "Disappear after", unit = "ms", min = 0,
+             max = 600000 },
+    color { "background-color", label = "Background" },
+    color { "text-color", label = "Text" },
+    color { "border-color", label = "Border" },
+    choice { "invisible", label = "Shown", choices = { { "0", "Yes" }, { "1", "No, hidden" } } },
+  }
+end
+local rules = {}
+for _, name in ipairs(cfg:sections()) do
+  if name ~= "" then
+    local values = {}
+    for _, k in ipairs(rule_keys) do values[k] = cfg:section(name):get(k) end
+    rules[#rules + 1] = { name = name, values = values }
+  end
+end
+
 local function now(key)
   local v = cfg:get(key, defaults[key])
   if switches[key] then return v == "1" end
@@ -66,6 +88,16 @@ page {
     number { "max-visible", label = "Shown at once", min = -1, max = 100,
              value = now("max-visible"), description = "-1: all of them." },
   },
+  group "Rules" {
+    sections { "rules", label = "For some notifications", value = rules,
+      hint = "What it applies to, then Enter",
+      choices = { { "urgency=high", "Urgent ones" }, { "urgency=low", "Low urgency ones" },
+                  { "app-name=", "From a program…" }, { "category=", "Of a category…" },
+                  { "mode=do-not-disturb", "In do-not-disturb mode" } },
+      description = "Each changes the settings above for the notifications it applies " ..
+          "to (mako(5), CRITERIA); later ones win.",
+      fields = rule_fields() },
+  },
   button { "Send a Test Notification", on_click = function()
     wb.run { "notify-send", "Waybox", "A test notification, as mako shows it now." }
   end },
@@ -82,7 +114,36 @@ function on_change(key, value)
   end
 end
 
+-- The rules as given: sections gone removed, each one's fields set (an
+-- empty one taken out; what else a section has kept), in their order.
+local function save_rules(given)
+  local keep = {}
+  for _, r in ipairs(given) do keep[r.name] = true end
+  for _, name in ipairs(cfg:sections()) do
+    if name ~= "" and not keep[name] then cfg:remove_section(name) end
+  end
+  local order = {}
+  for _, r in ipairs(given) do
+    if r.name ~= "" then
+      local sec = cfg:section(r.name)
+      for _, k in ipairs(rule_keys) do
+        local v = r.values[k]
+        if v ~= nil or sec:get(k) ~= nil then sec:set(k, v) end
+      end
+      order[#order + 1] = r.name
+    end
+  end
+  -- Only if the order changed: a file kept as it was otherwise.
+  local now_order = {}
+  for _, name in ipairs(cfg:sections()) do
+    if name ~= "" then now_order[#now_order + 1] = name end
+  end
+  if table.concat(now_order, "\n") ~= table.concat(order, "\n") then cfg:order(order) end
+end
+
 function on_save(values)
+  save_rules(values.rules)
+  values.rules = nil
   for key, value in pairs(values) do
     if switches[key] then value = value == "on" and "1" or "0" end
     -- Only what's changed from mako's default, or already in the file.

@@ -211,3 +211,54 @@ WB_TEST(jsonc_survives_broken_files) {
 		exercise(w.substr(0, i) + w.substr(i + 1));
 }
 
+WB_TEST(jsonc_lists_keep_their_lines) {
+	const char *t =
+		"{\n"
+		"    \"modules-right\": [\n"
+		"        \"tray\",\n"
+		"        // \"cpu\",\n"
+		"        \"pulseaudio\", // volume\n"
+		"        \"network\",\n"
+		"        \"clock\"\n"
+		"    ],\n"
+		"}\n";
+	auto list = [](std::initializer_list<const char *> names) {
+		Value v;
+		v.type = Value::Type::Array;
+		for (const char *n : names)
+			v.items.push_back(str(n));
+		return v;
+	};
+	/* Reordered, one removed, one added: lines and comments kept. */
+	auto d = Document::parse(t);
+	WB_CHECK(d.set({"modules-right"}, list({"clock", "pulseaudio", "tray", "battery"})));
+	WB_CHECK(d.text() ==
+		"{\n"
+		"    \"modules-right\": [\n"
+		"        \"clock\",\n"
+		"        // \"cpu\",\n"
+		"        \"pulseaudio\", // volume\n"
+		"        \"tray\",\n"
+		"        \"battery\"\n"
+		"    ],\n"
+		"}\n");
+	/* The item a comment line is above, gone: the comment stays. */
+	auto g = Document::parse(t);
+	WB_CHECK(g.set({"modules-right"}, list({"tray", "network", "clock"})));
+	WB_CHECK(g.text().find("        \"tray\",\n        // \"cpu\",\n        \"network\",") !=
+			std::string::npos);
+	WB_CHECK(g.text().find("pulseaudio") == std::string::npos && g.ok());
+	/* A trailing comma after the last: kept so. */
+	auto c = Document::parse("[\n  \"a\",\n  \"b\",\n]\n");
+	WB_CHECK(c.set({}, list({"b", "a", "c"})));
+	WB_CHECK(c.text() == "[\n  \"b\",\n  \"a\",\n  \"c\",\n]\n");
+	/* On one line: replaced as it was. */
+	auto o = Document::parse("{\"m\": [\"a\", \"b\"]}");
+	WB_CHECK(o.set({"m"}, list({"b"})) && o.text() == "{\"m\": [\"b\"]}");
+	/* Emptied: the comments stay, inside. */
+	auto e = Document::parse(t);
+	WB_CHECK(e.set({"modules-right"}, list({})));
+	WB_CHECK(e.text().find("\"modules-right\": [\n        // \"cpu\",\n    ],") !=
+			std::string::npos && e.ok());
+}
+

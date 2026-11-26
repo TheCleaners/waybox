@@ -440,7 +440,16 @@ struct LuaPage {
 			f.opt->width_chars = c.kind == page::Kind::Text && !c.wide ? 24 : 0;
 			f.opt->color_alpha = true;  /* a page's colors may be #rrggbbaa */
 			std::string key = c.key;
-			f.field = make_option_field(*f.opt, [this, key] { changed(key); });
+			if (c.kind == page::Kind::Sections) {
+				f.field = std::make_unique<OptionField>();
+				f.field->opt = f.opt.get();
+				f.field->sections = make_sections_control(c);
+				f.field->sections->on_change = [this, key] { changed(key); };
+				f.field->widget = f.field->sections->box;
+				set_option_field_value(*f.field, c.value);
+			} else {
+				f.field = make_option_field(*f.opt, [this, key] { changed(key); });
+			}
 			GtkWidget *label = grid_label(grid, r, (f.opt->label + ":").c_str());
 			/* Level with the field, not with the field and its description. */
 			gtk_widget_set_valign(label, GTK_ALIGN_START);
@@ -473,7 +482,7 @@ struct LuaPage {
 			gtk_widget_add_css_class(GTK_WIDGET(f.problem), "wb-problem");
 			gtk_box_append(GTK_BOX(cell), GTK_WIDGET(f.problem));
 			grid_control(grid, r++, cell);
-			if (c.wide || c.kind == page::Kind::List)
+			if (c.wide || c.kind == page::Kind::List || c.kind == page::Kind::Sections)
 				gtk_widget_set_halign(cell, GTK_ALIGN_FILL);
 			/* Shown or hidden with its label. */
 			f.row = cell;
@@ -860,6 +869,10 @@ void lua_page_test(Ui *ui, const std::string &id, const std::string &what,
 			 * buttons do (and so through its on_change). */
 			if (it->second.field->list != nullptr && value.rfind('@', 0) == 0) {
 				list_control_test(it->second.field->list.get(), value.substr(1));
+				continue;
+			}
+			if (it->second.field->sections != nullptr && value.rfind('@', 0) == 0) {
+				sections_control_test(it->second.field->sections.get(), value.substr(1));
 				continue;
 			}
 			set_option_field_value(*it->second.field, value);

@@ -142,6 +142,76 @@ bool Document::remove(std::string_view section, std::string_view key) {
 	return any;
 }
 
+std::vector<std::pair<size_t, size_t>> Document::section_spans(std::string_view section) const {
+	std::vector<std::pair<size_t, size_t>> out;
+	/* A section's lines start at the comments (and blank lines between
+	 * them) just above its header; they end where the next one's start. */
+	auto lead = [this](size_t header) {
+		size_t at = header;
+		while (at > 0 && lines_[at - 1].kind == Kind::Comment)
+			--at;
+		return at;
+	};
+	for (size_t i = 0; i < lines_.size(); ++i) {
+		if (lines_[i].kind != Kind::Section || lines_[i].section != section)
+			continue;
+		size_t end = i + 1;
+		while (end < lines_.size() && lines_[end].kind != Kind::Section)
+			++end;
+		if (end < lines_.size())
+			end = lead(end);
+		out.emplace_back(lead(i), end);
+	}
+	return out;
+}
+
+bool Document::remove_section(std::string_view section) {
+	if (section.empty())
+		return false;
+	auto spans = section_spans(section);
+	for (size_t k = spans.size(); k-- > 0;)
+		lines_.erase(lines_.begin() + static_cast<long>(spans[k].first),
+				lines_.begin() + static_cast<long>(spans[k].second));
+	/* No blank lines left at the end. */
+	while (!lines_.empty() && lines_.back().kind == Kind::Blank)
+		lines_.pop_back();
+	if (!spans.empty())
+		final_newline_ = true;
+	return !spans.empty();
+}
+
+bool Document::move_section_to_end(std::string_view section) {
+	if (section.empty())
+		return false;
+	auto spans = section_spans(section);
+	if (spans.empty())
+		return false;
+	std::vector<Line> moved;
+	for (auto [from, to] : spans) {
+		std::vector<Line> part(lines_.begin() + static_cast<long>(from),
+				lines_.begin() + static_cast<long>(to));
+		/* Without its trailing blank lines; one goes before it. */
+		while (!part.empty() && part.back().kind == Kind::Blank)
+			part.pop_back();
+		Line blank;
+		blank.kind = Kind::Blank;
+		blank.section = std::string(section);
+		moved.push_back(blank);
+		moved.insert(moved.end(), part.begin(), part.end());
+	}
+	for (size_t k = spans.size(); k-- > 0;)
+		lines_.erase(lines_.begin() + static_cast<long>(spans[k].first),
+				lines_.begin() + static_cast<long>(spans[k].second));
+	while (!lines_.empty() && lines_.back().kind == Kind::Blank)
+		lines_.pop_back();
+	/* At the very top: no blank line before it. */
+	if (lines_.empty())
+		moved.erase(moved.begin());
+	lines_.insert(lines_.end(), moved.begin(), moved.end());
+	final_newline_ = true;
+	return true;
+}
+
 std::vector<std::string> Document::sections() const {
 	std::vector<std::string> out;
 	for (const Line &l : lines_) {

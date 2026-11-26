@@ -210,6 +210,16 @@ end
 	table of names, and so is what *on_change*, *on_save* and *wb.get*
 	give.
 
+*sections {* _"key"_, *fields = {* ... *}*, ... *}*
+	Repeated sections (mako's criteria, *[urgency=high]*): each named,
+	moved, removed or opened to change its name and its *fields* (made
+	with *text*, *number*, *choice*, *color*...: the section's, not the
+	page's settings, so a key may be both); a field left empty is left
+	out. More are added as a list's are; a suggestion ending with *=*
+	(*app-name=*) is a start, the name finished in the section. Its
+	*value* is a table of *{ name =* _name_*, values = {* _field_ *=*
+	_text_*, ... } }*, as *on_change*, *on_save* and *wb.get* give it.
+
 *group* _"Title"_ *{* ... *}*, *label* _"text"_
 	A titled group of controls; a line of text.
 
@@ -248,7 +258,9 @@ end
 	same calls. *doc:sections()* lists them, *doc:text()* is the file to
 	write. A value is everything after the first *=*, a *#* in it included
 	(colors); a section that repeats (mako's criteria) reads as one, a key
-	changed where it last appears.
+	changed where it last appears. *doc:remove_section(*_name_*)* takes a
+	section out (each time it appears, with the comments above it);
+	*doc:order({* _names_ *})* puts sections in that order.
 
 *wb.json.read(*_path_*)*, *wb.json.parse(*_text_*)*
 	A JSON file to edit in place, comments (*//* and */\* \*/*) and
