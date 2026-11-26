@@ -91,5 +91,5 @@ function on_save(values)
     end
   end
   wb.write(path, cfg:text())
-  wb.run { "makoctl", "reload" }
+  wb.reload()
 end

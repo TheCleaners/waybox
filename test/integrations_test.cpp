@@ -481,3 +481,35 @@ WB_TEST(page_access_tiers) {
 	WB_CHECK(wb::run_access(bashlike, "bash").reach == Reach::Full);
 	WB_CHECK(wb::file_access(mako, "~/.config/waybox/rc.xml").reach == Reach::Full);
 }
+
+WB_TEST(integration_reload) {
+	using K = wb::IntegrationReload::Kind;
+	auto read = [](const std::string &reload) {
+		return wb::check_integration("x", "[Integration]\nName=x\nExec=fakebar\nPage=x.lua\n"
+				"Reload=" + reload + "\n");
+	};
+	auto c = read("command makoctl reload");
+	WB_CHECK(c.integration && c.integration->reload.kind == K::Command &&
+			(c.integration->reload.argv == std::vector<std::string>{"makoctl", "reload"}));
+	c = read("signal USR2");
+	WB_CHECK(c.integration->reload.kind == K::Signal && c.integration->reload.signal == "USR2");
+	c = read("signal SIGHUP");
+	WB_CHECK(c.integration->reload.kind == K::Signal && c.integration->reload.signal == "HUP");
+	WB_CHECK(read("none").integration->reload.kind == K::None);
+	/* Not one of those: said, and ignored. */
+	for (const char *bad : {"signal KILL", "signal TERM", "signal", "command", "restart", "x y"}) {
+		c = read(bad);
+		WB_CHECK(c.integration->reload.kind == K::Unset &&
+				has_problem(c, 5, false, ("Reload=" + std::string(bad) + ": command PROGRAM").c_str()));
+	}
+	/* A command: a program's name; full access said. */
+	WB_CHECK(has_problem(read("command /usr/bin/makoctl reload"), 0, false, "without a folder"));
+	WB_CHECK(has_problem(read("command sh -c x"), 0, false, "full access"));
+	/* Never Waybox. */
+	auto w = wb::check_integration("w", "[Integration]\nName=w\nExec=waybox\nReload=signal USR1\n");
+	WB_CHECK(has_problem(w, 0, true, "not to Waybox itself"));
+	WB_CHECK(!read("command makoctl reload").integration->reload.argv.empty());
+	WB_CHECK(wb::parse_integration("p", "[Integration]\nName=p\nExec=p\n")->reload.kind ==
+			K::Unset);
+}
+

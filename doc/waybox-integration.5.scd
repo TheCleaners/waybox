@@ -100,6 +100,15 @@ Default=stretch
 	For a Lua page: the programs it may run, by name (found in *PATH*),
 	separated by commas.
 
+*Reload=*
+	How the program takes its settings again once its page saved them
+	(the page's *wb.reload()*): *command* _program_ _args_ (run as
+	written, *command makoctl reload*); *signal USR1*, *USR2* or *HUP*,
+	sent to the program (_Binary_) only where it's the user's and runs in
+	this Wayland session, never to Waybox (*signal USR2* for Waybar);
+	*none*, when it notices by itself. Without it, wbconf says to restart
+	the program to see its settings. The approval card shows it.
+
 *Manages=outputs*
 	It sets monitors itself (*kanshi*): while it runs, its profiles win over
 	Waybox's *<outputs>* on a hotplug, and wbconf says so on its Monitors
@@ -205,6 +214,10 @@ end
 
 *wb.read(*_path_*)*
 	A file's text, if it's in *Files*; nil if it can't be read.
+
+*wb.reload()*
+	The program takes its settings again, as its *Reload=* says; done
+	after the save's writes.
 
 *wb.write(*_path_*,* _text_*)*, *wb.run {* _program_*,* _arg_*, ... }*
 	A file to write and a program to run. wbconf does both on Save & Apply

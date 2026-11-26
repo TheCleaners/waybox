@@ -120,8 +120,9 @@ def main():
         want = CONFIG.replace("icons=0\n", "icons=1\nwidth=420\n")
         if text != want:
             failures.append(f"the file as written:\n{text}\nnot:\n{want}")
-    if runs != [["makoctl", "reload"]]:
-        failures.append(f"runs on save: {runs}")
+    reloads = [m for m in r_save if "reload" in m]
+    if runs or reloads != [{"reload": True}]:
+        failures.append(f"save: runs {runs}, reloads {reloads} (wb.reload(), not makoctl)")
 
     if failures:
         for f in failures:

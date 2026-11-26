@@ -6,3 +6,4 @@ Exec=mako
 Page=mako.lua
 Files=~/.config/mako/config
 Runs=makoctl, notify-send
+Reload=command makoctl reload
