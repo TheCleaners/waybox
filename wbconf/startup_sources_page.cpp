@@ -290,6 +290,19 @@ GtkWidget *build_xdg_block(Ui *ui) {
 	return box;
 }
 
+void sources_changes(Ui *ui, bool script, const std::string &where, GtkWidget *target,
+		std::vector<UnsavedChange> &out) {
+	for (auto &r : ui->source_rows) {
+		if (r->script != script || r->on == nullptr || gtk_switch_get_active(r->on) == r->saved)
+			continue;
+		std::string name = !r->program.empty() ? r->program
+				: script ? r->command : r->file;
+		out.push_back({{where + " \xE2\x80\xBA " + name, r->saved ? _("on") : _("off"),
+				r->saved ? _("off") : _("on")}, GTK_WIDGET(r->on)});
+	}
+	(void)target;
+}
+
 int sources_unsaved(Ui *ui) {
 	int n = 0;
 	for (auto &r : ui->source_rows)

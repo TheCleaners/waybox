@@ -24,27 +24,8 @@ void set_status(Ui *ui, const std::string &text) {
 
 namespace {
 
-/* How many settings differ from rc.xml: rows, plus each custom editor. */
-int unsaved_count(Ui *ui) {
-	if (!ui->loaded)
-		return 0;
-	int n = 0;
-	for (auto &r : ui->rows)
-		if (r->value != r->saved)
-			++n;
-	wb::WayboxSettings now = collect(ui);
-	n += now.theme_name != ui->shown.theme_name;
-	n += now.outputs != ui->shown.outputs || now.hdr_outputs != ui->shown.hdr_outputs;
-	n += now.startup != ui->shown.startup;
-	n += now.input_method != ui->shown.input_method;
-	n += bindings_unsaved(ui);
-	n += sources_unsaved(ui);
-	n += gtk_unsaved(ui);
-	return n;
-}
-
 bool unsaved(Ui *ui) {
-	return unsaved_count(ui) > 0;
+	return !unsaved_changes(ui).empty();
 }
 
 const char *kUnsavedTag = "wb-unsaved-status";
@@ -54,8 +35,10 @@ const char *kUnsavedTag = "wb-unsaved-status";
 void refresh_save_state(Ui *ui) {
 	if (ui->save == nullptr || ui->status == nullptr)
 		return;
-	int n = unsaved_count(ui);
+	std::vector<UnsavedChange> changes = unsaved_changes(ui);
+	int n = static_cast<int>(changes.size());
 	gtk_widget_set_sensitive(ui->save, n > 0);
+	refresh_changes_button(ui, changes);
 	bool showing = g_object_get_data(G_OBJECT(ui->status), kUnsavedTag) != nullptr;
 	if (n > 0) {
 		char *t = g_strdup_printf(ngettext("%d change not saved yet",
@@ -323,6 +306,7 @@ void build_window(GtkApplication *app, Ui *ui) {
 	gtk_widget_set_margin_top(actions, 8);
 	gtk_widget_set_margin_bottom(actions, 8);
 
+	gtk_box_append(GTK_BOX(actions), build_changes_button(ui));
 	GtkWidget *status = gtk_label_new("");
 	gtk_widget_set_hexpand(status, TRUE);
 	gtk_widget_set_halign(status, GTK_ALIGN_START);

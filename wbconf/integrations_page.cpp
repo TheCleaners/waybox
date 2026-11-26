@@ -940,6 +940,19 @@ void bindings_saved(Ui *ui) {
 	}
 }
 
+void binding_changes(Ui *ui, const std::string &id, const std::string &where,
+		GtkWidget *target, std::vector<UnsavedChange> &out) {
+	auto text = [](const std::optional<std::pair<std::string, std::string>> &b) {
+		return b ? b->first + "  " + b->second : std::string(_("off"));
+	};
+	for (auto &b : ui->bindings)
+		if (b->in != nullptr && b->in->id == id) {
+			auto now = binding_now(b.get());
+			if (now != b->saved)
+				out.push_back({{where, text(b->saved), text(now)}, target});
+		}
+}
+
 int bindings_unsaved(Ui *ui) {
 	int n = 0;
 	for (auto &b : ui->bindings)

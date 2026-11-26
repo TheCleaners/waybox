@@ -32,6 +32,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include "waybox/change_list.hpp"
 #include "waybox/wbconf.hpp"
 #include "waybox/settings_schema.hpp"
 #include "waybox/integrations.hpp"
@@ -359,6 +360,9 @@ struct Ui {
 	 * loading or the last save: Save writes only what differs. */
 	wb::WayboxSettings shown;
 	GtkWidget *save = nullptr;
+	/* Beside the status: what's not saved yet, listed (hover, click). */
+	GtkWidget *changes_button = nullptr;
+	GtkWidget *changes_popover = nullptr;
 	bool loaded = false;  /* false: rc.xml has an error; nothing is saved */
 };
 
@@ -537,6 +541,30 @@ void focus_category(Ui *ui, const std::string &category_id);
 /* Save enabled and the status line counting changes, when anything differs
  * from rc.xml. */
 void refresh_save_state(Ui *ui);
+
+/* A change not saved yet: how it reads in the list, and the widget to
+ * scroll to for it (nullptr: none). Recomputed whenever needed: a reload
+ * may destroy the widgets. */
+struct UnsavedChange {
+	wb::ChangeItem item;
+	GtkWidget *target = nullptr;
+};
+/* Every change not saved yet, in the order of the page. */
+std::vector<UnsavedChange> unsaved_changes(Ui *ui);
+/* The custom editors' own: each change under `where` (its row's place
+ * in the page) and `target`, the setting's row. */
+void gtk_changes(Ui *ui, const std::string &where, GtkWidget *target,
+		std::vector<UnsavedChange> &out);
+void sources_changes(Ui *ui, bool script, const std::string &where, GtkWidget *target,
+		std::vector<UnsavedChange> &out);
+void binding_changes(Ui *ui, const std::string &id, const std::string &where,
+		GtkWidget *target, std::vector<UnsavedChange> &out);
+/* The list button beside the status line, and bringing it up to date. */
+GtkWidget *build_changes_button(Ui *ui);
+void refresh_changes_button(Ui *ui, const std::vector<UnsavedChange> &changes);
+void open_changes(Ui *ui);
+/* Scroll the settings to `w` (clearing a search that hides it). */
+void reveal_in_list(Ui *ui, GtkWidget *w);
 
 }  // namespace wbconf
 
