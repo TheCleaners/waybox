@@ -11,7 +11,8 @@ set, one added from a start ("app-name=") and renamed, moved up, the
 first's t emptied: saved in that order, the emptied field left out.
 Its fonts: one written as fontconfig names (a fallback and antialias=true
 kept when the family, weight and slant change), one as Pango writes it
-(its size changed, its weight back to the font's own).
+(its size changed, its weight back to the font's own, then + twice, each
+followed by the field losing focus: a whole point each).
 A program bound to a key (Kind=binding) has its page too: its change
 listed as not saved, and saved.
 Skips (exit 77) without a headless display.
@@ -135,7 +136,9 @@ def main():
              "luaset:lists.rules=@up:2", "luaset:lists.rules=@set:0:t=",
              "luaset:lists.mono=@family:DejaVu Sans Mono", "luaset:lists.mono=@weight:700",
              "luaset:lists.mono=@italic:on", "luaset:lists.ui=@size:13",
-             "luaset:lists.ui=@weight:0",
+             "luaset:lists.ui=@weight:0", "luaset:lists.ui=@size-step:up",
+             "luaset:lists.ui=@size-update:", "luaset:lists.ui=@size-step:up",
+             "luaset:lists.ui=@size-update:",
              "luaset:keyed.word=hello", "luapage:keyed",
              "luapage:lists", "changes", "save", "luapage:lists"]
     wenv = dict(env, WAYLAND_DISPLAY=sock, GDK_BACKEND="wayland", GSK_RENDERER="cairo",
@@ -159,7 +162,7 @@ def main():
     rules0 = 'rules=[{"name":"a=1","values":{"t":"1"}}]'
     fonts0 = ["mono=Iosevka,Noto Color Emoji:size=12:antialias=true", "ui=Inter Bold 11"]
     fonts1 = ["mono=DejaVu Sans Mono,Noto Color Emoji:size=12:weight=bold:slant=italic:"
-              "antialias=true", "ui=Inter 13"]
+              "antialias=true", "ui=Inter 15"]
     rules1 = ('rules=[{"name":"a=1","values":{}},{"name":"app-name=foot","values":{}},'
               '{"name":"urgency=high","values":{"t":"5"}}]')
     if len(d) != 3:
