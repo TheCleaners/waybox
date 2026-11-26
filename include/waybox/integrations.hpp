@@ -182,7 +182,8 @@ std::string full_access_file(const std::string &path, const std::string &home = 
  * - Own: its program (Binary=) or a companion named after it: the name
  *   and ctl, msg, client or cli, with or without a '-' (makoctl for mako;
  *   not any name it starts: a page names its program itself); a file in a
- *   folder named after it (~/.config/mako/config).
+ *   folder named after it (~/.config/mako/config; its system-wide default
+ *   in /etc/xdg/mako/ too).
  * - Other: anything else: another program, with the account's access, or
  *   another program's file.
  * - Full: known to be full access (full_access_run, full_access_file). */

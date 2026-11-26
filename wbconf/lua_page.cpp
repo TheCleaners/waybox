@@ -447,6 +447,12 @@ struct LuaPage {
 			GtkWidget *cell = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
 			GtkWidget *line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 			gtk_box_append(GTK_BOX(line), f.field->widget);
+			/* Wide: the row's whole width (a list of names). */
+			if (c.wide) {
+				gtk_widget_set_hexpand(f.field->widget, TRUE);
+				gtk_widget_set_hexpand(line, TRUE);
+				gtk_widget_set_hexpand(cell, TRUE);
+			}
 			/* A number's unit comes with its field; another kind's after it. */
 			if (!c.unit.empty() && c.kind != page::Kind::Number) {
 				GtkWidget *u = gtk_label_new(c.unit.c_str());
@@ -463,9 +469,11 @@ struct LuaPage {
 			f.problem = GTK_LABEL(gtk_label_new(""));
 			gtk_label_set_xalign(f.problem, 0);
 			gtk_label_set_wrap(f.problem, TRUE);
-			gtk_widget_add_css_class(GTK_WIDGET(f.problem), "warning");
+			gtk_widget_add_css_class(GTK_WIDGET(f.problem), "wb-problem");
 			gtk_box_append(GTK_BOX(cell), GTK_WIDGET(f.problem));
 			grid_control(grid, r++, cell);
+			if (c.wide)
+				gtk_widget_set_halign(cell, GTK_ALIGN_FILL);
 			/* Shown or hidden with its label. */
 			f.row = cell;
 			g_object_set_data(G_OBJECT(cell), "wb-label", label);
