@@ -121,7 +121,16 @@ bool list_control_test(ListControl *c, const std::string &action);
 /* A font (font_control.cpp): a page's font { }. */
 struct FontControl {
 	GtkWidget *box = nullptr, *sample = nullptr;
-	GtkDropDown *family = nullptr, *weight = nullptr, *width = nullptr;
+	GtkDropDown *weight = nullptr, *width = nullptr;
+	/* The family: a button saying it, opening a search, a Monospace
+	 * toggle and the list, each name in its own font. */
+	GtkWidget *family_button = nullptr, *family_label = nullptr, *family_pop = nullptr;
+	GtkWidget *family_search = nullptr, *mono_toggle = nullptr, *family_view = nullptr;
+	GtkStringList *family_model = nullptr;
+	GtkFilterListModel *family_filtered = nullptr;
+	GtkCustomFilter *family_filter = nullptr;
+	guint family_index = 0;       /* in families: 0 Default */
+	std::string default_label;    /* "Default (monospace 10)" */
 	GtkSpinButton *size = nullptr;
 	GtkSwitch *italic = nullptr;
 	/* Weight, width and italic: in a popover, behind a button saying which. */
@@ -138,8 +147,10 @@ struct FontControl {
 	bool syncing = false;
 	~FontControl();
 };
+/* `monospace`: the list starts showing monospace families only (a
+ * terminal's font); the toggle shows the rest. */
 std::unique_ptr<FontControl> make_font_control(const std::string &format,
-		const std::string &hint);
+		const std::string &hint, bool monospace = false);
 void font_control_set(FontControl *c, const std::string &value);
 bool font_control_test(FontControl *c, const std::string &action);
 

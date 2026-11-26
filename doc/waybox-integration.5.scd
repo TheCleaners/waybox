@@ -221,7 +221,9 @@ end
 	What it doesn't edit is kept: fallback families and other properties
 	(*antialias=true*, *fontfeatures=...*); a Pango font's variations.
 	Letter spacing and line height are the program's own settings: a
-	*number* each.
+	*number* each. Its family is picked from a searchable list, each name
+	in its own font; *monospace = true* has it start with monospace
+	families only (a terminal's font), a toggle showing the rest.
 
 *sections {* _"key"_, *fields = {* ... *}*, ... *}*
 	Repeated sections (mako's criteria, *[urgency=high]*): each named,

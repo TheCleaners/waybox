@@ -80,6 +80,8 @@ bool read_control(const json::Value &v, int depth, Control &out, std::set<std::s
 				out.format);
 	if (const json::Value *b = v.get("wide"); b != nullptr && b->boolean() != nullptr)
 		out.wide = *b->boolean();
+	if (const json::Value *b = v.get("monospace"); b != nullptr && b->boolean() != nullptr)
+		out.monospace = *b->boolean();
 	if (const json::Value *n = v.get("min"); n != nullptr && n->number() != nullptr)
 		out.min = *n->number();
 	if (const json::Value *n = v.get("max"); n != nullptr && n->number() != nullptr)
@@ -148,6 +150,7 @@ json::Value write_control(const Control &c) {
 		o["choices"] = std::move(a);
 	}
 	if (c.wide) o["wide"] = true;
+	if (c.monospace) o["monospace"] = true;
 	if (c.min) o["min"] = *c.min;
 	if (c.max) o["max"] = *c.max;
 	if (!c.visible) o["visible"] = false;
