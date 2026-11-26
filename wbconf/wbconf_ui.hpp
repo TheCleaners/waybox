@@ -228,6 +228,7 @@ struct Ui {
 		std::string file, path;    /* XDG: the .desktop's name, the file that counts */
 		std::string program;
 		bool saved = true;         /* on, as the files have it */
+		bool added = false;        /* appeared while wbconf ran */
 		GtkSwitch *on = nullptr;
 		GtkLabel *status = nullptr;
 	};
@@ -236,6 +237,12 @@ struct Ui {
 	bool script_is_user = false;   /* in the user's config (else the default) */
 	std::vector<wb::ScriptEntry> script_entries;
 	std::vector<wb::AutostartEntry> xdg_entries;
+	/* Watching them: the files changing on disk refill the lists, keeping
+	 * switches not saved yet, with a note saying so. */
+	GtkWidget *script_rows = nullptr, *xdg_rows = nullptr;      /* the blocks' rows */
+	GtkWidget *script_note = nullptr, *xdg_note = nullptr;      /* "changed outside..." */
+	std::vector<GFileMonitor *> source_monitors;
+	guint source_refill = 0;  /* the debounce timeout */
 
 	/* Integrations: one row per known program (from the integration files)
 	 * and per other program in <startup>. */
@@ -550,6 +557,13 @@ bool write_file_atomic(const std::string &path, const std::string &text, std::st
 std::vector<wb::SettingDef> startup_source_settings(Ui *ui);
 GtkWidget *build_script_block(Ui *ui);
 GtkWidget *build_xdg_block(Ui *ui);
+/* Watch the autostart script and folders (once the blocks are built). */
+void watch_startup_sources(Ui *ui);
+/* Refill the lists from the files now, keeping switches not saved yet;
+ * `outside`: the files changed outside wbconf (say so). */
+void refill_startup_sources(Ui *ui, bool outside);
+/* "sources-dump:script|LINE:PROGRAM=on|off[*][+]...|note:...": tests. */
+std::string sources_dump(Ui *ui);
 int sources_unsaved(Ui *ui);
 bool save_sources(Ui *ui, std::string *error);
 void sources_saved(Ui *ui);

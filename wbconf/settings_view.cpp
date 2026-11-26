@@ -32,6 +32,8 @@ const char *kCss = R"(
 .wb-problem { background: alpha(@warning_color, 0.12); border-radius: 6px; padding: 6px 8px; }
 .wb-approval { background: alpha(currentColor, 0.05); border: 1px solid alpha(currentColor, 0.12);
                border-radius: 8px; padding: 10px 12px; margin: 2px 0 6px 0; }
+.wb-changed { background: alpha(@theme_selected_bg_color, 0.14); border-radius: 6px;
+              padding: 6px 8px; }
 .wb-script { border: 1px solid alpha(currentColor, 0.12); border-radius: 6px; }
 .wb-script textview, .wb-script text { background: alpha(currentColor, 0.03); }
 )";
@@ -1080,6 +1082,11 @@ gboolean toc_step(gpointer data) {
 					rest.substr(eq + 1));
 	} else if (step == "save") {
 		on_save(nullptr, ui);
+	} else if (step.rfind("set:", 0) == 0) {
+		/* "set:ID=VALUE": as WBCONF_TEST_SET, timed as the steps are. */
+		apply_test_values(ui, step.c_str() + 4);
+	} else if (step == "sources") {
+		fprintf(stderr, "sources-dump:%s\n", sources_dump(ui).c_str());
 	} else if (step == "open-changes") {
 		open_changes(ui);
 	} else if (step == "popover-size") {

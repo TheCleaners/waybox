@@ -191,3 +191,21 @@ start &
 	WB_CHECK(!s.lines.empty() && s.lines[0].program == "start");
 	WB_CHECK(!s.elsewhere);
 }
+
+WB_TEST(find_script_entry_after_changes) {
+	auto was = wb::script_entries("#!/bin/sh\nmako &\nwaybar &\n");
+	WB_CHECK(wb::find_script_entry(was, "mako &", 1) == 1);
+	/* A line put above: found where it went. */
+	auto now = wb::script_entries("#!/bin/sh\nkanshi &\nmako &\nwaybar &\n");
+	WB_CHECK(wb::find_script_entry(now, "mako &", 1) == 2);
+	/* Commented out since: still the entry. */
+	auto off = wb::script_entries("#!/bin/sh\n#mako &\nwaybar &\n");
+	WB_CHECK(wb::find_script_entry(off, "mako &", 1) == 1);
+	/* Gone. */
+	WB_CHECK(wb::find_script_entry(now, "dunst &", 1) == -1);
+	/* Twice: the one nearest where it was. */
+	auto twice = wb::script_entries("#!/bin/sh\nfoo &\nbar &\nbaz &\nfoo &\n");
+	WB_CHECK(wb::find_script_entry(twice, "foo &", 1) == 1);
+	WB_CHECK(wb::find_script_entry(twice, "foo &", 5) == 4);
+}
+
