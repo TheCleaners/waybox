@@ -465,6 +465,8 @@ WB_TEST(page_access_tiers) {
 	WB_CHECK(wb::file_access(mako, "~/.local/share/mako/history").reach == Reach::Own);
 	WB_CHECK(wb::file_access(mako, "~/.mako/x").reach == Reach::Own);
 	WB_CHECK(wb::file_access(mako, "~/src/mako/x").reach == Reach::Other);
+	WB_CHECK(wb::file_access(mako, "/etc/xdg/mako/config").reach == Reach::Own);
+	WB_CHECK(wb::file_access(mako, "/etc/mako/config").reach == Reach::Other);
 	WB_CHECK(wb::file_access(mako, "~/.config/mako/../foot/foot.ini").reach == Reach::Other);
 	auto share = *wb::parse_integration("share", "[Integration]\nName=share\nExec=share\n");
 	WB_CHECK(wb::file_access(share, "~/.local/share/applications/x.desktop").reach !=

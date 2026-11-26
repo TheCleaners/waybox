@@ -485,7 +485,7 @@ bool own_file(const std::string &tilde_path, const std::string &binary) {
 	if (binary.empty() || binary.find('/') != std::string::npos || binary[0] == '.')
 		return false;
 	for (const char *base : {"~/.config/", "~/.local/share/", "~/.local/state/", "~/.cache/",
-			"~/."}) {
+			"~/.", "/etc/xdg/"}) {
 		std::string dir = std::string(base) + binary + "/";
 		if (tilde_path.size() > dir.size() && tilde_path.compare(0, dir.size(), dir) == 0 &&
 				tilde_path.find("/../") == std::string::npos)
