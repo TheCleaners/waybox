@@ -28,6 +28,7 @@
 #include "waybox/json.hpp"
 #include "waybox/ini_doc.hpp"
 #include "waybox/jsonc_doc.hpp"
+#include "waybox/toml_doc.hpp"
 #include "waybox/page_protocol.hpp"
 
 #if LUA_VERSION_NUM < 502  /* LuaJIT, Lua 5.1 */
@@ -597,11 +598,95 @@ void push_json_api(lua_State *L) {
 	lua_setfield(L, -2, "array_mt");
 }
 
+/* ---- wb.toml's document, in C (toml_doc.cpp): paths and values as
+ * wb.json's ---- */
+
+const char *kTomlMeta = "wb.toml.document";
+
+wb::toml::Document *toml_doc(lua_State *L) {
+	return static_cast<wb::toml::Document *>(luaL_checkudata(L, 1, kTomlMeta));
+}
+
+int toml_gc(lua_State *L) {
+	toml_doc(L)->~Document();
+	return 0;
+}
+
+int toml_parse(lua_State *L) {
+	size_t len = 0;
+	const char *text = luaL_optlstring(L, 1, "", &len);
+	auto d = wb::toml::Document::parse(std::string_view(text, len));
+	if (!d.ok()) {
+		lua_pushnil(L);
+		lua_pushstring(L, d.error().c_str());
+		return 2;
+	}
+	void *mem = lua_newuserdata(L, sizeof(wb::toml::Document));
+	new (mem) wb::toml::Document(std::move(d));
+	luaL_getmetatable(L, kTomlMeta);
+	lua_setmetatable(L, -2);
+	return 1;
+}
+
+int toml_get(lua_State *L) {
+	auto v = toml_doc(L)->get(json_path(L, 2));
+	if (v)
+		push_json(L, *v);
+	else
+		lua_pushnil(L);
+	return 1;
+}
+
+int toml_set(lua_State *L) {
+	auto *d = toml_doc(L);
+	wb::jsonc::Path path = json_path(L, 2);
+	wb::jsonc::Value v = lua_to_jsonc(L, 3, 0);
+	lua_pushboolean(L, d->set(path, v));
+	return 1;
+}
+
+int toml_remove(lua_State *L) {
+	lua_pushboolean(L, toml_doc(L)->remove(json_path(L, 2)));
+	return 1;
+}
+
+int toml_keys(lua_State *L) {
+	auto v = toml_doc(L)->get(json_path(L, 2));
+	lua_newtable(L);
+	if (v && v->type == wb::jsonc::Value::Type::Object)
+		for (size_t i = 0; i < v->members.size(); ++i) {
+			lua_pushlstring(L, v->members[i].first.data(), v->members[i].first.size());
+			lua_rawseti(L, -2, static_cast<int>(i + 1));
+		}
+	return 1;
+}
+
+int toml_text(lua_State *L) {
+	const std::string &t = toml_doc(L)->text();
+	lua_pushlstring(L, t.data(), t.size());
+	return 1;
+}
+
+void push_toml_api(lua_State *L) {
+	luaL_newmetatable(L, kTomlMeta);
+	lua_pushcfunction(L, toml_gc);
+	lua_setfield(L, -2, "__gc");
+	lua_pop(L, 1);
+	lua_newtable(L);
+	const luaL_Reg fns[] = {{"parse", toml_parse}, {"get", toml_get}, {"set", toml_set},
+			{"remove", toml_remove}, {"keys", toml_keys}, {"text", toml_text},
+			{nullptr, nullptr}};
+	for (const luaL_Reg *f = fns; f->name != nullptr; ++f) {
+		lua_pushcfunction(L, f->func);
+		lua_setfield(L, -2, f->name);
+	}
+}
+
 /* ---- the page vocabulary, and strict globals (Lua) ---- */
 
 const char *kPrelude = R"LUA(
 local described, buttons, settings, values, nbuttons = nil, {}, {}, {}, 0
-local update, ini, json = ...
+local update, ini, json, toml = ...
 
 -- wb.ini: an INI file edited without disturbing it (comments, order and
 -- spacing kept; new keys at the end of their section).
@@ -637,45 +722,57 @@ wb.ini = {}
 function wb.ini.parse(text) return setmetatable({ doc = ini.parse(text or "") }, Ini) end
 function wb.ini.read(path) return wb.ini.parse(wb.read(path) or "") end
 
--- wb.json: a JSON file (comments and trailing commas allowed, as Waybar's)
--- edited without disturbing it. A path is a key, an index (from 1) or a
--- table of them: cfg:get({ 1, "height" }).
-local Json = {}
-Json.__index = Json
-function Json:get(path, default)
-  local v = json.get(self.doc, path)
-  if v == nil or v == json.null then return default end
-  return v
-end
-function Json:set(path, value)
-  if value == nil then json.remove(self.doc, path) return end
-  if not json.set(self.doc, path, value) then
-    error("can't set " .. (type(path) == "table" and table.concat(path, ".") or
-        tostring(path)) .. ": something on the way isn't an object or array", 2)
+-- wb.json and wb.toml: files edited without disturbing them. A path is a
+-- key, an index (from 1) or a table of them: cfg:get({ 1, "height" }).
+local function document_class(api, what)
+  local Doc = {}
+  Doc.__index = Doc
+  function Doc:get(path, default)
+    local v = api.get(self.doc, path)
+    if v == nil or v == json.null then return default end
+    return v
+  end
+  function Doc:set(path, value)
+    if value == nil then api.remove(self.doc, path) return end
+    if not api.set(self.doc, path, value) then
+      error("can't set " .. (type(path) == "table" and table.concat(path, ".") or
+          tostring(path)) .. ": " .. what, 2)
+    end
+  end
+  function Doc:keys(path) return api.keys(self.doc, path) end
+  function Doc:set_all(values, path)
+    local keys = {}
+    for k in pairs(values) do keys[#keys + 1] = k end
+    table.sort(keys)
+    for _, k in ipairs(keys) do
+      local p = {}
+      if type(path) == "table" then for i, part in ipairs(path) do p[i] = part end
+      elseif path ~= nil then p[1] = path end
+      p[#p + 1] = k
+      self:set(p, values[k])
+    end
+  end
+  function Doc:text() return api.text(self.doc) end
+  return function(text, name)
+    local doc, err = api.parse(text or "")
+    if not doc then error((name or "the file") .. ": " .. err, 3) end
+    return setmetatable({ doc = doc }, Doc)
   end
 end
-function Json:keys(path) return json.keys(self.doc, path) end
-function Json:set_all(values, path)
-  local keys = {}
-  for k in pairs(values) do keys[#keys + 1] = k end
-  table.sort(keys)
-  for _, k in ipairs(keys) do
-    local p = {}
-    if type(path) == "table" then for i, part in ipairs(path) do p[i] = part end
-    elseif path ~= nil then p[1] = path end
-    p[#p + 1] = k
-    self:set(p, values[k])
-  end
-end
-function Json:text() return json.text(self.doc) end
+
+-- JSON: comments and trailing commas allowed, as Waybar's.
+local json_doc = document_class(json, "something on the way isn't an object or array")
 wb.json = { null = json.null }
 function wb.json.array(t) return setmetatable(t or {}, json.array_mt) end
-function wb.json.parse(text, name)
-  local doc, err = json.parse(text or "")
-  if not doc then error((name or "JSON") .. ": " .. err, 2) end
-  return setmetatable({ doc = doc }, Json)
-end
-function wb.json.read(path) return wb.json.parse(wb.read(path) or "", path) end
+function wb.json.parse(text, name) return json_doc(text, name or "JSON") end
+function wb.json.read(path) return json_doc(wb.read(path) or "", path) end
+
+-- TOML: as Alacritty's and wpaperd's.
+local toml_doc = document_class(toml, "something on the way isn't a table, the value " ..
+    "is nil inside, or it's a new element of an array of tables")
+wb.toml = {}
+function wb.toml.parse(text, name) return toml_doc(text, name or "TOML") end
+function wb.toml.read(path) return toml_doc(wb.read(path) or "", path) end
 
 local function distance(a, b)
   if math.abs(#a - #b) > 3 then return 99 end
@@ -903,7 +1000,8 @@ bool open_page(const json::Value &msg) {
 	lua_pushcfunction(L, wb_update);
 	push_ini_api(L);
 	push_json_api(L);
-	if (lua_pcall(L, 3, 1, 0) != 0) {
+	push_toml_api(L);
+	if (lua_pcall(L, 4, 1, 0) != 0) {
 		emit_error(lua_tostring(L, -1));
 		return false;
 	}
