@@ -362,7 +362,7 @@ fallback.
 
 Check a file before shipping it:
 
-	*waybox-check-integration* [*--strict*] _FILE.integration_...
+	*waybox-check-integration* [*--strict*] [*--runner* _PATH_] _FILE.integration_...
 
 It reads each file as wbconf does and prints its problems as
 _FILE:LINE: error|warning: message_. Errors (no *Name* or *Exec*, a newer
@@ -370,6 +370,14 @@ major *FormatVersion*) make a file unusable; warnings say what's ignored or
 guessed (an unknown key, an option without a *Flag*). It exits 1 on an error,
 or on a warning with *--strict*, and 2 if a file can't be read. It needs
 neither a display nor GTK, so it can run in a package's or repository's CI.
+
+A file's Lua page is run too, as wbconf runs it, through *wbconf-lua*
+(*--runner*, else _$WBCONF_LUA_, else where Waybox installs it): with an
+empty home folder, as for someone whose program has no config file yet,
+then saved with its own values, nothing written. Its errors are said as
+_NAME.lua:LINE: error: message_, and make the file fail; a page that ran
+and saved says _ok_ with how many controls it has. Without *wbconf-lua*
+(Waybox built without Lua) the page isn't run, and a note says so.
 
 # SEE ALSO
 

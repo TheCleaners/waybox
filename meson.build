@@ -197,8 +197,11 @@ endif
 # waybox-check-integration: an integration file checked as wbconf reads it,
 # for packagers and CI. Pure C++ (built in tests_only too).
 waybox_check_integration = executable('waybox-check-integration',
-  ['msg/waybox-check-integration.cpp', integrations_src, startup_src],
+  ['msg/waybox-check-integration.cpp', integrations_src, startup_src, page_protocol_src,
+   json_src],
   include_directories: [inc_dir],
+  cpp_args: ['-DWB_PAGE_RUNNER="' + get_option('prefix') / get_option('libexecdir') /
+             'wbconf-lua' + '"'],
   install: not get_option('tests_only'),
 )
 
