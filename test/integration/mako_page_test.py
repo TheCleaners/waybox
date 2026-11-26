@@ -6,6 +6,8 @@ through wbconf-lua, with wb.ini underneath.
 2. A config with comments, a value with '#', and criteria sections: its
    values shown (a switch from 0/1).
 3. A margin that isn't up to four numbers: a problem shown.
+6. Empty values (the font's Default, a cleared field): their lines
+   removed, not left blank.
 5. Rules (its criteria sections): read; saved with one added before the
    other and a field emptied, the file has them in that order.
 4. Save, with the width and icons changed: the file written back with only
@@ -125,6 +127,15 @@ def main():
     reloads = [m for m in r_save if "reload" in m]
     if runs or reloads != [{"reload": True}]:
         failures.append(f"save: runs {runs}, reloads {reloads} (wb.reload(), not makoctl)")
+
+    # 6. Default font (empty) and a cleared margin: their lines go, none
+    # added blank.
+    with open(conf, "w") as f:
+        f.write(CONFIG)
+    _, r_save = run([opened, {"save": {"font": "", "margin": ""}}])
+    writes = [m["write"] for m in r_save if "write" in m]
+    if len(writes) != 1 or "font" in writes[0]["text"] or "margin" in writes[0]["text"]:
+        failures.append(f"empty values written: {r_save}")
 
     # 5. Rules (criteria sections): read; one added before the other, a
     # field emptied: the file in that order, the emptied key gone.
