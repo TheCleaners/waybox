@@ -341,8 +341,11 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 	programs; programs started afterwards get *XCURSOR_THEME* and
 	*XCURSOR_SIZE* to match. Applied at once on Reconfigure. Unset, the
 	*XCURSOR_THEME* and *XCURSOR_SIZE* Waybox was started with apply, else
-	the default theme at 24. wbconf's pointer settings write it, and GTK's
-	own setting with it.
+	the default theme at 24. A theme with no cursors of its own or through
+	what it inherits (a "default" whose *index.theme* inherits nothing,
+	say) is logged as an error, and Adwaita (or another installed cursor
+	theme) is used instead. wbconf's pointer settings write the theme and
+	size together, and GTK's own setting with them.
 
 *<hdr>*
 	*outputs* lists outputs (by name, separated by spaces) to drive in

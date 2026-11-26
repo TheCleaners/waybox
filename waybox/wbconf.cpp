@@ -780,10 +780,14 @@ void apply_fields(xmlNode *root, const WayboxSettings &s, const WayboxSettings *
 
 	if (WB_CHANGED(hdr_outputs))
 		put_attr(root, {"waybox", "hdr"}, "outputs", s.hdr_outputs);
-	if (WB_CHANGED(cursor_theme))
+	/* The pointer's theme and size are one thing: a change to either writes
+	 * both. (wbconf shows GTK's theme where rc.xml has none; a new size
+	 * alone would otherwise leave Waybox on a theme other than the one
+	 * shown.) */
+	if (WB_CHANGED(cursor_theme) || WB_CHANGED(cursor_size)) {
 		put_attr(root, {"waybox", "cursor"}, "theme", s.cursor_theme);
-	if (WB_CHANGED(cursor_size))
 		put_attr(root, {"waybox", "cursor"}, "size", s.cursor_size);
+	}
 	if (WB_CHANGED(xwayland))
 		put_attr(root, {"waybox", "xwayland"}, "enabled", bool_opt_str(s.xwayland));
 	if (WB_CHANGED(idle_screen_off))

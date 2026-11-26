@@ -6,6 +6,7 @@
 #include "toplevel_drag.h"
 #include "idle.h"
 #include "waybox/cursor.h"
+#include "waybox/xcursor_themes.hpp"
 #include "config.h"
 #include "waybox/geometry.hpp"
 #include "waybox/mousebind.hpp"
@@ -1098,7 +1099,33 @@ void wb_cursor_apply_theme(struct wb_server *server) {
 	 * programs, what scripts and menus run). */
 	bool theme_from_rc = config != nullptr && !config->cursor_theme.empty();
 	bool size_from_rc = config != nullptr && config->cursor_size > 0;
-	if (theme_from_rc || c->start_theme_set)
+	/* A theme without any cursors (an empty "default" hiding the system's,
+	 * left by some settings tool, say) would leave wlroots on its built-in
+	 * cursor, which has one size: one that has some instead. */
+	bool fell_back = false;
+	{
+		const char *home = getenv("HOME");
+		std::vector<std::string> path = wb::xcursor_search_path(getenv("XCURSOR_PATH"),
+				getenv("XDG_DATA_HOME"), home != nullptr ? home : "");
+		wb::XcursorThemeCheck check = wb::xcursor_theme_check(theme, path);
+		if (!check.has_cursors) {
+			std::string instead = wb::xcursor_fallback_theme(path);
+			std::string why = check.index_file.empty() ? std::string("not installed")
+					: "its " + check.index_file + " falls back to nothing with cursors";
+			if (theme != c->failed_theme)
+				wlr_log(WLR_ERROR, "Cursor theme %s has no cursors (%s): using %s",
+						theme.empty() ? "default" : theme.c_str(), why.c_str(),
+						instead.empty() ? "the built-in cursor, at one size" : instead.c_str());
+			c->failed_theme = theme;
+			if (!instead.empty()) {
+				theme = instead;
+				fell_back = true;
+			}
+		} else {
+			c->failed_theme.clear();
+		}
+	}
+	if (theme_from_rc || c->start_theme_set || fell_back)
 		setenv("XCURSOR_THEME", theme.c_str(), 1);
 	else
 		unsetenv("XCURSOR_THEME");

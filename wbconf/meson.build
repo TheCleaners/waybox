@@ -25,7 +25,7 @@ wbconf_exe = executable(
    files('../waybox/wbconf.cpp', '../waybox/settings_schema.cpp'), xml_strict_src, theme_src, style_src, widget_src,
    frame_src, geometry_src, titlebar_draw_src,
    render_src, startup_src, integrations_src, startup_sources_src, gtk_appearance_src,
-   monitor_layout_src, color_text_src],
+   monitor_layout_src, color_text_src, xcursor_themes_src],
   include_directories: [inc_dir],
   dependencies: [gtk4, json_glib, libxml2, cairo, pango, pangocairo],
   cpp_args: wbconf_args,

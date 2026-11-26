@@ -8,7 +8,11 @@ pointer over the empty desktop, screenshots with the cursor in them:
    and red (the middle of a 48 px square isn't covered).
 2. <cursor size="48"/>, Reconfigure: big and blue, without a restart; a
    program started after it gets XCURSOR_SIZE=48 and the theme.
-3. <cursor> gone, Reconfigure: back to 16 (as Waybox was started).
+3. <cursor theme="Hollow" size="16"/>, a theme whose index.theme inherits
+   nothing and that has no cursors (as an empty "default" left by a
+   settings tool): the one theme with cursors, at 16, not wlroots'
+   built-in cursor (one size); logged as an error.
+4. <cursor> gone, Reconfigure: back to 16 (as Waybox was started).
 The pointer isn't moved after a Reconfigure: the cursor changes where it
 is. A scale change after it loads the cursor again (under ASan: nothing
 of the old theme is used after it's gone).
@@ -151,6 +155,17 @@ def main():
         got = open(marker).read().strip() if os.path.exists(marker) else ""
         if got != "TestCursors 48":
             failures.append(f"a program started after it got {got!r}")
+        hollow = os.path.join(icons, "Hollow")
+        os.makedirs(hollow, exist_ok=True)
+        with open(os.path.join(hollow, "index.theme"), "w") as f:
+            f.write("[Icon Theme]\nName=Hollow\nInherits=\n")
+        reload(rc('<cursor theme="Hollow" size="16"/>', None))
+        if pixel(4, 4) != red or pixel(30, 30) in (red, blue):
+            failures.append(f"a theme without cursors: not the fallback at 16: "
+                            f"{pixel(4, 4)} {pixel(30, 30)}")
+        log.flush()
+        if "Cursor theme Hollow has no cursors" not in open(log_path).read():
+            failures.append("a theme without cursors wasn't logged")
         reload(rc("", None))
         if pixel(4, 4) != red or pixel(30, 30) in (red, blue):
             failures.append(f"<cursor> gone: not back to 16: {pixel(4, 4)} {pixel(30, 30)}")

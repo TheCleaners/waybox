@@ -108,8 +108,10 @@ void on_save(GtkButton *, gpointer data) {
 		wb::WayboxSettings written = doc->read();
 		populate_monitors(ui, written.outputs);
 		populate_hdr(ui, written.hdr_outputs);
+		ui->gtk.rc_cursor_theme = written.cursor_theme;
+		ui->gtk.rc_cursor_size = written.cursor_size;
 	}
-	ui->shown = collect(ui);
+	ui->shown = shown_settings(ui);
 	rows_saved(ui);
 	bindings_saved(ui);
 	if (!save_sources(ui, &err)) {

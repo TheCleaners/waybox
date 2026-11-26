@@ -472,6 +472,10 @@ std::vector<wb::StartupSetting> collect_programs(Ui *ui);
  * that the user chose to stop (before Waybox reloads and starts its own). */
 void stop_moved_programs(Ui *ui);
 wb::WayboxSettings collect(Ui *ui);
+/* What saving compares against (ui->shown): collect(), but a <cursor> in
+ * rc.xml as it is, not as shown (GTK's theme where it has a size only), so
+ * a save completes it to what's shown. */
+wb::WayboxSettings shown_settings(Ui *ui);
 void set_status(Ui *ui, const std::string &text);
 void on_save(GtkButton *, gpointer data);
 void on_close(GtkButton *, gpointer data);

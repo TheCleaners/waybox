@@ -165,6 +165,14 @@ color_text_test = executable(
   )
 test('color_text', color_text_test)
 
+# Cursor themes as wlroots finds them: with cursors or not, and a fallback.
+xcursor_themes_test = executable(
+  'xcursor_themes_test',
+  ['xcursor_themes_test.cpp', 'wb_test_main.cpp', xcursor_themes_src],
+  include_directories: [inc_dir],
+  )
+test('xcursor_themes', xcursor_themes_test)
+
 # The bell: its style, its blinks, never strobing.
 bell_style_test = executable(
   'bell_style_test',
