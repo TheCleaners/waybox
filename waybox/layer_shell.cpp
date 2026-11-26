@@ -310,6 +310,18 @@ static struct wb_layer_popup *create_popup(struct wlr_xdg_popup *wlr_popup,
 
 	popup->commit.connect(&wlr_popup->base->surface->events.commit,
 			[popup](void *data) { popup_handle_commit(popup, data); });
+	/* Placed anew by the client: kept on screen again. Let go when the
+	 * popup role goes (wlroots asserts nothing listens then; the surface's
+	 * destroy, below, may come after). */
+	popup->reposition.connect(&wlr_popup->events.reposition,
+			[popup](void *) {
+				if (popup->wlr_popup->base->initialized)  /* else at its first commit */
+					popup_unconstrain(popup);
+			});
+	popup->popup_destroy.connect(&wlr_popup->events.destroy, [popup](void *) {
+		popup->reposition.disconnect();
+		popup->popup_destroy.disconnect();
+	});
 	popup->destroy.connect(&wlr_popup->base->events.destroy,
 			[popup](void *data) { popup_handle_destroy(popup, data); });
 	popup->new_popup.connect(&wlr_popup->base->events.new_popup,
