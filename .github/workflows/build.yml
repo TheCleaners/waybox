@@ -10,9 +10,24 @@
 name: build
 on: [push, pull_request]
 jobs:
+    # gcc (release) and clang (debug) side by side: two jobs at once rather
+    # than one after the other. Neither cancels the other on failure.
     build:
+        name: build (${{ matrix.compiler }})
         runs-on: ubuntu-latest
         container: alpine:edge
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - compiler: gcc
+                      cc: gcc
+                      cxx: g++
+                      buildtype: release
+                    - compiler: clang
+                      cc: clang
+                      cxx: clang++
+                      buildtype: debug
         steps:
             - name: packages
               run: |
@@ -20,16 +35,11 @@ jobs:
                 fc-cache -f || true
             # actions/checkout@v7 clones the repository
             - uses: actions/checkout@v7
-            - name: build-gcc
+            - name: build-and-test
               run: |
-                CC=gcc CXX=g++ meson setup build-gcc -Dsanitize=disabled --buildtype=release
-                ninja -C build-gcc
-                meson test -C build-gcc --print-errorlogs
-            - name: build-clang
-              run: |
-                CC=clang CXX=clang++ meson setup build-clang -Dsanitize=disabled
-                ninja -C build-clang
-                meson test -C build-clang --print-errorlogs
+                CC=${{ matrix.cc }} CXX=${{ matrix.cxx }} meson setup build -Dsanitize=disabled --buildtype=${{ matrix.buildtype }}
+                ninja -C build
+                meson test -C build --print-errorlogs
 
     # Run the dependency-free unit tests under AddressSanitizer +
     # UndefinedBehaviorSanitizer. This uses a stock Ubuntu image (which has
