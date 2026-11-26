@@ -40,7 +40,7 @@ local function now(k)
   return v
 end
 
--- A list of names as text ("clock, tray"), and back.
+-- A list of names as text ("eDP-1, HDMI-A-1"), and back.
 local function joined(list)
   if type(list) == "string" then return list end
   if type(list) ~= "table" then return "" end
@@ -51,9 +51,15 @@ local function split(s)
   for name in (s or ""):gmatch("[^,%s]+") do out[#out + 1] = name end
   return out
 end
+local function names(v)
+  if type(v) ~= "table" then return {} end
+  local out = {}
+  for i, name in ipairs(v) do out[i] = tostring(name) end
+  return out
+end
 local function has_clock(...)
-  for _, s in ipairs({ ... }) do
-    for _, name in ipairs(split(s)) do
+  for _, list in ipairs({ ... }) do
+    for _, name in ipairs(list) do
       if name == "clock" or name:match("^clock#") then return true end
     end
   end
@@ -61,10 +67,36 @@ local function has_clock(...)
 end
 
 local modules = {
-  left = joined(cfg:get(key("modules-left"))),
-  center = joined(cfg:get(key("modules-center"))),
-  right = joined(cfg:get(key("modules-right"))),
+  left = names(cfg:get(key("modules-left"))),
+  center = names(cfg:get(key("modules-center"))),
+  right = names(cfg:get(key("modules-right"))),
 }
+
+-- To add: Waybar's usual modules, and those this config sets up
+-- (custom/media, battery#bat2).
+local known = {
+  { "ext/workspaces", "Desktops" }, { "wlr/taskbar", "Windows" }, { "clock", "Clock" },
+  { "tray", "System tray" }, { "pulseaudio", "Volume" }, { "wireplumber", "Volume" },
+  { "network", "Network" }, { "bluetooth", "Bluetooth" }, { "battery", "Battery" },
+  { "backlight", "Brightness" }, { "power-profiles-daemon", "Power profile" },
+  { "idle_inhibitor", "Keep awake" }, { "cpu", "Processor" }, { "memory", "Memory" },
+  { "temperature", "Temperature" }, { "disk", "Disk" }, { "mpris", "Media player" },
+  { "privacy", "Screen sharing and microphone" }, { "keyboard-state", "Caps and Num Lock" },
+  { "user", "User" },
+}
+local suggestions, seen = {}, {}
+for _, k in ipairs(known) do suggestions[#suggestions + 1] = k; seen[k[1]] = true end
+local bar = cfg:get(at, {})
+if type(bar) == "table" then
+  local configured = {}
+  for name, v in pairs(bar) do
+    if type(v) == "table" and not seen[name] and (name:find("/") or name:find("#")) then
+      configured[#configured + 1] = name
+    end
+  end
+  table.sort(configured)
+  for _, name in ipairs(configured) do suggestions[#suggestions + 1] = name end
+end
 
 local controls = {}
 if not own then
@@ -100,11 +132,13 @@ local groups = {
                "bottom, left), separated by spaces." },
   },
   group "Modules" {
-    text { "modules-left", label = "Left", value = modules.left, wide = true },
-    text { "modules-center", label = "Middle", value = modules.center, wide = true },
-    text { "modules-right", label = "Right", value = modules.right, wide = true,
-           description = "In order, separated by commas, as Waybar names them: clock, " ..
-               "tray, pulseaudio, custom/media…" },
+    list { "modules-left", label = "Left", value = modules.left, choices = suggestions,
+           hint = "A module, then Enter" },
+    list { "modules-center", label = "Middle", value = modules.center, choices = suggestions,
+           hint = "A module, then Enter" },
+    list { "modules-right", label = "Right", value = modules.right, choices = suggestions,
+           hint = "A module, then Enter",
+           description = "Each module's own settings are in the config file, under its name." },
   },
   group "Clock" {
     text { "clock-format", label = "Format", value = cfg:get(key("clock", "format"), ""),
@@ -160,7 +194,7 @@ function on_save(v)
     cfg:set(key("output"), #outputs == 1 and outputs[1] or outputs)
   end
   for _, side in ipairs({ "modules-left", "modules-center", "modules-right" }) do
-    local list = split(v[side])
+    local list = v[side]
     if not same_list(cfg:get(key(side)), list) then
       cfg:set(key(side), #list > 0 and list or nil)
     end

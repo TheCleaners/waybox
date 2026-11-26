@@ -32,6 +32,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include "waybox/name_list.hpp"
 #include "waybox/change_list.hpp"
 #include "waybox/setting_problems.hpp"
 #include "waybox/wbconf.hpp"
@@ -101,6 +102,23 @@ std::unique_ptr<ColorControl> make_color_control(const std::string &hint,
 /* After the field's text was set from elsewhere: tint and button. */
 void color_control_refresh(ColorControl *c);
 
+/* An ordered list of names (list_control.cpp): rows with Move Up, Move
+ * Down and Remove; Add… with suggestions. */
+struct ListControl {
+	GtkWidget *box = nullptr, *rows = nullptr, *add = nullptr, *popover = nullptr;
+	GtkEntry *entry = nullptr;
+	GtkWidget *suggest_box = nullptr, *suggest_scroll = nullptr;
+	wb::names::List items, suggestions;
+	std::vector<std::string> suggestion_labels;
+	std::function<void()> on_change;  /* the user changed it */
+	bool syncing = false;
+};
+std::unique_ptr<ListControl> make_list_control(const std::vector<std::string> &suggestions,
+		const std::vector<std::string> &labels, const std::string &hint);
+/* Shown, without on_change. */
+void list_control_set(ListControl *c, const wb::names::List &items);
+bool list_control_test(ListControl *c, const std::string &action);
+
 /* One integration option's widget (option_widgets.cpp), by its Type=. */
 struct OptionField {
 	const wb::IntegrationOption *opt = nullptr;
@@ -113,6 +131,7 @@ struct OptionField {
 	GtkPicture *thumb = nullptr;   /* images: the chosen one */
 	GtkColorDialogButton *color = nullptr;
 	std::unique_ptr<ColorControl> color_control;
+	std::unique_ptr<ListControl> list;  /* list (pages only) */
 	bool syncing = false;
 	std::function<void()> on_change;  /* the user changed it */
 };

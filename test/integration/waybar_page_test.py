@@ -5,8 +5,9 @@ through wbconf-lua, with wb.json underneath.
 1. No config of the user's (nor a default to read): Waybar's defaults, and
    a note that saving makes the user's own copy; saved, only what changed
    is written, to ~/.config/waybar/config.jsonc.
-2. A config with comments and a trailing comma: its values shown, lists as
-   "a, b"; a margin that isn't up to four numbers: a problem; the clock's
+2. A config with comments and a trailing comma: its values shown, module
+   lists one a line, with Waybar's modules and the config's own
+   (custom/media) to add; a margin that isn't up to four numbers: a problem; the clock's
    format hidden when no list has the clock, shown again when one does.
 3. Save, with the height, the right modules and the clock's format
    changed: only those values changed in the file (comments and the rest
@@ -33,6 +34,7 @@ CONFIG = """// my bar
     "clock": {
         "format": "{:%H:%M}",
     },
+    "custom/media": { "exec": "x" },
 }
 """
 
@@ -46,6 +48,7 @@ SAVED = """// my bar
     "clock": {
         "format": "{:%a %H:%M}",
     },
+    "custom/media": { "exec": "x" },
 }
 """
 
@@ -122,6 +125,7 @@ def main():
                                             "output": "", "exclusive": "on",
                                             "modules-left": "", "modules-center": "",
                                             "modules-right": "clock", "clock-format": ""}}])
+    # (A list's value: its names, one a line.)
     pages = [m["page"] for m in r_open if "page" in m]
     if not pages or errors(r_open):
         failures.append(f"no page without a config: {r_open}")
@@ -143,22 +147,29 @@ def main():
         opened,
         {"change": {"key": "margin", "value": "4 x"}},
         {"change": {"key": "modules-right", "value": "tray"}},
-        {"change": {"key": "modules-right", "value": "tray, clock"}},
+        {"change": {"key": "modules-right", "value": "tray\nclock"}},
         {"save": {"position": "top", "layer": "bottom", "height": "36", "spacing": "4",
                   "margin": "", "output": "", "exclusive": "on",
                   "modules-left": "sway/workspaces", "modules-center": "",
-                  "modules-right": "pulseaudio, tray, clock", "clock-format": "{:%a %H:%M}"}},
+                  "modules-right": "pulseaudio\ntray\nclock", "clock-format": "{:%a %H:%M}"}},
     ])
     pages = [m["page"] for m in r_open if "page" in m]
     if not pages or errors(r_open):
         failures.append(f"no page from the config: {r_open}")
     else:
         v = values(pages[0])
-        if v.get("height") != "30" or v.get("modules-right") != "tray, clock" or \
+        if v.get("height") != "30" or v.get("modules-right") != "tray\nclock" or \
                 v.get("clock-format") != "{:%H:%M}" or v.get("modules-center") != "":
             failures.append(f"the config's values: {v}")
         if labels(pages[0]):
             failures.append(f"notes with a config of one's own: {labels(pages[0])}")
+        right = [c for g in pages[0]["controls"] if g["kind"] == "group"
+                 for c in g.get("children", []) if c.get("key") == "modules-right"]
+        offered = [c[0] if isinstance(c, list) else c
+                   for c in (right[0].get("choices", []) if right else [])]
+        if not right or right[0]["kind"] != "list" or "tray" not in offered or \
+                "custom/media" not in offered:
+            failures.append(f"the modules list and its suggestions: {right}")
     if r_bad != [{"update": {"margin": {"problem": "Up to four numbers, separated by spaces."}}}]:
         failures.append(f"a bad margin: {r_bad}")
     if r_none != [{"update": {"clock-format": {"visible": False}}}]:

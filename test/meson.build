@@ -235,6 +235,14 @@ toml_doc_test = executable(
   )
 test('toml_doc', toml_doc_test)
 
+# List controls: names added, moved and removed.
+name_list_test = executable(
+  'name_list_test',
+  ['name_list_test.cpp', 'wb_test_main.cpp', name_list_src],
+  include_directories: [inc_dir],
+  )
+test('name_list', name_list_test)
+
 # The bell: its style, its blinks, never strobing.
 bell_style_test = executable(
   'bell_style_test',
@@ -872,6 +880,8 @@ if python.found() and not get_option('tests_only')
       integration_tests += [['wbconf_lua_page', 'wbconf_lua_page_test.py',
           [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', wbconf_lua_exe], 150]]
       integration_tests += [['wbconf_page_reload', 'wbconf_page_reload_test.py',
+          [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', wbconf_lua_exe], 90]]
+      integration_tests += [['wbconf_page_list', 'wbconf_page_list_test.py',
           [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', wbconf_lua_exe], 90]]
     endif
     integration_tests += [['wbconf_problems', 'wbconf_problems_test.py',

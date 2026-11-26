@@ -47,6 +47,7 @@ namespace wb {
 
 enum class OptionType {
 	Text, File, Folder, Image, ImageFolder, ImageOrFolder, Color, Choice, Number, Switch,
+	List,  /* names, one a line: pages only (not read from Type=) */
 };
 
 struct IntegrationOption {

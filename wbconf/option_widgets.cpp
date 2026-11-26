@@ -199,6 +199,14 @@ std::unique_ptr<OptionField> make_option_field(const wb::IntegrationOption &o,
 		f->widget = GTK_WIDGET(f->drop);
 		return f;
 	}
+	case OptionType::List:
+		f->list = make_list_control(o.choices, o.choice_labels, o.hint);
+		f->list->on_change = [fp] {
+			if (!fp->syncing && fp->on_change)
+				fp->on_change();
+		};
+		f->widget = f->list->box;
+		return f;
 	case OptionType::Color:
 		/* The shared color control, its field the option's value. */
 		f->color_control = make_color_control(o.hint, o.default_value, o.color_alpha);
@@ -270,6 +278,8 @@ std::unique_ptr<OptionField> make_option_field(const wb::IntegrationOption &o,
 }
 
 std::string option_field_value(const OptionField &f) {
+	if (f.list != nullptr)
+		return wb::names::to_text(f.list->items);
 	if (f.sw != nullptr)
 		return gtk_switch_get_active(f.sw) ? "on" : "";
 	if (f.drop != nullptr) {
@@ -281,7 +291,9 @@ std::string option_field_value(const OptionField &f) {
 
 void set_option_field_value(OptionField &f, const std::string &value) {
 	f.syncing = true;
-	if (f.sw != nullptr) {
+	if (f.list != nullptr) {
+		list_control_set(f.list.get(), wb::names::from_text(value));
+	} else if (f.sw != nullptr) {
 		gtk_switch_set_active(f.sw, !value.empty());
 	} else if (f.drop != nullptr) {
 		size_t i = 0;

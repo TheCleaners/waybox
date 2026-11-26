@@ -203,6 +203,13 @@ end
 	function of the new value). A value reaches the page as text; a
 	switch's is *"on"* or *""*.
 
+*list {* _"key"_, ... *}*
+	An ordered list of names, each moved up or down or removed, and more
+	added: typed, or picked from *choices* (names, or *{* _name_*,*
+	_description_ *}*), offered while not in the list. Its *value* is a
+	table of names, and so is what *on_change*, *on_save* and *wb.get*
+	give.
+
 *group* _"Title"_ *{* ... *}*, *label* _"text"_
 	A titled group of controls; a line of text.
 

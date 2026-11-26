@@ -134,6 +134,7 @@ wb::OptionType option_type(page::Kind k) {
 	case page::Kind::File: return wb::OptionType::File;
 	case page::Kind::Folder: return wb::OptionType::Folder;
 	case page::Kind::Image: return wb::OptionType::Image;
+	case page::Kind::List: return wb::OptionType::List;
 	default: return wb::OptionType::Text;
 	}
 }
@@ -472,7 +473,7 @@ struct LuaPage {
 			gtk_widget_add_css_class(GTK_WIDGET(f.problem), "wb-problem");
 			gtk_box_append(GTK_BOX(cell), GTK_WIDGET(f.problem));
 			grid_control(grid, r++, cell);
-			if (c.wide)
+			if (c.wide || c.kind == page::Kind::List)
 				gtk_widget_set_halign(cell, GTK_ALIGN_FILL);
 			/* Shown or hidden with its label. */
 			f.row = cell;
@@ -853,10 +854,16 @@ void lua_page_test(Ui *ui, const std::string &id, const std::string &what,
 				g_signal_emit_by_name(it->second.button, "clicked");
 		} else {
 			auto it = p->fields.find(what);
-			if (it != p->fields.end() && it->second.field != nullptr) {
-				set_option_field_value(*it->second.field, value);
-				p->changed(what);
+			if (it == p->fields.end() || it->second.field == nullptr)
+				continue;
+			/* A list: "@add:NAME", "@up:N", "@down:N", "@remove:N", as its
+			 * buttons do (and so through its on_change). */
+			if (it->second.field->list != nullptr && value.rfind('@', 0) == 0) {
+				list_control_test(it->second.field->list.get(), value.substr(1));
+				continue;
 			}
+			set_option_field_value(*it->second.field, value);
+			p->changed(what);
 		}
 	}
 }
@@ -874,7 +881,10 @@ std::string lua_page_dump(Ui *ui, const std::string &id) {
 					(p->approval_full ? ":full" : "");
 		for (const auto &[k, v] : p->values()) {
 			const page::Control *c = page::find_control(p->model, k);
-			out += "|" + k + "=" + v;
+			std::string shown = v;  /* a list's lines as "\n", the dump one line */
+			for (size_t at = 0; (at = shown.find('\n', at)) != std::string::npos; at += 2)
+				shown.replace(at, 1, "\\n");
+			out += "|" + k + "=" + shown;
 			if (c != nullptr && !c->problem.empty())
 				out += "!" + c->problem;
 			if (c != nullptr && !c->visible)

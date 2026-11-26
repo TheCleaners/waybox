@@ -809,7 +809,21 @@ end
 local function as_value(kind, v)
   if v == nil then return "" end
   if kind == "switch" and type(v) == "boolean" then return v and "on" or "" end
+  if kind == "list" then
+    if type(v) ~= "table" then error("a list's value is a table of names", 3) end
+    local names = {}
+    for i, name in ipairs(v) do names[i] = tostring(name) end
+    return table.concat(names, "\n")
+  end
   return tostring(v)
+end
+
+-- What a page gets: a list's names as a table, the rest as text.
+local function from_wire(kind, text)
+  if kind ~= "list" then return text end
+  local names = {}
+  for name in (text or ""):gmatch("[^\n]+") do names[#names + 1] = name end
+  return names
 end
 
 local function setting(kind)
@@ -832,7 +846,8 @@ local function setting(kind)
   end
 end
 
-for _, kind in ipairs { "text", "number", "switch", "choice", "color", "file", "folder", "image" } do
+for _, kind in ipairs { "text", "number", "switch", "choice", "color", "file", "folder", "image",
+                        "list" } do
   _G[kind] = setting(kind)
 end
 
@@ -868,7 +883,7 @@ end
 
 wb.get = function(key)
   if values[key] == nil then unknown(key, 2) end
-  return values[key]
+  return from_wire(settings[key].kind, values[key])
 end
 wb.set = function(key, fields)
   if values[key] == nil and not buttons[key] then unknown(key, 2) end
@@ -889,9 +904,10 @@ function api.change(key, value)
   if values[key] == nil then unknown(key, 1) end
   values[key] = value
   local s = settings[key]
-  if s.on_change then s.on_change(value) end
+  local v = from_wire(s.kind, value)
+  if s.on_change then s.on_change(v) end
   local f = rawget(_G, "on_change")
-  if f then f(key, value) end
+  if f then f(key, v) end
 end
 function api.click(key)
   local f = buttons[key]
@@ -903,7 +919,7 @@ function api.save(given)
   local f = rawget(_G, "on_save")
   if f then
     local copy = {}
-    for k, v in pairs(values) do copy[k] = v end
+    for k, v in pairs(values) do copy[k] = from_wire(settings[k].kind, v) end
     f(copy)
   end
 end
