@@ -338,6 +338,17 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 		if (std::string why = full_access_file(f); !why.empty())
 			warn(0, "Files=" + f + " is full access to the account (" + why + "): a page "
 					"shouldn't need it");
+	/* A page edits a file its command names only once the user sets it: one
+	 * its own Exec= names isn't (it belongs in Files=, shown and checked). */
+	if (!in.page.empty() && in.page != "wallpaper") {
+		auto named = read_options(in, in.exec);
+		for (const IntegrationOption &o : in.options)
+			if ((o.type == OptionType::File || o.type == OptionType::Folder) &&
+					named.count(o.id) && !named[o.id].empty() &&
+					std::find(in.files.begin(), in.files.end(), named[o.id]) == in.files.end())
+				warn(0, "Exec= gives " + o.flag + " " + named[o.id] + ", which isn't in Files=: "
+						"its page may edit it only once the user sets it");
+	}
 	if (in.reload.kind == IntegrationReload::Kind::Command) {
 		const std::string &r = in.reload.argv[0];
 		if (r.find('/') != std::string::npos)

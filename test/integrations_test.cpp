@@ -484,6 +484,20 @@ WB_TEST(page_access_tiers) {
 	WB_CHECK(wb::file_access(mako, "~/.config/waybox/rc.xml").reach == Reach::Full);
 }
 
+/* A page edits a file its command names only once the user sets it: Exec=
+ * naming one not in Files= is said. */
+WB_TEST(integration_exec_names_file) {
+	auto read = [](const std::string &exec, const std::string &files) {
+		return wb::check_integration("x", "[Integration]\nName=x\nExec=" + exec +
+				"\nPage=x.lua\nFiles=" + files + "\n\n[Option config]\nLabel=Config\n"
+				"Flag=-c\nType=file\n");
+	};
+	WB_CHECK(has_problem(read("prog -c ~/.bashrc", "~/.config/x/config"), 0, false,
+			"Exec= gives -c ~/.bashrc, which isn't in Files="));
+	WB_CHECK(read("prog -c ~/.config/x/config", "~/.config/x/config").problems.empty());
+	WB_CHECK(read("prog", "~/.config/x/config").problems.empty());
+}
+
 WB_TEST(integration_reload) {
 	using K = wb::IntegrationReload::Kind;
 	auto read = [](const std::string &reload) {

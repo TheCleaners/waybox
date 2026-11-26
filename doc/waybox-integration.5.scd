@@ -255,7 +255,9 @@ end
 	One of the integration's options (*[Option* _id_*]*) as the program's
 	command sets it now, or nil (*wb.option("config")* for *waybar -c*
 	_FILE_). A file or folder named this way may be read and written as if
-	in *Files*: the user chose it (the approval card says so). Changing the
+	in *Files* once the user has set it (the approval card says so); one
+	*Exec=* itself names isn't, as its author chose it: a file the page
+	edits by default goes in *Files*, shown and checked there. Changing the
 	command opens the page again for it, unless it has changes not saved.
 
 *wb.reload()*

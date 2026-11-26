@@ -176,7 +176,8 @@ function wb.run(argv) end
 
 --- One of the integration's options ([Option ID]) as the program's command
 --- sets it now (waybar's -c FILE), or nil. A file or folder named this way
---- may be read and written, as if in Files=.
+--- may be read and written, as if in Files=, once the user has set it (not
+--- the one Exec= gives: that goes in Files=).
 ---@param id string
 ---@return string?
 function wb.option(id) end
