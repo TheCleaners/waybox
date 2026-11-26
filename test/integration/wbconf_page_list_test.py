@@ -12,6 +12,8 @@ first's t emptied: saved in that order, the emptied field left out.
 Its fonts: one written as fontconfig names (a fallback and antialias=true
 kept when the family, weight and slant change), one as Pango writes it
 (its size changed, its weight back to the font's own).
+A program bound to a key (Kind=binding) has its page too: its change
+listed as not saved, and saved.
 Skips (exit 77) without a headless display.
 
 Usage: wbconf_page_list_test.py <waybox> <wbconf> <schema-dir> <wbconf-lua>
@@ -34,6 +36,21 @@ Exec=true
 Page=lists.lua
 Files=~/.config/lists/config
 """
+
+KEYED = """[Integration]
+Name=Keyed
+Category=Launcher
+Exec=true --keyed
+Kind=binding
+Key=W-k
+Page=keyed.lua
+Files=~/.config/keyed/config
+"""
+
+KEYED_PAGE = r'''
+page { text { "word", label = "Word", value = wb.read("~/.config/keyed/config") or "" } }
+function on_save(v) wb.write("~/.config/keyed/config", v.word) end
+'''
 
 PAGE = r'''
 page { list { "items", label = "Items", value = { "a", "b", "c" },
@@ -79,6 +96,10 @@ def main():
         f.write(INTEGRATION)
     with open(os.path.join(packaged, "lists.lua"), "w") as f:
         f.write(PAGE)
+    with open(os.path.join(packaged, "keyed.integration"), "w") as f:
+        f.write(KEYED)
+    with open(os.path.join(packaged, "keyed.lua"), "w") as f:
+        f.write(KEYED_PAGE)
     for n in os.listdir(packaged):
         os.chmod(os.path.join(packaged, n), 0o444)
     os.chmod(packaged, 0o555)
@@ -115,6 +136,7 @@ def main():
              "luaset:lists.mono=@family:DejaVu Sans Mono", "luaset:lists.mono=@weight:700",
              "luaset:lists.mono=@italic:on", "luaset:lists.ui=@size:13",
              "luaset:lists.ui=@weight:0",
+             "luaset:keyed.word=hello", "luapage:keyed",
              "luapage:lists", "changes", "save", "luapage:lists"]
     wenv = dict(env, WAYLAND_DISPLAY=sock, GDK_BACKEND="wayland", GSK_RENDERER="cairo",
                 DBUS_SESSION_BUS_ADDRESS="disabled:", GSETTINGS_BACKEND="memory",
@@ -154,6 +176,14 @@ def main():
     changes = [l for l in lines if l.startswith("changes-dump:")]
     if not changes or "Items" not in changes[0]:
         failures.append(f"the change not listed: {changes}")
+    keyed = [l for l in lines if l.startswith("luapage-dump:keyed")]
+    if keyed != ["luapage-dump:keyed|word=hello"]:
+        failures.append(f"the key-bound program's page: {keyed}")
+    if not changes or "Word" not in changes[0]:
+        failures.append(f"its change not listed: {changes}")
+    kconf = os.path.join(cfg, "keyed", "config")
+    if not os.path.exists(kconf) or open(kconf).read() != "hello":
+        failures.append("the key-bound program's page wasn't saved")
     conf = os.path.join(cfg, "lists", "config")
     if not os.path.exists(conf) or \
             open(conf).read() != "b,a,x;a=1(),app-name=foot(),urgency=high(5);" + \

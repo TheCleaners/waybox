@@ -152,6 +152,7 @@ std::vector<UnsavedChange> unsaved_changes(Ui *ui) {
 		} else if (w.rfind("binding:", 0) == 0) {
 			bindings_done.insert(w.substr(8));
 			binding_changes(ui, w.substr(8), where, r.row, out);
+			lua_page_changes(ui, w.substr(8), where, r.row, out);
 		} else if (w.rfind("program:", 0) == 0) {
 			for (auto &p : ui->programs)
 				if (p->in != nullptr && p->in->id == w.substr(8)) {
@@ -159,7 +160,7 @@ std::vector<UnsavedChange> unsaved_changes(Ui *ui) {
 					auto a = was_started.find(p->name), b = now_started.find(p->name);
 					startup_change(a == was_started.end() ? nullptr : a->second,
 							b == now_started.end() ? nullptr : b->second, where, r.row, out);
-					lua_page_changes(ui, p.get(), where, r.row, out);
+					lua_page_changes(ui, p->in->id, where, r.row, out);
 				}
 		} else if (w == "programs-other") {
 			/* Every other <startup> entry: custom programs, by name. */

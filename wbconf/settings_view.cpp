@@ -1180,6 +1180,11 @@ void apply_test_values(Ui *ui, const char *spec) {
 		if (eq != std::string::npos && (item.rfind("script.", 0) == 0 ||
 				item.rfind("xdg.", 0) == 0))
 			source_test_value(ui, item.substr(0, eq), item.substr(eq + 1));
+		/* "binding.ID=on|off": a key-bound program's "Bind to a key". */
+		if (eq != std::string::npos && item.rfind("binding.", 0) == 0)
+			for (auto &b : ui->bindings)
+				if (b->in != nullptr && b->in->id == item.substr(8, eq - 8))
+					gtk_switch_set_active(b->on, item.substr(eq + 1) == "on");
 		/* "program.ID=on|off": a known program's "start with the session". */
 		if (eq != std::string::npos && item.rfind("program.", 0) == 0)
 			for (auto &p : ui->programs)

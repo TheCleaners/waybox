@@ -364,8 +364,11 @@ struct Ui {
 		GtkEntry *command = nullptr;
 		GtkLabel *status = nullptr;
 		GtkWidget *details = nullptr;
+		std::shared_ptr<void> page;  /* its Lua page, if it has one */
 	};
 	std::vector<std::unique_ptr<BindingRow>> bindings;
+	/* Every Lua page shown (its row owns it): saved, listed, tested. */
+	std::vector<std::weak_ptr<void>> lua_pages;
 	std::vector<std::string> bound_keys;  /* every key rc.xml binds */
 
 	/* The input method: None, an installed framework (from the integration
@@ -553,8 +556,10 @@ GtkWidget *build_wallpaper_page(Ui *ui, Ui::ProgramRow *row);
 /* Page=NAME.lua (lua_page.cpp): run by wbconf-lua, drawn here; its
  * changes listed and saved with the rest. */
 GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row);
+/* A key-bound program's page (owned by `holder`). */
+GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in, std::shared_ptr<void> *holder);
 struct UnsavedChange;
-void lua_page_changes(Ui *ui, Ui::ProgramRow *row, const std::string &where,
+void lua_page_changes(Ui *ui, const std::string &id, const std::string &where,
 		GtkWidget *target, std::vector<UnsavedChange> &out);
 bool save_lua_pages(Ui *ui, std::string *error);
 /* Tests: set a control ("KEY", value) or click ("click", KEY); dump it. */

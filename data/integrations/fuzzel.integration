@@ -1,0 +1,11 @@
+[Integration]
+Name=Fuzzel
+Category=Launcher
+Comment=App launcher: type part of a program's name, and run it
+Exec=fuzzel
+Kind=binding
+Key=W-d
+Version=fuzzel --version
+Page=fuzzel.lua
+Files=~/.config/fuzzel/fuzzel.ini
+Reload=none

@@ -143,7 +143,6 @@ wb::OptionType option_type(page::Kind k) {
 
 struct LuaPage {
 	Ui *ui = nullptr;
-	Ui::ProgramRow *row = nullptr;
 	const wb::Integration *in = nullptr;
 	pid_t pid = -1;
 	int to = -1, from = -1;
@@ -784,10 +783,14 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 }  // namespace
 
 GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row) {
+	return build_lua_page_for(ui, row->in, &row->page);
+}
+
+GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in_ptr,
+		std::shared_ptr<void> *holder) {
 	auto p = std::make_shared<LuaPage>();
 	p->ui = ui;
-	p->row = row;
-	p->in = row->in;
+	p->in = in_ptr;
 	p->box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
 	p->error = GTK_LABEL(gtk_label_new(""));
 	gtk_label_set_xalign(p->error, 0);
@@ -797,11 +800,12 @@ GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row) {
 	gtk_widget_set_visible(GTK_WIDGET(p->error), FALSE);
 	gtk_box_append(GTK_BOX(p->box), GTK_WIDGET(p->error));
 	GtkWidget *box = p->box;
-	row->page = p;
+	*holder = p;
+	ui->lua_pages.push_back(p);
 	/* Trusted only when no one but root could have changed it (a package's
 	 * files): its folder, its integration file and its script. Else it
 	 * runs once allowed, for what it is now; changing it asks again. */
-	const wb::Integration &in = *row->in;
+	const wb::Integration &in = *in_ptr;
 	bool trusted = !writable(in.dir) && !writable(in.dir + "/" + in.id + ".integration") &&
 			!writable(wb::lua_page_path(in));
 	if (!trusted) {
@@ -822,40 +826,49 @@ GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row) {
 	return box;
 }
 
-void lua_page_changes(Ui *ui, Ui::ProgramRow *row, const std::string &where,
+namespace {
+
+/* The pages shown now, as they are (those of rows gone left out). */
+std::vector<LuaPage *> live_pages(Ui *ui) {
+	std::vector<LuaPage *> out;
+	ui->lua_pages.erase(std::remove_if(ui->lua_pages.begin(), ui->lua_pages.end(),
+			[](const std::weak_ptr<void> &w) { return w.expired(); }), ui->lua_pages.end());
+	for (auto &w : ui->lua_pages)
+		if (auto sp = w.lock())
+			out.push_back(static_cast<LuaPage *>(sp.get()));
+	return out;
+}
+
+}  // namespace
+
+void lua_page_changes(Ui *ui, const std::string &id, const std::string &where,
 		GtkWidget *target, std::vector<UnsavedChange> &out) {
-	(void)ui;
-	auto *p = static_cast<LuaPage *>(row->page.get());
-	if (p == nullptr || wb::lua_page_path(*row->in).empty())
-		return;
-	for (const auto &[k, v] : p->values()) {
-		auto it = p->saved.find(k);
-		if (it != p->saved.end() && it->second != v) {
-			const page::Control *c = page::find_control(p->model, k);
-			std::string name = c != nullptr && !c->label.empty() ? c->label : k;
-			out.push_back({{where + " \xE2\x80\xBA " + name, it->second, v}, target});
+	for (LuaPage *p : live_pages(ui)) {
+		if (p->in == nullptr || p->in->id != id)
+			continue;
+		for (const auto &[k, v] : p->values()) {
+			auto it = p->saved.find(k);
+			if (it != p->saved.end() && it->second != v) {
+				const page::Control *c = page::find_control(p->model, k);
+				std::string name = c != nullptr && !c->label.empty() ? c->label : k;
+				out.push_back({{where + " \xE2\x80\xBA " + name, it->second, v}, target});
+			}
 		}
 	}
 }
 
 bool save_lua_pages(Ui *ui, std::string *error) {
-	for (auto &row : ui->programs) {
-		if (row->in == nullptr || wb::lua_page_path(*row->in).empty() || !row->page)
-			continue;
-		auto *p = static_cast<LuaPage *>(row->page.get());
+	for (LuaPage *p : live_pages(ui))
 		if (!p->save(error))
 			return false;
-	}
 	return true;
 }
 
 void lua_page_test(Ui *ui, const std::string &id, const std::string &what,
 		const std::string &value) {
-	for (auto &row : ui->programs) {
-		if (row->in == nullptr || row->in->id != id || !row->page ||
-				wb::lua_page_path(*row->in).empty())
+	for (LuaPage *p : live_pages(ui)) {
+		if (p->in == nullptr || p->in->id != id)
 			continue;
-		auto *p = static_cast<LuaPage *>(row->page.get());
 		if (what == "script") {
 			if (p->approval != nullptr)
 				gtk_expander_set_expanded(GTK_EXPANDER(g_object_get_data(
@@ -893,11 +906,9 @@ void lua_page_test(Ui *ui, const std::string &id, const std::string &what,
 }
 
 std::string lua_page_dump(Ui *ui, const std::string &id) {
-	for (auto &row : ui->programs) {
-		if (row->in == nullptr || row->in->id != id || !row->page ||
-				wb::lua_page_path(*row->in).empty())
+	for (LuaPage *p : live_pages(ui)) {
+		if (p->in == nullptr || p->in->id != id)
 			continue;
-		auto *p = static_cast<LuaPage *>(row->page.get());
 		std::string out;
 		if (p->approval != nullptr)
 			out += std::string("|approval:") + (p->pid > 0 ? "running!"
