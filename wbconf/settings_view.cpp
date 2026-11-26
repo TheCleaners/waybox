@@ -130,8 +130,8 @@ void show_value(Ui *ui, Ui::SettingRow *r) {
 		gtk_editable_set_text(GTK_EDITABLE(r->entry), r->value.value_or("").c_str());
 		break;
 	case wb::SettingType::Font:
-		font_set(&r->font, v.empty() ? std::optional<std::string>("Sans 10")
-				: std::optional<std::string>(v));
+		/* Not set: "Default (Sans 10)", the font Waybox uses then. */
+		font_control_set(r->font.get(), r->value.value_or(""));
 		break;
 	case wb::SettingType::Lines:
 		gtk_text_buffer_set_text(gtk_text_view_get_buffer(r->text),
@@ -182,7 +182,8 @@ void read_value(Ui *ui, Ui::SettingRow *r) {
 		break;
 	}
 	case wb::SettingType::Font:
-		v = font_value(&r->font);
+		if (!r->font->value.empty())
+			v = r->font->value;
 		if (v && *v == (d.def.empty() ? "Sans 10" : d.def) && !r->saved)
 			v.reset();
 		break;
@@ -455,9 +456,10 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 		return r->color->box;
 	}
 	case wb::SettingType::Font: {
-		GtkWidget *box = make_font_picker(&r->font, G_CALLBACK(on_changed), r);
-		gtk_widget_set_halign(box, GTK_ALIGN_START);
-		return box;
+		r->font = make_font_control("pango", d.def.empty() ? "Sans 10" : d.def);
+		r->font->on_change = [r] { on_changed(r); };
+		gtk_widget_set_halign(r->font->box, GTK_ALIGN_START);
+		return r->font->box;
 	}
 	case wb::SettingType::Lines: {
 		GtkWidget *frame = gtk_frame_new(nullptr);

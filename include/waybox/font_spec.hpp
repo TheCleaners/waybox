@@ -42,6 +42,26 @@ const std::vector<Named> &widths();
 int nearest_weight(int weight);
 int nearest_width(int width);
 
+/* A weight or width named in any of the usual spellings: fontconfig's
+ * ("semibold"), Pango's ("Semi-Bold"), CSS's ("normal", "bold"), other
+ * ones ("demibold", "heavy", "book"), or a number. 0: not one. */
+int weight_named(std::string_view name);
+int width_named(std::string_view name);
+
+/* A font as Pango writes it, as wbconf's own font rows hold one: "Inter
+ * Semi-Bold Italic Condensed 11". The family, then the style words, then
+ * the size (whole or not); a normal weight, slant and width not written. */
+struct Styled {
+	std::string family;
+	double size = 0;
+	int weight = 400;
+	bool italic = false;
+	int width = 100;
+	bool operator==(const Styled &) const = default;
+};
+Styled from_pango(std::string_view text);
+std::string to_pango(const Styled &s);
+
 }  // namespace wb::font
 
 #endif

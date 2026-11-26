@@ -107,16 +107,16 @@ WB_TEST(enum_parsers_round_trip_names) {
 
 WB_TEST(theme_fonts_flow_into_resolved_styles) {
 	wb::Theme t = wb::default_theme();
-	t.font_active_title = {"Inter", 13, true};
-	t.font_inactive_title = {"Inter", 11, false};
-	t.font_menu_item = {"Cantarell", 12, false};
-	t.font_osd = {"Mono", 9, false};
+	t.font_active_title = {"Inter", 13, 700};
+	t.font_inactive_title = {"Inter", 11, 400};
+	t.font_menu_item = {"Cantarell", 12, 400};
+	t.font_osd = {"Mono", 9, 400};
 
 	wb::FrameStyle fa = wb::frame_style_from_theme(t, true);
 	WB_CHECK(fa.label.font.family == "Inter");
-	WB_CHECK(fa.label.font.size_pt == 13 && fa.label.font.bold == true);
+	WB_CHECK(fa.label.font.size_pt == 13 && fa.label.font.bold() == true);
 	wb::FrameStyle fi = wb::frame_style_from_theme(t, false);
-	WB_CHECK(fi.label.font.size_pt == 11 && fi.label.font.bold == false);
+	WB_CHECK(fi.label.font.size_pt == 11 && fi.label.font.bold() == false);
 
 	wb::MenuStyle ms = wb::menu_style_from_theme(t);
 	WB_CHECK(ms.item_text.font.family == "Cantarell");

@@ -2,6 +2,7 @@
  * Cairo/Pango painting primitives. Depends on cairo + pango (+ glib via pango),
  * but NOT on wlroots, so it links into the standalone pixel test.
  */
+#include <cstdlib>
 #include "waybox/render.hpp"
 
 #include <cmath>
@@ -26,8 +27,18 @@ PangoLayout *make_layout(cairo_t *cr, std::string_view text,
 	PangoLayout *layout = pango_cairo_create_layout(cr);
 	PangoFontDescription *desc = pango_font_description_new();
 	pango_font_description_set_family(desc, font.family.c_str());
-	pango_font_description_set_weight(desc,
-			font.bold ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
+	pango_font_description_set_weight(desc, static_cast<PangoWeight>(font.weight));
+	if (font.italic)
+		pango_font_description_set_style(desc, PANGO_STYLE_ITALIC);
+	if (font.width != 100) {
+		/* Pango's stretches, by the percent each stands for. */
+		static const int percent[] = {50, 63, 75, 87, 100, 113, 125, 150, 200};
+		int best = 4;
+		for (int i = 0; i < 9; ++i)
+			if (std::abs(percent[i] - font.width) < std::abs(percent[best] - font.width))
+				best = i;
+		pango_font_description_set_stretch(desc, static_cast<PangoStretch>(best));
+	}
 	pango_font_description_set_size(desc, font.size_pt * PANGO_SCALE);
 	pango_layout_set_font_description(layout, desc);
 	pango_font_description_free(desc);
