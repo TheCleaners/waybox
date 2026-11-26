@@ -5,7 +5,10 @@
  * "button pressed BTN" / "button released BTN". Prints "configured" once
  * shown. Runs until killed.
  *
- *   desktop_client background|bottom|top
+ *   desktop_client background|bottom|top [halves|avoid]
+ *
+ * avoid: exclusive zone 0 instead of -1 (keep clear of panels, as a dock
+ * or desktop widget does), and print each size given: "size WxH".
  */
 #define _GNU_SOURCE
 #include <stdint.h>
@@ -27,7 +30,7 @@ static int configured;
 
 static void say(const char *s) { printf("%s\n", s); fflush(stdout); }
 
-static int halves;
+static int halves, avoid;
 
 static struct wl_buffer *make_buffer(int W, int H) {
 	size_t stride = (size_t) W * 4, size = stride * (size_t) H;
@@ -93,6 +96,10 @@ static void ls_configure(void *d, struct zwlr_layer_surface_v1 *ls, uint32_t ser
 		configured = 1;
 		say("configured");
 	}
+	if (avoid) {
+		printf("size %ux%u\n", w, h);
+		fflush(stdout);
+	}
 }
 static void ls_closed(void *d, struct zwlr_layer_surface_v1 *ls) { exit(0); }
 static const struct zwlr_layer_surface_v1_listener ls_listener = {
@@ -118,6 +125,7 @@ static const struct wl_registry_listener reg_listener = {
 int main(int argc, char **argv) {
 	const char *which = argc > 1 ? argv[1] : "background";
 	halves = argc > 2 && strcmp(argv[2], "halves") == 0;
+	avoid = argc > 2 && strcmp(argv[2], "avoid") == 0;
 	uint32_t layer = strcmp(which, "bottom") == 0 ? ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM
 			: strcmp(which, "top") == 0 ? ZWLR_LAYER_SHELL_V1_LAYER_TOP
 			: ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND;
@@ -138,7 +146,7 @@ int main(int argc, char **argv) {
 			ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
 			ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
 	zwlr_layer_surface_v1_set_size(ls, 0, 0);
-	zwlr_layer_surface_v1_set_exclusive_zone(ls, -1);
+	zwlr_layer_surface_v1_set_exclusive_zone(ls, avoid ? 0 : -1);
 	wl_surface_commit(surface);
 	while (wl_display_dispatch(display) >= 0) {
 	}
