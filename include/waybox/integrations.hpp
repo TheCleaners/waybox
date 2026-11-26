@@ -32,6 +32,10 @@
  * Types: text, file, folder, image, image-folder, image-or-folder, color,
  * choice (with Choices=a,b,c), number (Min=, Max=), and switch: a flag
  * with no value, there or not.
+ *
+ * The format is public (waybox-integration(5)): FormatVersion=MAJOR[.MINOR]
+ * in [Integration], 1 if left out. A file of a newer major version is
+ * skipped (not misread); a newer minor one is read, its new keys ignored.
  */
 #include <map>
 #include <optional>
@@ -105,7 +109,31 @@ struct Integration {
  * is a version number, without a leading "v"; "" if none. */
 std::string version_from_output(std::string_view output);
 
-/* Parse one file's text; nullopt without an [Integration] Name and Exec. */
+/* The format version read here: a file whose FormatVersion's major part
+ * is greater is skipped. */
+inline constexpr int kIntegrationFormat = 1;
+
+/* What's wrong with a file, by line (0: the file as a whole). Errors make
+ * it unusable (no Name or Exec, a newer major version); warnings are what
+ * is ignored or guessed (an unknown key, an option without a Flag). */
+struct IntegrationProblem {
+	int line = 0;
+	bool error = false;
+	std::string message;
+	bool operator==(const IntegrationProblem &) const = default;
+};
+
+struct IntegrationCheck {
+	std::optional<Integration> integration;  /* nullopt: not usable */
+	std::vector<IntegrationProblem> problems;
+};
+
+/* Read one file's text, saying what's wrong with it (wbconf
+ * --check-integration prints this). */
+IntegrationCheck check_integration(std::string_view id, std::string_view text);
+
+/* Parse one file's text; nullopt without an [Integration] Name and Exec,
+ * or of a newer format. */
 std::optional<Integration> parse_integration(std::string_view id, std::string_view text);
 
 /* Every *.integration in `dirs`, the first found of each id winning (pass

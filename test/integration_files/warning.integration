@@ -1,0 +1,6 @@
+# For waybox-check-integration's test: usable, with one warning (an
+# unknown key): passes, but not with --strict.
+[Integration]
+Name=Warning
+Exec=true
+Colour=red

@@ -86,33 +86,106 @@ bool option_value_valid(const IntegrationOption &o, std::string_view value) {
 	}
 }
 
-std::optional<Integration> parse_integration(std::string_view id, std::string_view text) {
+namespace {
+
+const std::set<std::string> kIntegrationKeys = {"Name", "Category", "Comment", "Exec", "Binary",
+		"Version", "Configure", "Manages", "Page", "Kind", "Env", "Key", "FormatVersion"};
+const std::set<std::string> kOptionKeys = {"Label", "Flag", "Hint", "Type", "Default",
+		"Choices", "Min", "Max"};
+const std::set<std::string> kTypeNames = {"text", "file", "folder", "image", "image-folder",
+		"image-or-folder", "color", "colour", "choice", "number", "switch"};
+
+/* "2", "1.3": the major and minor; nullopt if not a version. */
+std::optional<std::pair<int, int>> format_version(std::string_view v) {
+	/* Not "major" and "minor": FreeBSD's <sys/types.h> has macros so named. */
+	size_t dot = v.find('.');
+	std::string hi(v.substr(0, dot)), lo = dot == std::string_view::npos ? "0"
+			: std::string(v.substr(dot + 1));
+	auto digits = [](const std::string &s) {
+		return !s.empty() && s.size() <= 6 &&
+				std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isdigit(c); });
+	};
+	if (!digits(hi) || !digits(lo))
+		return std::nullopt;
+	return std::make_pair(std::atoi(hi.c_str()), std::atoi(lo.c_str()));
+}
+
+}  // namespace
+
+IntegrationCheck check_integration(std::string_view id, std::string_view text) {
+	IntegrationCheck out;
+	auto warn = [&out](int line, std::string msg) {
+		out.problems.push_back({line, false, std::move(msg)});
+	};
+	auto fail = [&out](int line, std::string msg) {
+		out.problems.push_back({line, true, std::move(msg)});
+	};
 	Integration in;
 	in.id = std::string(id);
+	for (unsigned char c : in.id)
+		if (!std::isalnum(c) && c != '-' && c != '_' && c != '.' && c != '+') {
+			warn(0, "the file's name (its id) has \"" + std::string(1, static_cast<char>(c)) +
+					"\": use letters, digits, '-', '_', '.', '+'");
+			break;
+		}
 	std::string section;
+	bool in_integration = false, seen_integration = false, newer = false;
 	IntegrationOption *opt = nullptr;
+	std::set<std::string> keys_here, option_ids;
+	std::map<std::string, int> option_line;
 	std::istringstream lines{std::string(text)};
 	std::string raw;
+	int n = 0;
 	while (std::getline(lines, raw)) {
+		++n;
 		std::string_view line = trim(raw);
 		if (line.empty() || line[0] == '#')
 			continue;
 		if (line.front() == '[' && line.back() == ']') {
 			section = std::string(trim(line.substr(1, line.size() - 2)));
 			opt = nullptr;
-			if (section.rfind("Option ", 0) == 0) {
+			in_integration = section == "Integration";
+			keys_here.clear();
+			if (in_integration) {
+				if (seen_integration)
+					warn(n, "a second [Integration]: its keys go over the first's");
+				seen_integration = true;
+			} else if (section.rfind("Option ", 0) == 0) {
+				std::string oid(trim(section.substr(7)));
+				if (option_ids.count(oid))
+					warn(n, "a second [Option " + oid + "]: only the first is used");
+				option_ids.insert(oid);
 				in.options.push_back({});
-				in.options.back().id = std::string(trim(section.substr(7)));
+				in.options.back().id = oid;
 				opt = &in.options.back();
+				option_line[oid] = n;
+			} else {
+				warn(n, "unknown section [" + section + "]: ignored");
 			}
 			continue;
 		}
 		size_t eq = line.find('=');
-		if (eq == std::string_view::npos)
+		if (eq == std::string_view::npos) {
+			warn(n, "not a Key=value line: ignored");
 			continue;
+		}
 		std::string key(trim(line.substr(0, eq)));
 		std::string value(trim(line.substr(eq + 1)));
-		if (section == "Integration") {
+		if (section.empty()) {
+			warn(n, key + "= before any section: ignored");
+			continue;
+		}
+		if (!in_integration && opt == nullptr)
+			continue;  /* in an unknown section: said so once */
+		const std::set<std::string> &known = in_integration ? kIntegrationKeys : kOptionKeys;
+		if (!known.count(key)) {
+			warn(n, "unknown key " + key + "= in [" + section + "]: ignored");
+			continue;
+		}
+		if (keys_here.count(key) && key != "Env")
+			warn(n, key + "= given again: this one is used");
+		keys_here.insert(key);
+		if (in_integration) {
 			if (key == "Name") in.name = value;
 			else if (key == "Category") in.category = value;
 			else if (key == "Comment") in.comment = value;
@@ -120,22 +193,46 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
 			else if (key == "Binary") in.binary = value;
 			else if (key == "Version") in.version_command = value;
 			else if (key == "Configure") in.configure = value;
-			else if (key == "Manages") in.manages_outputs = value == "outputs";
+			else if (key == "Manages") {
+				in.manages_outputs = value == "outputs";
+				if (value != "outputs")
+					warn(n, "Manages=" + value + ": only \"outputs\" is known");
+			}
 			else if (key == "Page") in.page = value;
 			else if (key == "Kind") {
 				in.binding = value == "binding";
 				in.input_method = value == "inputmethod";
+				if (!in.binding && !in.input_method && value != "startup")
+					warn(n, "Kind=" + value + ": not binding, inputmethod or startup; "
+							"started with the session");
 			} else if (key == "Env") {
-				size_t eq = value.find('=');
-				if (eq != std::string::npos && eq > 0)
-					in.env.emplace_back(value.substr(0, eq), value.substr(eq + 1));
+				size_t e = value.find('=');
+				if (e != std::string::npos && e > 0)
+					in.env.emplace_back(value.substr(0, e), value.substr(e + 1));
+				else
+					warn(n, "Env=" + value + ": not NAME=VALUE; ignored");
 			}
 			else if (key == "Key") in.key = value;
-		} else if (opt != nullptr) {
+			else if (key == "FormatVersion") {
+				auto v = format_version(value);
+				if (!v) {
+					warn(n, "FormatVersion=" + value + ": not a version (1, 1.2); read as 1");
+				} else if (v->first > kIntegrationFormat) {
+					fail(n, "FormatVersion=" + value + " is newer than this version of "
+							"Waybox reads (" + std::to_string(kIntegrationFormat) +
+							"): the file is skipped");
+					newer = true;
+				}
+			}
+		} else {
 			if (key == "Label") opt->label = value;
 			else if (key == "Flag") opt->flag = value;
 			else if (key == "Hint") opt->hint = value;
-			else if (key == "Type") opt->type = option_type_from_name(value);
+			else if (key == "Type") {
+				opt->type = option_type_from_name(value);
+				if (!kTypeNames.count(value))
+					warn(n, "Type=" + value + ": not a known type; text");
+			}
 			else if (key == "Default") opt->default_value = value;
 			else if (key == "Choices") {
 				opt->choices.clear();
@@ -152,31 +249,81 @@ std::optional<Integration> parse_integration(std::string_view id, std::string_vi
 					start = comma + 1;
 				}
 			} else if (key == "Min" || key == "Max") {
-				if (auto n = parse_number(value))
-					(key == "Min" ? opt->min : opt->max) = n;
+				if (auto num = parse_number(value))
+					(key == "Min" ? opt->min : opt->max) = num;
+				else
+					warn(n, key + "=" + value + ": not a number; ignored");
 			}
 		}
 	}
-	if (in.name.empty() || in.exec.empty())
-		return std::nullopt;
+	if (!seen_integration)
+		fail(0, "no [Integration] section");
+	else if (in.name.empty())
+		fail(0, "no Name= in [Integration]");
+	/* A command: some word that isn't empty ("" '' isn't one). */
+	std::vector<std::string> words = split_command(in.exec);
+	bool command = std::any_of(words.begin(), words.end(),
+			[](const std::string &w) { return !w.empty(); });
+	if (seen_integration && in.exec.empty())
+		fail(0, "no Exec= in [Integration]");
+	else if (!in.exec.empty() && !command)
+		fail(0, "Exec= has no command");
+	if (in.binding && in.key.empty())
+		warn(0, "Kind=binding without a Key=: none suggested");
+	/* Options: what's dropped or guessed, said where it's written. */
+	std::set<std::string> first_seen;
+	std::vector<IntegrationOption> kept;
+	for (IntegrationOption &o : in.options) {
+		int at = option_line[o.id];
+		if (o.id.empty()) {
+			warn(at, "[Option] without an id: ignored");
+			continue;
+		}
+		if (!first_seen.insert(o.id).second)
+			continue;  /* the duplicate, said above */
+		if (o.flag.empty()) {
+			warn(at, "[Option " + o.id + "] has no Flag=: ignored (wbconf finds and "
+					"writes an option by its flag)");
+			continue;
+		}
+		if (o.label.empty())
+			o.label = o.id;
+		if (o.type == OptionType::Choice && o.choices.empty()) {
+			warn(at, "[Option " + o.id + "] Type=choice without Choices=: text");
+			o.type = OptionType::Text;
+		}
+		if (!o.choices.empty() && o.type != OptionType::Choice)
+			warn(at, "[Option " + o.id + "] has Choices= but isn't Type=choice: they're "
+					"not offered");
+		if ((o.min || o.max) && o.type != OptionType::Number)
+			warn(at, "[Option " + o.id + "] has Min=/Max= but isn't Type=number: not checked");
+		if (o.min && o.max && *o.min > *o.max) {
+			warn(at, "[Option " + o.id + "] Min= is above Max=: neither is used");
+			o.min = o.max = std::nullopt;
+		}
+		if (o.type == OptionType::Switch && !o.default_value.empty() &&
+				o.default_value != "on" && o.default_value != "off")
+			warn(at, "[Option " + o.id + "] is a switch: Default= is \"on\" or \"off\"");
+		kept.push_back(std::move(o));
+	}
+	in.options = std::move(kept);
+	std::stable_sort(out.problems.begin(), out.problems.end(),
+			[](const IntegrationProblem &a, const IntegrationProblem &b) {
+				return a.line < b.line;
+			});
+	bool usable = !newer && !in.name.empty() && command;
+	if (!usable)
+		return out;
 	if (in.binary.empty())
 		in.binary = startup_name("", in.exec);
 	if (in.category.empty())
 		in.category = "Other";
-	/* Options need a flag to be read and written. */
-	in.options.erase(std::remove_if(in.options.begin(), in.options.end(),
-			[](const IntegrationOption &o) { return o.flag.empty() || o.id.empty(); }),
-			in.options.end());
-	for (IntegrationOption &o : in.options) {
-		if (o.label.empty())
-			o.label = o.id;
-		/* A choice with nothing to choose is just text. */
-		if (o.type == OptionType::Choice && o.choices.empty())
-			o.type = OptionType::Text;
-		if (o.min && o.max && *o.min > *o.max)
-			o.min = o.max = std::nullopt;
-	}
-	return in;
+	out.integration = std::move(in);
+	return out;
+}
+
+std::optional<Integration> parse_integration(std::string_view id, std::string_view text) {
+	return check_integration(id, text).integration;
 }
 
 std::vector<Integration> load_integrations(const std::vector<std::string> &dirs) {

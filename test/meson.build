@@ -155,7 +155,21 @@ integrations_test = executable(
   ['integrations_test.cpp', 'wb_test_main.cpp', integrations_src, startup_src],
   include_directories: [inc_dir],
   )
-test('integrations', integrations_test)
+test('integrations', integrations_test,
+  env: {'WB_INTEGRATIONS_SRC': meson.project_source_root() / 'data' / 'integrations'})
+# waybox-check-integration --strict over the files Waybox ships, as
+# packagers and the community repository's CI will run it.
+test('check_integration', find_program('sh'),
+  args: ['-c', '"$0" --strict "$1"/*.integration', waybox_check_integration,
+         meson.project_source_root() / 'data' / 'integrations'])
+# A warning: passes, but not with --strict; a newer major format: fails.
+check_files = meson.current_source_dir() / 'integration_files'
+test('check_integration_warning', waybox_check_integration,
+  args: [check_files / 'warning.integration'])
+test('check_integration_strict', waybox_check_integration,
+  args: ['--strict', check_files / 'warning.integration'], should_fail: true)
+test('check_integration_newer', waybox_check_integration,
+  args: [check_files / 'newer.integration'], should_fail: true)
 
 # wbconf's color fields: their tint and text.
 color_text_test = executable(
