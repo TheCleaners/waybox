@@ -182,6 +182,18 @@ def main():
     if [m for m in r_save if "reload" in m] != [{"reload": True}]:
         failures.append(f"Waybar not reloaded: {r_save}")
 
+    # A margin cleared: its key gone, not "".
+    with open(conf, "w") as f:
+        f.write('{\n    "height": 30,\n    "margin": "4",\n}\n')
+    _, r_save = run([opened, {"save": {"position": "top", "layer": "bottom", "height": "30",
+                                       "spacing": "0", "margin": "", "output": "",
+                                       "exclusive": "on", "modules-left": "",
+                                       "modules-center": "", "modules-right": "",
+                                       "clock-format": ""}}])
+    writes = [m["write"] for m in r_save if "write" in m]
+    if len(writes) != 1 or writes[0]["text"] != '{\n    "height": 30,\n}\n':
+        failures.append(f"a cleared margin: {r_save}")
+
     # 4. Two bars.
     with open(conf, "w") as f:
         f.write(TWO)

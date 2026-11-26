@@ -178,7 +178,11 @@ function on_save(v)
   -- A setting written only when it's changed from Waybar's default, or
   -- the file has it already.
   local function put(k, value, default_value)
-    if cfg:get(key(k)) ~= nil or value ~= default_value then cfg:set(key(k), value) end
+    if value == "" then
+      cfg:set(key(k), nil)  -- cleared: Waybar's own, the key gone, not ""
+    elseif cfg:get(key(k)) ~= nil or value ~= default_value then
+      cfg:set(key(k), value)
+    end
   end
   put("position", v.position, defaults.position)
   put("layer", v.layer, defaults.layer)
