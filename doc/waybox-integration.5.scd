@@ -212,7 +212,9 @@ end
 
 *font {* _"key"_, *format =* _"pango"_ | _"fontconfig"_, ... *}*
 	A font: its family (or the program's default, with *hint* saying
-	which), size, weight, width and italic, and a line of text in it. Its
+	which) and size, then a button saying its style that opens its
+	weight, width and italic with a larger preview; and a line of text in
+	it. Its
 	value is written as the program takes it: as Pango writes it
 	(*"Inter Bold 11"*, the default format; mako) or as fontconfig names
 	(*"Iosevka,Noto Color Emoji:size=12:weight=bold"*; foot, fuzzel).
