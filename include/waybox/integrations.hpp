@@ -101,6 +101,13 @@ struct Integration {
 	/* Manages=outputs: it sets monitors itself (kanshi, shikane): while
 	 * it runs, its profiles win over Waybox's <outputs> on a hotplug. */
 	bool manages_outputs = false;
+	/* Page=NAME.lua: a settings page written in Lua (wbconf-lua), beside
+	 * the file; Files= the files it may read and write ("~/..." allowed),
+	 * Runs= the programs it may run, both comma-separated. */
+	std::vector<std::string> files, runs;
+	/* The directory the file was read from (load_integrations): where a
+	 * Lua page is looked for. */
+	std::string dir;
 	bool operator==(const Integration &) const = default;
 };
 
@@ -135,6 +142,10 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text);
 /* Parse one file's text; nullopt without an [Integration] Name and Exec,
  * or of a newer format. */
 std::optional<Integration> parse_integration(std::string_view id, std::string_view text);
+
+/* A Lua page's script (Page=NAME.lua, beside the file): its path, or ""
+ * for a built-in page or none. */
+std::string lua_page_path(const Integration &in);
 
 /* Every *.integration in `dirs`, the first found of each id winning (pass
  * the user's directory first). Sorted by category, then name. */

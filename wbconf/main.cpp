@@ -112,6 +112,11 @@ void on_save(GtkButton *, gpointer data) {
 		return;
 	}
 	sources_saved(ui);
+	if (!save_lua_pages(ui, &err)) {
+		refresh_save_state(ui);
+		set_status(ui, std::string(_("Saved rc.xml, but not a program's own settings: ")) + err);
+		return;
+	}
 	if (!save_gtk(ui, &err)) {
 		refresh_save_state(ui);
 		set_status(ui, std::string(_("Saved rc.xml, but not the GTK settings: ")) + err);

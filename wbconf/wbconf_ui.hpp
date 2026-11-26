@@ -426,7 +426,7 @@ int index_of(const char *const *list, const std::string &value, int fallback);
 GtkWidget *make_page();
 GtkWidget *section(GtkWidget *page, const char *title);
 GtkWidget *section_grid(GtkWidget *content);
-void grid_label(GtkWidget *grid, int row, const char *text);
+GtkWidget *grid_label(GtkWidget *grid, int row, const char *text);
 GtkWidget *grid_control(GtkWidget *grid, int row, GtkWidget *w);
 GtkSpinButton *add_spin(GtkWidget *grid, int row, const char *label,
 		int min, int max);
@@ -471,6 +471,17 @@ bool installed(const std::string &binary);
  * or it doesn't suit the options. */
 GtkWidget *build_integration_page(Ui *ui, Ui::ProgramRow *row);
 GtkWidget *build_wallpaper_page(Ui *ui, Ui::ProgramRow *row);
+/* Page=NAME.lua (lua_page.cpp): run by wbconf-lua, drawn here; its
+ * changes listed and saved with the rest. */
+GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row);
+struct UnsavedChange;
+void lua_page_changes(Ui *ui, Ui::ProgramRow *row, const std::string &where,
+		GtkWidget *target, std::vector<UnsavedChange> &out);
+bool save_lua_pages(Ui *ui, std::string *error);
+/* Tests: set a control ("KEY", value) or click ("click", KEY); dump it. */
+void lua_page_test(Ui *ui, const std::string &id, const std::string &what,
+		const std::string &value);
+std::string lua_page_dump(Ui *ui, const std::string &id);
 void wallpaper_refresh(void *page);
 bool wallpaper_test_choose(void *page, const std::string &what);
 std::string autostart_text();
