@@ -360,6 +360,15 @@ name (letters, digits, *-*, *\_*, *.* and *+*). Where Waybox ships a file
 for the same program, the package's is read first; Waybox's stays as a
 fallback.
 
+Editors complete and check a page with the Lua Language Server's hints
+Waybox installs to _/usr/share/waybox/lua_ (_waybox-page.lua_): every
+function and control a page is given, with its arguments. In the page's
+folder, a _.luarc.json_ naming that folder:
+
+```
+{ "workspace.library": ["/usr/share/waybox/lua"] }
+```
+
 Check a file before shipping it:
 
 	*waybox-check-integration* [*--strict*] [*--runner* _PATH_] _FILE.integration_...

@@ -80,6 +80,13 @@ install_subdir('integrations',
   install_dir: get_option('prefix') / get_option('datadir') / 'waybox',
 )
 
+# Type hints for integrations' Lua pages, for the Lua Language Server
+# (waybox-integration(5)): editors complete and check a page with them.
+install_data(
+  'lua' / 'waybox-page.lua',
+  install_dir: get_option('prefix') / get_option('datadir') / 'waybox' / 'lua',
+)
+
 # wbconf's settings schema; more *.json files beside it (or in
 # $XDG_CONFIG_HOME/waybox/wbconf) can add settings.
 install_subdir('wbconf',

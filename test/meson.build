@@ -157,6 +157,12 @@ integrations_test = executable(
   )
 test('integrations', integrations_test,
   env: {'WB_INTEGRATIONS_SRC': meson.project_source_root() / 'data' / 'integrations'})
+# The Lua Language Server hints describe all a page is given (none left out
+# as the runner grows).
+test('lua_stubs', find_program('python3'),
+  args: [meson.current_source_dir() / 'integration' / 'lua_stubs_test.py',
+         meson.project_source_root() / 'wbconf' / 'page_runner.cpp',
+         meson.project_source_root() / 'data' / 'lua' / 'waybox-page.lua'])
 # waybox-check-integration --strict over the files Waybox ships, as
 # packagers and the community repository's CI will run it.
 test('check_integration', find_program('sh'),
