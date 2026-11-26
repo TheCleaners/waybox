@@ -481,7 +481,7 @@ GtkWidget *build_arranger(Ui *ui) {
 	} else {
 		gtk_widget_set_sensitive(identify, FALSE);
 		gtk_widget_set_tooltip_text(identify, _("Needs Waybox's scripting socket: "
-				"<ipc enabled=\"yes\"/> in rc.xml"));
+				"turned off in rc.xml (<ipc enabled=\"no\"/>)"));
 	}
 	g_signal_connect_swapped(identify, "clicked", G_CALLBACK(+[](Ui *ui) {
 		JsonObject *r = waybox_request("{\"request\":\"identify\"}");

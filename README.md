@@ -188,10 +188,11 @@ run `wbconf` or open it from the root menu.
 
 ### Scripting
 
-With `<waybox><ipc enabled="yes"/>`, Waybox listens on a socket
-(`$WAYBOX_SOCK`) for one JSON object per line: list windows, desktops and
-outputs, run any rc.xml action, and subscribe to events (windows opening,
-closing, focused or retitled; desktop switches; outputs; reloads).
+Waybox listens on a socket (`$WAYBOX_SOCK`, reachable only by your own
+programs; `<waybox><ipc enabled="no"/>` turns it off) for one JSON object per
+line: list windows, desktops and outputs, run any rc.xml action, and
+subscribe to events (windows opening, closing, focused or retitled; desktop
+switches; outputs; reloads).
 `waybox-msg` does it from the shell:
 
 ```sh
@@ -200,6 +201,7 @@ waybox-msg action GoToDesktop to=2
 waybox-msg action Close window=app_id:foot
 waybox-msg identify                    # each monitor's name, large, on it
 waybox-msg pick_color                  # the color you click next (Escape cancels)
+waybox-msg restart_program mako        # a startup program stopped, then started again
 waybox-msg subscribe window,desktop    # one event per line, as they happen
 waybox-msg subscribe bell              # each ring of the bell, and what it showed
 ```

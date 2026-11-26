@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include <vector>
 
+#include "startup_supervisor.h"
 #include "config.h"
 #include "ipc.h"
 #include "color_pick.h"
@@ -225,6 +226,18 @@ Value handle(Client *c, const Value &req) {
 				static_cast<int32_t>(std::clamp(num("id"), -1e6, 1e6)),
 				num("x"), num("y")))
 			return error("no test touchscreen");
+		return Object{{"ok", true}};
+	}
+	/* Restart a program Waybox started (wbconf's Reload=restart): "name",
+	 * its startup name, or "binary", its command's program. */
+	if (cmd == "restart_program") {
+		std::string name = req.str("name").substr(0, 256);
+		std::string binary = req.str("binary").substr(0, 256);
+		if (name.empty() && binary.empty())
+			return error("restart_program needs a name or binary");
+		std::string why = startup_restart(server, name, binary);
+		if (!why.empty())
+			return error(why);
 		return Object{{"ok", true}};
 	}
 	/* Ring the bell, as the focused window would (wbconf's Test): with

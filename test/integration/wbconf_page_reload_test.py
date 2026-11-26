@@ -9,6 +9,11 @@ Three integrations, installed as a package's (read-only, so trusted):
   other is left alone.
 - cmd: Reload=command touch MARKER: the marker made.
 - unset: no Reload=: nothing run, the status says to restart it.
+- rst: Reload=restart, its program started by Waybox (rc.xml <startup>),
+  slow to exit (a second after SIGTERM). Saved: Waybox stops it and starts
+  it again only once it has exited, never two at once.
+- rstx: Reload=restart, its program not Waybox's: the status says to
+  restart it by hand.
 Each page saves only after a change; the dump says what reload did.
 Skips (exit 77) without a headless display.
 
@@ -52,23 +57,37 @@ def main():
     home = os.path.join(workdir, "home")
     cfg = os.path.join(home, ".config")
     os.makedirs(os.path.join(cfg, "waybox"))
-    with open(os.path.join(cfg, "waybox", "rc.xml"), "w") as f:
-        f.write('<?xml version="1.0"?>\n<openbox_config xmlns="http://openbox.org/3.4/rc"/>\n')
     bindir = os.path.join(workdir, "bin")
     os.makedirs(bindir)
+    # restartee: logs "start PID" and "end PID" (a second after SIGTERM).
+    runs_log = os.path.join(workdir, "runs.log")
+    restartee = os.path.join(bindir, "restartee")
+    with open(restartee, "w") as f:
+        f.write("#!/bin/sh\n"
+                f'echo "start $$" >> {runs_log}\n'
+                f'trap \'sleep 1; echo "end $$" >> {runs_log}; exit 0\' TERM\n'
+                "while :; do sleep 0.1; done\n")
+    os.chmod(restartee, 0o755)
+    with open(os.path.join(cfg, "waybox", "rc.xml"), "w") as f:
+        f.write('<?xml version="1.0"?>\n<openbox_config xmlns="http://openbox.org/3.4/rc">\n'
+                f'  <waybox><startup><program name="rst">{restartee}</program></startup>'
+                '</waybox>\n</openbox_config>\n')
     sleep = shutil.which("sleep")
     if sleep is None:
         print("SKIP: no sleep", file=sys.stderr)
         sys.exit(SKIP)
     fakebar = os.path.join(bindir, "fakebar")
     shutil.copy(sleep, fakebar)
+    shutil.copy(sleep, os.path.join(bindir, "notstarted"))
     marker = os.path.join(workdir, "reloaded")
     share = os.path.join(workdir, "share")
     packaged = os.path.join(share, "waybox", "integrations")
     os.makedirs(packaged)
     for id_, exec_, reload in (("sig", "fakebar", "Reload=signal USR2"),
                                ("cmd", "true", f"Reload=command touch {marker}"),
-                               ("unset", "true", "")):
+                               ("unset", "true", ""),
+                               ("rst", "restartee", "Reload=restart"),
+                               ("rstx", "notstarted", "Reload=restart")):
         with open(os.path.join(packaged, id_ + ".integration"), "w") as f:
             f.write(INTEGRATION.format(name=id_.title(), exec=exec_, id=id_, reload=reload))
         with open(os.path.join(packaged, id_ + ".lua"), "w") as f:
@@ -107,9 +126,9 @@ def main():
     wbtest.reap_on_exit(here)
     other = subprocess.Popen([fakebar, "300"], env=dict(env, WAYLAND_DISPLAY="wayland-77"))
     wbtest.reap_on_exit(other)
-    steps = ["luapage:sig", "luapage:cmd", "luapage:unset",
-             "luaset:sig.on=on", "luaset:cmd.on=on", "luaset:unset.on=on", "save",
-             "luapage:sig", "luapage:cmd", "luapage:unset", "status"]
+    ids = ["sig", "cmd", "unset", "rst", "rstx"]
+    steps = ([f"luapage:{i}" for i in ids] + [f"luaset:{i}.on=on" for i in ids] + ["save"] +
+             [f"luapage:{i}" for i in ids] + ["status"])
     wenv = dict(env, WAYLAND_DISPLAY=sock, GDK_BACKEND="wayland", GSK_RENDERER="cairo",
                 DBUS_SESSION_BUS_ADDRESS="disabled:", GSETTINGS_BACKEND="memory",
                 GIO_USE_VFS="local", NO_AT_BRIDGE="1", WBCONF_SCHEMA_DIR=schema,
@@ -129,9 +148,10 @@ def main():
     lines = err.splitlines()
 
     def dumps(id_):
-        return [l.split("|")[1:] for l in lines if l.startswith(f"luapage-dump:{id_}")]
+        return [l.split("|")[1:] for l in lines if l.startswith(f"luapage-dump:{id_}|")]
     for id_, want in (("sig", "reloaded:signal:1"), ("cmd", "reloaded:command"),
-                      ("unset", "reloaded:unset")):
+                      ("unset", "reloaded:unset"), ("rst", "reloaded:restart"),
+                      ("rstx", "reloaded:restart:failed")):
         d = dumps(id_)
         if len(d) != 2 or d[0] != ["on="] or d[1] != ["on=on", want]:
             failures.append(f"{id_}: {d}")
@@ -148,6 +168,15 @@ def main():
     status = [l for l in lines if l.startswith("status-dump:")]
     if not status or "restart it to see them" not in status[-1]:
         failures.append(f"no word on restarting: {status}")
+    if not status or "Rstx" not in status[-1] or "Waybox couldn't" not in status[-1]:
+        failures.append(f"no word on rstx not restarted: {status}")
+    # rst: started, then (asked) ended, then started again; never two at once.
+    time.sleep(1.5)
+    runs = open(runs_log).read().split() if os.path.exists(runs_log) else []
+    events = list(zip(runs[0::2], runs[1::2]))
+    if len(events) != 3 or [e[0] for e in events] != ["start", "end", "start"] or \
+            events[0][1] != events[1][1] or events[2][1] == events[0][1]:
+        failures.append(f"rst not restarted in turn: {events}")
     for p in (here, other):
         if p.poll() is None:
             p.kill()

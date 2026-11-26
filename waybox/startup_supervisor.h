@@ -1,6 +1,8 @@
 #ifndef WB_STARTUP_SUPERVISOR_H
 #define WB_STARTUP_SUPERVISOR_H
 
+#include <string>
+
 struct wb_server;
 
 /* Start, stop and restart rc.xml's <startup> programs to match the current
@@ -17,5 +19,9 @@ void startup_restore_env(struct wb_server *server);
 void startup_reap(struct wb_server *server);
 /* Waybox is exiting: end every program it started. */
 void startup_finish(struct wb_server *server);
+/* A program Waybox started, stopped and started again (by its startup name,
+ * else its command's program): "" when done, else why not. */
+std::string startup_restart(struct wb_server *server, const std::string &name,
+		const std::string &binary);
 
 #endif

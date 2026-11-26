@@ -229,7 +229,7 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 			else if (key == "Files") in.files = comma_list(value);
 			else if (key == "Runs") in.runs = comma_list(value);
 			else if (key == "Reload") {
-				/* command PROGRAM ARGS, signal USR2, none */
+				/* command PROGRAM ARGS, signal USR2, restart, none */
 				std::vector<std::string> words;
 				std::istringstream in_words(value);
 				for (std::string w; in_words >> w;)
@@ -239,6 +239,8 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 					sig = sig.substr(3);
 				if (words.size() == 1 && words[0] == "none") {
 					in.reload.kind = IntegrationReload::Kind::None;
+				} else if (words.size() == 1 && words[0] == "restart") {
+					in.reload.kind = IntegrationReload::Kind::Restart;
 				} else if (words.size() >= 2 && words[0] == "command") {
 					in.reload.kind = IntegrationReload::Kind::Command;
 					in.reload.argv.assign(words.begin() + 1, words.end());
@@ -248,7 +250,7 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 					in.reload.signal = sig;
 				} else {
 					warn(n, "Reload=" + value + ": command PROGRAM ARGS, signal USR1, USR2 "
-							"or HUP, or none; ignored");
+							"or HUP, restart, or none; ignored");
 				}
 			}
 			else if (key == "Kind") {

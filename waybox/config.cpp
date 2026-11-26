@@ -648,7 +648,7 @@ static void parse_input_method(struct wb_config *config, xmlXPathContextPtr ctxt
 	xmlXPathFreeObject(object);
 }
 
-/* Parse <waybox><ipc enabled="yes|no"/>. */
+/* Parse <waybox><ipc enabled="yes|no"/> (on unless "no"). */
 static void parse_ipc(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
 			(const xmlChar *) "//ob:waybox/ob:ipc", ctxt);

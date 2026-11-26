@@ -347,6 +347,19 @@ struct LuaPage {
 						kill(pi.pid, sig) == 0)
 					++sent;
 			reloaded = "signal:" + std::to_string(sent);
+		} else if (r.kind == K::Restart) {
+			/* Waybox stops it and starts it again (it started it). */
+			std::string req = json::dump(json::Object{{"request", "restart_program"},
+					{"name", in->id}, {"binary", in->binary}});
+			JsonObject *o = waybox_request(req);
+			bool ok = o != nullptr && json_object_get_boolean_member_with_default(o, "ok", FALSE);
+			if (!ok)
+				ui->save_notes.push_back(in->name + _(" reads its settings when it starts: "
+						"restart it to see them (Waybox couldn't: it didn't start it, or its "
+						"scripting socket is off)."));
+			if (o != nullptr)
+				json_object_unref(o);
+			reloaded = ok ? "restart" : "restart:failed";
 		} else if (r.kind == K::Unset) {
 			/* Nothing said: it takes them when it starts. */
 			ui->save_notes.push_back(in->name + _(" reads its settings when it starts: "
@@ -739,8 +752,14 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 				in.reload.signal.c_str(), in.binary.c_str());
 		gtk_box_append(GTK_BOX(list), permission_line("view-refresh-symbolic", t));
 		g_free(t);
+	} else if (in.reload.kind == RK::Restart) {
+		gchar *t = g_markup_printf_escaped(_("Reload it: Waybox restarts %s"),
+				in.binary.c_str());
+		gtk_box_append(GTK_BOX(list), permission_line("view-refresh-symbolic", t));
+		g_free(t);
 	}
-	if (in.files.empty() && in.runs.empty() && !reload_run && in.reload.kind != RK::Signal)
+	if (in.files.empty() && in.runs.empty() && !reload_run && in.reload.kind != RK::Signal &&
+			in.reload.kind != RK::Restart)
 		gtk_box_append(GTK_BOX(list), permission_line("channel-secure-symbolic",
 				_("Nothing outside the page itself")));
 	gtk_box_append(GTK_BOX(card), list);

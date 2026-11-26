@@ -126,8 +126,8 @@ int signal_waybox_reload() {
 	return signalled;
 }
 
-/* One request to the running Waybox's scripting socket (<ipc
- * enabled="yes"/>): its reply's JSON object, or nullptr (no socket, no
+/* One request to the running Waybox's scripting socket (on unless <ipc
+ * enabled="no"/>): its reply's JSON object, or nullptr (no socket, no
  * answer within a second). Free with json_object_unref. */
 JsonObject *waybox_request(const std::string &request, int timeout_s) {
 	std::string path;

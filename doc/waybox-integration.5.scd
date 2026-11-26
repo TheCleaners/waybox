@@ -106,8 +106,12 @@ Default=stretch
 	written, *command makoctl reload*); *signal USR1*, *USR2* or *HUP*,
 	sent to the program (_Binary_) only where it's the user's and runs in
 	this Wayland session, never to Waybox (*signal USR2* for Waybar);
-	*none*, when it notices by itself. Without it, wbconf says to restart
-	the program to see its settings. The approval card shows it.
+	*restart*, for a program that reads its settings only when it starts:
+	Waybox stops it and, once it has exited, starts it again (only a
+	program Waybox started, through its scripting socket; otherwise wbconf
+	says to restart it); *none*, when it notices by itself. Without it,
+	wbconf says to restart the program to see its settings. The approval
+	card shows it.
 
 *Manages=outputs*
 	It sets monitors itself (*kanshi*): while it runs, its profiles win over
