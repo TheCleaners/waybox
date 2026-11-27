@@ -119,6 +119,10 @@ def main():
         # what the policy lists as privileged, reaches a sandboxed one too.
         for name in sorted(ordinary - sandboxed - policy_list()):
             failures.append(f"{name} hidden from a sandboxed client")
+        # And none of what the policy lists reaches it (all of it, not only
+        # the names above: window and output capture, wlr-data-control...).
+        for name in sorted(sandboxed & policy_list()):
+            failures.append(f"{name}, privileged, offered to a sandboxed client")
         for label, seen in (("ordinary", ordinary), ("sandboxed", sandboxed)):
             expect("xwayland_shell_v1" not in seen,
                    f"xwayland_shell_v1 offered to the {label} client")

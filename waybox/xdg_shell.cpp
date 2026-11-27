@@ -3,6 +3,7 @@
 #include "script.h"
 #include "bell.h"
 #include "toplevel_drag.h"
+#include "waybox/session_lock.h"
 #include "waybox/window_icon.h"
 #include "waybox/desktop_popup.hpp"
 #include "waybox/wlroots.hpp"
@@ -1661,6 +1662,10 @@ void init_window_capture(struct wb_server *server) {
 			[server](void *data) {
 		auto *request = static_cast<
 				struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request *>(data);
+		/* Locked: no window is captured (its scene isn't under the lock
+		 * screen); asked again after unlocking, it is. */
+		if (session_locked(server))
+			return;
 		struct wb_toplevel *t;
 		wl_list_for_each(t, &server->toplevels, link) {
 			if (t->foreign_toplevel_handle != request->toplevel_handle)
