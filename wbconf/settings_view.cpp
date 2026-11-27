@@ -38,6 +38,12 @@ const char *kCss = R"(
 .wb-shortcut-editor { margin: 2px 0 10px 6px; padding: 12px 14px; border-radius: 8px;
   background-color: alpha(currentColor, 0.035); border: 1px solid alpha(currentColor, 0.10); }
 .wb-keys-button { padding: 4px 8px; min-height: 30px; }
+.wb-rule-row { padding: 6px 6px; }
+.wb-rule-order { min-width: 20px; min-height: 20px; border-radius: 10px; font-size: 0.85em;
+  background-color: alpha(currentColor, 0.08); }
+.wb-rule-pattern { font-family: monospace; border-bottom-width: 1px; background-color: transparent; }
+.wb-rule-every { font-style: italic; }
+.wb-rule-kept { font-size: 0.92em; }
 .wb-shortcut-warn { margin: 0 6px 6px 6px; padding: 6px 10px; border-radius: 6px;
   background-color: alpha(@warning_color, 0.12); }
 .wb-shortcut-warn image { color: @warning_color; }
@@ -505,6 +511,8 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 			return build_monitors_block(ui);
 		if (d.widget == "keybindings")
 			return build_keybindings_block(ui);
+		if (d.widget == "apprules")
+			return build_rules_block(ui);
 		if (d.widget == "mousebindings")
 			return build_mousebindings_block(ui);
 		if (d.widget.rfind("program:", 0) == 0)
@@ -605,6 +613,9 @@ GtkWidget *add_row(Ui *ui, const wb::SettingDef &d, const std::string &category,
 		gtk_widget_set_visible(r->problem_icon, FALSE);
 		gtk_box_append(GTK_BOX(title_line), r->problem_icon);
 		gtk_box_append(GTK_BOX(title_line), title);
+		/* A title that only repeats its section's heading: not said twice. */
+		if (!d.section.empty() && d.title == d.section)
+			gtk_widget_set_visible(title, FALSE);
 		gtk_box_append(GTK_BOX(body), title_line);
 		if (!d.description.empty())
 			gtk_box_append(GTK_BOX(body), wrapped_label(d.description, true));
@@ -1259,6 +1270,9 @@ gboolean toc_step(gpointer data) {
 		/* "luapage-dump:ID|KEY=VALUE[!PROBLEM][(hidden)]...|error:..." */
 		std::string id = step.substr(8);
 		fprintf(stderr, "luapage-dump:%s%s\n", id.c_str(), lua_page_dump(ui, id).c_str());
+	} else if (step == "rules") {
+		for (const std::string &l : ui->rule_lines)
+			fprintf(stderr, "%s\n", l.c_str());
 	} else if (step == "shortcuts") {
 		shortcut_dump(ui);
 	} else if (step.rfind("shortcut-", 0) == 0) {

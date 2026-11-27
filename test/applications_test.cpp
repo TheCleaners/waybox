@@ -72,3 +72,26 @@ WB_TEST(rules_match_window_tags) {
 	WB_CHECK(match_app_rule(rules, "firefox", "x") == &rules[1]);
 	WB_CHECK(match_app_rule(rules, "firefox", "x", "") == &rules[1]);
 }
+
+WB_TEST(app_rule_in_words) {
+	using V = std::vector<std::string>;
+	AppRule r;
+	WB_CHECK(app_rule_effects(r).empty());
+	r.fullscreen = true;
+	r.desktop = AppRule::kAllDesktops;
+	r.x = 200;
+	r.y = 120;
+	r.width = 900;
+	r.height = 600;
+	r.decor = false;
+	WB_CHECK(app_rule_effects(r) == (V{"On every desktop", "Full screen", "At 200, 120",
+			"900 × 600", "No title bar"}));
+	AppRule s;
+	s.desktop = 1;
+	s.iconic = true;
+	s.layer = 1;
+	s.focus = false;
+	s.width = 400;
+	WB_CHECK(app_rule_effects(s) == (V{"On desktop 2", "Starts minimized", "400 × auto",
+			"Always on top", "Not focused when it opens"}));
+}

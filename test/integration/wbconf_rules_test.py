@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""Integration test: wbconf lists rc.xml's window rules (#237).
+
+In order (the first that matches wins), each with what it matches and
+what it does; what Waybox doesn't read (role=, <shade>, a "center"
+position) reported as kept as written. An rc.xml with none: an empty
+list saying what rules are for.
+Skips (exit 77) without a headless display.
+
+Usage: wbconf_rules_test.py <waybox> <wbconf> <schema-dir>
+"""
+
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import wbtest
+
+SKIP = 77
+
+RC = """<?xml version="1.0" encoding="UTF-8"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <applications>
+    <application class="mpv"><fullscreen>yes</fullscreen></application>
+    <application class="foot" title="*scratch*" role="x">
+      <position><x>200</x><y>120</y></position>
+      <size><width>900</width><height>600</height></size>
+      <decor>no</decor>
+      <shade>yes</shade>
+    </application>
+    <application class="gimp">
+      <position><x>center</x></position>
+      <desktop>all</desktop>
+    </application>
+    <application title="Picture-in-Picture"><layer>above</layer></application>
+  </applications>
+</openbox_config>
+"""
+
+WANT = [
+    "rule|mpv||Full screen|",
+    "rule|foot|*scratch*|At 200, 120;900 \u00d7 600;No title bar|role,shade",
+    "rule|gimp||On every desktop;At 0, auto||position",
+    "rule||Picture-in-Picture|Always on top|",
+]
+
+
+def main():
+    if len(sys.argv) != 4:
+        print(__doc__)
+        sys.exit(2)
+    waybox, wbconf, schema = sys.argv[1:]
+    workdir = tempfile.mkdtemp(prefix="waybox-rules-", dir="/tmp")
+    cfg = os.path.join(workdir, "config")
+    os.makedirs(os.path.join(cfg, "waybox"))
+    rc = os.path.join(cfg, "waybox", "rc.xml")
+    with open(rc, "w") as f:
+        f.write(RC)
+    runtime = os.path.join(workdir, "run")
+    os.makedirs(runtime, 0o700)
+    env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
+               XDG_CONFIG_HOME=cfg, XDG_RUNTIME_DIR=runtime, WB_RC_XML="", WB_MENU_XML="",
+               ASAN_OPTIONS="detect_leaks=0")
+    env.pop("WAYLAND_DISPLAY", None)
+    env.pop("DISPLAY", None)
+    log = open(os.path.join(workdir, "waybox.log"), "w")
+    proc = subprocess.Popen([waybox], env=env, stdout=log, stderr=subprocess.STDOUT)
+    wbtest.reap_on_exit(proc)
+    sock = None
+    for _ in range(50):
+        time.sleep(0.1)
+        if proc.poll() is not None:
+            break
+        socks = [n for n in os.listdir(runtime)
+                 if n.startswith("wayland-") and not n.endswith(".lock")]
+        if socks:
+            sock = socks[0]
+            break
+    if sock is None:
+        log.close()
+        print("SKIP: headless backend did not bring up a display", file=sys.stderr)
+        proc.kill()
+        sys.exit(SKIP)
+    wenv = dict(env, WAYLAND_DISPLAY=sock, GDK_BACKEND="wayland", GSK_RENDERER="cairo",
+                DBUS_SESSION_BUS_ADDRESS="disabled:", GSETTINGS_BACKEND="memory",
+                GIO_USE_VFS="local", NO_AT_BRIDGE="1", WBCONF_SCHEMA_DIR=schema,
+                WAYBOX_PID=str(proc.pid))
+
+    def run(steps):
+        app = subprocess.Popen([wbconf], env=dict(wenv, WBCONF_TEST_TOC=steps),
+                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        wbtest.reap_on_exit(app)
+        time.sleep(0.8 * 3 + 1.5)
+        app.kill()
+        return [l for l in app.communicate()[1].splitlines() if l.startswith("rule|")]
+
+    failures = []
+    got = run("dump;rules")
+    if got != WANT:
+        failures.append("rules:\n  " + "\n  ".join(got) + "\nnot:\n  " + "\n  ".join(WANT))
+    with open(rc, "w") as f:
+        f.write('<openbox_config xmlns="http://openbox.org/3.4/rc"></openbox_config>\n')
+    got = run("dump;rules")
+    if got:
+        failures.append(f"none in rc.xml, yet: {got}")
+    proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    log.close()
+    if failures:
+        for f in failures:
+            print(f"FAIL: {f}", file=sys.stderr)
+        return 1
+    shutil.rmtree(workdir, ignore_errors=True)
+    print("integration wbconf rules: OK")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

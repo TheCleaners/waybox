@@ -42,6 +42,11 @@ struct AppRule {
 	bool operator==(const AppRule &) const = default;
 };
 
+/* A rule in words, for wbconf's list: what it does, each its own phrase
+ * ("Full screen", "On desktop 2", "900 × 600", "At 200, 120"), in a fixed
+ * order; empty when it sets nothing. */
+std::vector<std::string> app_rule_effects(const AppRule &rule);
+
 /* Glob match supporting '*' (any run) and '?' (any one char). Case-sensitive. */
 bool glob_match(std::string_view pattern, std::string_view text);
 

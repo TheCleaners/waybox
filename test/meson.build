@@ -959,6 +959,8 @@ if python.found() and not get_option('tests_only')
     integration_tests += [['wbconf_shortcut_clash', 'wbconf_shortcut_clash_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf',
          meson.project_source_root() / 'data' / 'rc.xml'], 60]]
+    integration_tests += [['wbconf_rules', 'wbconf_rules_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_shortcuts', 'wbconf_shortcuts_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_problems', 'wbconf_problems_test.py',

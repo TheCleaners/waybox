@@ -74,7 +74,7 @@
           "choices": [ { "value": "smart", "label": "Show it if it's on this desktop, else mark it" },
                        { "value": "always", "label": "Always show it, switching desktops" },
                        { "value": "never", "label": "Only mark it" } ] },
-        { "id": "waybox.sessionRestore.enabled", "section": "Placement", "title": "Reopen windows where they were",
+        { "id": "waybox.sessionRestore.enabled", "section": "Placement", "title": "Reopen windows where they were", "type": "bool",
           "description": "For programs that ask: their windows come back at the size and place they had, on their desktop when recovering from a crash. Per-application rules still win.",
           "keywords": "session restore remember position size",
           "default": "yes", "rc": { "path": "waybox/sessionRestore", "attr": "enabled" } },
@@ -83,7 +83,10 @@
           "default": "yes", "rc": { "path": "waybox/edgeTiling", "attr": "enabled" } },
         { "id": "waybox.edgeTiling.range", "section": "Edge Tiling", "title": "Distance from the edge", "type": "int",
           "description": "How close to the edge the pointer must be.", "min": 1, "max": 100, "unit": "px",
-          "default": "10", "rc": { "path": "waybox/edgeTiling", "attr": "range" } }
+          "default": "10", "rc": { "path": "waybox/edgeTiling", "attr": "range" } },
+        { "id": "waybox.applications", "section": "Window Rules", "title": "Window Rules", "type": "custom",
+          "widget": "apprules",
+          "keywords": "rule rules application applications per-app app id class title tag window open desktop position size decor" }
       ]
     },
     {
