@@ -10,6 +10,8 @@ Reads commands on stdin, one per line:
   ortoggle NAME W H RRGGBB          a window created override-redirect and
                                     made ordinary before mapping (as Wine does)
   fullscreen NAME                   ask the WM for _NET_WM_STATE_FULLSCREEN
+  activate NAME                     ask the WM to activate it
+                                    (_NET_ACTIVE_WINDOW, as from a pager)
   destroy NAME                      destroy a window
   move NAME                         start an interactive move from the
                                     pointer (_NET_WM_MOVERESIZE), as a
@@ -40,6 +42,7 @@ def main():
     wm_delete = d.intern_atom("WM_DELETE_WINDOW")
     net_wm_state = d.intern_atom("_NET_WM_STATE")
     net_fullscreen = d.intern_atom("_NET_WM_STATE_FULLSCREEN")
+    net_active = d.intern_atom("_NET_ACTIVE_WINDOW")
     net_moveresize = d.intern_atom("_NET_WM_MOVERESIZE")
     motif_hints = d.intern_atom("_MOTIF_WM_HINTS")
     windows = {}
@@ -97,6 +100,13 @@ def main():
             ev = protocol.event.ClientMessage(
                 window=win, client_type=net_wm_state,
                 data=(32, [1, net_fullscreen, 0, 1, 0]))
+            root.send_event(ev, event_mask=X.SubstructureRedirectMask |
+                            X.SubstructureNotifyMask)
+            d.flush()
+        elif parts[0] == "activate":
+            ev = protocol.event.ClientMessage(
+                window=windows[parts[1]], client_type=net_active,
+                data=(32, [2, X.CurrentTime, 0, 0, 0]))
             root.send_event(ev, event_mask=X.SubstructureRedirectMask |
                             X.SubstructureNotifyMask)
             d.flush()

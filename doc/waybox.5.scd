@@ -682,6 +682,15 @@ don't run. Also:
   from any program (clipboard managers and the locker included), is
   refused, so nothing copied at the lock screen outlives it. The locker
   can paste what was copied before (a password, say).
+- No program changes what's behind the lock screen: a taskbar can't
+  focus, close, minimize, maximize or make windows fullscreen, a panel
+  can't switch desktops (nor one it asked for before the lock), and
+  drags don't start. A window asking to be activated (xdg-activation,
+  or an X11 program) is marked urgent instead, and the focus after
+  unlocking is what it was before. A window may still change its own
+  state.
+- The scripting socket refuses actions and anything that runs or
+  restarts a program.
 - The lock screen gets no input method.
 - Virtual keyboards and pointers follow *<virtualInput>*.
 

@@ -9,6 +9,7 @@
  * that is cleared when the WsClient goes away, and their request handlers
  * ignore a cleared one.
  */
+#include "waybox/session_lock.h"
 #include "waybox/workspace.h"
 
 #include <algorithm>
@@ -207,6 +208,11 @@ void manager_commit(struct wl_client *, struct wl_resource *resource) {
 	auto pending = std::move(c->pending_activate);
 	c->pending_activate.clear();
 	struct wb_server *server = c->state->server;
+	/* While the screen is locked, the desktop shown after unlock isn't a
+	 * client's to choose: dropped (queued before the lock or during it),
+	 * not kept for after. */
+	if (session_locked(server))
+		return;
 	for (const auto &[output, index] : pending) {
 		if (index >= desktop_count(server))
 			continue;

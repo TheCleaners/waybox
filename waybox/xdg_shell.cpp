@@ -92,26 +92,38 @@ static void create_foreign_handle(struct wb_toplevel *toplevel) {
 	if (struct wlr_output *output = get_active_output(toplevel))
 		wlr_foreign_toplevel_handle_v1_output_enter(handle, output);
 
+	/* While the screen is locked, a taskbar (any client outside a sandbox
+	 * may bind this) changes nothing behind the lock screen. */
 	toplevel->foreign_request_activate.connect(&handle->events.request_activate,
-			[toplevel](void *) { focus_toplevel(toplevel); });
+			[toplevel](void *) {
+		if (!session_locked(toplevel->server))
+			focus_toplevel(toplevel);
+	});
 	toplevel->foreign_request_close.connect(&handle->events.request_close,
 			[toplevel](void *) {
-		view_close(toplevel);
+		if (!session_locked(toplevel->server))
+			view_close(toplevel);
 	});
 	toplevel->foreign_request_maximize.connect(&handle->events.request_maximize,
 			[toplevel](void *data) {
+		if (session_locked(toplevel->server))
+			return;
 		auto *e = static_cast<
 				struct wlr_foreign_toplevel_handle_v1_maximized_event *>(data);
 		set_toplevel_maximized(toplevel, e->maximized, e->maximized);
 	});
 	toplevel->foreign_request_fullscreen.connect(
 			&handle->events.request_fullscreen, [toplevel](void *data) {
+		if (session_locked(toplevel->server))
+			return;
 		auto *e = static_cast<
 				struct wlr_foreign_toplevel_handle_v1_fullscreen_event *>(data);
 		set_toplevel_fullscreen(toplevel, e->fullscreen);
 	});
 	toplevel->foreign_request_minimize.connect(&handle->events.request_minimize,
 			[toplevel](void *data) {
+		if (session_locked(toplevel->server))
+			return;
 		auto *e = static_cast<
 				struct wlr_foreign_toplevel_handle_v1_minimized_event *>(data);
 		set_toplevel_minimized(toplevel, e->minimized);
@@ -480,7 +492,9 @@ void toplevel_request_activation(struct wb_toplevel *toplevel, bool from_user) {
 	struct wb_server *server = toplevel->server;
 	using A = wb_config::Activation;
 	A mode = server->config != nullptr ? server->config->activation : A::Smart;
-	bool focus = from_user && (mode == A::Always ||
+	/* While locked: marked (urgent, seen after unlock), not focused,
+	 * raised or brought over (which would change what unlock focuses). */
+	bool focus = from_user && !session_locked(server) && (mode == A::Always ||
 			(mode == A::Smart && toplevel_on_current_desktop(toplevel) && !toplevel->minimized));
 	struct wlr_surface *s = view_surface(toplevel);
 	if (focus) {
