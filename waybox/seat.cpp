@@ -763,6 +763,15 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	case wb::ActionType::RemoveDesktop:
 		remove_desktop(server, action.direction == "current");
 		break;
+	case wb::ActionType::FocusFallback: {
+		struct wb_toplevel *t;
+		wl_list_for_each(t, &server->focus_order, focus_link)
+			if (t->mapped && !t->minimized && toplevel_on_current_desktop(t)) {
+				focus_toplevel(t);
+				break;
+			}
+		break;
+	}
 	case wb::ActionType::ToggleShowDesktop:
 		toggle_show_desktop(server);
 		break;

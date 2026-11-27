@@ -104,6 +104,9 @@ WB_TEST(openbox_action_names) {
 		{"SendToBottomLayer", ActionType::SendToLayer, "bottom"},
 		{"ToggleAlwaysOnTop", ActionType::ToggleAlwaysOnTop, ""},
 		{"ToggleAlwaysOnBottom", ActionType::ToggleAlwaysOnBottom, ""},
+		{"Restart", ActionType::Reconfigure, ""},  /* nothing to keep across one */
+		{"RemoveDesktopCurrent", ActionType::RemoveDesktop, "current"},
+		{"DirectionalFocusNorthEast", ActionType::DirectionalFocus, "northeast"},
 	};
 	for (const Case &c : cases) {
 		auto a = make_action(c.name, "");

@@ -17,7 +17,7 @@ namespace {
 /* The single source of truth for known actions. Adding a row here is all that
  * is needed to register a new action name for parsing; wire its behaviour into
  * run_action() to make it do something. */
-constexpr std::array<ActionSpec, 91> kRegistry = {{
+constexpr std::array<ActionSpec, 93> kRegistry = {{
 	{"Execute",        ActionType::Execute,        true},
 	{"NextWindow",     ActionType::NextWindow,     false},
 	{"PreviousWindow", ActionType::PreviousWindow, false},
@@ -65,6 +65,9 @@ constexpr std::array<ActionSpec, 91> kRegistry = {{
 	{"ToggleAlwaysOnTop",    ActionType::ToggleAlwaysOnTop,    false},
 	{"ToggleAlwaysOnBottom", ActionType::ToggleAlwaysOnBottom, false},
 	{"ShowAbout",      ActionType::ShowAbout,      false},
+	{"FocusFallback", ActionType::FocusFallback, false},
+	/* Wayland can't keep windows across a restart: Reconfigure. */
+	{"Restart", ActionType::Reconfigure, false},
 	{"AddDesktop", ActionType::AddDesktop, false},
 	{"RemoveDesktop", ActionType::RemoveDesktop, false},
 	{"AddDesktopLast", ActionType::AddDesktop, false, "last"},

@@ -547,6 +547,13 @@ act on a window use the focused one.
 	Move the window to the end of the focus order (last in Alt+Tab's
 	list); take the keyboard focus from it.
 
+*FocusFallback*
+	Focus the last focused window that's shown on this desktop.
+
+*Restart*
+	Reconfigure (a Wayland compositor can't keep its windows across a
+	restart).
+
 *AddDesktop*, *RemoveDesktop*
 	One more desktop, after the last or (*<where>current</where>*) after
 	the current one; or the last (or current) desktop taken away, its

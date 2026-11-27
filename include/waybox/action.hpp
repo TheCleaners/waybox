@@ -85,6 +85,7 @@ enum class ActionType {
 	UnshadeRaise,
 	FocusToBottom,
 	Unfocus,
+	FocusFallback,  /* the last focused window shown on this desktop */
 	SnapToEdge,
 	Move,
 	Resize,
