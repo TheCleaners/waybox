@@ -119,6 +119,17 @@ bool position_spec_ok(std::string_view spec) {
 	return resolve_position(spec, 0, 100, 0).has_value();
 }
 
+std::optional<PlacedAt> place_in_area(std::string_view x_spec, std::string_view y_spec, int w,
+		int h, int area_x, int area_y, int area_w, int area_h) {
+	std::optional<int> x = resolve_position(x_spec, area_x, area_w, w);
+	std::optional<int> y = resolve_position(y_spec, area_y, area_h, h);
+	if (!x || !y)
+		return std::nullopt;
+	/* Inside the area (left and top first, for one bigger than it). */
+	return PlacedAt{std::max(area_x, std::min(*x, area_x + area_w - w)),
+			std::max(area_y, std::min(*y, area_y + area_h - h))};
+}
+
 std::optional<size_t> rule_monitor(const std::vector<MonitorPlace> &monitors,
 		std::string_view spec) {
 	for (size_t i = 0; i < monitors.size(); ++i)

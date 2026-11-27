@@ -173,7 +173,14 @@ std::optional<Action> parse_action_depth(xmlNode *action_node, int depth) {
 			action->direction = text(c);
 		else if (is(c, "follow"))
 			action->follow = parse_yes(text(c), action->follow);
-		else if (c->type == XML_ELEMENT_NODE)
+		else if (is(c, "position")) {
+			/* ShowMenu's <position><x/><y/><monitor/></position> (Openbox):
+			 * "default" is as if not given. */
+			for (xmlNode *p = c->children; p; p = p->next)
+				for (const char *k : {"x", "y", "monitor"})
+					if (is(p, k) && text(p) != "default")
+						action->args[std::string("position.") + k] = text(p);
+		} else if (c->type == XML_ELEMENT_NODE)
 			for (const char *k : {"x", "y", "width", "height", "monitor", "left", "right",
 					"top", "bottom"})
 				if (is(c, k))

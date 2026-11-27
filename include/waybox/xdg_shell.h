@@ -284,6 +284,10 @@ void wb_go_to_desktop(struct wb_server *server, int index);
 /* An output's usable area (less panels' reservations), in layout
  * coordinates; empty for nullptr. */
 struct wlr_box output_usable_area(struct wb_server *server, struct wlr_output *output);
+/* A <monitor> as window rules and ShowMenu's <position> say one: a number
+ * (1, the leftmost), a name, "mouse", "active", "primary"; nullptr for
+ * none such. */
+struct wlr_output *rule_output(struct wb_server *server, const std::string &spec);
 /* Show `text` for a moment, centred, in the on-screen display style (the
  * desktop popup's; showing again replaces it). */
 void wb_show_popup(struct wb_server *server, const std::string &text, int duration_ms);

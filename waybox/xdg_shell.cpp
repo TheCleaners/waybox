@@ -827,7 +827,7 @@ struct wlr_output *get_active_output(struct wb_toplevel *toplevel) {
 /* A window rule's <monitor>: a number (1, the leftmost), a name, "mouse"
  * (the pointer's), "active" (the focused window's), "primary" (the first);
  * nullptr when there's no such one. */
-static struct wlr_output *rule_output(struct wb_server *server, const std::string &spec) {
+struct wlr_output *rule_output(struct wb_server *server, const std::string &spec) {
 	if (spec == "mouse")
 		return wlr_output_layout_output_at(server->output_layout, server->cursor->cursor->x,
 				server->cursor->cursor->y);

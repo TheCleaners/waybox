@@ -5,6 +5,7 @@
  */
 #include "waybox/stall.hpp"
 #include "waybox/menu_widget.hpp"
+#include "waybox/applications.hpp"
 #include "waybox/app_menu.hpp"
 
 #include "script.h"
@@ -183,6 +184,10 @@ void MenuWidget::push_menu(const Menu *menu, const Rect &rect, int parent_item) 
 }
 
 bool MenuWidget::open(std::string_view root_id, int lx, int ly) {
+	return open(root_id, lx, ly, Placement{});
+}
+
+bool MenuWidget::open(std::string_view root_id, int lx, int ly, const Placement &placement) {
 	const Menu *menu = with_labels(resolve_menu(root_id));
 	if (menu == nullptr)
 		return false;
@@ -200,10 +205,23 @@ bool MenuWidget::open(std::string_view root_id, int lx, int ly) {
 	m.icon_column = menu_icon_column(menu);
 	MenuLayout layout = layout_menu(*menu, m,
 			[this](std::string_view s) { return text_width(s); });
-	Rect bounds = output_bounds(lx, ly);
-	Rect rect = place_root_menu(lx, ly, layout.width, layout.height, bounds);
+	Rect rect;
+	std::optional<PlacedAt> at;
+	if (!placement.x.empty() && placement.area_w > 0)
+		at = place_in_area(placement.x, placement.y, layout.width, layout.height,
+				placement.area_x, placement.area_y, placement.area_w, placement.area_h);
+	if (at) {
+		rect = Rect{at->x, at->y, layout.width, layout.height};
+		/* Its submenus kept to the monitor it's on. */
+		root_x_ = at->x;
+		root_y_ = at->y;
+	} else {
+		Rect bounds = output_bounds(lx, ly);
+		rect = place_root_menu(lx, ly, layout.width, layout.height, bounds);
+	}
 	push_menu(menu, rect, -1);
 	levels_.back().pending_id = pending;
+	wlr_log(WLR_INFO, "wb-menu at %d,%d %dx%d", rect.x, rect.y, rect.width, rect.height);
 	return true;
 }
 
