@@ -8,7 +8,10 @@
    process is gone), one enabled now starts, an unchanged one-shot isn't
    run again, a changed command is restarted. A removed program that
    exited cleanly but left something running in its process group (as
-   waypaper --restore leaves swaybg) has that stopped.
+   waypaper --restore leaves swaybg) has that stopped; one ignoring
+   SIGTERM is killed 3 s later, its exited leader notwithstanding. A
+   leader kept for what it left running is reaped once that has ended
+   (no zombie left behind).
 3. A program killed is started again.
 4. When Waybox exits, the programs it started end, and what a program
    that exited left running.
@@ -67,6 +70,7 @@ def main():
     once_log = os.path.join(workdir, "once.log")
     left_pid = os.path.join(workdir, "left.pid")
     kept_pid = os.path.join(workdir, "kept.pid")
+    stubborn_pid = os.path.join(workdir, "stubborn.pid")
 
     def write_rc(programs):
         body = "\n".join(
@@ -88,6 +92,9 @@ def main():
         # Exit cleanly, leaving a process in their group.
         ("restorer", f"sleep 1003 &amp; echo $! &gt; {left_pid}", ""),
         ("keeper", f"sleep 1004 &amp; echo $! &gt; {kept_pid}", ""),
+        # Leaves one that ignores SIGTERM; and one that ends by itself.
+        ("stubborn", f"(trap '' TERM; exec sleep 1005) &amp; echo $! &gt; {stubborn_pid}", ""),
+        ("brief", "sleep 2 &amp;", ""),
     ]
     write_rc(first)
     runtime = os.path.join(workdir, "run")
@@ -160,6 +167,8 @@ def main():
             except (OSError, ValueError):
                 return None
         leftover, kept = pid_in(left_pid), pid_in(kept_pid)
+        stubborn = pid_in(stubborn_pid)
+        brief = pids(lp, "brief")[-1] if pids(lp, "brief") else None
         if leftover is None or not alive(leftover) or kept is None or not alive(kept):
             failures.append("a program's background process didn't start (or ended)")
 
@@ -169,6 +178,7 @@ def main():
             ("once", f"echo ran &gt;&gt; {once_log}", ""),
             ("crashy", "exec sleep 1002", ""),
             ("keeper", f"sleep 1004 &amp; echo $! &gt; {kept_pid}", ""),
+            ("brief", "sleep 2 &amp;", ""),  # kept: reaped by the supervisor's own look
         ])
         proc.send_signal(signal.SIGUSR2)
         time.sleep(1.0)
@@ -191,6 +201,14 @@ def main():
         crashy = pids(lp, "crashy")
         if not crashy or not alive(crashy[-1]):
             failures.append("a program whose command changed wasn't restarted with it")
+        # The stubborn one: killed 3 s after the stop.
+        time.sleep(3.0)
+        if stubborn is None:
+            failures.append("the stubborn program's background process didn't start")
+        elif alive(stubborn):
+            failures.append("what a removed program left running, ignoring SIGTERM, "
+                            "wasn't killed")
+            os.kill(stubborn, signal.SIGKILL)
 
         # 3. Killed: started again.
         later = pids(lp, "later")[-1] if pids(lp, "later") else None
@@ -200,6 +218,17 @@ def main():
             again = pids(lp, "later")
             if len(again) < 2 or not alive(again[-1]):
                 failures.append("a killed program wasn't started again")
+        # Brief's leftover ended long ago: its leader reaped, no zombie.
+        if brief is None:
+            failures.append("brief wasn't started")
+        else:
+            for _ in range(60):  # looked at every 5 s
+                if not process_state(brief):
+                    break
+                time.sleep(0.1)
+        if brief is not None and process_state(brief):
+            failures.append(f"a leader kept for what it left running wasn't reaped "
+                            f"after that ended: state {process_state(brief)}")
     finally:
         stop(proc, log)
 

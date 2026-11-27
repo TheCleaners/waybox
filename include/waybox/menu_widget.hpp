@@ -115,7 +115,7 @@ private:
 	 * replaces the placeholder via finish_pipe(). */
 	void start_pipe(const Menu &menu);
 	void finish_pipe(PipeJob *job, bool ok);
-	void stop_pipe(PipeJob *job);
+	void stop_pipe(PipeJob *job, bool abandon);
 	/* Re-open whatever level is showing the placeholder for pipe menu `id`. */
 	void refresh_pending(const std::string &id);
 	static int on_pipe_readable(int fd, uint32_t mask, void *data);

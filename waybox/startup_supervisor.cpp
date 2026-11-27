@@ -21,6 +21,7 @@
 #include "startup_supervisor.h"
 #include "waybox/server.h"
 #include "waybox/startup.hpp"
+#include "waybox/proc_group.hpp"
 
 namespace {
 
@@ -28,10 +29,11 @@ struct Program {
 	struct wb_server *server = nullptr;
 	wb::StartupProgram prog;
 	pid_t pid = -1;
-	/* Its process group: what it started may still run after it exits
-	 * (waypaper --restore leaves swaybg), and goes with it when it's
-	 * stopped. The kernel doesn't reuse an id while a group has it. */
-	pid_t group = -1;
+	/* Its earlier copies that exited leaving something running in their
+	 * process group (waypaper --restore leaves swaybg): kept unreaped, so
+	 * the group's id (theirs) can't be reused while Waybox may still stop
+	 * the group; reaped once nothing in it runs. */
+	std::vector<pid_t> held;
 	std::vector<int64_t> crashes;
 	struct wl_event_source *restart_timer = nullptr;
 	/* Restarted on request: started again once this one has exited (a
@@ -52,6 +54,30 @@ int64_t now_ms() {
 	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 	return static_cast<int64_t>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000;
+}
+
+/* The leader (a child of ours, not reaped) if it has exited: looked at,
+ * left unreaped. */
+std::optional<siginfo_t> exited(pid_t pid) {
+	siginfo_t si;
+	memset(&si, 0, sizeof si);
+	if (waitid(P_PID, static_cast<id_t>(pid), &si, WEXITED | WNOHANG | WNOWAIT) != 0 ||
+			si.si_pid != pid)
+		return std::nullopt;
+	return si;
+}
+
+void reap(pid_t pid) {
+	while (waitpid(pid, nullptr, 0) < 0 && errno == EINTR) {
+	}
+}
+
+/* A leader that exited, its group empty now: reaped (its id free). */
+bool release_if_done(pid_t pid) {
+	if (!exited(pid) || wb::group_has_others(pid, pid))
+		return false;
+	reap(pid);
+	return true;
 }
 
 pid_t spawn(const std::string &command) {
@@ -82,15 +108,20 @@ namespace {
 struct KillLater {
 	struct wb_server *server;
 	pid_t pid;
+	bool killed = false;
 	struct wl_event_source *timer = nullptr;
 };
 }  // namespace
 
 struct wb_startup_state {
 	std::vector<std::unique_ptr<Program>> programs;
-	/* Stopped programs not reaped yet, and their SIGKILL timers. */
+	/* Stopped programs' leaders not reaped yet (running, or exited with
+	 * their group still running: its id reserved till then), and their
+	 * SIGKILL timers. */
 	std::vector<pid_t> stopping;
 	std::vector<KillLater *> kills;
+	/* Looks now and then whether what held leaders left has ended. */
+	struct wl_event_source *held_timer = nullptr;
 };
 
 static struct wb_startup_state *state(struct wb_server *server) {
@@ -195,46 +226,84 @@ static void apply_env(struct wb_server *server,
 
 static void start(Program *p) {
 	p->pid = spawn(p->prog.command);
-	p->group = p->pid;
 	if (p->pid > 0)
 		wlr_log(WLR_INFO, "wb-startup start %s %d", p->prog.name.c_str(), p->pid);
 }
 
 
-/* SIGTERM to the program's group (or the program, if the group isn't
- * there); SIGKILL in 3 s if it's still running then. */
-static void stop(struct wb_startup_state *st, Program *p) {
-	if (p->pid <= 0) {
-		/* Exited: what's left of its group, if anything. */
-		if (p->group > 0 && kill(-p->group, SIGTERM) == 0)
-			wlr_log(WLR_INFO, "wb-startup stop %s (left running)", p->prog.name.c_str());
-		return;
-	}
-	wlr_log(WLR_INFO, "wb-startup stop %s", p->prog.name.c_str());
-	if (kill(-p->pid, SIGTERM) != 0 && errno == ESRCH)
-		kill(p->pid, SIGTERM);
-	st->stopping.push_back(p->pid);
-	auto *later = new KillLater{p->server, p->pid};
-	st->kills.push_back(later);
-	later->timer = wl_event_loop_add_timer(p->server->wl_event_loop, [](void *data) {
-		auto *later = static_cast<KillLater *>(data);
-		struct wb_startup_state *st = later->server->startup;
-		bool waiting = st != nullptr && std::find(st->stopping.begin(),
-				st->stopping.end(), later->pid) != st->stopping.end();
-		if (waiting && waitpid(later->pid, nullptr, WNOHANG) == 0) {
-			wlr_log(WLR_INFO, "wb-startup kill %d", later->pid);
-			if (kill(-later->pid, SIGKILL) != 0)
-				kill(later->pid, SIGKILL);
-		}
-		if (st != nullptr)
-			st->kills.erase(std::remove(st->kills.begin(), st->kills.end(), later),
-					st->kills.end());
-		wl_event_source_remove(later->timer);
-		delete later;
+static int kill_later(void *data) {
+	auto *later = static_cast<KillLater *>(data);
+	struct wb_startup_state *st = later->server->startup;
+	auto it = st != nullptr ? std::find(st->stopping.begin(), st->stopping.end(), later->pid)
+			: std::vector<pid_t>::iterator();
+	bool waiting = st != nullptr && it != st->stopping.end();
+	if (waiting && !later->killed) {
+		/* Still unreaped (running, or exited with its group running): the
+		 * group's id is still this one's, never another's. */
+		wlr_log(WLR_INFO, "wb-startup kill %d", later->pid);
+		if (kill(-later->pid, SIGKILL) != 0)
+			kill(later->pid, SIGKILL);
+		later->killed = true;
+		wl_event_source_timer_update(later->timer, 100);
 		return 0;
-	}, later);
+	}
+	if (waiting) {
+		/* Killed: reaped once it has exited (what's left of its group is
+		 * killed and never signalled again). */
+		if (!exited(later->pid)) {
+			wl_event_source_timer_update(later->timer, 500);
+			return 0;
+		}
+		reap(later->pid);
+		st->stopping.erase(it);
+	}
+	if (st != nullptr)
+		st->kills.erase(std::remove(st->kills.begin(), st->kills.end(), later),
+				st->kills.end());
+	wl_event_source_remove(later->timer);
+	delete later;
+	return 0;
+}
+
+/* SIGTERM to a leader's group (or the leader, if the group isn't there);
+ * SIGKILL in 3 s to what's still running then, the leader kept unreaped
+ * till then so that the group's id stays its own. */
+static void end_group(struct wb_startup_state *st, struct wb_server *server, pid_t pid) {
+	if (kill(-pid, SIGTERM) != 0 && errno == ESRCH)
+		kill(pid, SIGTERM);
+	st->stopping.push_back(pid);
+	auto *later = new KillLater{server, pid};
+	st->kills.push_back(later);
+	later->timer = wl_event_loop_add_timer(server->wl_event_loop, kill_later, later);
 	wl_event_source_timer_update(later->timer, 3000);
+}
+
+/* The program, and what its earlier copies left running. */
+static void stop(struct wb_startup_state *st, Program *p) {
+	for (pid_t h : p->held) {
+		wlr_log(WLR_INFO, "wb-startup stop %s (left running)", p->prog.name.c_str());
+		end_group(st, p->server, h);
+	}
+	p->held.clear();
+	if (p->pid <= 0)
+		return;
+	wlr_log(WLR_INFO, "wb-startup stop %s", p->prog.name.c_str());
+	end_group(st, p->server, p->pid);
 	p->pid = -1;
+}
+
+/* Held leaders whose groups have ended: reaped. Looked at every 5 s while
+ * there are any. */
+static int check_held(void *data) {
+	auto *st = static_cast<struct wb_startup_state *>(data);
+	bool any = false;
+	for (auto &p : st->programs) {
+		p->held.erase(std::remove_if(p->held.begin(), p->held.end(), release_if_done),
+				p->held.end());
+		any = any || !p->held.empty();
+	}
+	wl_event_source_timer_update(st->held_timer, any ? 5000 : 0);
+	return 0;
 }
 
 void startup_apply(struct wb_server *server) {
@@ -287,23 +356,31 @@ void startup_reap(struct wb_server *server) {
 		return;
 	/* Only our own children: Xwayland and others are reaped by their
 	 * owners. */
-	for (auto it = st->stopping.begin(); it != st->stopping.end();) {
-		if (waitpid(*it, nullptr, WNOHANG) != 0)
-			it = st->stopping.erase(it);
-		else
-			++it;
-	}
+	st->stopping.erase(std::remove_if(st->stopping.begin(), st->stopping.end(),
+			release_if_done), st->stopping.end());
 	for (auto &p : st->programs) {
 		if (p->pid <= 0)
 			continue;
-		int status = 0;
-		if (waitpid(p->pid, &status, WNOHANG) != p->pid)
+		std::optional<siginfo_t> si = exited(p->pid);
+		if (!si)
 			continue;
+		pid_t leader = p->pid;
 		p->pid = -1;
-		bool clean = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+		bool by_exit = si->si_code == CLD_EXITED;
+		bool clean = by_exit && si->si_status == 0;
 		wlr_log(WLR_INFO, "wb-startup exit %s %s %d", p->prog.name.c_str(),
-				WIFEXITED(status) ? "status" : "signal",
-				WIFEXITED(status) ? WEXITSTATUS(status) : WTERMSIG(status));
+				by_exit ? "status" : "signal", si->si_status);
+		/* What it left running in its group is stopped with it later: its
+		 * id kept from reuse till that has ended. */
+		if (wb::group_has_others(leader, leader)) {
+			p->held.push_back(leader);
+			if (st->held_timer == nullptr)
+				st->held_timer = wl_event_loop_add_timer(server->wl_event_loop,
+						check_held, st);
+			wl_event_source_timer_update(st->held_timer, 5000);
+		} else {
+			reap(leader);
+		}
 		auto delay = wb::restart_delay_ms(clean, p->prog.restart, p->crashes, now_ms());
 		if (delay) {
 			wlr_log(WLR_INFO, "wb-startup restart %s in %d ms", p->prog.name.c_str(), *delay);
@@ -323,10 +400,16 @@ static int relaunch_check(void *data) {
 	auto *p = static_cast<Program *>(data);
 	struct wb_startup_state *st = p->server->startup;
 	pid_t old = p->relaunch_after;
-	bool reaped = st == nullptr || std::find(st->stopping.begin(), st->stopping.end(), old) ==
-			st->stopping.end();
-	bool group_gone = kill(-old, 0) != 0 && errno == ESRCH;
-	if ((reaped && group_gone) || now_ms() - p->relaunch_since > 5000) {
+	/* Still stopping: unreaped, till its group has ended. */
+	bool gone = true;
+	if (st != nullptr) {
+		auto it = std::find(st->stopping.begin(), st->stopping.end(), old);
+		if (it != st->stopping.end() && release_if_done(old))
+			st->stopping.erase(it);
+		else
+			gone = it == st->stopping.end();
+	}
+	if (gone || now_ms() - p->relaunch_since > 5000) {
 		wl_event_source_remove(p->relaunch_timer);
 		p->relaunch_timer = nullptr;
 		p->relaunch_after = -1;
@@ -383,9 +466,14 @@ void startup_finish(struct wb_server *server) {
 	struct wb_startup_state *st = server->startup;
 	if (st == nullptr)
 		return;
-	for (auto &p : st->programs)
-		if (p->group > 0)
-			kill(-p->group, SIGTERM);
+	for (auto &p : st->programs) {
+		if (p->pid > 0)
+			kill(-p->pid, SIGTERM);
+		for (pid_t h : p->held)
+			kill(-h, SIGTERM);
+	}
+	if (st->held_timer != nullptr)
+		wl_event_source_remove(st->held_timer);
 	for (KillLater *later : st->kills) {
 		wl_event_source_remove(later->timer);
 		delete later;
