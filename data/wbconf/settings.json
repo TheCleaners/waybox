@@ -100,7 +100,10 @@
           "rc": { "path": "desktops/names", "item": "name" } },
         { "id": "desktops.popupTime", "title": "Show the name after switching", "type": "int",
           "description": "How long the desktop's name stays on screen; 0 turns it off.", "min": 0, "max": 10000,
-          "unit": "ms", "default": "875", "rc": { "path": "desktops/popupTime" } }
+          "unit": "ms", "default": "875", "rc": { "path": "desktops/popupTime" } },
+        { "id": "desktops.perMonitor", "title": "Each monitor its own desktop", "type": "bool",
+          "description": "Switching desktops changes only the monitor of the focused window (or the pointer's); new windows open on the desktop their monitor shows. Off, every monitor shows the same desktop, as in Openbox.",
+          "default": "no", "rc": { "path": "desktops/perMonitor" } }
       ]
     },
     {
