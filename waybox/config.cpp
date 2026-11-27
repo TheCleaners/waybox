@@ -657,6 +657,27 @@ static void parse_input_method(struct wb_config *config, xmlXPathContextPtr ctxt
 	xmlXPathFreeObject(object);
 }
 
+/* Parse <waybox><activation focus="smart|always|never"/>. */
+static void parse_activation(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:activation", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		const char *v = (const char *) get_attribute(object->nodesetval->nodeTab[0], "focus");
+		if (v != nullptr) {
+			std::string f = v;
+			if (f == "always")
+				config->activation = wb_config::Activation::Always;
+			else if (f == "never")
+				config->activation = wb_config::Activation::Never;
+			else
+				config->activation = wb_config::Activation::Smart;
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
 /* Parse <waybox><ipc enabled="yes|no"/> (on unless "no"). */
 static void parse_ipc(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
@@ -1049,6 +1070,7 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	parse_cursor(config, ctxt);
 	parse_scripts(config, ctxt);
 	parse_ipc(config, ctxt);
+	parse_activation(config, ctxt);
 	parse_input_method(config, ctxt);
 
 	xmlXPathFreeContext(ctxt);

@@ -151,6 +151,7 @@ Value window_json(struct wb_toplevel *t) {
 	w["tag"] = t->tag;
 	w["desktop"] = t->desktop + 1;
 	w["omnipresent"] = t->omnipresent;
+	w["urgent"] = t->urgent;
 	w["layer"] = t->layer > 0 ? "above" : t->layer < 0 ? "below" : "normal";
 	w["focused"] = focused(t);
 	w["minimized"] = t->minimized;

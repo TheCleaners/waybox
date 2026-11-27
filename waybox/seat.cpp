@@ -306,7 +306,7 @@ wb::WindowFacts window_facts(struct wb_server *server, struct wb_toplevel *t) {
 	struct wlr_surface *s = view_surface(t);
 	f.focused = s != nullptr && server->seat->seat->keyboard_state.focused_surface == s;
 	f.focusable = t->mapped;
-	f.urgent = false;  /* (Waybox keeps no urgency) */
+	f.urgent = t->urgent;
 	f.decorated = t->frame != nullptr;
 	f.omnipresent = t->omnipresent;
 	f.desktop = t->desktop;

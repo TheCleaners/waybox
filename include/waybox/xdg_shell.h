@@ -95,6 +95,7 @@ struct wb_toplevel {
 	wb::Listener request_configure;
 	wb::Listener request_activate;
 	wb::Listener set_decorations;
+	wb::Listener set_hints;      /* WM_HINTS: urgency */
 	wb::Listener set_override_redirect;
 	wb::Listener surface_tree_destroy;
 
@@ -128,6 +129,9 @@ struct wb_toplevel {
 	/* Openbox's layer: -1 always below, 0 normal, 1 always on top. Raising
 	 * and lowering stay within it. */
 	int layer = 0;
+	/* Asked for attention (activation it didn't get, an X11 urgency hint):
+	 * until it's focused. Its desktop shows as urgent (ext-workspace). */
+	bool urgent = false;
 
 	struct wl_list link;       /* server::toplevels — stacking (z-)order */
 	struct wl_list focus_link; /* server::focus_order — MRU focus order */
@@ -246,6 +250,11 @@ wb::Rect tile_preview_rect(struct wb_server *server, struct wlr_output *output,
 int desktop_count(struct wb_server *server);
 bool toplevel_on_desktop(struct wb_toplevel *toplevel, int desktop);
 bool toplevel_on_current_desktop(struct wb_toplevel *toplevel);
+/* A window asks to be shown (xdg-activation, X11 _NET_ACTIVE_WINDOW):
+ * focused, or marked urgent, as <activation> says; `from_user`: made from
+ * input (a click, a key), not by the program on its own. */
+void toplevel_request_activation(struct wb_toplevel *toplevel, bool from_user);
+void set_toplevel_urgent(struct wb_toplevel *toplevel, bool urgent);
 /* Show desktop `index` (0-based): hide the other desktops' windows and focus
  * the most recently used window here (or nothing). */
 void wb_go_to_desktop(struct wb_server *server, int index);

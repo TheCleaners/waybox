@@ -360,6 +360,34 @@ void lower_toplevel(struct wb_toplevel *toplevel) {
 
 static void switch_desktop(struct wb_server *server, int index, bool refocus);
 
+void set_toplevel_urgent(struct wb_toplevel *toplevel, bool urgent) {
+	if (toplevel == nullptr || toplevel->urgent == urgent)
+		return;
+	toplevel->urgent = urgent;
+	wlr_log(WLR_INFO, "wb-urgent %s %s", urgent ? "on" : "off",
+			view_app_id(toplevel) ? view_app_id(toplevel) : "");
+	ipc_window_event(toplevel, "state");
+	workspace_schedule_sync(toplevel->server);
+}
+
+void toplevel_request_activation(struct wb_toplevel *toplevel, bool from_user) {
+	if (toplevel == nullptr || !toplevel->mapped)
+		return;
+	struct wb_server *server = toplevel->server;
+	using A = wb_config::Activation;
+	A mode = server->config != nullptr ? server->config->activation : A::Smart;
+	bool focus = from_user && (mode == A::Always ||
+			(mode == A::Smart && toplevel_on_current_desktop(toplevel) && !toplevel->minimized));
+	if (focus) {
+		focus_toplevel(toplevel);
+		return;
+	}
+	struct wlr_surface *s = view_surface(toplevel);
+	if (s != nullptr && server->seat->seat->keyboard_state.focused_surface == s)
+		return;  /* it has focus already */
+	set_toplevel_urgent(toplevel, true);
+}
+
 void focus_toplevel(struct wb_toplevel *toplevel) {
 	/* Note: this function only deals with keyboard focus (plus the stacking
 	 * raise that conventionally accompanies it). */
@@ -442,6 +470,7 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	 */
 	seat_focus_surface(server->seat.get(), surface);
 	sync_frame_active(server);
+	set_toplevel_urgent(toplevel, false);  /* attention given */
 	if (toplevel->mapped)
 		ipc_window_event(toplevel, "focus");
 }
