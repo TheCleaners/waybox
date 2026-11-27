@@ -6,8 +6,9 @@ submenu with its entries, a pipe menu, a menu defined elsewhere); then
 changed through the page's widgets: an item relabeled and its command
 changed, the pipe menu removed, a program, a submenu and a titled
 separator added, entries moved into the submenu above, out again and
-earlier, the last change undone. Saved: menu.xml has exactly that, its
-comment kept.
+earlier, the last change undone; a program added from the installed ones
+(its name, icon and command, field codes left out), and its icon chosen
+from the theme. Saved: menu.xml has exactly that, its comment kept.
 Skips (exit 77) without a headless display.
 
 Usage: wbconf_menu_test.py <waybox> <wbconf> <schema-dir>
@@ -67,6 +68,8 @@ STEPS = ";".join([
     "menu-undo",                     # the separator's title
     "menu-undo",                     # the separator
     "menu-out:3.2",                  # Editor out of Tools, after it: 4
+    "menu-addapp:Test Editor",       # from the installed programs: 8
+    "menu-iconpick:8=folder",        # an icon from the theme's (if it has one)
     "menu", "changes", "save", "status", "menu"])
 
 
@@ -106,10 +109,16 @@ def main():
         f.write(MENU)
     with open(os.path.join(cfg, "waybox", "rc.xml"), "w") as f:
         f.write('<openbox_config xmlns="http://openbox.org/3.4/rc"></openbox_config>\n')
+    # An installed program, in the user's applications.
+    apps = os.path.join(workdir, "data", "applications")
+    os.makedirs(apps)
+    with open(os.path.join(apps, "test-editor.desktop"), "w") as f:
+        f.write("[Desktop Entry]\nType=Application\nName=Test Editor\n"
+                "Exec=test-editor %F\nIcon=accessories-text-editor\n")
     runtime = os.path.join(workdir, "run")
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
-               XDG_CONFIG_HOME=cfg, XDG_RUNTIME_DIR=runtime, WB_RC_XML="", WB_MENU_XML="",
+               XDG_CONFIG_HOME=cfg, XDG_DATA_HOME=os.path.join(workdir, "data"), XDG_RUNTIME_DIR=runtime, WB_RC_XML="", WB_MENU_XML="",
                ASAN_OPTIONS="detect_leaks=0")
     env.pop("WAYLAND_DISPLAY", None)
     env.pop("DISPLAY", None)
@@ -138,7 +147,7 @@ def main():
     app = subprocess.Popen([wbconf], env=dict(wenv, WBCONF_TEST_TOC=STEPS),
                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     wbtest.reap_on_exit(app)
-    time.sleep(0.8 * 27 + 2)
+    time.sleep(0.8 * 29 + 2)
     app.kill()
     lines = app.communicate()[1].splitlines()
 
@@ -154,6 +163,8 @@ def main():
     failures = []
     if not d or d[0][1] != WANT_LOADED or d[0][0] != "menu-dump:0":
         failures.append("as loaded:\n  " + "\n  ".join(d[0][1] if d else []))
+    picked = next((l[len("menu-iconpick:"):] for l in lines if l.startswith("menu-iconpick:")), "")
+    icon8 = picked or "accessories-text-editor"
     want_edited = [
         "menu|1|Console|utilities-terminal|Run alacritty",
         "menu|2|||A divider",
@@ -163,6 +174,7 @@ def main():
         "menu|5|||Shows the menu \u201cPlaces\u201d",
         "menu|6|Exit||Log out",
         "menu|7|Games||A submenu of 0 entries",
+        f"menu|8|Test Editor|{icon8}|Run test-editor",
     ]
     if len(d) < 2 or d[1][1] != want_edited:
         failures.append("edited:\n  " + "\n  ".join(d[1][1] if len(d) > 1 else []))
@@ -186,6 +198,7 @@ def main():
         ("item", {"label": "Exit"}, [], None),
         # (Its id as made, from the label it had then: ids stay put.)
         ("menu", {"id": "new-submenu", "label": "Games"}, [], None),
+        ("item", {"label": "Test Editor", "icon": icon8}, [], "test-editor"),
     ]
     if got != want:
         failures.append(f"menu.xml: {got}")

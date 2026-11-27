@@ -23,7 +23,7 @@ wbconf_exe = executable(
   'wbconf',
   [wbconf_version_h, 'main.cpp', 'session.cpp', 'monitors.cpp', 'widgets.cpp', 'option_widgets.cpp', 'monitor_arranger.cpp', 'color_control.cpp', 'list_control.cpp', 'sections_control.cpp', 'font_control.cpp', 'unsaved_changes.cpp', 'problems.cpp', 'lua_page.cpp', 'pages/wallpaper.cpp', 'fonts.cpp',
    'theme_page.cpp', 'integrations_page.cpp', 'startup_sources_page.cpp', 'procs.cpp', 'gtk_page.cpp', 'settings.cpp', 'settings_view.cpp', 'shortcuts_page.cpp', 'rules_page.cpp', 'menu_page.cpp', 'action_editor.cpp',
-   files('../waybox/wbconf.cpp', '../waybox/settings_schema.cpp'), action_catalog_src, action_src, key_label_src, binding_clash_src, app_rule_xml_src, xml_edit_src, menu_doc_src, applications_src, xml_strict_src, theme_src, style_src, widget_src,
+   files('../waybox/wbconf.cpp', '../waybox/settings_schema.cpp'), action_catalog_src, action_src, key_label_src, binding_clash_src, app_rule_xml_src, xml_edit_src, menu_doc_src, app_menu_src, menu_src, applications_src, xml_strict_src, theme_src, style_src, widget_src,
    frame_src, geometry_src, titlebar_draw_src,
    render_src, startup_src, integrations_src, startup_sources_src, gtk_appearance_src,
    monitor_layout_src, color_text_src, xcursor_themes_src, change_list_src, setting_problems_src,
