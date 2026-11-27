@@ -10,6 +10,7 @@
 #include "ipc.h"
 #include "waybox/menu_widget.hpp"
 #include "waybox/switcher_widget.hpp"
+#include "waybox/about_card.hpp"
 #include "waybox/desktop_popup.hpp"
 
 bool show_help(char *name) {

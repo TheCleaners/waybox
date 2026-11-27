@@ -223,10 +223,20 @@ void MenuWidget::render_level(Level &level) {
 		const MenuItem &item = level.menu->items[i];
 		const Rect &ir = level.layout.item_rects[i];
 
-		if (item.kind == MenuItem::Kind::Separator) {
+		if (item.kind == MenuItem::Kind::Separator && item.label.empty()) {
 			int sy = ir.y + ir.height / 2;
 			paint_rect(cr, ir.x + metrics_.pad_x, sy,
 					ir.width - 2 * metrics_.pad_x, 1, style_.separator);
+			continue;
+		}
+		/* A labelled separator, a title (bold); a text line: read only. */
+		if (item.kind == MenuItem::Kind::Separator || item.kind == MenuItem::Kind::Text) {
+			const StateStyle &st = style_.item.for_state(WidgetState::Normal);
+			FontSpec font = style_.item_text.font;
+			if (item.kind == MenuItem::Kind::Separator)
+				font.weight = 700;
+			paint_text(cr, ir.x + metrics_.pad_x + level.icon_col,
+					ir.y + (ir.height - text_height_) / 2, item.label, st.fg, font);
 			continue;
 		}
 
@@ -695,6 +705,7 @@ bool MenuWidget::on_key(xkb_keysym_t sym) {
 			pending_ = level.menu->items[level.hovered].actions;
 			return true;  /* dismiss; caller runs the actions */
 		case MenuItem::Kind::Separator:
+		case MenuItem::Kind::Text:
 			return false;
 		}
 		return false;

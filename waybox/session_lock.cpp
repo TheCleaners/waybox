@@ -15,6 +15,7 @@
 #include "waybox/seat.h"
 #include "waybox/server.h"
 #include "waybox/switcher_widget.hpp"
+#include "waybox/about_card.hpp"
 #include "waybox/xdg_shell.h"
 
 struct wb_session_lock_state;

@@ -200,3 +200,24 @@ WB_TEST(step_selection_handles_degenerate_menus) {
 	WB_CHECK(wb::menu_step_selection(one, 0, +1, true) == 0);   /* wraps to self */
 	WB_CHECK(wb::menu_step_selection(one, 0, +1, false) == 0);  /* stays */
 }
+
+/* A labelled separator is a title (an item's height, as Openbox draws it);
+ * a text line reads as an item. Neither is chosen by pointer or keys. */
+WB_TEST(titles_and_text_lines_are_not_chosen) {
+	Menu m;
+	m.items.push_back(MenuItem{MenuItem::Kind::Separator, "Waybox", {}, "", ""});
+	m.items.push_back(MenuItem{MenuItem::Kind::Text, "Version 1", {}, "", ""});
+	m.items.push_back(MenuItem{MenuItem::Kind::Entry, "Project Page", {}, "", ""});
+	m.items.push_back(MenuItem{MenuItem::Kind::Separator, "", {}, "", ""});
+	MenuMetrics metrics;
+	metrics.border = 0;
+	MenuLayout l = wb::layout_menu(m, metrics, fake_width());
+	WB_CHECK(l.item_rects[0].height == metrics.item_height);
+	WB_CHECK(l.item_rects[1].height == metrics.item_height);
+	WB_CHECK(l.item_rects[3].height == metrics.separator_height);
+	WB_CHECK(wb::menu_item_at(m, l, 5, l.item_rects[0].y + 1) == -1);
+	WB_CHECK(wb::menu_item_at(m, l, 5, l.item_rects[1].y + 1) == -1);
+	WB_CHECK(wb::menu_item_at(m, l, 5, l.item_rects[2].y + 1) == 2);
+	WB_CHECK(wb::menu_step_selection(m, -1, 1, true) == 2);
+	WB_CHECK(wb::menu_step_selection(m, 2, 1, true) == 2);
+}
