@@ -1,3 +1,4 @@
+#include "waybox/atomic_file.hpp"
 #include "waybox/menu_doc.hpp"
 
 #include <cstring>
@@ -253,29 +254,9 @@ std::string MenuDocument::to_string() const {
 }
 
 bool MenuDocument::save_file(const std::string &path, std::string *error) const {
-	/* Whole or not at all: a temporary beside it, then renamed over it. */
-	std::string tmp = path + ".new";
-	{
-		std::ofstream out(tmp, std::ios::trunc);
-		if (!out) {
-			if (error != nullptr)
-				*error = "can't write " + tmp;
-			return false;
-		}
-		out << to_string();
-		if (!out.good()) {
-			if (error != nullptr)
-				*error = "can't write " + tmp;
-			return false;
-		}
-	}
-	if (std::rename(tmp.c_str(), path.c_str()) != 0) {
-		if (error != nullptr)
-			*error = "can't replace " + path;
-		std::remove(tmp.c_str());
-		return false;
-	}
-	return true;
+	/* Whole or not at all: a new file of its own beside it (mkstemp: a
+	 * link or FIFO planted at a fixed name isn't followed), renamed over. */
+	return wb::write_file_atomic(path, to_string(), error);
 }
 
 std::vector<std::string> MenuDocument::menu_ids() const {

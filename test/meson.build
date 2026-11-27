@@ -343,7 +343,7 @@ test('trust', trust_test, suite: 'unit')
 # The applications menu: .desktop files, categories, the scan and its cache.
 app_menu_test = executable(
   'app_menu_test',
-  ['app_menu_test.cpp', 'wb_test_main.cpp', app_menu_src, menu_src, action_src],
+  ['app_menu_test.cpp', 'wb_test_main.cpp', app_menu_src, menu_src, action_src, atomic_file_src],
   include_directories: [inc_dir],
   )
 test('app_menu', app_menu_test, suite: 'unit')
@@ -450,6 +450,7 @@ if not get_option('tests_only')
   wbconf_test = executable(
     'wbconf_test',
     ['wbconf_test.cpp', 'wb_test_main.cpp', files('../waybox/wbconf.cpp'), startup_src,
+     atomic_file_src,
      font_spec_src, app_rule_xml_src, xml_edit_src, applications_src,
      output_rules_src,
      xml_strict_src,
@@ -461,7 +462,7 @@ if not get_option('tests_only')
 
   menu_doc_test = executable(
     'menu_doc_test',
-    ['menu_doc_test.cpp', 'wb_test_main.cpp', menu_doc_src, xml_edit_src],
+    ['menu_doc_test.cpp', 'wb_test_main.cpp', menu_doc_src, xml_edit_src, atomic_file_src],
     include_directories: [inc_dir],
     dependencies: [libxml2],
     )
@@ -472,6 +473,7 @@ if not get_option('tests_only')
     'settings_schema_test',
     ['settings_schema_test.cpp', 'wb_test_main.cpp', files('../waybox/settings_schema.cpp',
      '../waybox/wbconf.cpp'), startup_src, xml_strict_src, theme_src, font_spec_src,
+     atomic_file_src,
      app_rule_xml_src, xml_edit_src, applications_src],
     include_directories: [inc_dir],
     dependencies: [libxml2, json_glib],

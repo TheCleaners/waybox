@@ -1214,3 +1214,40 @@ WB_TEST(app_rules_read_and_edit) {
 		WB_CHECK(empty->app_rules().size() == 1);
 	}
 }
+
+/* A link and a FIFO planted at the old temporary name (rc.xml.tmp): the
+ * save writes a file of its own, so the link's target is left alone and
+ * the FIFO doesn't block it. */
+WB_TEST(save_ignores_planted_temporary_names) {
+	namespace fs = std::filesystem;
+	char tmpl[] = "/tmp/wbconf-test-XXXXXX";
+	WB_CHECK(mkdtemp(tmpl) != nullptr);
+	fs::path dir = tmpl;
+	for (bool fifo : {false, true}) {
+		fs::path rc = dir / (fifo ? "f" : "l") / "rc.xml";
+		fs::create_directories(rc.parent_path());
+		{
+			std::ofstream(rc) << kUserRc;
+		}
+		fs::path victim = dir / "victim";
+		{
+			std::ofstream(victim) << "keep";
+		}
+		if (fifo)
+			WB_CHECK(::mkfifo((rc.string() + ".tmp").c_str(), 0600) == 0);
+		else
+			fs::create_symlink(victim, rc.string() + ".tmp");
+		auto doc = RcDocument::load_file(rc.string());
+		WB_CHECK(doc.has_value());
+		if (!doc)
+			continue;
+		WayboxSettings before = doc->read(), s = before;
+		s.margin_top = 7;
+		doc->apply(s, before);
+		std::string err;
+		WB_CHECK(doc->save_file(rc.string(), &err));
+		WB_CHECK(slurp(rc).find("<top>7</top>") != std::string::npos);
+		WB_CHECK(slurp(victim) == "keep");
+	}
+	fs::remove_all(dir);
+}

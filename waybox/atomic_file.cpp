@@ -34,15 +34,18 @@ mode_t new_file_mode() {
 
 }  // namespace
 
-bool write_file_atomic(const std::string &path, const std::string &text, std::string *error) {
+bool write_file_atomic(const std::string &path, const std::string &text, std::string *error,
+		std::optional<mode_t> fixed_mode) {
 	auto fail = [&](const std::string &why) {
 		if (error != nullptr)
 			*error = path + ": " + why;
 		return false;
 	};
-	/* The mode to keep (the file's own; a script stays executable). */
+	/* The mode given, else the one to keep (the file's own; a script stays
+	 * executable). */
 	struct stat st;
-	mode_t mode = stat(path.c_str(), &st) == 0 ? (st.st_mode & 07777) : new_file_mode();
+	mode_t mode = fixed_mode ? *fixed_mode
+			: stat(path.c_str(), &st) == 0 ? (st.st_mode & 07777) : new_file_mode();
 
 	std::string name = path + ".wbconf-XXXXXX";
 	std::vector<char> tmp(name.begin(), name.end());

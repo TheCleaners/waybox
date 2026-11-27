@@ -5,6 +5,7 @@
  * $XDG_STATE_HOME/waybox/sessions.json and, when the app asks before a
  * window's first commit, opens it where it was. See xdg_session.h.
  */
+#include "waybox/atomic_file.hpp"
 #include "waybox/xdg_session.h"
 
 #include <algorithm>
@@ -88,38 +89,17 @@ std::string state_path() {
 	return dir + "/waybox/sessions.json";
 }
 
-/* All of `text`, a short write or an interrupted one carried on. */
-bool write_all(int fd, const std::string &text) {
-	size_t done = 0;
-	while (done < text.size()) {
-		ssize_t n = write(fd, text.data() + done, text.size() - done);
-		if (n < 0 && errno == EINTR)
-			continue;
-		if (n <= 0)
-			return false;
-		done += static_cast<size_t>(n);
-	}
-	return true;
-}
-
 /* Written whole (a temporary file, synced, renamed over, the directory
  * synced), or not at all; true if saved. */
 bool write_store(struct wb_session_state *st) {
 	std::error_code ec;
 	fs::path dir = fs::path(st->path).parent_path();
 	fs::create_directories(dir, ec);
-	std::string tmp = st->path + ".tmp";
-	int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
-	if (fd < 0) {
-		wlr_log(WLR_ERROR, "sessions: can't write %s: %s", tmp.c_str(), strerror(errno));
-		return false;
-	}
-	bool ok = write_all(fd, st->store.to_json());
-	ok = fsync(fd) == 0 && ok;
-	close(fd);
-	if (!ok || rename(tmp.c_str(), st->path.c_str()) != 0) {
-		wlr_log(WLR_ERROR, "sessions: can't save %s", st->path.c_str());
-		unlink(tmp.c_str());
+	/* A new file of its own (mkstemp: no link followed, no FIFO opened),
+	 * private, renamed over. */
+	std::string err;
+	if (!wb::write_file_atomic(st->path, st->store.to_json(), &err, 0600)) {
+		wlr_log(WLR_ERROR, "sessions: can't write %s", err.c_str());
 		return false;
 	}
 	/* The rename itself kept across a crash. */
