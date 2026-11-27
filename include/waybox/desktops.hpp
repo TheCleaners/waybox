@@ -23,6 +23,9 @@ struct DesktopConfig {
 	/* How long the desktop's name shows after switching, in ms; 0 = never
 	 * (Openbox's <popupTime>, same default). */
 	int popup_time_ms = 875;
+	/* <perMonitor>yes</perMonitor> (a Waybox extension, #367): each
+	 * monitor shows its own desktop; off (Openbox's), all show one. */
+	bool per_monitor = false;
 };
 
 /* The desktop a GoToDesktop/SendToDesktop <to> names, given the current and

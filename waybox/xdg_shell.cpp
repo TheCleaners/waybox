@@ -26,6 +26,8 @@ wb::FrameInsets toplevel_insets(struct wb_toplevel *toplevel) {
 	return wb::FrameInsets{};
 }
 
+static void follow_monitor_desktop(struct wb_toplevel *t);
+
 void position_toplevel(struct wb_toplevel *toplevel) {
 	if (toplevel == nullptr || toplevel->scene_tree == nullptr)
 		return;
@@ -36,6 +38,7 @@ void position_toplevel(struct wb_toplevel *toplevel) {
 	wb::FrameInsets in = toplevel_insets(toplevel);
 	wlr_scene_node_set_position(&toplevel->scene_tree->node,
 			toplevel->geometry.x - in.left, toplevel->geometry.y - in.top);
+	follow_monitor_desktop(toplevel);
 	view_moved(toplevel);
 }
 
@@ -576,6 +579,45 @@ bool toplevel_on_current_desktop(struct wb_toplevel *toplevel) {
 			output_desktop(toplevel->server, get_active_output(toplevel)));
 }
 
+bool desktops_per_monitor(struct wb_server *server) {
+	return server->config != nullptr && server->config->desktops.per_monitor;
+}
+
+struct wb_output *desktop_action_output(struct wb_server *server) {
+	struct wlr_output *out = nullptr;
+	struct wlr_surface *s = server->seat->seat->keyboard_state.focused_surface;
+	if (struct wb_toplevel *t = s != nullptr ? toplevel_from_surface(server, s) : nullptr)
+		out = get_active_output(t);
+	if (out == nullptr)
+		out = wlr_output_layout_output_at(server->output_layout, server->cursor->cursor->x,
+				server->cursor->cursor->y);
+	return out != nullptr ? static_cast<struct wb_output *>(out->data) : nullptr;
+}
+
+void desktop_action_state(struct wb_server *server, int *current, int *last) {
+	struct wb_output *o = desktops_per_monitor(server) ? desktop_action_output(server) : nullptr;
+	*current = o != nullptr ? o->desktop : server->current_desktop;
+	*last = o != nullptr ? o->last_desktop : server->last_desktop;
+}
+
+/* Desktops per monitor: a window moved onto another monitor takes the
+ * desktop that one shows (so it stays in sight, dragged across too); one
+ * on all desktops just notes where it is. */
+static void follow_monitor_desktop(struct wb_toplevel *t) {
+	if (!t->mapped || !desktops_per_monitor(t->server))
+		return;
+	struct wlr_output *out = get_active_output(t);
+	if (out == nullptr)
+		return;
+	std::string name = out->name;
+	if (!t->desktop_output.empty() && name != t->desktop_output && !t->omnipresent) {
+		t->desktop = output_desktop(t->server, out);
+		wlr_log(WLR_INFO, "wb-desktop %s follows %s to %d", view_app_id(t), out->name,
+				t->desktop + 1);
+	}
+	t->desktop_output = name;
+}
+
 /* Shared desktops: every monitor shows the server's. */
 static void sync_output_desktops(struct wb_server *server) {
 	struct wb_output *o;
@@ -618,10 +660,16 @@ static void clear_toplevel_focus(struct wb_server *server) {
 }
 
 void focus_current_desktop(struct wb_server *server) {
+	focus_current_desktop_on(server, nullptr);
+}
+
+/* The most recent window shown (on monitor `on` only, if given). */
+void focus_current_desktop_on(struct wb_server *server, struct wb_output *on) {
 	struct wb_toplevel *toplevel;
 	wl_list_for_each(toplevel, &server->focus_order, focus_link) {
 		if (toplevel->mapped && toplevel_on_current_desktop(toplevel) &&
-				!toplevel->minimized) {
+				!toplevel->minimized &&
+				(on == nullptr || get_active_output(toplevel) == on->wlr_output)) {
 			focus_toplevel(toplevel);
 			return;
 		}
@@ -678,13 +726,31 @@ static void show_desktop_popup(struct wb_server *server, int index) {
 	wb_show_popup(server, wb::desktop_name(desktops, index), desktops.popup_time_ms);
 }
 
+static void switch_desktop_on(struct wb_server *server, struct wb_output *on, int index,
+		bool refocus);
+
 static void switch_desktop(struct wb_server *server, int index, bool refocus) {
+	switch_desktop_on(server, desktops_per_monitor(server) ? desktop_action_output(server)
+			: nullptr, index, refocus);
+}
+
+/* Show desktop `index`: on monitor `on` alone (desktops per monitor), or,
+ * for none, on every monitor (shared). The server's current desktop is
+ * the one switched (for what reads it: the pager, IPC, Lua). */
+static void switch_desktop_on(struct wb_server *server, struct wb_output *on, int index,
+		bool refocus) {
 	if (index < 0 || index >= desktop_count(server))
 		return;
-	if (index != server->current_desktop) {
-		server->last_desktop = server->current_desktop;
+	int was = on != nullptr ? on->desktop : server->current_desktop;
+	if (index != was) {
+		server->last_desktop = was;
 		server->current_desktop = index;
-		sync_output_desktops(server);
+		if (on != nullptr) {
+			on->last_desktop = on->desktop;
+			on->desktop = index;
+		} else {
+			sync_output_desktops(server);
+		}
 		/* A window being dragged comes along (as in Openbox); a resize in
 		 * progress ends. */
 		if (struct wb_toplevel *grabbed = server->grabbed_toplevel) {
@@ -702,7 +768,7 @@ static void switch_desktop(struct wb_server *server, int index, bool refocus) {
 		show_desktop_popup(server, index);
 	}
 	if (refocus)
-		focus_current_desktop(server);
+		focus_current_desktop_on(server, on);
 	cursor_refresh_focus(server);
 }
 
@@ -723,7 +789,9 @@ void wb_send_to_desktop(struct wb_toplevel *toplevel, int index, bool follow) {
 	wlr_log(WLR_INFO, "wb-desktop send %s to %d", view_app_id(toplevel),
 			index + 1);
 	if (follow) {
-		switch_desktop(server, index, false);
+		struct wlr_output *out = get_active_output(toplevel);
+		switch_desktop_on(server, desktops_per_monitor(server) && out != nullptr
+				? static_cast<struct wb_output *>(out->data) : nullptr, index, false);
 		focus_toplevel(toplevel);
 	} else if (was_active && !toplevel_on_current_desktop(toplevel)) {
 		focus_current_desktop(server);
@@ -735,7 +803,7 @@ void wb_toggle_omnipresent(struct wb_toplevel *toplevel) {
 	/* Either way the window stays on the desktop being shown. */
 	if (toplevel->omnipresent) {
 		toplevel->omnipresent = false;
-		toplevel->desktop = toplevel->server->current_desktop;
+		toplevel->desktop = output_desktop(toplevel->server, get_active_output(toplevel));
 	} else {
 		toplevel->omnipresent = true;
 	}
@@ -824,7 +892,15 @@ void desktops_reconfigured(struct wb_server *server) {
 	}
 	if (server->last_desktop >= count)
 		server->last_desktop = count - 1;
-	sync_output_desktops(server);
+	if (desktops_per_monitor(server)) {
+		struct wb_output *o;
+		wl_list_for_each(o, &server->outputs, link) {
+			o->desktop = std::min(o->desktop, count - 1);
+			o->last_desktop = std::min(o->last_desktop, count - 1);
+		}
+	} else {
+		sync_output_desktops(server);
+	}
 	if (server->current_desktop >= count) {
 		switch_desktop(server, count - 1, true);
 	} else {
@@ -1229,6 +1305,16 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 		placed = *p;
 
 	toplevel->geometry = {placed.x, placed.y, placed.width, placed.height};
+	/* Desktops per monitor: on the desktop its monitor shows (unless its
+	 * parent, a rule or session restore said which). */
+	if (desktops_per_monitor(server)) {
+		struct wlr_output *out = get_active_output(toplevel);
+		if (parent == nullptr && !(rule != nullptr && rule->desktop) &&
+				!(restore && toplevel->session_restore_desktop))
+			toplevel->desktop = output_desktop(server, out);
+		toplevel->desktop_output = out != nullptr ? out->name : "";
+		update_desktop_visibility(toplevel);
+	}
 
 	view_set_size(toplevel, toplevel->geometry.width, toplevel->geometry.height);
 

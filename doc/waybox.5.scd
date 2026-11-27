@@ -76,6 +76,13 @@ desktops through the ext-workspace protocol.
 middle of the monitor after switching (default 875, as in Openbox); *0*
 turns it off.
 
+*perMonitor* (a Waybox extension) set to *yes* gives each monitor its own
+current desktop: switching desktops changes only the monitor of the
+focused window (or, with none, the pointer's); a new window opens on the
+desktop its monitor shows, and a window moved to another monitor takes
+the desktop that one shows. Off (the default, as in Openbox), every
+monitor shows the same desktop.
+
 ## Placement and margins
 
 ```
