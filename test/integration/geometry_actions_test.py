@@ -14,7 +14,7 @@ Two undecorated windows (a rule), so a window's frame is its geometry.
 7. Desktops: AddDesktop adds one at the end; b sent to desktop 2, shown,
    RemoveDesktopCurrent: one fewer, desktop 1 shown, b moved to it; a on
    desktop 2, AddDesktop <where>current</where> from desktop 1: a now on 3.
-8. Unfocus leaves nothing focused. Kill on b ends its process (SIGTERM).
+8. Unfocus leaves nothing focused; FocusFallback focuses a again. Kill on b ends its process (SIGTERM).
    (Decorate and the shading ones: window_layers_test, with foot's frame.)
 Skips (exit 77) without a headless display.
 
@@ -197,6 +197,9 @@ def main():
         act("Focus", "a")
         act("Unfocus", "a")
         expect(focused(), [], "Unfocus")
+        ipc({"request": "action", "action": "FocusFallback"})
+        time.sleep(0.3)
+        expect(focused(), ["a"], "FocusFallback")
         act("Kill", "b")
         for _ in range(20):
             if children[1].poll() is not None:
