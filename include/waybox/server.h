@@ -1,6 +1,7 @@
 #ifndef _WB_SERVER_H
 #define _WB_SERVER_H
 
+#include <string>
 #include "waybox/wlroots.hpp"
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -254,6 +255,8 @@ void wb_spawn(const char *cmd);
 /* Tests only (WAYBOX_TEST_GPU_RESET=1): as if the GPU was reset. */
 bool wb_test_renderer_lost(struct wb_server *server);
 /* Reload rc.xml/menu.xml/theme and restyle existing window frames. */
-void wb_reconfigure(struct wb_server *server);
+/* Read rc.xml again and apply it. False (with why, if asked) when it
+ * can't be read: the current settings are kept. */
+bool wb_reconfigure(struct wb_server *server, std::string *problem = nullptr);
 
 #endif /* server.h */

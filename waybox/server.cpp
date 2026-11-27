@@ -72,12 +72,12 @@ void wb_spawn(const char *cmd) {
 	waitpid(pid, NULL, 0);
 }
 
-void wb_reconfigure(struct wb_server *server) {
+bool wb_reconfigure(struct wb_server *server, std::string *problem) {
 	wb::StallScope timing("reconfigure");
 	/* Read the new config first: a broken rc.xml keeps everything as it is. */
-	struct wb_config *fresh = reload_config(server);
+	struct wb_config *fresh = reload_config(server, problem);
 	if (fresh == nullptr)
-		return;
+		return false;
 
 	/* Drop anything that points into the old config (menu model, key-binding
 	 * tree, switcher list) before it is freed. */
@@ -139,6 +139,7 @@ void wb_reconfigure(struct wb_server *server) {
 	idle_reconfigured(server); /* <idle>: the new timeout counts from now */
 	wlr_log(WLR_INFO, "%s", _("Reconfigured"));
 	seat_recheck_keyboard(server);  /* <virtualInput> may have changed */
+	return true;
 }
 
 /* Colour management (color-management-v1, color-representation-v1): clients

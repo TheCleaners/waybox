@@ -1,6 +1,7 @@
 #ifndef _WB_CONFIG_H
 #define _WB_CONFIG_H
 
+#include <string>
 #include <vector>
 
 #include "waybox/bell_style.hpp"
@@ -173,7 +174,7 @@ struct wb_config {
 bool init_config(struct wb_server *server);
 /* Reconfigure: read rc.xml into a new config; nullptr (reported) when it is
  * broken, so the caller keeps the current one. */
-struct wb_config *reload_config(struct wb_server *server);
+struct wb_config *reload_config(struct wb_server *server, std::string *problem_out = nullptr);
 void deinit_config(struct wb_config *config);
 /* "W-S-Return" (rc.xml's key syntax) into a keysym and modifier mask;
  * sym 0 if it isn't one. */

@@ -1155,7 +1155,7 @@ bool init_config(struct wb_server *server) {
 
 /* Reconfigure: read rc.xml again. A broken file leaves the current
  * configuration in place. Returns the new config, or nullptr. */
-struct wb_config *reload_config(struct wb_server *server) {
+struct wb_config *reload_config(struct wb_server *server, std::string *problem_out) {
 	std::string problem;
 	fs::path rc_file = chosen_rc_file(server);
 	if (!rc_file.empty() && !has_settings(rc_file)) {
@@ -1166,8 +1166,11 @@ struct wb_config *reload_config(struct wb_server *server) {
 		return load_config_file(rc_file, &problem, &kNoSettings);
 	}
 	struct wb_config *config = load_config(server, &problem);
-	if (config == nullptr)
+	if (config == nullptr) {
 		report_config_problem(problem, _("Keeping the current settings."), false);
+		if (problem_out != nullptr)
+			*problem_out = problem;
+	}
 	return config;
 }
 
