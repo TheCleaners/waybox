@@ -88,6 +88,36 @@ echo mako-not-really
 	WB_CHECK(found == (std::vector<std::string>{"swaybg", "waybar", "yambar"}));
 }
 
+/* A function's programs count only if it's called: one whose call is
+ * commented out (as wbconf's takeover leaves it) doesn't start them. */
+WB_TEST(programs_in_script_functions) {
+	const char *script = R"(#!/bin/sh
+load_wallpaper() {
+    if which swaybg >/dev/null 2>&1; then
+        swaybg -c '#303030' &
+    fi
+}
+
+start_panel()
+{
+    waybar &
+}
+
+function notify { mako & }
+
+helper() { start_panel; }
+
+#load_wallpaper &
+helper
+)";
+	auto found = wb::programs_in_script(script, {"swaybg", "waybar", "mako"});
+	WB_CHECK(found == (std::vector<std::string>{"waybar"}));
+	/* Called again: it's back. */
+	std::string again = std::string(script) + "load_wallpaper &\nnotify\n";
+	found = wb::programs_in_script(again, {"swaybg", "waybar", "mako"});
+	WB_CHECK(found == (std::vector<std::string>{"mako", "swaybg", "waybar"}));
+}
+
 WB_TEST(integrations_load_user_first_sorted) {
 	char tmpl[] = "/tmp/wb-integ-XXXXXX";
 	std::filesystem::path root = mkdtemp(tmpl);
