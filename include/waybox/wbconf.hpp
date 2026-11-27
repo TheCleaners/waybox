@@ -235,7 +235,8 @@ public:
 	 * button and event, as read) replaced by `now`, or added when `was` is
 	 * empty; removed with nullopt. One with advanced actions is refused
 	 * (false): only rc.xml edits those. A chain's keys left empty go too. */
-	bool set_keybinding(const std::vector<std::string> &was, const std::optional<KeyBinding> &now);
+	bool set_keybinding(const std::vector<std::string> &was, const std::optional<KeyBinding> &now,
+			const std::vector<BoundAction> *was_actions = nullptr);
 	bool set_mousebinding(const std::optional<MouseBinding> &was,
 			const std::optional<MouseBinding> &now);
 	/* Bind `key` to run `command` (an Execute keybind, replacing what the

@@ -1130,7 +1130,8 @@ void apply_shortcuts(Ui *ui, wb::RcDocument &doc) {
 					e->mnow->event != w.event)
 				doc.set_mousebinding(e->mwas, std::nullopt);
 		} else if (!e->now || e->now->chain != e->was->chain) {
-			doc.set_keybinding(e->was->chain, std::nullopt);
+			/* Told apart by what it ran, should two have the same keys. */
+			doc.set_keybinding(e->was->chain, std::nullopt, &e->was->actions);
 		}
 	}
 	for (auto &e : ui->shortcut_edits) {
@@ -1143,7 +1144,10 @@ void apply_shortcuts(Ui *ui, wb::RcDocument &doc) {
 			doc.set_mousebinding(same_place ? e->mwas : std::nullopt, e->mnow);
 		} else {
 			bool same_keys = e->was && e->was->chain == e->now->chain;
-			doc.set_keybinding(same_keys ? e->was->chain : std::vector<std::string>{}, e->now);
+			if (same_keys)
+				doc.set_keybinding(e->was->chain, e->now, &e->was->actions);
+			else
+				doc.set_keybinding({}, e->now);
 		}
 	}
 }

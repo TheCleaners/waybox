@@ -912,6 +912,21 @@ WB_TEST(bindings_read_and_edit) {
 	keys = doc->keybindings();
 	WB_CHECK(keys.size() == 4 && (keys[2].chain == std::vector<std::string>{"C-a", "y"}));
 	/* Removed: C-a x, then C-a y; C-a itself goes with the last. */
+	/* Added on keys another binding has: both kept, side by side (the
+	 * other's actions not overwritten). */
+	WB_CHECK(doc->set_keybinding({}, wb::KeyBinding{{"W-e"}, {{"Close", {}}}}));
+	keys = doc->keybindings();
+	WB_CHECK(std::count_if(keys.begin(), keys.end(), [](const wb::KeyBinding &k) {
+		return k.chain == std::vector<std::string>{"W-e"};
+	}) == 2);
+	WB_CHECK(doc->to_string().find("alacritty") != std::string::npos);
+	/* Which of the two: told by what it ran. */
+	std::vector<wb::BoundAction> ran_alacritty = keys[0].actions;
+	WB_CHECK(doc->set_keybinding({"W-e"}, std::nullopt, &ran_alacritty));
+	keys = doc->keybindings();
+	WB_CHECK(std::any_of(keys.begin(), keys.end(), [](const wb::KeyBinding &k) {
+		return k.chain == std::vector<std::string>{"W-e"} && k.actions[0].name == "Close";
+	}));
 	WB_CHECK(doc->set_keybinding({"C-a", "x"}, std::nullopt));
 	WB_CHECK(doc->set_keybinding({"C-a", "y"}, std::nullopt));
 	WB_CHECK(doc->to_string().find("C-a") == std::string::npos);
