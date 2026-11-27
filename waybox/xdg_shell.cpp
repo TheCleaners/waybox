@@ -1553,19 +1553,12 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 	map_toplevel(toplevel);
 }
 
-/* Cancel any in-progress Alt+Tab switcher whose stable window list references
- * `toplevel` (it is about to unmap or be destroyed), so the OSD never
- * dereferences a freed toplevel. */
+/* `toplevel` is about to unmap or be destroyed: its row leaves the Alt+Tab
+ * switcher (which goes on, or is cancelled with none left), so the OSD
+ * never dereferences a freed toplevel. */
 static void cancel_switcher_for(struct wb_toplevel *toplevel) {
-	struct wb_server *server = toplevel->server;
-	if (server->switcher == nullptr)
-		return;
-	for (struct wb_toplevel *w : server->switcher_windows) {
-		if (w == toplevel) {
-			wb_switcher_cancel(server);
-			return;
-		}
-	}
+	/* Its row goes; the switcher stays (a window closed from it). */
+	wb_switcher_forget(toplevel->server, toplevel);
 }
 
 static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
@@ -1719,8 +1712,8 @@ void destroy_toplevel(struct wb_toplevel *toplevel) {
 		wlr_scene_node_destroy(&toplevel->scene_tree->node);
 	if (toplevel->server->frame_pressed == toplevel)
 		toplevel->server->frame_pressed = nullptr;
-	/* If this window is part of an in-progress Alt+Tab cycle, drop the OSD so
-	 * its window list never dereferences a freed toplevel. */
+	/* Out of an Alt+Tab cycle's list, so it never dereferences a freed
+	 * toplevel. */
 	cancel_switcher_for(toplevel);
 
 	if (toplevel->server->grabbed_toplevel == toplevel)

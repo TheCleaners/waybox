@@ -89,6 +89,13 @@ void seat_set_focus_layer(struct wb_seat *seat, struct wlr_layer_surface_v1 *lay
  * Both are no-ops when no switcher is active. */
 void wb_switcher_commit(struct wb_server *server);
 void wb_switcher_cancel(struct wb_server *server);
+/* A window the switcher lists is going: its row goes, the switcher stays
+ * (closed from it, with Delete); with none left, it's cancelled. */
+void wb_switcher_forget(struct wb_server *server, struct wb_toplevel *toplevel);
+/* A pointer button at layout (x, y) while the switcher is up: true if it
+ * was on its list (and so taken). */
+bool wb_switcher_click(struct wb_server *server, double x, double y, uint32_t button,
+		bool pressed);
 /* Reconfigure: apply the keymap and pointer settings from the new rc.xml to
  * the devices already connected. */
 void seat_reconfigure_input(struct wb_server *server);

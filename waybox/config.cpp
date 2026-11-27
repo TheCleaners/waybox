@@ -443,6 +443,8 @@ static void parse_switcher_behavior(struct wb_config *config,
 				config->switcher_behavior.wrap = *w;
 			if (auto i = parse_bool((const char *) get_attribute(node, "icons")))
 				config->switcher_behavior.show_icons = *i;
+			if (auto c = parse_bool((const char *) get_attribute(node, "close")))
+				config->switcher_behavior.close = *c;
 		}
 	}
 	xmlXPathFreeObject(object);
