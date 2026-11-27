@@ -33,6 +33,9 @@
 #include "waybox/output.h"
 #include "waybox/desktop_popup.hpp"
 #include "waybox/xdg_shell.h"
+#include "waybox/menu.hpp"
+#include "waybox/menu_widget.hpp"
+#include "waybox/style.hpp"
 
 using wb::json::Array;
 using wb::json::Object;
@@ -350,6 +353,31 @@ Value handle(Client *c, const Value &req) {
 			return error("a pick is already on");
 		c->picking = true;
 		return Value(Object{{kLater, true}});
+	}
+	/* A menu, from menu.xml text not saved yet (wbconf's menu editor), shown
+	 * at the pointer as Waybox draws it; an entry chosen closes it, its
+	 * actions dropped (wb_run_menu_actions: a preview's Exit mustn't end
+	 * the session). */
+	if (cmd == "preview_menu") {
+		if (session_locked(server))
+			return error("the screen is locked");
+		std::string id = req.str("id");
+		if (id.empty())
+			id = "root-menu";
+		auto file = std::make_unique<wb::MenuFile>(wb::parse_menu_xml(req.str("menu")));
+		if (file->find(id) == nullptr)
+			return error("no menu " + id);
+		/* The open one first: it may be showing the last preview. */
+		server->menu.reset();
+		auto widget = std::make_unique<wb::MenuWidget>(server, *file,
+				wb::menu_style_from_theme(server->config->theme), server->config->menu_behavior);
+		if (!widget->open(id, static_cast<int>(server->cursor->cursor->x),
+				static_cast<int>(server->cursor->cursor->y)))
+			return error("couldn't open " + id);
+		server->preview_menu = std::move(file);
+		server->menu = std::move(widget);
+		server->menu_target = nullptr;
+		return Object{{"ok", true}};
 	}
 	/* Each monitor's name, large, on it (wbconf's Identify). */
 	if (cmd == "identify") {

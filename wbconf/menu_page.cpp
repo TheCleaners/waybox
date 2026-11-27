@@ -850,6 +850,39 @@ void add_entry(Ui *ui, K kind) {
 	render(ui);
 }
 
+/* Preview: the menu as it is now (not saved yet) shown by Waybox, as it
+ * draws it, at the pointer; choosing an entry does nothing. */
+void preview(Ui *ui) {
+	MenuState *st = ui->menu.get();
+	if (!st->doc)
+		return;
+	JsonBuilder *jb = json_builder_new();
+	json_builder_begin_object(jb);
+	json_builder_set_member_name(jb, "request");
+	json_builder_add_string_value(jb, "preview_menu");
+	json_builder_set_member_name(jb, "id");
+	json_builder_add_string_value(jb, st->id.c_str());
+	json_builder_set_member_name(jb, "menu");
+	json_builder_add_string_value(jb, st->doc->to_string().c_str());
+	json_builder_end_object(jb);
+	JsonGenerator *gen = json_generator_new();
+	JsonNode *root = json_builder_get_root(jb);
+	json_generator_set_root(gen, root);
+	gchar *text = json_generator_to_data(gen, nullptr);
+	JsonObject *reply = waybox_request(text);
+	g_free(text);
+	json_node_unref(root);
+	g_object_unref(gen);
+	g_object_unref(jb);
+	if (reply == nullptr) {
+		set_status(ui, _("Waybox didn't answer: is its scripting socket on?"));
+		return;
+	}
+	if (!json_object_get_boolean_member_with_default(reply, "ok", FALSE))
+		set_status(ui, json_object_get_string_member_with_default(reply, "error", ""));
+	json_object_unref(reply);
+}
+
 void add_app(Ui *ui, const wb::DesktopEntry &app) {
 	MenuState *st = ui->menu.get();
 	if (!st->doc)
@@ -909,6 +942,21 @@ GtkWidget *build_menu_block(Ui *ui) {
 	GtkWidget *gap = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 	gtk_widget_set_hexpand(gap, TRUE);
 	gtk_box_append(GTK_BOX(foot), gap);
+	GtkWidget *show = gtk_button_new_with_label(_("Preview"));
+	gtk_widget_add_css_class(show, "flat");
+	gtk_widget_set_tooltip_text(show, _("Show the menu as it is now, as Waybox draws it "
+			"(choosing an entry does nothing; Esc closes it)"));
+	if (JsonObject *probe = waybox_request("{\"request\":\"get_version\"}")) {
+		json_object_unref(probe);
+	} else {
+		gtk_widget_set_sensitive(show, FALSE);
+		gtk_widget_set_tooltip_text(show, _("Needs Waybox's scripting socket: turned off in "
+				"rc.xml (<ipc enabled=\"no\"/>)"));
+	}
+	g_signal_connect(show, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
+		preview(static_cast<Ui *>(d));
+	}), ui);
+	gtk_box_append(GTK_BOX(foot), show);
 	st->undo = gtk_button_new_with_label(_("Undo"));
 	gtk_widget_add_css_class(st->undo, "flat");
 	gtk_widget_set_tooltip_text(st->undo, _("Take back the last change to the menu"));
@@ -1002,6 +1050,10 @@ void menu_test_step(Ui *ui, const std::string &stp) {
 	size_t colon = stp.find(':');
 	std::string verb = stp.substr(0, colon);
 	std::string arg = colon == std::string::npos ? "" : stp.substr(colon + 1);
+	if (verb == "menu-preview") {
+		preview(ui);
+		return;
+	}
 	if (verb == "menu-undo") {
 		g_signal_emit_by_name(st->undo, "clicked");
 		return;
