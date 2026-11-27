@@ -704,13 +704,41 @@ GtkWidget *build_editor(RuleEdit *e) {
 	add_mon(_("As usual"), "");
 	add_mon(_("The one with the pointer"), "mouse");
 	add_mon(_("The focused window's"), "active");
-	int top = 4;
-	if (e->now && !e->now->monitor.empty() && atoi(e->now->monitor.c_str()) > top)
-		top = atoi(e->now->monitor.c_str());
-	for (int i = 1; i <= top; ++i)
-		add_mon((std::string(_("Monitor ")) + std::to_string(i)).c_str(), std::to_string(i));
-	if (e->now && e->now->monitor == "primary")
-		add_mon(_("The first (primary)"), "primary");
+	/* The monitors connected, left to right, by name (a name stays put
+	 * when they're plugged in again; a number counts by place). */
+	std::vector<std::pair<std::string, std::string>> named;  /* name, description */
+	if (JsonObject *o = waybox_request("{\"request\":\"get_outputs\"}")) {
+		std::vector<wb::MonitorPlace> places;
+		std::vector<std::string> descs;
+		JsonArray *a = json_object_has_member(o, "outputs")
+				? json_object_get_array_member(o, "outputs") : nullptr;
+		for (guint i = 0; a != nullptr && i < json_array_get_length(a); ++i) {
+			JsonObject *m = json_array_get_object_element(a, i);
+			places.push_back({json_object_get_string_member_with_default(m, "name", ""),
+					static_cast<int>(json_object_get_int_member_with_default(m, "x", 0)),
+					static_cast<int>(json_object_get_int_member_with_default(m, "y", 0))});
+			descs.push_back(json_object_get_string_member_with_default(m, "description", ""));
+		}
+		for (size_t n = 1; n <= places.size(); ++n)
+			if (auto i = wb::rule_monitor(places, std::to_string(n)))
+				named.emplace_back(places[*i].name, descs[*i]);
+		json_object_unref(o);
+	}
+	for (const auto &[name, desc] : named)
+		add_mon((name + (desc.empty() ? "" : " \u2014 " + desc)).c_str(), name);
+	if (named.empty())
+		for (int i = 1; i <= 4; ++i)
+			add_mon((std::string(_("Monitor ")) + std::to_string(i)).c_str(), std::to_string(i));
+	/* What the rule has, if not among those (a number; one not connected). */
+	if (e->now && !e->now->monitor.empty() && std::find(e->monitor_values.begin(),
+			e->monitor_values.end(), e->now->monitor) == e->monitor_values.end()) {
+		const std::string &m = e->now->monitor;
+		std::string label = m == "primary" ? std::string(_("The first (primary)"))
+				: m.find_first_not_of("0123456789") == std::string::npos
+				? std::string(_("Monitor ")) + m + " " + _("(counted left to right)")
+				: m + " " + _("(not connected now)");
+		add_mon(label.c_str(), m);
+	}
 	e->monitor = gtk_drop_down_new(G_LIST_MODEL(mons), nullptr);
 	g_signal_connect(e->monitor, "notify::selected", G_CALLBACK(on_dd), e);
 	gtk_box_append(GTK_BOX(box), field(labels, _("Monitor"), e->monitor));

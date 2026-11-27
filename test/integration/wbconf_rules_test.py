@@ -58,7 +58,7 @@ WANT = [
 EDITS = ";".join([
     "rule-set:1=desktop=all",
     "rule-set:2=decor=yes", "rule-set:2=width=",
-    "rule-set:3=desktop=", "rule-set:3=monitor=2",
+    "rule-set:3=desktop=", "rule-set:3=monitor=HEADLESS-1",  # by name, as listed
     "rule-remove:6",
     "rule-add", "rule-set:7=program=firefox", "rule-set:7=maximized=yes",
     "rule-later:1",       # mpv after foot
@@ -167,7 +167,7 @@ def main():
     want_before = [
         "rule|foot|*scratch*|At 200, 120;auto \u00d7 600;With title bar|role,shade|changed",
         "rule|mpv||On every desktop;Full screen||changed",
-        "rule|gimp||At center, auto;On monitor 2||changed",
+        "rule|gimp||At center, auto;On HEADLESS-1||changed",
         "rule||Picture-in-Picture|Always on top|",
         "rule|^(foot|alacritty)$||On desktop 2||regex",
         "rule|firefox||Maximized||changed",
@@ -186,7 +186,7 @@ def main():
          {"position": {"x": "200", "y": "120"}, "size": {"height": "600"}, "decor": "yes",
           "shade": "yes"}),
         ({"class": "mpv"}, {"fullscreen": "yes", "desktop": "all"}),
-        ({"class": "gimp"}, {"position": {"x": "center", "monitor": "2"}}),
+        ({"class": "gimp"}, {"position": {"x": "center", "monitor": "HEADLESS-1"}}),
         ({"title": "Picture-in-Picture"}, {"layer": "above"}),
         ({"match": "regex", "class": "^(foot|alacritty)$"}, {"desktop": "2"}),
         ({"class": "firefox"}, {"maximized": "yes"}),

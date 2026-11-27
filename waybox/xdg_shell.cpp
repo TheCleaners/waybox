@@ -824,9 +824,9 @@ struct wlr_output *get_active_output(struct wb_toplevel *toplevel) {
 	return wlr_output_layout_output_at(toplevel->server->output_layout, closest_x, closest_y);
 }
 
-/* A window rule's <monitor>: a number (1, the first, in the order they
- * came), "mouse" (the pointer's), "active" (the focused window's),
- * "primary" (the first); nullptr when there's no such one. */
+/* A window rule's <monitor>: a number (1, the leftmost), a name, "mouse"
+ * (the pointer's), "active" (the focused window's), "primary" (the first);
+ * nullptr when there's no such one. */
 static struct wlr_output *rule_output(struct wb_server *server, const std::string &spec) {
 	if (spec == "mouse")
 		return wlr_output_layout_output_at(server->output_layout, server->cursor->cursor->x,
@@ -839,15 +839,20 @@ static struct wlr_output *rule_output(struct wb_server *server, const std::strin
 		return wlr_output_layout_output_at(server->output_layout, server->cursor->cursor->x,
 				server->cursor->cursor->y);
 	}
-	int want = spec == "primary" ? 1 : atoi(spec.c_str());
-	if (want < 1)
-		return nullptr;
-	int n = 0;
+	/* A name, or a number counted by where they are (not the order they
+	 * came in: that changes with a replug). */
+	std::vector<wb::MonitorPlace> places;
+	std::vector<struct wlr_output *> outs;
 	struct wb_output *o;
 	wl_list_for_each(o, &server->outputs, link)
-		if (o->wlr_output->enabled && ++n == want)
-			return o->wlr_output;
-	return nullptr;
+		if (o->wlr_output->enabled) {
+			struct wlr_box b;
+			wlr_output_layout_get_box(server->output_layout, o->wlr_output, &b);
+			places.push_back({o->wlr_output->name, b.x, b.y});
+			outs.push_back(o->wlr_output);
+		}
+	std::optional<size_t> i = wb::rule_monitor(places, spec);
+	return i ? outs[*i] : nullptr;
 }
 
 /* Focus the most-recently-focused mapped toplevel other than `except`, e.g.
