@@ -1073,3 +1073,14 @@ if sh.found()
     suite: 'unit',
     )
 endif
+
+# wbconf's process list (procs.cpp): only what runs, zombies left out.
+if not get_option('tests_only') and is_variable('gtk4') and gtk4.found()
+  procs_test = executable(
+    'procs_test',
+    ['procs_test.cpp', 'wb_test_main.cpp', files('../wbconf/procs.cpp')],
+    include_directories: [inc_dir],
+    dependencies: [gtk4, json_glib],
+    )
+  test('procs', procs_test, suite: 'unit')
+endif

@@ -42,6 +42,7 @@ wb_src = [
     'icon_loader.cpp',
     'idle.cpp',
     'startup_supervisor.cpp',
+    'proc_group.cpp',
     'shortcuts_inhibit.cpp',
     'ipc.cpp',
     'fixes.cpp',

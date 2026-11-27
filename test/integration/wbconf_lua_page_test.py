@@ -382,7 +382,9 @@ def main():
         app = subprocess.Popen([wbconf], env=e2, stdout=subprocess.DEVNULL,
                                stderr=subprocess.PIPE, text=True)
         wbtest.reap_on_exit(app)
-        time.sleep(0.8 * (len(steps2) + 2) + (8 if name == "stuck" else 1.5))
+        # Stuck: each page that opens (three here) is given up on after 3 s
+        # first; room for a slower machine past that.
+        time.sleep(0.8 * (len(steps2) + 2) + (14 if name == "stuck" else 1.5))
         alive = app.poll() is None
         # Given up on, the stuck runner is stopped, not left sleeping (asked
         # while wbconf still runs: killing wbconf would orphan it anyway).

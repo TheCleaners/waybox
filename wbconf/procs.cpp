@@ -2,6 +2,7 @@
  * Processes, the portable way: /proc on Linux, sysctl(KERN_PROC) on the
  * BSDs (where /proc isn't mounted by default). Names are cut to 15
  * characters everywhere (Linux's comm is), so they compare the same.
+ * Zombies are left out: exited, whatever still holds their slot.
  */
 #include "wbconf_ui.hpp"
 
@@ -48,6 +49,8 @@ std::vector<ProcessInfo> list_processes() {
 		return out;
 	for (size_t off = 0; off + sizeof(struct kinfo_proc) <= len; off += sizeof(struct kinfo_proc)) {
 		const auto *kp = reinterpret_cast<const struct kinfo_proc *>(buf.data() + off);
+		if (kp->ki_stat == SZOMB)
+			continue;  /* exited (Waybox may hold a startup program's leader) */
 		out.push_back({kp->ki_pid, kp->ki_uid, cut(kp->ki_comm), kp->ki_ppid});
 	}
 #else
@@ -70,14 +73,18 @@ std::vector<ProcessInfo> list_processes() {
 		/* The parent: the field after the state, past the ")" that ends
 		 * the name (which may itself hold spaces or parentheses). */
 		pid_t ppid = 0;
+		std::string state;
 		std::ifstream statf(dir + "/stat");
 		std::string stat;
 		std::getline(statf, stat);
 		if (size_t close = stat.rfind(')'); close != std::string::npos) {
 			std::istringstream rest(stat.substr(close + 1));
-			std::string state;
 			rest >> state >> ppid;
 		}
+		/* Exited, not reaped yet (Waybox holds a startup program's leader
+		 * while what it left runs): not running. */
+		if (state == "Z" || state == "X")
+			continue;
 		out.push_back({static_cast<pid_t>(pid), st.st_uid, cut(comm), ppid});
 	}
 	closedir(d);

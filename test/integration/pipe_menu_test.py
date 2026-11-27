@@ -8,6 +8,9 @@ menu.xml's root menu has two pipe submenus:
   - "Slow": a script that never answers. While it runs the compositor must
     stay responsive (wlr-randr answers quickly), and after the 5s timeout the
     script must be gone (killed and reaped, no zombie).
+  - "Orphan": a script that exits at once, leaving a child that holds its
+    output open: after the timeout, that child is stopped too (its process
+    group, not only the shell).
 
 Skips (exit 77) without wlrctl, wtype, wlr-randr or a headless display.
 
@@ -59,8 +62,13 @@ EOF
     slow_pid = os.path.join(workdir, "slow.pid")
     with open(slow_script, "w") as f:
         f.write(f"#!/bin/sh\nsleep 300 &\necho $! > {slow_pid}\nwait\n")
+    orphan_script = os.path.join(workdir, "orphan.sh")
+    orphan_pid = os.path.join(workdir, "orphan.pid")
+    with open(orphan_script, "w") as f:
+        f.write(f"#!/bin/sh\nsleep 301 &\necho $! > {orphan_pid}\nexit 0\n")
     os.chmod(pipe_script, 0o755)
     os.chmod(slow_script, 0o755)
+    os.chmod(orphan_script, 0o755)
     with open(os.path.join(cfg, "rc.xml"), "w") as f:
         f.write("""<?xml version="1.0" encoding="UTF-8"?>
 <openbox_config xmlns="http://openbox.org/3.4/rc">
@@ -79,6 +87,7 @@ EOF
   <menu id="root-menu" label="Root">
     <menu id="pipe" label="Pipe" execute="{pipe_script}"/>
     <menu id="slow" label="Slow" execute="{slow_script}"/>
+    <menu id="orphan" label="Orphan" execute="{orphan_script}"/>
   </menu>
 </openbox_menu>
 """)
@@ -129,10 +138,10 @@ EOF
         run("wlrctl", "pointer", "click", "right")
         time.sleep(0.4)
 
-    def slow_child_alive():
+    def slow_child_alive(path=slow_pid):
         """Whether the slow script's background child is still running."""
         try:
-            pid = int(open(slow_pid).read())
+            pid = int(open(path).read())
         except (OSError, ValueError):
             return None  # not started (yet)
         try:
@@ -190,6 +199,29 @@ EOF
                             "after the timeout")
         if proc.poll() is not None:
             failures.append(f"waybox exited (status {proc.returncode})")
+        key("Escape")
+
+        # 3. The shell gone at once, its child holding the output: stopped
+        # with its group after the timeout all the same.
+        open_root_menu()
+        key("Down")
+        key("Down")
+        key("Down")      # "Orphan"
+        key("Right")
+        for _ in range(30):
+            if slow_child_alive(orphan_pid):
+                break
+            time.sleep(0.1)
+        else:
+            failures.append("the orphan pipe menu's command was not started")
+        time.sleep(5.5)
+        if slow_child_alive(orphan_pid):
+            failures.append("a pipe menu's child left by its exited shell is still running "
+                            "after the timeout")
+            try:
+                os.kill(int(open(orphan_pid).read()), signal.SIGKILL)
+            except (OSError, ValueError):
+                pass
         key("Escape")
     finally:
         if proc.poll() is None:
