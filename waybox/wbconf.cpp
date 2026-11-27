@@ -1333,17 +1333,27 @@ void collect_keys(xmlNode *parent, std::vector<std::string> &chain, std::vector<
 }
 
 /* The <keybind> at the end of `chain` under `kb`, or nullptr. */
-/* Every <keybind> at the end of `chain`, in document order (two bindings
- * can have the same keys). */
+bool has_child(xmlNode *n, const char *name) {
+	for (xmlNode *c = n->children; c != nullptr; c = c->next)
+		if (is_element(c, name))
+			return true;
+	return false;
+}
+
+/* Every binding at the end of `chain`, in document order (two bindings
+ * can have the same keys): a <keybind> there that isn't a chain's start,
+ * as keybindings() lists them. */
 void chain_ends(xmlNode *at, const std::vector<std::string> &chain, size_t i,
 		std::vector<xmlNode *> &out) {
 	for (xmlNode *c = at->children; c != nullptr; c = c->next) {
 		if (!is_element(c, "keybind") || attr_value(c, "key").value_or("") != chain[i])
 			continue;
-		if (i + 1 == chain.size())
-			out.push_back(c);
-		else
+		if (i + 1 == chain.size()) {
+			if (!has_child(c, "keybind"))
+				out.push_back(c);
+		} else {
 			chain_ends(c, chain, i + 1, out);
+		}
 	}
 }
 
@@ -1379,18 +1389,25 @@ void remove_with_empty_parents(xmlNode *node) {
 	}
 }
 
+/* The <mousebind> for `m`: should two share its place, button and event,
+ * the one running m's actions; else the first. */
 xmlNode *find_mousebind(xmlNode *root, const MouseBinding &m) {
 	xmlNode *mouse = find_path(root, {"mouse"});
+	xmlNode *first = nullptr;
 	for (xmlNode *ctx = mouse ? mouse->children : nullptr; ctx != nullptr; ctx = ctx->next) {
 		if (!is_element(ctx, "context") || attr_value(ctx, "name").value_or("") != m.context)
 			continue;
 		for (xmlNode *b = ctx->children; b != nullptr; b = b->next)
 			if (is_element(b, "mousebind") &&
 					attr_value(b, "button").value_or("") == m.button &&
-					attr_value(b, "action").value_or("") == m.event)
-				return b;
+					attr_value(b, "action").value_or("") == m.event) {
+				if (read_actions(b) == m.actions)
+					return b;
+				if (first == nullptr)
+					first = b;
+			}
 	}
-	return nullptr;
+	return first;
 }
 
 }  // namespace
@@ -1442,18 +1459,19 @@ bool RcDocument::set_keybinding(const std::vector<std::string> &was,
 		remove_with_empty_parents(old);
 	if (!now)
 		return true;
-	/* Added: down the chain, its keys reused where they're there; but not
-	 * the last one's when it runs actions already: that's another binding
-	 * on the same keys, kept, the new one beside it (Waybox runs the first;
-	 * wbconf says which). */
+	/* Added, never merged into another binding: down the chain, a key
+	 * reused only where it's a chain's start and nothing else (the first
+	 * such, the one Waybox goes into); the last key always its own
+	 * <keybind>. Another binding on the same keys is kept beside it
+	 * (Waybox runs the first; wbconf says which). */
 	xmlNode *at = ensure_path(root, {"keyboard"});
 	for (size_t i = 0; i < now->chain.size(); ++i) {
 		const std::string &key = now->chain[i];
 		bool last = i + 1 == now->chain.size();
 		xmlNode *next = nullptr;
-		for (xmlNode *c = at->children; c != nullptr; c = c->next)
+		for (xmlNode *c = at->children; c != nullptr && !last && next == nullptr; c = c->next)
 			if (is_element(c, "keybind") && attr_value(c, "key").value_or("") == key &&
-					!(last && !read_actions(c).empty()))
+					!has_child(c, "action"))
 				next = c;
 		if (next == nullptr) {
 			next = new_child(at, "keybind");

@@ -938,9 +938,11 @@ void on_search(GtkSearchEntry *entry, gpointer data) {
 							r->problem.has_value());
 					/* The Shortcuts lists: filtered row by row. */
 					if (r->def->widget == "keybindings" || r->def->widget == "mousebindings") {
-						bool whole = q.empty() ||
-								wb::setting_matches(*r->def, cat, q, false, false);
-						hit = shortcuts_filter(ui, r->def->widget, q, whole);
+						const std::string &w = r->def->widget;
+						bool setting_hit = wb::setting_matches(*r->def, cat, q,
+								shortcuts_dirty(ui, w),
+								r->problem.has_value() || shortcuts_problem(ui, w));
+						hit = shortcuts_filter(ui, w, q, setting_hit);
 					}
 					show = show || hit;
 				}

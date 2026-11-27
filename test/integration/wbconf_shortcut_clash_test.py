@@ -32,7 +32,14 @@ RC = """<?xml version="1.0" encoding="UTF-8"?>
     <keybind key="C-a"><action name="Iconify"/></keybind>
     <keybind key="C-a"><keybind key="x"><action name="Close"/></keybind></keybind>
     <keybind key="W-x"><action name="Execute"><command>foot</command></action></keybind>
+    <keybind key="W-F2"><action name="GoToDesktop"><to>2</to></action></keybind>
+    <keybind key="W-z"/>
   </keyboard>
+  <mouse>
+    <context name="Close">
+      <mousebind button="Left" action="Click"><action name="Close"/></mousebind>
+    </context>
+  </mouse>
 </openbox_config>
 """
 
@@ -41,11 +48,14 @@ wb.bind("W-x", function() wb.action("Close") end)
 """
 
 STEPS = ";".join([
-    "click:Shortcuts", "shortcuts",
+    "click:Shortcuts", "shortcuts", "changes",
     "shortcut-fix:W-D",
     "shortcut-keys:C-a=C-b",
     "shortcut-add:W-D=Iconify",
+    "shortcut-order",
     "shortcuts",
+    # "2" a whole word of what W-2 does; @problems the rows that never run.
+    "search:desktop 2", "shortcut-visible", "search:@problems", "shortcut-visible", "search:",
     "shortcut-fix:W-D",
     "shortcuts",
     # Search: "super d" finds Super+D only (not every row with a "d").
@@ -135,7 +145,7 @@ def main():
         return out
 
     failures = []
-    lines = run(STEPS, 0.8 * 15 + 2)
+    lines = run(STEPS, 0.8 * 22 + 2)
     d = dumps(lines)
     want_first = [
         "W-d|Show the desktop|Desktops",
@@ -143,6 +153,8 @@ def main():
         "C-a|Minimize|Windows",
         "C-a x|Close the window|Windows|never:C-a",
         "W-x|Run foot|Programs and menus|never:script",
+        "W-F2|Go to desktop 2|Desktops",
+        "W-z||Other",
     ]
     if not d or d[0] != want_first:
         failures.append("as loaded:\n  " + "\n  ".join(d[0] if d else []))
@@ -154,6 +166,8 @@ def main():
         "C-b|Minimize|Windows|changed",
         "C-a x|Close the window|Windows",
         "W-x|Run foot|Programs and menus|never:script",
+        "W-F2|Go to desktop 2|Desktops",
+        "W-z||Other",
         "W-D|Minimize|Windows|changed|never:W-d",
     ]
     if len(d) < 2 or d[1] != want_mid:
@@ -164,16 +178,36 @@ def main():
         "C-b|Minimize|Windows|changed",
         "C-a x|Close the window|Windows",
         "W-x|Run foot|Programs and menus|never:script",
+        "W-F2|Go to desktop 2|Desktops",
+        "W-z||Other",
         "W-D|Minimize|Windows|changed",
     ]
     if len(d) < 3 or d[2] != want_last:
         failures.append("replaced:\n  " + "\n  ".join(d[2] if len(d) > 2 else []))
     vis = [l for l in lines if l.startswith("shortcut-visible:")]
-    if vis != ["shortcut-visible:W-d,W-D,W-D|suggest:"]:
-        failures.append(f"searching super d: {vis}")
+    # "desktop 2": W-F2 by what it does (and the new row, being set up);
+    # @problems: the script's key, and the click on a place Waybox doesn't
+    # read; "super d": Super+D only.
+    want_vis = ["shortcut-visible:W-F2,W-D|suggest:",
+                "shortcut-visible:W-x,Close Left Click|suggest:",
+                "shortcut-visible:W-d,W-D,W-D|suggest:"]
+    if vis != want_vis:
+        failures.append(f"searching: {vis}")
+    # A binding with no actions isn't a change just by being shown.
+    ch = [l for l in lines if l.startswith("changes-dump:")]
+    if not ch or not ch[0].startswith("changes-dump:0|"):
+        failures.append(f"changes as loaded: {ch[:1]}")
+    # A new row: at the end of the list, above its foot.
+    order = [l for l in lines if l.startswith("shortcut-order:")]
+    items = order[0][len("shortcut-order:"):].split(",") if order else []
+    if len(items) < 2 or items[-1] != "foot" or items[-2] != "W-D" or "W-D" not in items[:-2]:
+        failures.append(f"new row placed: {order}")
+    mouse = [l for l in lines if l.startswith("shortcut:mouse|")]
+    if not mouse or mouse[0] != "shortcut:mouse|Close Left Click|Close the window|Windows|never:place":
+        failures.append(f"a place Waybox doesn't read: {mouse[:1]}")
     got = keybinds(rc)
     want_rc = sorted([("C-a x", ["Close"]), ("W-x", ["Execute"]), ("C-b", ["Iconify"]),
-                      ("W-D", ["Iconify"])])
+                      ("W-D", ["Iconify"]), ("W-F2", ["GoToDesktop"])])
     if got != want_rc:
         failures.append(f"rc.xml: {got}")
 
