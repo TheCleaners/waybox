@@ -49,14 +49,15 @@
   </item>
 
   <menu id="waybox-menu" label="Waybox" icon="applications-system">
+    <item label="About Waybox" icon="help-about">
+      <action name="ShowAbout"/>
+    </item>
     <item label="Reconfigure" icon="view-refresh">
       <action name="Reconfigure"/>
     </item>
+    <separator/>
     <item label="Exit" icon="application-exit">
       <action name="Exit"/>
-    </item>
-    <item label="About Waybox" icon="help-about">
-      <action name="ShowAbout"/>
     </item>
   </menu>
 </menu>
