@@ -6,6 +6,7 @@ wb_src = [
   mousebind_src,
   placement_src,
   applications_src,
+  app_rule_xml_src,
   decor_mode_src,
   frame_src,
   titlebar_draw_src,

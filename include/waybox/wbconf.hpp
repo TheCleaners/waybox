@@ -4,6 +4,7 @@
 #include <map>
 #include <optional>
 
+#include "waybox/applications.hpp"
 #include "waybox/action_catalog.hpp"
 #include <string>
 #include <vector>
@@ -187,6 +188,14 @@ struct MouseBinding {
 	bool operator==(const MouseBinding &) const = default;
 };
 
+/* A window rule as the editor has it: the rule, and what of it Waybox
+ * doesn't read (kept as written). */
+struct AppRuleEntry {
+	AppRule rule;
+	std::vector<std::string> kept;
+	bool position_kept = false;
+};
+
 class RcDocument {
 public:
 	RcDocument(RcDocument &&) noexcept;
@@ -237,6 +246,14 @@ public:
 	 * (false): only rc.xml edits those. A chain's keys left empty go too. */
 	bool set_keybinding(const std::vector<std::string> &was, const std::optional<KeyBinding> &now,
 			const std::vector<BoundAction> *was_actions = nullptr);
+	/* <applications>' rules, in order (the first that matches a window
+	 * wins). set_app_rule: the rule at `index` changed in place (comments
+	 * and what Waybox doesn't read kept), or removed with nullopt; a new
+	 * one added at the end with no index. move_app_rule: the rule at
+	 * `from` put at `to`. False when there's no such rule. */
+	std::vector<AppRuleEntry> app_rules() const;
+	bool set_app_rule(std::optional<size_t> index, const std::optional<AppRule> &now);
+	bool move_app_rule(size_t from, size_t to);
 	bool set_mousebinding(const std::optional<MouseBinding> &was,
 			const std::optional<MouseBinding> &now);
 	/* Bind `key` to run `command` (an Execute keybind, replacing what the

@@ -1023,3 +1023,102 @@ WB_TEST(bindings_kept_apart) {
 	mouse = doc->mousebindings();
 	WB_CHECK(mouse.size() == 1 && mouse[0].actions[0].name == "ShowMenu");
 }
+
+/* Window rules (#237): read as Waybox reads them; edited, added, moved and
+ * removed in place, what Waybox doesn't read kept as written. */
+WB_TEST(app_rules_read_and_edit) {
+	auto doc = wb::RcDocument::from_string(R"(<?xml version="1.0"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <applications>
+    <!-- videos -->
+    <application class="mpv">
+      <fullscreen>yes</fullscreen>
+    </application>
+    <application class="foot" title="*scratch*" role="scratch">
+      <position><x>200</x><y>120</y></position>
+      <size><width>900</width><height>600</height></size>
+      <decor>no</decor>
+      <shade>yes</shade>
+    </application>
+    <application class="gimp">
+      <position force="yes"><x>center</x><y>center</y></position>
+      <desktop>2</desktop>
+    </application>
+  </applications>
+</openbox_config>
+)");
+	WB_CHECK(doc.has_value());
+	if (!doc)
+		return;
+	auto rules = doc->app_rules();
+	WB_CHECK(rules.size() == 3);
+	if (rules.size() != 3)
+		return;
+	WB_CHECK(rules[0].rule.class_pattern == "mpv" && rules[0].rule.fullscreen == true);
+	WB_CHECK(rules[1].rule.title_pattern == "*scratch*" && rules[1].rule.x == 200 &&
+			rules[1].rule.height == 600 && rules[1].rule.decor == false);
+	WB_CHECK((rules[1].kept == std::vector<std::string>{"role", "shade"}));
+	WB_CHECK(!rules[1].position_kept);
+	WB_CHECK(rules[2].position_kept && rules[2].rule.desktop == 1);
+
+	/* Edited in place: what it sets written, the rest kept. */
+	wb::AppRule foot = rules[1].rule;
+	foot.decor = true;
+	foot.desktop = wb::AppRule::kAllDesktops;
+	foot.x.reset();
+	foot.width.reset();
+	foot.height.reset();
+	WB_CHECK(doc->set_app_rule(1, foot));
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("<!-- videos -->") != std::string::npos);
+	WB_CHECK(out.find("role=\"scratch\"") != std::string::npos);
+	WB_CHECK(out.find("<shade>yes</shade>") != std::string::npos);
+	WB_CHECK(out.find("<decor>yes</decor>") != std::string::npos);
+	WB_CHECK(out.find("<desktop>all</desktop>") != std::string::npos);
+	WB_CHECK(out.find("<x>200</x>") == std::string::npos && out.find("<y>120</y>") != std::string::npos);
+	WB_CHECK(out.find("<size>") == std::string::npos);
+	/* A position Waybox reads only in part: never rewritten. */
+	wb::AppRule gimp = rules[2].rule;
+	gimp.desktop.reset();
+	WB_CHECK(doc->set_app_rule(2, gimp));
+	WB_CHECK(doc->to_string().find("<x>center</x>") != std::string::npos);
+	WB_CHECK(doc->to_string().find("<desktop>2</desktop>") == std::string::npos);
+	/* Read back as written. */
+	rules = doc->app_rules();
+	WB_CHECK(rules.size() == 3 && rules[1].rule == foot);
+
+	/* Added at the end, on lines of its own. */
+	wb::AppRule fresh;
+	fresh.class_pattern = "firefox";
+	fresh.maximized = true;
+	WB_CHECK(doc->set_app_rule(std::nullopt, fresh));
+	rules = doc->app_rules();
+	WB_CHECK(rules.size() == 4 && rules[3].rule == fresh);
+	WB_CHECK(doc->to_string().find("\n    <application class=\"firefox\">\n      <maximized>yes"
+			"</maximized>\n    </application>") != std::string::npos);
+
+	/* Moved: firefox first, then back to the end. */
+	WB_CHECK(doc->move_app_rule(3, 0));
+	rules = doc->app_rules();
+	WB_CHECK(rules[0].rule.class_pattern == "firefox" && rules[1].rule.class_pattern == "mpv");
+	WB_CHECK(doc->move_app_rule(0, 3));
+	rules = doc->app_rules();
+	WB_CHECK(rules[3].rule.class_pattern == "firefox" && rules[0].rule.class_pattern == "mpv");
+	WB_CHECK(!doc->move_app_rule(0, 9));
+
+	/* Removed. */
+	WB_CHECK(doc->set_app_rule(0, std::nullopt));
+	rules = doc->app_rules();
+	WB_CHECK(rules.size() == 3 && rules[0].rule.class_pattern == "foot");
+	WB_CHECK(!doc->set_app_rule(7, std::nullopt));
+
+	/* A file with none: <applications> made for the first. */
+	auto empty = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"></openbox_config>");
+	WB_CHECK(empty.has_value());
+	if (empty) {
+		WB_CHECK(empty->app_rules().empty());
+		WB_CHECK(empty->set_app_rule(std::nullopt, fresh));
+		WB_CHECK(empty->app_rules().size() == 1);
+	}
+}
