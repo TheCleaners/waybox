@@ -15,6 +15,12 @@ Skips (exit 77) without foot, or a headless display.
    are refused while the screen is locked; and turning the socket off with
    a Reconfigure sent through the socket itself doesn't crash Waybox.
 
+6. Limits and framing: a request's "id" comes back in its reply (errors
+   too); many requests sent at once are all answered, in order; a request
+   longer than 64 KiB is refused before it runs, and its client closed; a
+   subscription with an unknown event subscribes to nothing; past 64
+   clients, one more is closed at once and the others still work.
+
 Usage: ipc_test.py <waybox> <waybox-msg> <lock_client>
 """
 import json
@@ -224,6 +230,128 @@ def main():
         fire.close()
         expect(lambda e: e.get("event") == "desktop" and e["desktop"]["number"] == 3,
                "desktop switch from a request sent just before closing")
+
+        # Limits and framing.
+        def connect():
+            # (The listen queue holds 16: while Waybox catches up, a
+            # connection is refused for a moment; tried again.)
+            for _ in range(100):
+                k = socket.socket(socket.AF_UNIX)
+                try:
+                    k.connect(path)
+                    k.settimeout(5)
+                    return k
+                except BlockingIOError:
+                    k.close()
+                    time.sleep(0.02)
+            raise RuntimeError("couldn't connect to the socket")
+
+        def lines_from(k, n):
+            buf, got = b"", []
+            while len(got) < n:
+                chunk = k.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    got.append(json.loads(line))
+            return got
+
+        k = connect()
+        k.sendall(b'{"request":"get_version","id":"a1"}\n{"request":"nope","id":7}\n'
+                  b'{"request":"get_version"}\n')
+        r = lines_from(k, 3)
+        if [x.get("id") for x in r] != ["a1", 7, None] or r[1].get("ok") is not False:
+            failures.append(f"request ids: {r}")
+        # Many at once (more than one turn's worth): all, in order.
+        k.sendall(b"".join(f'{{"request":"get_version","id":{i}}}\n'.encode()
+                           for i in range(200)))
+        r = lines_from(k, 200)
+        if [x.get("id") for x in r] != list(range(200)):
+            failures.append(f"200 requests at once: {len(r)} answered, "
+                            f"ids {[x.get('id') for x in r][:5]}...")
+        # A subscription naming an unknown event: none taken.
+        k.sendall(b'{"request":"subscribe","events":["desktop","not-an-event"],"id":"s"}\n')
+        r = lines_from(k, 1)
+        if not r or r[0].get("ok") is not False:
+            failures.append(f"an unknown event was accepted: {r}")
+        run_msg(cenv2, "action", "GoToDesktop", "to=2")
+        k.settimeout(0.8)
+        try:
+            extra = k.recv(65536)
+        except socket.timeout:
+            extra = b""
+        if b'"event"' in extra:
+            failures.append("a failed subscription still subscribed to the event before it")
+        k.close()
+        # Too long: refused before it runs (a reply saying so, or the
+        # connection closed while it's still sending), and it never runs.
+        k = connect()
+        pad = "x" * (70 * 1024)
+        r = []
+        try:
+            k.sendall(('{"request":"action","action":"GoToDesktop","to":"4","pad":"%s"}\n'
+                       % pad).encode())
+            r = lines_from(k, 1)
+        except OSError:
+            pass
+        k.close()
+        if r and (r[0].get("ok") is not False or "64 KiB" not in r[0].get("error", "")):
+            failures.append(f"a 70 KiB request wasn't refused: {r}")
+        time.sleep(0.3)
+        rc, out, err = run_msg(cenv2, "get_desktops")
+        try:
+            current = [d["number"] for d in json.loads(out)["desktops"] if d.get("current")]
+        except (ValueError, KeyError):
+            current = None
+        if current == [4]:
+            failures.append("a 70 KiB request ran")
+        # Just over the limit, its end read with it (in one go): refused all
+        # the same, with a reply, and it never runs.
+        k = connect()
+        head = '{"request":"action","action":"GoToDesktop","to":"4","pad":"'
+        line = head + "x" * (66 * 1024 - len(head) - 2) + '"}\n'
+        r = []
+        try:
+            k.sendall(line.encode())
+            r = lines_from(k, 1)
+        except OSError:
+            pass
+        k.close()
+        if not r or "64 KiB" not in r[0].get("error", ""):
+            failures.append(f"a 66 KiB request (its end read) wasn't refused: {r}")
+        time.sleep(0.3)
+        rc, out, err = run_msg(cenv2, "get_desktops")
+        try:
+            current = [d["number"] for d in json.loads(out)["desktops"] if d.get("current")]
+        except (ValueError, KeyError):
+            current = None
+        if current == [4]:
+            failures.append("a 66 KiB request ran")
+
+        # 64 clients at most: the 65th closed at once; the rest still answer.
+        many = [connect() for _ in range(64 - 1)]  # (the subscriber is one)
+        extra_client = connect()
+        try:
+            extra_client.settimeout(2)
+            extra_client.sendall(b'{"request":"get_version"}\n')
+            refused = extra_client.recv(1) == b""
+        except OSError:
+            refused = True
+        if not refused:
+            failures.append("a 65th client was served")
+        many[0].sendall(b'{"request":"get_version","id":"still"}\n')
+        r = lines_from(many[0], 1)
+        if not r or r[0].get("id") != "still":
+            failures.append(f"with 64 clients, they stopped answering: {r}")
+        for m in many:
+            m.close()
+        extra_client.close()
+        time.sleep(0.3)
+        rc, out, err = run_msg(cenv2, "get_version")
+        if rc != 0:
+            failures.append(f"with the others gone, a new client wasn't served: {err}")
 
         # Locked: actions are refused.
         locker = subprocess.Popen([lock_bin], env=cenv, stdin=subprocess.PIPE,
