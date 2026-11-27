@@ -1032,6 +1032,8 @@ if python.found() and not get_option('tests_only')
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_save_status', 'wbconf_save_status_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 90]]
+    integration_tests += [['wbconf_color_burst', 'wbconf_color_burst_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_toc', 'wbconf_toc_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_color', 'wbconf_color_test.py',

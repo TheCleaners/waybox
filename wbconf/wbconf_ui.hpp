@@ -95,6 +95,10 @@ struct ColorControl {
 	std::string css_class, default_value, hint;
 	bool alpha = false, syncing = false, picking = false;
 	std::shared_ptr<ColorControl *> self;  /* nulled when gone: a late pick */
+	GtkCssProvider *tint = nullptr;  /* the field's own stylesheet */
+	std::string pending;      /* the button's color, for the field soon */
+	guint pending_timer = 0;
+	std::string tint_css;
 	~ColorControl();
 };
 std::unique_ptr<ColorControl> make_color_control(const std::string &hint,
