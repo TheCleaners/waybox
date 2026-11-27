@@ -8,7 +8,9 @@ monitor: "right" hidden, "left" still shown. "left" focused, GoToDesktop
 pointer's monitor (the left) goes back to 1: "left" shown. A window sent
 to monitor 2 (MoveResizeTo) takes the desktop that one shows (2), and is
 shown there; the right monitor's own window stays hidden. A new window
-opened on the right monitor opens on its desktop (2).
+opened on the right monitor opens on its desktop (2). Switched off, a
+monitor's windows come onto the other (by desktop number); back on, they
+go back where they were on it.
 
 Skips (exit 77) without foot, wtype, wlrctl, wlr-randr or a headless
 display.
@@ -252,6 +254,19 @@ def main():
         left_x = 0 if positions[0][0] == 0 else positions[0][0]
         if not (n.get("x", -1) >= 0 and n.get("x", 0) + n.get("width", 0) // 2 < W):
             failures.append(f"unplugged: \"new\" left off-screen at {n.get('x')},{n.get('y')}")
+
+        # Back on: the windows moved off it go back where they were on it,
+        # their desktops as they were.
+        # (Where it was: wlr-randr would put it back at 0,0, over the other.)
+        subprocess.run(["wlr-randr", "--output", right_name, "--on", "--pos", f"{W},0"],
+                       env=cenv, capture_output=True)
+        time.sleep(0.8)
+        back = windows()
+        for app, desk in (("left", 2), ("new", 3)):
+            w = back.get(app, {})
+            if w.get("output") != right_name or w.get("x", 0) < W or w.get("desktop") != desk:
+                failures.append(f"back on: {app} is on {w.get('output')} at {w.get('x')}, "
+                                f"desktop {w.get('desktop')}; not back on {right_name}, desktop {desk}")
     except RuntimeError as e:
         failures.append(str(e))
     finally:

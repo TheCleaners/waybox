@@ -129,6 +129,15 @@ struct wb_toplevel {
 	/* Desktops per monitor: the monitor whose desktop it's on (by name);
 	 * moved to another, it takes the desktop that one shows. */
 	std::string desktop_output;
+	/* The monitor it's on now (by name) and where on it; and, once that
+	 * monitor went away (unplugged, switched off) and it was brought onto
+	 * another, the one it goes back to when that returns (unless the user
+	 * moves it meanwhile). */
+	std::string on_output;
+	int on_dx = 0, on_dy = 0;
+	std::string home_output;
+	int home_dx = 0, home_dy = 0;
+	bool going_home = false;
 	/* Openbox's layer: -1 always below, 0 normal, 1 always on top. Raising
 	 * and lowering stay within it. */
 	int layer = 0;
@@ -265,6 +274,9 @@ int output_desktop(struct wb_server *server, struct wlr_output *output);
  * monitor, each window's monitor looked at again (a gone one's windows
  * carry over by desktop number). */
 void desktops_outputs_changed(struct wb_server *server);
+/* A monitor back (plugged in, switched on): the windows moved off it when
+ * it went go back to where they were on it. */
+void windows_return_home(struct wb_server *server);
 /* Whether each monitor shows its own desktop (<desktops><perMonitor>). */
 bool desktops_per_monitor(struct wb_server *server);
 /* The monitor desktop actions act on: the focused window's, else the

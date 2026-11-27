@@ -651,6 +651,7 @@ void init_output(struct wb_server *server) {
 			arrange_layers(output);
 		/* A monitor gone (unplugged, switched off): its windows are brought
 		 * onto one still there, maximized and fullscreen ones re-fitted. */
+		windows_return_home(server);
 		arrange_toplevels(server);
 		desktops_outputs_changed(server);
 	});
