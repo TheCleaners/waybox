@@ -119,6 +119,7 @@ struct SwitcherBehavior {
 	bool include_minimized = true;
 	bool wrap = true;
 	bool show_icons = true;         /* each window's icon beside its title */
+	bool close = true;              /* close from it: the rows' x, Delete */
 };
 
 /* ---- Adapters: raw Theme -> resolved style (pure) -------------------- */

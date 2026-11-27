@@ -162,7 +162,10 @@
         { "id": "waybox.switcher.wrap", "title": "Wrap the selection", "type": "bool", "default": "yes",
           "rc": { "path": "waybox/switcher", "attr": "wrap" } },
         { "id": "waybox.switcher.icons", "title": "Show window icons", "type": "bool", "default": "yes",
-          "rc": { "path": "waybox/switcher", "attr": "icons" } }
+          "rc": { "path": "waybox/switcher", "attr": "icons" } },
+        { "id": "waybox.switcher.close", "title": "Close windows from the switcher", "type": "bool", "default": "yes",
+          "description": "A close button on the selected row and the one under the pointer; Delete closes the selected window, Shift+Delete ends its program.",
+          "keywords": "kill quit x delete", "rc": { "path": "waybox/switcher", "attr": "close" } }
       ]
     },
     {

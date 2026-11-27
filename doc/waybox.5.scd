@@ -263,7 +263,7 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 ```
 <waybox>
   <menu source="builtin" submenuOpen="hover" hoverDelay="100" wrap="yes" icons="yes"/>
-  <switcher order="mru" osd="yes" wrap="yes" icons="yes"/>
+  <switcher order="mru" osd="yes" wrap="yes" icons="yes" close="yes"/>
   <edgeTiling enabled="yes" range="10"/>
   <sessionRestore enabled="yes"/>
   <activation focus="smart"/>
@@ -296,9 +296,14 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 	right and top to bottom); Alt+Tab goes to the next window in that order.
 	*osd*: show the list while the modifier is held (otherwise, switch at
 	once). *wrap*: cycling wraps at the ends. *icons*: each window's icon
-	beside its title (default *yes*). While the list is shown, the window
-	it would pick is outlined (white, black, white, 6 px around its frame,
-	as Openbox's).
+	beside its title (default *yes*). *close*: windows closed from it
+	(default *yes*). While the list is shown, the window it would pick is
+	outlined (white, black, white, 6 px around its frame, as Openbox's).
+	It's shown for a single window too. A click on a row picks that
+	window. With *close*: *Delete* asks the selected window to close and
+	*Shift+Delete* ends its program (*Kill*), the list staying without
+	it; and a click on a row's × (on the selected row and the one under
+	the pointer) closes it (Shift: ends its program).
 
 *<edgeTiling>*
 	Dragging a window to a monitor edge tiles it: the left or right half,

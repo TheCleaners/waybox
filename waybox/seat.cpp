@@ -159,6 +159,55 @@ void wb_switcher_commit(struct wb_server *server) {
 	}
 }
 
+void wb_switcher_forget(struct wb_server *server, struct wb_toplevel *toplevel) {
+	if (server->switcher == nullptr)
+		return;
+	auto &wins = server->switcher_windows;
+	auto it = std::find(wins.begin(), wins.end(), toplevel);
+	if (it == wins.end())
+		return;
+	int i = static_cast<int>(it - wins.begin());
+	wins.erase(it);
+	if (wins.empty()) {
+		wb_switcher_cancel(server);
+		return;
+	}
+	server->switcher->remove_entry(i);
+	outline_selected(server);
+}
+
+static void run_window_action(wb::ActionType type, struct wb_server *server,
+		struct wb_toplevel *t);
+
+bool wb_switcher_click(struct wb_server *server, double x, double y, uint32_t button,
+		bool pressed) {
+	if (server->switcher == nullptr)
+		return false;
+	wb::SwitcherWidget::Hit h = server->switcher->hit(x, y);
+	if (h.row < 0)
+		return server->switcher->on_motion(x, y);  /* the panel's edge: taken, nothing */
+	/* On press (the release is taken too, as the press was). */
+	if (!pressed || button != wb::MOUSE_BUTTON_LEFT)
+		return true;
+	if (h.row >= static_cast<int>(server->switcher_windows.size()))
+		return true;
+	struct wb_toplevel *t = server->switcher_windows[h.row];
+	if (h.close) {
+		struct wlr_keyboard *kb = wlr_seat_get_keyboard(server->seat->seat);
+		bool kill = kb != nullptr && (wlr_keyboard_get_modifiers(kb) & WLR_MODIFIER_SHIFT);
+		wlr_log(WLR_INFO, "wb-switcher %s %s", kill ? "kill" : "close",
+				view_app_id(t) ? view_app_id(t) : "");
+		if (kill)
+			run_window_action(wb::ActionType::Kill, server, t);
+		else
+			view_close(t);
+		return true;
+	}
+	server->switcher->select(h.row);
+	wb_switcher_commit(server);
+	return true;
+}
+
 /* Dismiss the OSD without changing focus (Escape, or a window vanished). */
 void wb_switcher_cancel(struct wb_server *server) {
 	server->switcher.reset();
@@ -196,7 +245,9 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 	wl_list_for_each(t, &server->focus_order, focus_link)
 		if (t->mapped && toplevel_on_current_desktop(t) && on_cycle_monitor(server, t))
 			wins.push_back(t);
-	if (wins.size() < 2) {  /* nothing meaningful to switch between */
+	/* Shown for a single window too: closing it (Delete) is done from
+	 * here. With none, nothing. */
+	if (wins.empty()) {
 		if (reverse)
 			cycle_toplevels_reverse(server);
 		else
@@ -1139,6 +1190,24 @@ void wb_keyboard::on_key(void *data) {
 				}
 				if (s == XKB_KEY_Return || s == XKB_KEY_KP_Enter) {
 					wb_switcher_commit(server);
+					break;
+				}
+				/* Delete: the selected window asked to close; Shift+Delete:
+				 * its program ended (Kill). The switcher stays: the row goes
+				 * when the window does. */
+				if ((s == XKB_KEY_Delete || s == XKB_KEY_KP_Delete) &&
+						server->switcher->can_close()) {
+					int sel = server->switcher->selected();
+					if (sel >= 0 && sel < static_cast<int>(server->switcher_windows.size())) {
+						struct wb_toplevel *t = server->switcher_windows[sel];
+						bool kill = modifiers & WLR_MODIFIER_SHIFT;
+						wlr_log(WLR_INFO, "wb-switcher %s %s", kill ? "kill" : "close",
+								view_app_id(t) ? view_app_id(t) : "");
+						if (kill)
+							run_window_action(wb::ActionType::Kill, server, t);
+						else
+							view_close(t);
+					}
 					break;
 				}
 				if (s == XKB_KEY_Tab || s == XKB_KEY_ISO_Left_Tab) {

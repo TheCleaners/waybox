@@ -94,6 +94,9 @@ MenuFile build_client_menu(const ClientMenuState &s) {
 				ActionType::ToggleDecorations));
 	menu.items.push_back(separator());
 	menu.items.push_back(entry("Close", "window-close", ActionType::Close));
+	/* For a window that doesn't close: its program ended (SIGTERM; again
+	 * within 3 s, SIGKILL). */
+	menu.items.push_back(entry("End Program", "process-stop", ActionType::Kill));
 
 	file.menus.push_back(std::move(menu));
 	file.menus.push_back(std::move(desktops));
