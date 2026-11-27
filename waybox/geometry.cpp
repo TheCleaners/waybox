@@ -4,6 +4,12 @@
  */
 #include "waybox/geometry.hpp"
 
+#include <string_view>
+
+#include <optional>
+
+#include <limits>
+
 #include <algorithm>
 
 namespace wb {
@@ -12,13 +18,42 @@ bool empty(const Rect &r) {
 	return r.width <= 0 || r.height <= 0;
 }
 
+namespace {
+
+/* A 64-bit sum or difference, back into int's range. */
+int clamp_int(long long v) {
+	return static_cast<int>(std::clamp<long long>(v, std::numeric_limits<int>::min(),
+			std::numeric_limits<int>::max()));
+}
+
+}  // namespace
+
 Rect apply_strut(const Rect &area, const Strut &strut) {
+	/* Wide, then clamped: margins as wide as the area (or wider) give an
+	 * empty one, not an overflow. */
+	long long w = static_cast<long long>(area.width) - strut.left - strut.right;
+	long long h = static_cast<long long>(area.height) - strut.top - strut.bottom;
 	return Rect{
-		area.x + strut.left,
-		area.y + strut.top,
-		std::max(0, area.width - strut.left - strut.right),
-		std::max(0, area.height - strut.top - strut.bottom),
+		clamp_int(static_cast<long long>(area.x) + strut.left),
+		clamp_int(static_cast<long long>(area.y) + strut.top),
+		clamp_int(std::max(0LL, w)),
+		clamp_int(std::max(0LL, h)),
 	};
+}
+
+std::optional<int> parse_margin(std::string_view text) {
+	size_t a = text.find_first_not_of(" \t\n\r");
+	size_t b = text.find_last_not_of(" \t\n\r");
+	if (a == std::string_view::npos)
+		return std::nullopt;
+	text = text.substr(a, b - a + 1);
+	if (text.empty() || text.size() > 5 ||
+			text.find_first_not_of("0123456789") != std::string_view::npos)
+		return std::nullopt;
+	int v = 0;
+	for (char c : text)
+		v = v * 10 + (c - '0');
+	return v <= kMaxMargin ? std::optional<int>(v) : std::nullopt;
 }
 
 Strut strut_between(const Rect &outer, const Rect &inner) {
@@ -96,20 +131,26 @@ Rect maximize_within(const Rect &restore, const Rect &area, bool horz, bool vert
 }
 
 Rect place_ime_popup(const Rect &cursor, int width, int height, const Rect &output) {
-	Rect r{cursor.x, cursor.y + cursor.height, width, height};
-	int bottom = output.y + output.height;
-	int right = output.x + output.width;
-	if (r.y + height > bottom && cursor.y - height >= output.y)
-		r.y = cursor.y - height;  /* flip above the cursor */
-	if (r.x + width > right)
-		r.x = right - width;
-	if (r.y + height > bottom)
-		r.y = bottom - height;
-	if (r.x < output.x)
-		r.x = output.x;
-	if (r.y < output.y)
-		r.y = output.y;
-	return r;
+	/* In 64 bits: the cursor rectangle comes from a client, and anything
+	 * an int holds adds up without overflowing; the result is on the
+	 * output (its top-left, for a popup bigger than the output: it can't
+	 * be made smaller from here). */
+	long long w = std::max(0, width), h = std::max(0, height);
+	long long x = cursor.x;
+	long long y = static_cast<long long>(cursor.y) + std::max(0, cursor.height);
+	long long bottom = static_cast<long long>(output.y) + output.height;
+	long long right = static_cast<long long>(output.x) + output.width;
+	if (y + h > bottom && static_cast<long long>(cursor.y) - h >= output.y)
+		y = static_cast<long long>(cursor.y) - h;  /* flip above the cursor */
+	if (x + w > right)
+		x = right - w;
+	if (y + h > bottom)
+		y = bottom - h;
+	if (x < output.x)
+		x = output.x;
+	if (y < output.y)
+		y = output.y;
+	return Rect{clamp_int(x), clamp_int(y), width, height};
 }
 
 }  // namespace wb

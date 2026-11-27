@@ -14,6 +14,7 @@
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 
+#include "waybox/geometry.hpp"
 #include "waybox/app_rule_xml.hpp"
 #include "waybox/font_spec.hpp"
 #include "waybox/stall.hpp"
@@ -117,14 +118,6 @@ static wb::MenuFile load_menu_file() {
 		return wb::parse_menu_xml(buf.str());
 	}
 	return {};
-}
-
-static unsigned long strtoulong(char *s) {
-	if (!s)
-		return 0;
-	unsigned long value = strtoul(s, (char **) NULL, 10);
-	free(s);
-	return value;
 }
 
 /* The text of the first node `expr` matches (to be free()d), or NULL. */
@@ -1019,10 +1012,22 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 		free(policy);
 	}
 
-	config->margins.bottom = strtoulong(parse_xpath_expr("//ob:margins/ob:bottom", ctxt));
-	config->margins.left = strtoulong(parse_xpath_expr("//ob:margins/ob:left", ctxt));
-	config->margins.right = strtoulong(parse_xpath_expr("//ob:margins/ob:right", ctxt));
-	config->margins.top = strtoulong(parse_xpath_expr("//ob:margins/ob:top", ctxt));
+	/* Whole pixels, 0 to 10000; anything else is 0 (and said). */
+	auto margin = [ctxt](const char *expr, const char *side) {
+		char *text = parse_xpath_expr(expr, ctxt);
+		if (text == nullptr)
+			return 0;
+		std::optional<int> v = wb::parse_margin(text);
+		if (!v)
+			wlr_log(WLR_ERROR, "rc.xml: <margins><%s>%s</%s> isn't 0 to %d pixels; 0 is used",
+					side, text, side, wb::kMaxMargin);
+		free(text);
+		return v.value_or(0);
+	};
+	config->margins.bottom = margin("//ob:margins/ob:bottom", "bottom");
+	config->margins.left = margin("//ob:margins/ob:left", "left");
+	config->margins.right = margin("//ob:margins/ob:right", "right");
+	config->margins.top = margin("//ob:margins/ob:top", "top");
 
 	config->menu = load_menu_file();
 

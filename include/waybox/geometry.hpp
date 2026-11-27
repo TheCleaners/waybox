@@ -1,6 +1,9 @@
 #ifndef WB_GEOMETRY_HPP
 #define WB_GEOMETRY_HPP
 
+#include <optional>
+#include <string_view>
+
 namespace wb {
 
 /*
@@ -53,6 +56,11 @@ bool empty(const Rect &r);
  * how the usable area is derived from reserved edges (and how margins inset a
  * maximized window). */
 Rect apply_strut(const Rect &area, const Strut &strut);
+
+/* rc.xml's <margins> value: a whole number of pixels, 0 to kMaxMargin
+ * (spaces around allowed); nullopt for anything else. */
+constexpr int kMaxMargin = 10000;
+std::optional<int> parse_margin(std::string_view text);
 
 /* The strut that turns `outer` into `inner` (the inverse of apply_strut when
  * `inner` is contained in `outer`). Negative edges are clamped to 0. */

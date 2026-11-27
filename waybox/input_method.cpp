@@ -2,6 +2,7 @@
  * The input method relay: text-input-v3 (applications) <-> input-method-v2
  * (fcitx5, ibus, ...). See input_method.h.
  */
+#include <algorithm>
 #include "waybox/input_method.h"
 
 #include <list>
@@ -92,8 +93,16 @@ static void update_popup(wb_ime_popup *p) {
 	struct wlr_text_input_v3 *input = relay->active->input;
 	wb::Rect cursor{ox, oy, 0, 0};
 	if (input->active_features & WLR_TEXT_INPUT_V3_FEATURE_CURSOR_RECTANGLE) {
+		/* The client's numbers: summed wide, kept to a sane range of the
+		 * layout (an int's worth of offset mustn't overflow). */
 		const struct wlr_box &r = input->current.cursor_rectangle;
-		cursor = {ox + r.x, oy + r.y, r.width, r.height};
+		constexpr long long kFar = 1LL << 24;
+		auto in_range = [](long long v, long long lo, long long hi) {
+			return static_cast<int>(std::clamp(v, lo, hi));
+		};
+		cursor = {in_range(static_cast<long long>(ox) + r.x, -kFar, kFar),
+				in_range(static_cast<long long>(oy) + r.y, -kFar, kFar),
+				in_range(r.width, 0, kFar), in_range(r.height, 0, kFar)};
 	}
 	struct wlr_output *output = wlr_output_layout_output_at(
 			relay->server->output_layout, cursor.x, cursor.y);
