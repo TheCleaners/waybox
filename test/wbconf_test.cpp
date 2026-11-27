@@ -907,6 +907,30 @@ WB_TEST(bindings_read_and_edit) {
 	std::string out = doc->to_string();
 	WB_CHECK(out.find("keep me") != std::string::npos);
 	WB_CHECK(out.find("alacritty") != std::string::npos && out.find(">foot<") == std::string::npos);
+	/* Repeat while held: written as repeat="yes", read back; off, taken
+	 * away (an explicit "no" of the user's kept). */
+	WB_CHECK(!keys[0].repeat);
+	e.repeat = true;
+	WB_CHECK(doc->set_keybinding({"W-e"}, e));
+	WB_CHECK(doc->to_string().find("key=\"W-e\" repeat=\"yes\"") != std::string::npos);
+	WB_CHECK(doc->keybindings()[0].repeat);
+	e.repeat = false;
+	WB_CHECK(doc->set_keybinding({"W-e"}, e));
+	WB_CHECK(doc->to_string().find("repeat=") == std::string::npos);
+	{
+		auto no = wb::RcDocument::from_string(R"(<openbox_config><keyboard>
+<keybind key="F7" repeat="no"><action name="Close"/></keybind></keyboard></openbox_config>)");
+		WB_CHECK(no.has_value() && !no->keybindings()[0].repeat);
+		wb::KeyBinding f7 = no->keybindings()[0];
+		f7.actions = {{"Iconify", {}}};
+		WB_CHECK(no->set_keybinding({"F7"}, f7));
+		WB_CHECK(no->to_string().find("repeat=\"no\"") != std::string::npos);
+		/* A new one, repeating: on its own <keybind>. */
+		WB_CHECK(no->set_keybinding({}, wb::KeyBinding{{"XF86AudioRaiseVolume"},
+				{{"Execute", {{"command", "wpctl set-volume @DEFAULT_SINK@ 5%+"}}}}, true}));
+		WB_CHECK(no->to_string().find("key=\"XF86AudioRaiseVolume\" repeat=\"yes\"") !=
+				std::string::npos);
+	}
 	/* Added under the existing C-a. */
 	WB_CHECK(doc->set_keybinding({}, wb::KeyBinding{{"C-a", "y"}, {{"Iconify", {}}}}));
 	keys = doc->keybindings();

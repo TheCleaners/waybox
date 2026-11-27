@@ -18,6 +18,10 @@ namespace wb {
 struct KeyBinding {
 	uint32_t sym = 0;
 	uint32_t modifiers = 0;
+	/* repeat="yes": run again while the key is held, at the keyboard's
+	 * repeat rate (as Openbox; off by default, so a stuck key doesn't
+	 * close every window). */
+	bool repeat = false;
 	std::vector<Action> actions;
 	std::vector<KeyBinding> children;
 };

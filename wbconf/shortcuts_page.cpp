@@ -46,6 +46,7 @@ struct ShortcutEdit {
 	const char *clash_kind = "";       /* or "script", "place" (for tests) */
 	/* Keys. */
 	GtkWidget *keys_button = nullptr;
+	GtkWidget *repeat = nullptr;  /* "Repeat while held" */
 	GtkWidget *keys_hint = nullptr;
 	GtkWidget *then_button = nullptr;
 	/* Mouse. */
@@ -305,6 +306,19 @@ void refresh_keys(ShortcutEdit *e) {
 }
 
 void refresh_clashes(Ui *ui);
+
+void changed(ShortcutEdit *e);
+
+void on_repeat_toggled(GtkCheckButton *c, gpointer d) {
+	auto *e = static_cast<ShortcutEdit *>(d);
+	if (!e->now) {
+		if (!e->was)
+			return;
+		e->now = e->was;
+	}
+	e->now->repeat = gtk_check_button_get_active(c);
+	changed(e);
+}
 
 void changed(ShortcutEdit *e) {
 	refresh_head(e);
@@ -728,6 +742,15 @@ GtkWidget *build_editor(ShortcutEdit *e) {
 		e->keys_hint = dim(_("Esc cancels"));
 		gtk_box_append(GTK_BOX(keys), e->keys_hint);
 		gtk_box_append(GTK_BOX(box), field(labels, _("Keys"), keys));
+		/* Held: once (the default, as Openbox), or again and again. */
+		e->repeat = gtk_check_button_new_with_label(_("Repeat while held"));
+		gtk_widget_set_tooltip_text(e->repeat, _("Run it again and again while the keys are held, "
+				"at the keyboard's repeat rate: for volume, brightness, moving a window. Off, "
+				"holding the keys runs it once."));
+		const auto &b = e->now ? e->now : e->was;
+		gtk_check_button_set_active(GTK_CHECK_BUTTON(e->repeat), b && b->repeat);
+		g_signal_connect(e->repeat, "toggled", G_CALLBACK(on_repeat_toggled), e);
+		gtk_box_append(GTK_BOX(box), field(labels, "", e->repeat));
 	}
 
 	/* Action: type to find it. */
@@ -1542,7 +1565,8 @@ void shortcut_changes(Ui *ui, const std::string &widget, const std::string &wher
 		GtkWidget *target, std::vector<UnsavedChange> &out) {
 	bool mouse = widget == "mousebindings";
 	auto key_text = [](const std::optional<wb::KeyBinding> &b) {
-		return b ? chain_caps_text(b->chain) + "  " + wb::describe_actions(b->actions)
+		return b ? chain_caps_text(b->chain) + "  " + wb::describe_actions(b->actions) +
+						(b->repeat ? std::string("  (") + _("repeats while held") + ")" : "")
 				: std::string(_("none"));
 	};
 	auto mouse_line = [](const std::optional<wb::MouseBinding> &b) {
@@ -1680,6 +1704,9 @@ void shortcut_test_step(Ui *ui, const std::string &step) {
 	} else if (verb == "shortcut-capture") {
 		set_open(e, true);
 		start_capture(e, false);
+	} else if (verb == "shortcut-repeat" && e->repeat != nullptr) {
+		set_open(e, true);
+		gtk_check_button_set_active(GTK_CHECK_BUTTON(e->repeat), rest == "on");
 	} else if (verb == "shortcut-keys" && e->now) {
 		e->now->chain = split_words(rest);
 		changed(e);

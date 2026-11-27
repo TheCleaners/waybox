@@ -176,6 +176,7 @@ struct LoadError {
 struct KeyBinding {
 	std::vector<std::string> chain;
 	std::vector<BoundAction> actions;
+	bool repeat = false;  /* repeat="yes": runs again while held */
 	bool operator==(const KeyBinding &) const = default;
 };
 

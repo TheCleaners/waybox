@@ -202,6 +202,9 @@ static wb::KeyBinding parse_keybind(xmlNode *node) {
 	wb::KeyBinding binding;
 	wb_parse_key_combo((const char *) get_attribute(node, "key"),
 			&binding.sym, &binding.modifiers);
+	if (const char *r = (const char *) get_attribute(node, "repeat"))
+		binding.repeat = strcasecmp(r, "yes") == 0 || strcasecmp(r, "true") == 0 ||
+				strcasecmp(r, "on") == 0 || strcmp(r, "1") == 0;
 
 	for (xmlNode *child = node->children; child; child = child->next) {
 		if (child->type != XML_ELEMENT_NODE)

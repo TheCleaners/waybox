@@ -1,6 +1,7 @@
 #include <libevdev/libevdev.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <csignal>
 #include <ctime>
 #include <optional>
@@ -862,7 +863,8 @@ static bool is_modifier_keysym(xkb_keysym_t sym) {
 	}
 }
 
-static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32_t modifiers) {
+static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32_t modifiers,
+		std::vector<wb::Action> *repeat_actions) {
 	/*
 	 * Here we handle compositor keybindings. This is when the compositor is
 	 * processing keys, rather than passing them on to the client for its own
@@ -918,6 +920,8 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 		/* Copy the actions before running them: a Reconfigure action rebuilds
 		 * the binding tree and would free step.node mid-iteration. */
 		std::vector<wb::Action> actions = step.node->actions;
+		if (step.node->repeat && repeat_actions != nullptr)
+			*repeat_actions = actions;
 		server->active_keychain = nullptr;
 		/* Expose the triggering modifiers so NextWindow/PreviousWindow can tell
 		 * an Alt-held interactive cycle from a modifier-less instant switch. */
@@ -994,6 +998,9 @@ void wb_keyboard::on_key(void *data) {
 
 	if (wb_input_blocked(server, &keyboard->base))
 		return;
+	/* Any key event ends a binding's repeat: its key let go, another
+	 * pressed, a modifier changed. */
+	stop_repeat();
 
 	/* Translate libinput keycode -> xkbcommon */
 	uint32_t keycode = event->keycode + 8;
@@ -1111,8 +1118,11 @@ void wb_keyboard::on_key(void *data) {
 			/* The first binding that runs ends it: a binding can free the
 			 * keymap `syms` points into (Reconfigure), and a later keysym
 			 * mustn't undo `handled`. */
+			std::vector<wb::Action> repeat;
 			for (int i = 0; i < nsyms && !handled; i++)
-				handled = handle_keybinding(server, syms[i], modifiers);
+				handled = handle_keybinding(server, syms[i], modifiers, &repeat);
+			if (handled && !repeat.empty())
+				start_repeat(std::move(repeat), modifiers);
 		}
 	} else if (server->menu != nullptr || server->switcher != nullptr) {
 		/* Swallow key releases too while a menu or the switcher OSD is up.
@@ -1136,6 +1146,50 @@ void wb_keyboard::on_key(void *data) {
 	}
 
 	idle_activity(server, seat);
+}
+
+void wb_keyboard::stop_repeat() {
+	if (repeat_timer != nullptr)
+		wl_event_source_remove(repeat_timer);
+	repeat_timer = nullptr;
+	repeat_actions.clear();
+}
+
+/* The keyboard's repeat delay and rate (a virtual keyboard may have none
+ * set: the usual 600 ms, 25 a second). */
+static void repeat_timing(struct wlr_keyboard *kb, int *delay_ms, int *interval_ms) {
+	int rate = kb->repeat_info.rate > 0 ? kb->repeat_info.rate : 25;
+	*delay_ms = kb->repeat_info.delay > 0 ? kb->repeat_info.delay : 600;
+	*interval_ms = std::max(1, 1000 / rate);
+}
+
+void wb_keyboard::start_repeat(std::vector<wb::Action> actions, uint32_t mods) {
+	stop_repeat();
+	repeat_actions = std::move(actions);
+	repeat_modifiers = mods;
+	repeat_timer = wl_event_loop_add_timer(server->wl_event_loop, [](void *data) {
+		auto *kb = static_cast<wb_keyboard *>(data);
+		struct wb_server *server = kb->server;
+		/* Not while something else has the keyboard, nor locked. */
+		if (session_locked(server) || server->menu != nullptr || server->switcher != nullptr ||
+				server->about_card != nullptr ||
+				wlr_keyboard_get_modifiers(kb->keyboard) != kb->repeat_modifiers) {
+			kb->stop_repeat();
+			return 0;
+		}
+		int delay = 0, interval = 0;
+		repeat_timing(kb->keyboard, &delay, &interval);
+		wl_event_source_timer_update(kb->repeat_timer, interval);
+		/* A copy: an action may end the repeat (or free this keyboard's
+		 * state by reconfiguring). */
+		std::vector<wb::Action> actions = kb->repeat_actions;
+		server->last_key_modifiers = kb->repeat_modifiers;
+		wb::run_actions(actions, server);
+		return 0;
+	}, this);
+	int delay = 0, interval = 0;
+	repeat_timing(keyboard, &delay, &interval);
+	wl_event_source_timer_update(repeat_timer, delay);
 }
 
 /* Give a keyboard the keymap from rc.xml's <keyboard><xkb> (or xkbcommon's
