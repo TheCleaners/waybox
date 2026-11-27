@@ -663,7 +663,26 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 				server->config->menu_behavior);
 		int x = static_cast<int>(server->cursor->cursor->x);
 		int y = static_cast<int>(server->cursor->cursor->y);
-		if (widget->open(action.command, x, y)) {
+		/* <position>: x and y both (as Openbox), on <monitor> (the
+		 * primary if none; "all": the whole layout); else at the pointer. */
+		wb::MenuWidget::Placement placement;
+		auto px = action.args.find("position.x"), py = action.args.find("position.y");
+		if (px != action.args.end() && py != action.args.end()) {
+			auto pm = action.args.find("position.monitor");
+			std::string monitor = pm != action.args.end() ? pm->second : "primary";
+			struct wlr_box area = {};
+			if (monitor == "all") {
+				wlr_output_layout_get_box(server->output_layout, nullptr, &area);
+			} else {
+				struct wlr_output *out = rule_output(server, monitor);
+				if (out == nullptr)
+					out = rule_output(server, "primary");
+				if (out != nullptr)
+					wlr_output_layout_get_box(server->output_layout, out, &area);
+			}
+			placement = {px->second, py->second, area.x, area.y, area.width, area.height};
+		}
+		if (widget->open(action.command, x, y, placement)) {
 			server->menu = std::move(widget);
 		server->preview_menu.reset();  /* (the old widget, gone, may have shown it) */
 			server->menu_target = nullptr;

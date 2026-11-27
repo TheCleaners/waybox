@@ -146,6 +146,23 @@ WB_TEST(openbox_positions) {
 	WB_CHECK(wb::app_rule_effects(r) == (std::vector<std::string>{"At center, 40", "On monitor 2"}));
 }
 
+WB_TEST(menu_placed_in_area) {
+	/* A monitor at 1920, 0, 1920 × 1080; a menu 200 × 300. */
+	auto at = [](const char *x, const char *y) {
+		return wb::place_in_area(x, y, 200, 300, 1920, 0, 1920, 1080);
+	};
+	WB_CHECK(at("center", "center") && at("center", "center")->x == 1920 + 860 &&
+			at("center", "center")->y == 390);
+	WB_CHECK(at("10", "-10") && at("10", "-10")->x == 1930 && at("10", "-10")->y == 770);
+	WB_CHECK(at("50%", "0")->x == 1920 + 960 && at("50%", "0")->y == 0);
+	/* Past the edge: kept inside. */
+	WB_CHECK(at("1900", "2000")->x == 1920 + 1720 && at("1900", "2000")->y == 780);
+	/* Bigger than the area: its top-left at the area's. */
+	auto big = wb::place_in_area("center", "center", 3000, 2000, 0, 0, 1920, 1080);
+	WB_CHECK(big && big->x == 0 && big->y == 0);
+	WB_CHECK(!at("left", "0") && !at("0", "") && !at("default", "0"));
+}
+
 WB_TEST(rule_monitor_by_place_or_name) {
 	/* Plugged in as DP-2 (right), HDMI-A-1 (left), DP-1 (below the left). */
 	std::vector<wb::MonitorPlace> m = {{"DP-2", 1920, 0}, {"HDMI-A-1", 0, 0}, {"DP-1", 0, 1080}};

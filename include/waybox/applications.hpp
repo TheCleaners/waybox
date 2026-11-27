@@ -70,6 +70,14 @@ std::optional<int> resolve_position(std::string_view spec, int start, int size, 
 /* Whether `spec` is one of those. */
 bool position_spec_ok(std::string_view spec);
 
+/* A box w × h placed by ShowMenu's <position><x>/<y> (those forms) in an
+ * area, kept inside it: its top-left; nullopt if either isn't one. */
+struct PlacedAt {
+	int x = 0, y = 0;
+};
+std::optional<PlacedAt> place_in_area(std::string_view x_spec, std::string_view y_spec, int w,
+		int h, int area_x, int area_y, int area_w, int area_h);
+
 /* A monitor, as rule_monitor sees it. */
 struct MonitorPlace {
 	std::string name;

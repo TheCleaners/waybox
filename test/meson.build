@@ -884,6 +884,7 @@ if python.found() and not get_option('tests_only')
     ['minimize', 'minimize_test.py', [touch_client, layer_client], 60],
     ['mouse_binding', 'mouse_binding_test.py', [], 60],
     ['grouped_binds', 'grouped_binds_test.py', [], 60],
+    ['menu_position', 'menu_position_test.py', [], 60],
     ['mouse_contexts', 'mouse_contexts_test.py', [], 60],
     ['multi_output', 'multi_output_test.py', [layer_client], 60],
     ['output_hotplug', 'output_hotplug_test.py', [layer_client], 60],
