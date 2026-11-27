@@ -1,5 +1,5 @@
 project(
-  'Waybox',
+  'waybox',
   ['c', 'cpp'],
   version: '0.2.3',
   license: 'MIT',
@@ -17,7 +17,7 @@ project_args = [
   '-D_DEFAULT_SOURCE',
   '-DWL_HIDE_DEPRECATED', # Hide the deprecated parts of the Wayland API
   '-DWLR_USE_UNSTABLE',
-  '-DPACKAGE_NAME="' + meson.project_name() + '"',
+  '-DPACKAGE_NAME="Waybox"',
   '-DPACKAGE_VERSION="' + meson.project_version() + '"',
   '-DWB_SYSCONFDIR="' + get_option('prefix') / get_option('sysconfdir') + '"',
 ]
@@ -230,3 +230,7 @@ endif
 python_src_dir = meson.project_source_root() / 'python'
 
 subdir('test')
+
+# The release tarball (meson dist) without the images git keeps for the
+# README and the documentation's gallery.
+meson.add_dist_script('tools/dist.sh')
