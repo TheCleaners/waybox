@@ -66,6 +66,7 @@ wb_src = [
     'scene_buffer.cpp',
     'about.cpp',
     'about_card.cpp',
+    'confirm_card.cpp',
     'seat.cpp',
     'server.cpp',
     'session_lock.cpp',

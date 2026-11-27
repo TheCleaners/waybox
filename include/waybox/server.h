@@ -32,7 +32,7 @@
 #include "waybox/xdg_shell.h"
 #include "waybox/seat.h"
 
-namespace wb { class MenuWidget; class SwitcherWidget; class DesktopPopup; class AboutCard; }
+namespace wb { class MenuWidget; class SwitcherWidget; class DesktopPopup; class AboutCard; class ConfirmCard; }
 struct wb_session_lock_state;
 struct wb_startup_state;
 struct wb_shortcuts_inhibit_state;
@@ -186,6 +186,8 @@ struct wb_server {
 	std::unique_ptr<wb::SwitcherWidget> switcher;
 	/* The About card (ShowAbout), until a click or a key. */
 	std::unique_ptr<wb::AboutCard> about_card;
+	/* A question asked (Exit's prompt): it has the keyboard and pointer. */
+	std::unique_ptr<wb::ConfirmCard> confirm;
 	/* ToggleShowDesktop is on (its windows: hidden_by_show_desktop). */
 	bool showing_desktop = false;
 	bool show_desktop_busy = false;  /* while it minimizes and restores */

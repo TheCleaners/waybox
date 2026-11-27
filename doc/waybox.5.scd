@@ -629,7 +629,9 @@ act on a window use the focused one.
 	Reload the configuration, menu and theme.
 
 *Exit*
-	Exit Waybox.
+	Exit Waybox, asking first (as Openbox): a card with Cancel (chosen
+	first) and Exit; Left, Right or Tab choose, Return or Space answer,
+	Escape or a click outside cancels. *<prompt>no</prompt>* exits at once.
 
 # MENU.XML
 
