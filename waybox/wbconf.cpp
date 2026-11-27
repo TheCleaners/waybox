@@ -1429,6 +1429,10 @@ bool RcDocument::set_keybinding(const std::vector<std::string> &was,
 	xmlNode *old = was.empty() || kb == nullptr ? nullptr : find_chain(kb, was, was_actions);
 	if (old != nullptr && any_advanced(read_actions(old)))
 		return false;  /* only rc.xml edits those */
+	/* key="W-a W-b" (Openbox's alternatives): rc.xml's too. */
+	if (std::any_of(was.begin(), was.end(), [](const std::string &k) {
+			return k.find(' ') != std::string::npos; }))
+		return false;
 	if (!was.empty() && old == nullptr)
 		return false;
 	/* The same keys: actions replaced where it stands (comments kept). */
@@ -1552,6 +1556,10 @@ bool RcDocument::set_mousebinding(const std::optional<MouseBinding> &was,
 	if (was && old == nullptr)
 		return false;
 	if (old != nullptr && any_advanced(read_actions(old)))
+		return false;
+	/* Several buttons or places in one (Openbox's alternatives): rc.xml's. */
+	if (was && (was->context.find(' ') != std::string::npos ||
+			was->button.find(' ') != std::string::npos))
 		return false;
 	bool same_place = was && now && was->context == now->context &&
 			was->button == now->button && was->event == now->event;

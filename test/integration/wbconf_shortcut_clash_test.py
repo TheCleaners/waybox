@@ -39,6 +39,12 @@ RC = """<?xml version="1.0" encoding="UTF-8"?>
     <context name="Close">
       <mousebind button="Left" action="Click"><action name="Close"/></mousebind>
     </context>
+    <context name="Titlebar Frame">
+      <mousebind button="Middle W-Middle" action="Press"><action name="Lower"/></mousebind>
+    </context>
+    <context name="Close Root">
+      <mousebind button="Right" action="Press"><action name="ShowMenu"><menu>root-menu</menu></action></mousebind>
+    </context>
   </mouse>
 </openbox_config>
 """
@@ -189,7 +195,7 @@ def main():
     # @problems: the script's key, and the click on a place Waybox doesn't
     # read; "super d": Super+D only.
     want_vis = ["shortcut-visible:W-F2,W-D|suggest:",
-                "shortcut-visible:W-x,Close Left Click|suggest:",
+                "shortcut-visible:W-x,Close Left Click,Close Root Right Press|suggest:",
                 "shortcut-visible:W-d,W-D,W-D|suggest:"]
     if vis != want_vis:
         failures.append(f"searching: {vis}")
@@ -205,6 +211,13 @@ def main():
     mouse = [l for l in lines if l.startswith("shortcut:mouse|")]
     if not mouse or mouse[0] != "shortcut:mouse|Close Left Click|Close the window|Windows|never:place":
         failures.append(f"a place Waybox doesn't read: {mouse[:1]}")
+    # Several places in one (Openbox's alternatives): each checked; all
+    # read, no warning; one not, said so (the rest run).
+    if len(mouse) < 3 or not mouse[1].startswith("shortcut:mouse|Titlebar Frame Middle W-Middle Press|") \
+            or "never:" in mouse[1]:
+        failures.append(f"several places, all read: {mouse[1:2]}")
+    if len(mouse) < 3 or not mouse[2].endswith("|never:place-some"):
+        failures.append(f"several places, one not read: {mouse[2:3]}")
     got = keybinds(rc)
     want_rc = sorted([("C-a x", ["Close"]), ("W-x", ["Execute"]), ("C-b", ["Iconify"]),
                       ("W-D", ["Iconify"]), ("W-F2", ["GoToDesktop"])])
