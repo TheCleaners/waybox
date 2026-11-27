@@ -11,6 +11,8 @@ Two undecorated windows (a rule), so a window's frame is its geometry.
    DirectionalFocusWest (3.4's name) back to a; nothing north: unchanged.
 6. ToggleShowDesktop: both minimized; again, both back. On, then a
    focused: the mode ends, a shown, b left minimized.
+7. Unfocus leaves nothing focused. Kill on b ends its process (SIGTERM).
+   (Decorate and the shading ones: window_layers_test, with foot's frame.)
 Skips (exit 77) without a headless display.
 
 Usage: geometry_actions_test.py <waybox> <activate_client>
@@ -162,6 +164,17 @@ def main():
         expect(minimized(), ["b"], "a focused while the desktop is shown")
         toggle()  # a new show-desktop, not a restore
         expect(minimized(), ["a", "b"], "ToggleShowDesktop after it ended")
+        toggle()
+
+        act("Focus", "a")
+        act("Unfocus", "a")
+        expect(focused(), [], "Unfocus")
+        act("Kill", "b")
+        for _ in range(20):
+            if children[1].poll() is not None:
+                break
+            time.sleep(0.1)
+        expect(children[1].poll() is not None, True, "Kill ended b's process")
     except (OSError, RuntimeError, ValueError, StopIteration, KeyError) as e:
         failures.append(f"{type(e).__name__}: {e}")
     finally:

@@ -265,6 +265,14 @@ void set_toplevel_urgent(struct wb_toplevel *toplevel, bool urgent);
  * those brought back. Focusing a window ends it, the others left minimized
  * (as in Openbox). */
 void toggle_show_desktop(struct wb_server *server);
+/* The process behind a Wayland window (its connection's credentials, which
+ * a program can't fake), or -1 (an X11 window's _NET_WM_PID is only its own
+ * say); `uid` its owner's. */
+pid_t view_pid(struct wb_toplevel *toplevel, uid_t *uid);
+/* Keyboard focus taken from the window, if it has it (Unfocus). */
+void unfocus_toplevel(struct wb_toplevel *toplevel);
+/* To the end of the focus order (FocusToBottom). */
+void focus_order_to_bottom(struct wb_toplevel *toplevel);
 /* Show desktop `index` (0-based): hide the other desktops' windows and focus
  * the most recently used window here (or nothing). */
 void wb_go_to_desktop(struct wb_server *server, int index);

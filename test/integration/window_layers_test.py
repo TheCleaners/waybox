@@ -9,6 +9,8 @@ they overlap says which is on top.
 2. SendToNormalLayer on red, then blue raised: blue on top.
 3. ToggleAlwaysOnBottom on blue, then blue raised: red still on top (blue
    raises only within its layer). get_windows says each one's layer.
+4. ShadeLower shades red, UnshadeRaise unshades it; Undecorate, and
+   ShadeLower can't (no titlebar); Decorate, and it can again.
 Skips (exit 77) without foot, grim or magick, or a headless display.
 
 Usage: window_layers_test.py <waybox>
@@ -146,6 +148,17 @@ def main():
         action("ToggleAlwaysOnBottom", "blue")
         if layers().get("blue") != "normal":
             failures.append(f"ToggleAlwaysOnBottom twice: {layers()}")
+
+        # 4. Shading, with and without a frame.
+        def shaded():
+            return sorted(w["app_id"] for w in ipc({"request": "get_windows"})["windows"]
+                          if w.get("shaded"))
+        for name, want in (("ShadeLower", ["red"]), ("UnshadeRaise", []),
+                           ("Undecorate", []), ("ShadeLower", []),
+                           ("Decorate", []), ("ShadeLower", ["red"])):
+            action(name, "red")
+            if shaded() != want:
+                failures.append(f"{name}: shaded {shaded()}, not {want}")
     except (OSError, ValueError) as e:
         failures.append(str(e))
     finally:

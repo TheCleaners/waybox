@@ -526,6 +526,27 @@ act on a window use the focused one.
 *GrowToFill*
 	Grow every side out to the next edge, without overlapping.
 
+*Kill*
+	End the window's program: SIGTERM, then SIGKILL if asked again within
+	3 seconds. Only for a Wayland window (its process known from its
+	connection) of a program of yours; an X11 window says its own process
+	ID, which could name another program, so it's only asked to close.
+
+*Decorate*, *Undecorate*
+	Give the window Waybox's frame, or take it away (*ToggleDecorations*
+	switches). A program that draws its own decorations keeps them.
+
+*RaiseLower*
+	Lower the window if it's on top of its layer, else raise it.
+
+*ShadeLower*, *UnshadeRaise*
+	Roll the window up (or lower it, if it is); roll it down (or raise it,
+	if it isn't).
+
+*FocusToBottom*, *Unfocus*
+	Move the window to the end of the focus order (last in Alt+Tab's
+	list); take the keyboard focus from it.
+
 *ToggleShowDesktop*
 	Minimize the current desktop's windows to show the desktop; again,
 	bring them back. Focusing a window (a click in a taskbar, Alt+Tab)
