@@ -126,6 +126,9 @@ struct wb_toplevel {
 	 * shows on every desktop (Openbox's "all desktops"/sticky). */
 	int desktop = 0;
 	bool omnipresent = false;
+	/* Desktops per monitor: the monitor whose desktop it's on (by name);
+	 * moved to another, it takes the desktop that one shows. */
+	std::string desktop_output;
 	/* Openbox's layer: -1 always below, 0 normal, 1 always on top. Raising
 	 * and lowering stay within it. */
 	int layer = 0;
@@ -258,6 +261,14 @@ bool toplevel_on_desktop(struct wb_toplevel *toplevel, int desktop);
 bool toplevel_on_current_desktop(struct wb_toplevel *toplevel);
 /* The desktop `output` shows (#367); the shared one for none. */
 int output_desktop(struct wb_server *server, struct wlr_output *output);
+/* Whether each monitor shows its own desktop (<desktops><perMonitor>). */
+bool desktops_per_monitor(struct wb_server *server);
+/* The monitor desktop actions act on: the focused window's, else the
+ * pointer's. */
+struct wb_output *desktop_action_output(struct wb_server *server);
+/* The current and last desktop desktop actions see (that monitor's;
+ * shared: the server's). */
+void desktop_action_state(struct wb_server *server, int *current, int *last);
 /* A window asks to be shown (xdg-activation, X11 _NET_ACTIVE_WINDOW):
  * focused, or marked urgent, as <activation> says; `from_user`: made from
  * input (a click, a key), not by the program on its own. */
@@ -304,6 +315,8 @@ void wb_toggle_omnipresent(struct wb_toplevel *toplevel);
 /* Focus the most recently used visible window on the current desktop, or
  * clear keyboard focus when there is none. */
 void focus_current_desktop(struct wb_server *server);
+struct wb_output;
+void focus_current_desktop_on(struct wb_server *server, struct wb_output *on);
 /* After a reconfigure: move windows off desktops that no longer exist. */
 void desktops_reconfigured(struct wb_server *server);
 struct wb_toplevel *get_toplevel_at(

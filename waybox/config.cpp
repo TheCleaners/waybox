@@ -380,6 +380,9 @@ static void parse_desktops(struct wb_config *config, xmlXPathContextPtr ctxt) {
 		if (const char *n = child_text(node, "number"))
 			config->desktops.number =
 					wb::parse_desktop_count(n, config->desktops.number);
+		if (const char *p = child_text(node, "perMonitor"))
+			config->desktops.per_monitor = strcasecmp(p, "yes") == 0 ||
+					strcasecmp(p, "true") == 0 || strcmp(p, "1") == 0;
 		if (const char *t = child_text(node, "popupTime"))
 			config->desktops.popup_time_ms =
 					wb::parse_popup_time(t, config->desktops.popup_time_ms);

@@ -353,7 +353,8 @@ bool conditions_hold(struct wb_server *server, const wb::Conditional &c,
 		action_facts = window_facts(server, target);
 	if (struct wb_toplevel *f = keyboard_focused(server))
 		focus_facts = window_facts(server, f);
-	wb::DesktopFacts d{server->current_desktop, server->last_desktop};
+	wb::DesktopFacts d{0, 0};
+	desktop_action_state(server, &d.current, &d.last);
 	return wb::conditions_true(c.queries, action_facts ? &*action_facts : nullptr,
 			focus_facts ? &*focus_facts : nullptr, d);
 }
@@ -420,14 +421,12 @@ static void run_geometry_action(const wb::Action &action, struct wb_server *serv
 	using T = wb::ActionType;
 	struct wlr_output *output = get_active_output(t);
 	if (action.type == T::MoveResizeTo) {
+		/* As window rules count them: left to right (not the order
+		 * they were plugged in), or by name, mouse, active, primary. */
 		auto m = action.args.find("monitor");
-		if (m != action.args.end() && m->second != "current") {
-			int want = std::atoi(m->second.c_str()), i = 0;
-			struct wb_output *o;
-			wl_list_for_each_reverse(o, &server->outputs, link)
-				if (++i == want)
-					output = o->wlr_output;
-		}
+		if (m != action.args.end() && m->second != "current")
+			if (struct wlr_output *o = rule_output(server, m->second))
+				output = o;
 	}
 	if (output == nullptr)
 		return;
@@ -699,8 +698,9 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		script_menu_call(server, action.script_callback);
 		break;
 	case wb::ActionType::GoToDesktop: {
-		if (auto target = wb::desktop_target(action.to,
-				server->current_desktop, server->last_desktop,
+		int cur = 0, last = 0;
+		desktop_action_state(server, &cur, &last);
+		if (auto target = wb::desktop_target(action.to, cur, last,
 				desktop_count(server), action.wrap))
 			wb_go_to_desktop(server, *target);
 		break;
@@ -711,8 +711,9 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel == nullptr || !toplevel->mapped)
 			break;
-		if (auto target = wb::desktop_target(action.to,
-				server->current_desktop, server->last_desktop,
+		int cur = 0, last = 0;
+		desktop_action_state(server, &cur, &last);
+		if (auto target = wb::desktop_target(action.to, cur, last,
 				desktop_count(server), action.wrap))
 			wb_send_to_desktop(toplevel, *target, action.follow);
 		break;

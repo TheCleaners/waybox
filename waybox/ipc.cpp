@@ -158,6 +158,11 @@ Value window_json(struct wb_toplevel *t) {
 	w["layer"] = t->layer > 0 ? "above" : t->layer < 0 ? "below" : "normal";
 	w["focused"] = focused(t);
 	w["minimized"] = t->minimized;
+	/* Drawn now: on a desktop its monitor shows, not minimized. */
+	w["shown"] = t->mapped && t->scene_tree != nullptr && t->scene_tree->node.enabled &&
+			!t->minimized;
+	struct wlr_output *out = get_active_output(t);
+	w["output"] = out != nullptr ? out->name : "";
 	w["maximized"] = t->max_horz && t->max_vert;
 	w["fullscreen"] = t->fullscreen;
 	w["shaded"] = t->shaded;
