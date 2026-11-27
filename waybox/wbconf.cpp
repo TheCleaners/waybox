@@ -1333,18 +1333,33 @@ void collect_keys(xmlNode *parent, std::vector<std::string> &chain, std::vector<
 }
 
 /* The <keybind> at the end of `chain` under `kb`, or nullptr. */
-xmlNode *find_chain(xmlNode *kb, const std::vector<std::string> &chain) {
-	xmlNode *at = kb;
-	for (const std::string &key : chain) {
-		xmlNode *next = nullptr;
-		for (xmlNode *c = at ? at->children : nullptr; c != nullptr; c = c->next)
-			if (is_element(c, "keybind") && attr_value(c, "key").value_or("") == key)
-				next = c;
-		if (next == nullptr)
-			return nullptr;
-		at = next;
+/* Every <keybind> at the end of `chain`, in document order (two bindings
+ * can have the same keys). */
+void chain_ends(xmlNode *at, const std::vector<std::string> &chain, size_t i,
+		std::vector<xmlNode *> &out) {
+	for (xmlNode *c = at->children; c != nullptr; c = c->next) {
+		if (!is_element(c, "keybind") || attr_value(c, "key").value_or("") != chain[i])
+			continue;
+		if (i + 1 == chain.size())
+			out.push_back(c);
+		else
+			chain_ends(c, chain, i + 1, out);
 	}
-	return at == kb ? nullptr : at;
+}
+
+/* The binding on `chain`: the one running `actions` when given and two
+ * share the keys, else the first. */
+xmlNode *find_chain(xmlNode *kb, const std::vector<std::string> &chain,
+		const std::vector<BoundAction> *actions = nullptr) {
+	if (kb == nullptr || chain.empty())
+		return nullptr;
+	std::vector<xmlNode *> ends;
+	chain_ends(kb, chain, 0, ends);
+	if (actions != nullptr)
+		for (xmlNode *n : ends)
+			if (read_actions(n) == *actions)
+				return n;
+	return ends.empty() ? nullptr : ends.front();
 }
 
 /* Remove `node`, then any chain keys left with nothing in them. */
@@ -1408,12 +1423,12 @@ std::vector<MouseBinding> RcDocument::mousebindings() const {
 }
 
 bool RcDocument::set_keybinding(const std::vector<std::string> &was,
-		const std::optional<KeyBinding> &now) {
+		const std::optional<KeyBinding> &now, const std::vector<BoundAction> *was_actions) {
 	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
 	if (root == nullptr || (now && (now->chain.empty() || any_advanced(now->actions))))
 		return false;
 	xmlNode *kb = find_path(root, {"keyboard"});
-	xmlNode *old = was.empty() || kb == nullptr ? nullptr : find_chain(kb, was);
+	xmlNode *old = was.empty() || kb == nullptr ? nullptr : find_chain(kb, was, was_actions);
 	if (old != nullptr && any_advanced(read_actions(old)))
 		return false;  /* only rc.xml edits those */
 	if (!was.empty() && old == nullptr)
@@ -1427,12 +1442,18 @@ bool RcDocument::set_keybinding(const std::vector<std::string> &was,
 		remove_with_empty_parents(old);
 	if (!now)
 		return true;
-	/* Added: down the chain, its keys reused where they're there. */
+	/* Added: down the chain, its keys reused where they're there; but not
+	 * the last one's when it runs actions already: that's another binding
+	 * on the same keys, kept, the new one beside it (Waybox runs the first;
+	 * wbconf says which). */
 	xmlNode *at = ensure_path(root, {"keyboard"});
-	for (const std::string &key : now->chain) {
+	for (size_t i = 0; i < now->chain.size(); ++i) {
+		const std::string &key = now->chain[i];
+		bool last = i + 1 == now->chain.size();
 		xmlNode *next = nullptr;
 		for (xmlNode *c = at->children; c != nullptr; c = c->next)
-			if (is_element(c, "keybind") && attr_value(c, "key").value_or("") == key)
+			if (is_element(c, "keybind") && attr_value(c, "key").value_or("") == key &&
+					!(last && !read_actions(c).empty()))
 				next = c;
 		if (next == nullptr) {
 			next = new_child(at, "keybind");
