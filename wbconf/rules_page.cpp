@@ -35,7 +35,8 @@ struct RuleEdit {
 	GtkWidget *program = nullptr, *title = nullptr, *tag = nullptr, *kind = nullptr;
 	GtkWidget *hint = nullptr, *editor_error = nullptr;
 	GtkWidget *desktop = nullptr, *width = nullptr, *height = nullptr, *x = nullptr, *y = nullptr;
-	GtkWidget *layer = nullptr;
+	GtkWidget *layer = nullptr, *monitor = nullptr;
+	std::vector<std::string> monitor_values;
 	std::map<std::string, GtkWidget *> tri;  /* maximized, fullscreen, ... */
 	std::vector<std::string> desktop_values;
 	GtkWidget *earlier = nullptr, *later = nullptr;
@@ -341,9 +342,21 @@ void read_fields(RuleEdit *e) {
 	if (r.height && *r.height < 1)
 		r.height.reset();
 	if (!e->position_kept) {
-		r.x = int_of(e->x, true);
-		r.y = int_of(e->y, true);
+		/* A plain number, or Openbox's "center", "50%", "-10". */
+		auto coord = [](GtkWidget *w, std::optional<int> &n, std::string &spec) {
+			std::string t = text_of(w);
+			n.reset();
+			spec.clear();
+			if (!t.empty() && t.find_first_not_of("0123456789") == std::string::npos)
+				n = atoi(t.c_str());
+			else if (wb::position_spec_ok(t))
+				spec = t;
+		};
+		coord(e->x, r.x, r.x_spec);
+		coord(e->y, r.y, r.y_spec);
 	}
+	guint mi = gtk_drop_down_get_selected(GTK_DROP_DOWN(e->monitor));
+	r.monitor = mi < e->monitor_values.size() ? e->monitor_values[mi] : "";
 	r.maximized = tri_of(e->tri["maximized"]);
 	r.fullscreen = tri_of(e->tri["fullscreen"]);
 	r.iconic = tri_of(e->tri["iconic"]);
@@ -393,8 +406,11 @@ void show_fields(RuleEdit *e) {
 	auto num = [](const std::optional<int> &n) { return n ? std::to_string(*n) : std::string(); };
 	gtk_editable_set_text(GTK_EDITABLE(e->width), num(r.width).c_str());
 	gtk_editable_set_text(GTK_EDITABLE(e->height), num(r.height).c_str());
-	gtk_editable_set_text(GTK_EDITABLE(e->x), num(r.x).c_str());
-	gtk_editable_set_text(GTK_EDITABLE(e->y), num(r.y).c_str());
+	gtk_editable_set_text(GTK_EDITABLE(e->x), (r.x ? num(r.x) : r.x_spec).c_str());
+	gtk_editable_set_text(GTK_EDITABLE(e->y), (r.y ? num(r.y) : r.y_spec).c_str());
+	for (size_t i = 0; i < e->monitor_values.size(); ++i)
+		if (e->monitor_values[i] == r.monitor)
+			gtk_drop_down_set_selected(GTK_DROP_DOWN(e->monitor), static_cast<guint>(i));
 	auto tri = [](GtkWidget *dd, const std::optional<bool> &b) {
 		gtk_drop_down_set_selected(GTK_DROP_DOWN(dd), !b ? 0 : *b ? 1 : 2);
 	};
@@ -671,8 +687,33 @@ GtkWidget *build_editor(RuleEdit *e) {
 		gtk_widget_set_sensitive(e->x, FALSE);
 		gtk_widget_set_sensitive(e->y, FALSE);
 		gtk_box_append(GTK_BOX(pos), dim(_("as written in rc.xml")));
+	} else {
+		gtk_widget_set_tooltip_text(e->x, _("Pixels from the left; or center, 50%, or -10 "
+				"(10 from the right edge)"));
+		gtk_widget_set_tooltip_text(e->y, _("Pixels from the top; or center, 50%, or -10 "
+				"(10 from the bottom edge)"));
 	}
 	gtk_box_append(GTK_BOX(box), field(labels, _("Position"), pos));
+
+	/* Which monitor: as usual (the pointer's), or a given one. */
+	GtkStringList *mons = gtk_string_list_new(nullptr);
+	auto add_mon = [&](const char *label, const std::string &value) {
+		gtk_string_list_append(mons, label);
+		e->monitor_values.push_back(value);
+	};
+	add_mon(_("As usual"), "");
+	add_mon(_("The one with the pointer"), "mouse");
+	add_mon(_("The focused window's"), "active");
+	int top = 4;
+	if (e->now && !e->now->monitor.empty() && atoi(e->now->monitor.c_str()) > top)
+		top = atoi(e->now->monitor.c_str());
+	for (int i = 1; i <= top; ++i)
+		add_mon((std::string(_("Monitor ")) + std::to_string(i)).c_str(), std::to_string(i));
+	if (e->now && e->now->monitor == "primary")
+		add_mon(_("The first (primary)"), "primary");
+	e->monitor = gtk_drop_down_new(G_LIST_MODEL(mons), nullptr);
+	g_signal_connect(e->monitor, "notify::selected", G_CALLBACK(on_dd), e);
+	gtk_box_append(GTK_BOX(box), field(labels, _("Monitor"), e->monitor));
 
 	struct Tri { const char *key, *label, *yes, *no; };
 	for (const Tri &t : {Tri{"maximized", _("Maximized"), _("Yes"), _("No")},
@@ -1089,6 +1130,10 @@ void rule_test_step(Ui *ui, const std::string &step) {
 			gtk_editable_set_text(GTK_EDITABLE(e->x), val.c_str());
 		} else if (f == "y") {
 			gtk_editable_set_text(GTK_EDITABLE(e->y), val.c_str());
+		} else if (f == "monitor") {
+			for (size_t i = 0; i < e->monitor_values.size(); ++i)
+				if (e->monitor_values[i] == val)
+					gtk_drop_down_set_selected(GTK_DROP_DOWN(e->monitor), static_cast<guint>(i));
 		} else if (f == "layer") {
 			pick(e->layer, {"", "above", "normal", "below"}, val);
 		} else if (e->tri.count(f)) {

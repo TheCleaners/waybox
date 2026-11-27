@@ -11,9 +11,13 @@ With "regex": the rule's pattern is a regular expression (match="iregex",
 whose regex doesn't compile (never matches, and is logged) and one that
 doesn't match.
 
+With "openbox": Openbox's other position forms on the default 1280x720
+headless output, <x>center</x> and <y>-20</y> (its bottom edge 20 above
+the area's), on <monitor>1</monitor>: 390, 300.
+
 Skips (exit 77) when foot or a headless display are unavailable.
 
-Usage: app_rule_test.py <waybox-binary> [regex]
+Usage: app_rule_test.py <waybox-binary> [regex|openbox]
 """
 import os
 import re
@@ -45,7 +49,14 @@ def main():
         sys.exit(2)
     waybox = sys.argv[1]
     regex = len(sys.argv) == 3 and sys.argv[2] == "regex"
+    openbox = len(sys.argv) == 3 and sys.argv[2] == "openbox"
     rc_xml = RC_XML
+    want = (500, 400, 120, 90)
+    if openbox:
+        rc_xml = RC_XML.replace("<position><x>120</x><y>90</y></position>",
+                                "<position force=\"yes\"><x>center</x><y>-20</y>"
+                                "<monitor>1</monitor></position>")
+        want = (500, 400, (1280 - 500) // 2, 720 - 400 - 20)
     if regex:
         rc_xml = RC_XML.replace('<application class="foot">',
                                 '<application match="regex" class="(unclosed">'
@@ -134,8 +145,8 @@ def main():
     w, h, x, y = (int(v) for v in m.groups())
     # The usable area starts at (0,0) with no panels, so position is exactly
     # the rule's x/y, and size is the rule's width/height.
-    if (w, h, x, y) != (500, 400, 120, 90):
-        print(f"FAIL: rule not applied: got {w}x{h}+{x}+{y}, want 500x400+120+90",
+    if (w, h, x, y) != want:
+        print(f"FAIL: rule not applied: got {w}x{h}+{x}+{y}, want {want}",
               file=sys.stderr)
         sys.stderr.write(contents)
         return 1

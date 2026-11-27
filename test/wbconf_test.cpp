@@ -1041,7 +1041,7 @@ WB_TEST(app_rules_read_and_edit) {
       <shade>yes</shade>
     </application>
     <application class="gimp">
-      <position force="yes"><x>center</x><y>center</y></position>
+      <position force="yes"><x>center</x><y>left</y></position>
       <desktop>2</desktop>
     </application>
   </applications>
@@ -1059,7 +1059,9 @@ WB_TEST(app_rules_read_and_edit) {
 			rules[1].rule.height == 600 && rules[1].rule.decor == false);
 	WB_CHECK((rules[1].kept == std::vector<std::string>{"role", "shade"}));
 	WB_CHECK(!rules[1].position_kept);
-	WB_CHECK(rules[2].position_kept && rules[2].rule.desktop == 1);
+	/* "center" read (Openbox's form); "left" isn't one: the position kept. */
+	WB_CHECK(rules[2].position_kept && rules[2].rule.desktop == 1 &&
+			rules[2].rule.x_spec == "center");
 
 	/* Edited in place: what it sets written, the rest kept. */
 	wb::AppRule foot = rules[1].rule;
@@ -1129,6 +1131,30 @@ WB_TEST(app_rules_read_and_edit) {
 		glob.patterns = wb::AppRule::Patterns::Regex;
 		WB_CHECK(rx->set_app_rule(0, glob));
 		WB_CHECK(rx->to_string().find("match=\"regex\"") != std::string::npos);
+	}
+
+	/* Openbox's positions and a monitor: read, and written back. */
+	auto pos = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><applications>"
+			"<application class=\"mpv\"><position force=\"yes\"><x>center</x><y>-10%</y>"
+			"<monitor>2</monitor></position></application>"
+			"</applications></openbox_config>");
+	WB_CHECK(pos.has_value());
+	if (pos) {
+		auto r = pos->app_rules();
+		/* (A minus: from the far edge, as Openbox reads it.) */
+		WB_CHECK(r.size() == 1 && !r[0].position_kept && r[0].rule.x_spec == "center" &&
+				r[0].rule.y_spec == "-10%" && r[0].rule.monitor == "2" && !r[0].rule.x);
+		wb::AppRule m = r[0].rule;
+		m.x_spec.clear();
+		m.x = 30;
+		m.monitor = "mouse";
+		WB_CHECK(pos->set_app_rule(0, m));
+		std::string out = pos->to_string();
+		WB_CHECK(out.find("<x>30</x>") != std::string::npos &&
+				out.find("<y>-10%</y>") != std::string::npos &&
+				out.find("<monitor>mouse</monitor>") != std::string::npos);
+		WB_CHECK(pos->app_rules()[0].rule == m);
 	}
 
 	/* A file with none: <applications> made for the first. */

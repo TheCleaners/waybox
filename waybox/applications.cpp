@@ -7,6 +7,9 @@
 
 #include <regex.h>
 
+#include <algorithm>
+#include <string>
+
 namespace wb {
 
 namespace {
@@ -96,6 +99,26 @@ const AppRule *match_app_rule(const std::vector<AppRule> &rules,
 	return nullptr;
 }
 
+std::optional<int> resolve_position(std::string_view spec, int start, int size, int window) {
+	if (spec == "center")
+		return start + (size - window) / 2;
+	bool far = !spec.empty() && spec[0] == '-';
+	std::string_view n = far ? spec.substr(1) : spec;
+	bool percent = !n.empty() && n.back() == '%';
+	if (percent)
+		n.remove_suffix(1);
+	if (n.empty() || n.size() > 6 || n.find_first_not_of("0123456789") != std::string_view::npos)
+		return std::nullopt;
+	int v = std::stoi(std::string(n));
+	if (percent)
+		v = size * std::min(v, 100) / 100;
+	return far ? start + size - window - v : start + v;
+}
+
+bool position_spec_ok(std::string_view spec) {
+	return resolve_position(spec, 0, 100, 0).has_value();
+}
+
 std::vector<std::string> app_rule_effects(const AppRule &r) {
 	std::vector<std::string> out;
 	auto num = [](int n) { return std::to_string(n); };
@@ -108,9 +131,14 @@ std::vector<std::string> app_rule_effects(const AppRule &r) {
 		out.push_back(*r.maximized ? "Maximized" : "Not maximized");
 	if (r.iconic)
 		out.push_back(*r.iconic ? "Starts minimized" : "Not minimized");
-	if (r.x || r.y)
-		out.push_back("At " + (r.x ? num(*r.x) : std::string("auto")) + ", " +
-				(r.y ? num(*r.y) : std::string("auto")));
+	if (r.x || r.y || !r.x_spec.empty() || !r.y_spec.empty())
+		out.push_back("At " + (r.x ? num(*r.x) : !r.x_spec.empty() ? r.x_spec : std::string("auto")) +
+				", " + (r.y ? num(*r.y) : !r.y_spec.empty() ? r.y_spec : std::string("auto")));
+	if (!r.monitor.empty())
+		out.push_back(r.monitor == "mouse" ? std::string("On the monitor with the pointer")
+				: r.monitor == "active" ? std::string("On the focused window's monitor")
+				: r.monitor == "primary" ? std::string("On the first monitor")
+				: "On monitor " + r.monitor);
 	if (r.width || r.height)
 		out.push_back((r.width ? num(*r.width) : std::string("auto")) + " \u00d7 " +
 				(r.height ? num(*r.height) : std::string("auto")));

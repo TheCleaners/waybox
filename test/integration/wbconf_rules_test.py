@@ -2,8 +2,8 @@
 """Integration test: wbconf lists rc.xml's window rules (#237).
 
 In order (the first that matches wins), each with what it matches and
-what it does; what Waybox doesn't read (role=, <shade>, a "center"
-position) reported as kept as written. An rc.xml with none: an empty
+what it does (Openbox's "center" position read); what Waybox doesn't read
+(role=, <shade>) reported as kept as written. An rc.xml with none: an empty
 list saying what rules are for.
 
 Then edited through the editor's widgets: settings set and cleared, a rule
@@ -48,7 +48,7 @@ RC = """<?xml version="1.0" encoding="UTF-8"?>
 WANT = [
     "rule|mpv||Full screen|",
     "rule|foot|*scratch*|At 200, 120;900 \u00d7 600;No title bar|role,shade",
-    "rule|gimp||On every desktop;At 0, auto||position",
+    "rule|gimp||On every desktop;At center, auto|",
     "rule||Picture-in-Picture|Always on top|",
     "rule|^(foot|alacritty)$||On desktop 2||regex",
     "rule||(unclosed|Starts minimized||iregex|never",
@@ -58,7 +58,7 @@ WANT = [
 EDITS = ";".join([
     "rule-set:1=desktop=all",
     "rule-set:2=decor=yes", "rule-set:2=width=",
-    "rule-set:3=desktop=",
+    "rule-set:3=desktop=", "rule-set:3=monitor=2",
     "rule-remove:6",
     "rule-add", "rule-set:7=program=firefox", "rule-set:7=maximized=yes",
     "rule-later:1",       # mpv after foot
@@ -167,7 +167,7 @@ def main():
     want_before = [
         "rule|foot|*scratch*|At 200, 120;auto \u00d7 600;With title bar|role,shade|changed",
         "rule|mpv||On every desktop;Full screen||changed",
-        "rule|gimp||At 0, auto||position|changed",
+        "rule|gimp||At center, auto;On monitor 2||changed",
         "rule||Picture-in-Picture|Always on top|",
         "rule|^(foot|alacritty)$||On desktop 2||regex",
         "rule|firefox||Maximized||changed",
@@ -186,7 +186,7 @@ def main():
          {"position": {"x": "200", "y": "120"}, "size": {"height": "600"}, "decor": "yes",
           "shade": "yes"}),
         ({"class": "mpv"}, {"fullscreen": "yes", "desktop": "all"}),
-        ({"class": "gimp"}, {"position": {"x": "center"}}),
+        ({"class": "gimp"}, {"position": {"x": "center", "monitor": "2"}}),
         ({"title": "Picture-in-Picture"}, {"layer": "above"}),
         ({"match": "regex", "class": "^(foot|alacritty)$"}, {"desktop": "2"}),
         ({"class": "firefox"}, {"maximized": "yes"}),

@@ -43,6 +43,13 @@ struct AppRule {
 	std::optional<int> desktop;
 	std::optional<int> x;
 	std::optional<int> y;
+	/* Openbox's other ways to say where (when x / y isn't a plain number):
+	 * "center", "N%" (of the monitor's width or height), "-N" (from the
+	 * right or bottom edge), "-N%"; resolved by resolve_position. */
+	std::string x_spec, y_spec;
+	/* Which monitor it opens on: a number (1, the first), "mouse" (the one
+	 * with the pointer), "active" (the focused window's), "primary". */
+	std::string monitor;
 	std::optional<int> width;
 	std::optional<int> height;
 	bool operator==(const AppRule &) const = default;
@@ -52,6 +59,14 @@ struct AppRule {
  * ("Full screen", "On desktop 2", "900 × 600", "At 200, 120"), in a fixed
  * order; empty when it sets nothing. */
 std::vector<std::string> app_rule_effects(const AppRule &rule);
+
+/* A position as Openbox writes one, for a window `window` long in an area
+ * starting at `start`, `size` long: "N" (from the start), "-N" (its far
+ * edge N from the area's end), "center", "N%" / "-N%" (N percent of the
+ * area); nullopt for anything else. */
+std::optional<int> resolve_position(std::string_view spec, int start, int size, int window);
+/* Whether `spec` is one of those. */
+bool position_spec_ok(std::string_view spec);
 
 /* For a regex rule, why a pattern doesn't compile ("title: unmatched
  * parentheses"); empty when they all do, and for globs. Such a pattern
