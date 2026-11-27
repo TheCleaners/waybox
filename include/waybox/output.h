@@ -33,6 +33,11 @@ struct wb_output {
 	bool tearing_wanted = false;  /* allowed and asked for (logged on change) */
 	struct wlr_box geometry = {};
 	struct wlr_box usable_area = {};
+	/* The desktop this monitor shows, and the one before (#367: desktops
+	 * per monitor). With shared desktops, every monitor's are the
+	 * server's (switch_desktop keeps them so). */
+	int desktop = 0;
+	int last_desktop = 0;
 
 	wb::Listener destroy;
 	wb::Listener frame;

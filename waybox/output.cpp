@@ -505,6 +505,8 @@ void new_output_notify(struct wb_server *server, void *data) {
 	auto *output = new wb_output{};
 	output->server = server;
 	output->wlr_output = wlr_output;
+	output->desktop = server->current_desktop;  /* (shared: as every other) */
+	output->last_desktop = server->last_desktop;
 	wlr_output->data = output;
 
 	/* Initializes the layers */
