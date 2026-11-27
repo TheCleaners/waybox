@@ -8,8 +8,8 @@ sleeps quietly, one that ignores SIGTERM. Then:
    its output is read a bounded amount per turn of the event loop.
 2. A Reconfigure loads the script afresh (a new init.lua): the old one's
    programs keep running (a scratchpad's terminal outlives a wbconf
-   save), and still count against the limit of 16: the new script gets
-   14 more (the writer ended when its output was closed).
+   save), the writer too (its output still read: no broken pipe), and
+   still count against the limit of 16: the new script gets 13 more.
 3. Waybox exiting stops them, the one ignoring SIGTERM too.
 
 There's no rc.xml: the defaults, the scripting socket among them (on).
@@ -31,9 +31,10 @@ import wbtest
 SKIP = 77
 
 FIRST = """
-wb.spawn({"cat", "/dev/zero"}, function(out, code, truncated)
+local writer = wb.spawn({"cat", "/dev/zero"}, function(out, code, truncated)
   wb.log("writer ended truncated=" .. tostring(truncated))
 end)
+wb.log("spawned writer " .. writer)
 local quiet = wb.spawn({"sleep", "301"}, function() end)
 wb.log("spawned quiet " .. quiet)
 local stubborn = wb.spawn("trap '' TERM; exec sleep 302", function() end)
@@ -134,9 +135,9 @@ def main():
                 return int(line.rsplit(" ", 1)[1])
         return None
 
-    quiet = stubborn = None
+    quiet = stubborn = writer = None
     try:
-        quiet, stubborn = pid_of("quiet"), pid_of("stubborn")
+        quiet, stubborn, writer = pid_of("quiet"), pid_of("stubborn"), pid_of("writer")
         if quiet is None or stubborn is None:
             failures.append("the script's programs didn't start")
         # 1. Answers while the writer writes.
@@ -174,11 +175,11 @@ def main():
             if "second got " in text():
                 break
             time.sleep(0.1)
-        for name, pid in (("quiet", quiet), ("stubborn", stubborn)):
+        for name, pid in (("quiet", quiet), ("stubborn", stubborn), ("writer", writer)):
             if pid is not None and state(pid) in ("", "Z"):
                 failures.append(f"the old script's {name} program was stopped by a reload")
         got = [l for l in text().splitlines() if "second got " in l]
-        if not got or not got[0].endswith("second got 14"):
+        if not got or not got[0].endswith("second got 13"):
             failures.append(f"the limit didn't count the old script's programs: {got}")
         if proc.poll() is not None:
             failures.append(f"waybox exited (status {proc.returncode})")
@@ -191,7 +192,7 @@ def main():
                 proc.kill()
         log.close()
     # 3. Exiting stopped them.
-    for name, pid in (("quiet", quiet), ("stubborn", stubborn)):
+    for name, pid in (("quiet", quiet), ("stubborn", stubborn), ("writer", writer)):
         if pid is not None and state(pid) not in ("",):
             failures.append(f"the script's {name} program outlived waybox")
     subprocess.run(["pkill", "-KILL", "-f", "sleep 30[1-3]"], capture_output=True)

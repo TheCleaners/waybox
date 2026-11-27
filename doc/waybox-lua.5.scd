@@ -174,7 +174,8 @@ any action.
 	At most 16 run at once (then it returns *nil* and a reason); otherwise
 	it returns the program's process id. A reload (a Reconfigure, a wbconf
 	save) doesn't stop them; they still count until they exit, and its
-	function isn't called. They end when Waybox does.
+	function isn't called (what they print is read and dropped, so they
+	can go on printing). They end when Waybox does.
 
 *wb.show_menu(*_items_*,* _options_*)*
 	Opens a menu, in the theme's menu style, at the pointer (or at
