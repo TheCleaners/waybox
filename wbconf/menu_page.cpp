@@ -705,6 +705,134 @@ GtkWidget *build_editor(Ui *ui, const wb::MenuEntry &e, const Path &p) {
 	return box;
 }
 
+/* ---- Dragging ---- */
+
+enum class Drop { Before, After, Into };
+
+/* The entry at `from` dropped on the entry at `on`: before or after it,
+ * or into it (a submenu: first). Positions read before it moves, so the
+ * place is worked out as it'll be once it's taken out; not into itself. */
+bool do_drop(Ui *ui, const Path &from, const Path &on, Drop where) {
+	MenuState *st = ui->menu.get();
+	if (!st->doc || from.empty() || on.empty() || from == on)
+		return false;
+	/* Not into itself or what it holds. */
+	if (on.size() >= from.size() && std::equal(from.begin(), from.end(), on.begin()))
+		return false;
+	wb::MenuEntry menu = current(st);
+	const wb::MenuEntry *e = entry_at(menu, from);
+	const wb::MenuEntry *target = entry_at(menu, on);
+	if (e == nullptr || target == nullptr)
+		return false;
+	Path parent;
+	size_t index;
+	if (where == Drop::Into) {
+		if (target->kind != K::Submenu)
+			return false;
+		parent = on;
+		index = 0;
+	} else {
+		parent = Path(on.begin(), on.end() - 1);
+		index = on.back() + (where == Drop::After ? 1 : 0);
+	}
+	/* Taken out first: what came after it at its level moves up one. */
+	size_t level = from.size() - 1;
+	bool same_branch = parent.size() >= level &&
+			std::equal(from.begin(), from.end() - 1, parent.begin());
+	if (same_branch && parent.size() > level && parent[level] > from.back())
+		--parent[level];
+	else if (same_branch && parent.size() == level && index > from.back())
+		--index;
+	Path now = parent;
+	now.push_back(index);
+	if (now == from)
+		return false;  /* where it already is */
+	Step s{Step::Op::Move, from, parent, index, *e, entry_text(*e, *st->doc),
+			std::string(_("moved to ")) + path_text(now)};
+	st->open.reset();
+	step(ui, s);
+	render(ui);
+	return true;
+}
+
+Drop drop_at(GtkWidget *row, double y) {
+	double h = gtk_widget_get_height(row);
+	bool submenu = g_object_get_data(G_OBJECT(row), "wb-submenu") != nullptr;
+	if (submenu && y > h * 0.6)
+		return Drop::Into;
+	return y < h / 2 ? Drop::Before : Drop::After;
+}
+
+void mark_drop(GtkWidget *row, std::optional<Drop> d) {
+	gtk_widget_remove_css_class(row, "wb-drop-before");
+	gtk_widget_remove_css_class(row, "wb-drop-after");
+	gtk_widget_remove_css_class(row, "wb-drop-into");
+	if (d)
+		gtk_widget_add_css_class(row, *d == Drop::Before ? "wb-drop-before"
+				: *d == Drop::After ? "wb-drop-after" : "wb-drop-into");
+}
+
+struct LaterDrop {
+	Ui *ui;
+	Path from, on;
+	Drop where;
+};
+
+gboolean on_drop(GtkDropTarget *t, const GValue *value, double, double y, gpointer d) {
+	GtkWidget *row = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(t));
+	mark_drop(row, std::nullopt);
+	const char *text = g_value_get_string(value);
+	const char *prefix = "wb-menu-entry:";
+	if (text == nullptr || strncmp(text, prefix, strlen(prefix)) != 0)
+		return FALSE;
+	auto *later = new LaterDrop;
+	later->ui = static_cast<Ui *>(d);
+	later->from = parse_path(text + strlen(prefix));
+	later->on = *static_cast<Path *>(g_object_get_data(G_OBJECT(row), "wb-path"));
+	later->where = drop_at(row, y);
+	/* (The rows are rebuilt: after the drop has finished.) */
+	g_idle_add_once([](gpointer p) {
+		auto *l = static_cast<LaterDrop *>(p);
+		do_drop(l->ui, l->from, l->on, l->where);
+		delete l;
+	}, later);
+	return TRUE;
+}
+
+/* A row dragged (its path as text), and dropped on. */
+void make_draggable(Ui *ui, GtkWidget *row, const Path &p, bool submenu) {
+	if (submenu)
+		g_object_set_data(G_OBJECT(row), "wb-submenu", GINT_TO_POINTER(1));
+	GtkDragSource *src = gtk_drag_source_new();
+	gtk_drag_source_set_actions(src, GDK_ACTION_MOVE);
+	std::string text = "wb-menu-entry:" + path_text(p);
+	GBytes *bytes = g_bytes_new(text.c_str(), text.size());
+	GdkContentProvider *content = gdk_content_provider_new_for_bytes("text/plain;charset=utf-8",
+			bytes);
+	g_bytes_unref(bytes);
+	GValue v = G_VALUE_INIT;
+	g_value_init(&v, G_TYPE_STRING);
+	g_value_set_string(&v, text.c_str());
+	GdkContentProvider *value = gdk_content_provider_new_for_value(&v);
+	g_value_unset(&v);
+	GdkContentProvider *both[] = {value, content};
+	gtk_drag_source_set_content(src, gdk_content_provider_new_union(both, 2));
+	gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(src));
+
+	GtkDropTarget *dst = gtk_drop_target_new(G_TYPE_STRING, GDK_ACTION_MOVE);
+	g_signal_connect(dst, "motion", G_CALLBACK(+[](GtkDropTarget *t, double, double y,
+			gpointer) {
+		GtkWidget *row = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(t));
+		mark_drop(row, drop_at(row, y));
+		return GDK_ACTION_MOVE;
+	}), nullptr);
+	g_signal_connect(dst, "leave", G_CALLBACK(+[](GtkDropTarget *t, gpointer) {
+		mark_drop(gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(t)), std::nullopt);
+	}), nullptr);
+	g_signal_connect(dst, "drop", G_CALLBACK(on_drop), ui);
+	gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(dst));
+}
+
 /* ---- The tree ---- */
 
 void add_rows(Ui *ui, GtkWidget *box, const wb::MenuEntry &menu, Path at, int depth) {
@@ -771,6 +899,8 @@ void add_rows(Ui *ui, GtkWidget *box, const wb::MenuEntry &menu, Path at, int de
 				st->open = p;
 			render(ui);
 		}), ui);
+		make_draggable(ui, button, p, e.kind == K::Submenu);
+		gtk_widget_set_tooltip_text(button, _("Click to change it; drag to move it"));
 		gtk_box_append(GTK_BOX(box), button);
 		if (open) {
 			GtkWidget *ed = build_editor(ui, e, p);
@@ -1116,6 +1246,15 @@ void menu_test_step(Ui *ui, const std::string &stp) {
 					g_signal_emit_by_name(b, "clicked");
 					return;
 				}
+	} else if (verb == "menu-drop") {
+		/* menu-drop:FROM=ON=before|after|into, as a drop does it. */
+		size_t eq2 = rest.find('=');
+		Path on = parse_path(rest.substr(0, eq2));
+		std::string w = rest.substr(eq2 + 1);
+		st->open.reset();
+		bool ok = do_drop(ui, p, on, w == "into" ? Drop::Into : w == "after" ? Drop::After
+				: Drop::Before);
+		fprintf(stderr, "menu-drop:%s\n", ok ? "moved" : "refused");
 	} else if (verb == "menu-earlier") {
 		move_open(ui, -1);
 	} else if (verb == "menu-later") {
