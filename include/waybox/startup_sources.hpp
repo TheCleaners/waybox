@@ -23,6 +23,8 @@ struct ScriptEntry {
 	int line = 0;         /* 0-based */
 	bool enabled = true;
 	bool function = false;  /* runs a function the script defines */
+	/* "(waybar || yambar) &": the ones run if the first can't be. */
+	std::vector<std::string> alternatives;
 };
 std::vector<ScriptEntry> script_entries(std::string_view script);
 

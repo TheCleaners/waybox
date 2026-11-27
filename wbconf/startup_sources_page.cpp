@@ -281,8 +281,11 @@ void fill_script_rows(Ui *ui) {
 		r->program = e.program;
 		r->saved = e.enabled;
 		char *where = g_strdup_printf(_("line %d"), e.line + 1);
+		std::string name = e.program;  /* "waybar or yambar" */
+		for (const std::string &a : e.alternatives)
+			name += std::string(" ") + _("or") + " " + a;
 		gtk_box_append(GTK_BOX(ui->script_rows), source_row_widget(ui, r.get(),
-				e.program + "  (" + where + ")", e.command));
+				name + "  (" + where + ")", e.command));
 		g_free(where);
 		ui->source_rows.push_back(std::move(r));
 	}
