@@ -1,6 +1,8 @@
 #include <libevdev/libevdev.h>
 #include <unistd.h>
 
+#include <csignal>
+#include <ctime>
 #include <optional>
 #include <vector>
 
@@ -467,6 +469,75 @@ static void run_geometry_action(const wb::Action &action, struct wb_server *serv
 		set_toplevel_frame(t, r);
 }
 
+/* Openbox's smaller window actions. */
+static void run_window_action(wb::ActionType type, struct wb_server *server,
+		struct wb_toplevel *t) {
+	using T = wb::ActionType;
+	switch (type) {
+	case T::Kill: {
+		/* X11: the process ID is the program's own say (_NET_WM_PID), so
+		 * a wrong one could name another of the user's programs: asked to
+		 * close instead, no signal. */
+		if (t->kind == wb_view_kind::Xwayland) {
+			wlr_log(WLR_INFO, "%s", "wb-kill x11: asked to close");
+			view_close(t);
+			break;
+		}
+		/* Wayland: the connection's own credentials. Only a process of the
+		 * user's, never Waybox or init. */
+		uid_t uid;
+		pid_t pid = view_pid(t, &uid);
+		if (pid <= 1 || pid == getpid() || uid != getuid())
+			break;
+		timespec ts;
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		int64_t now = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+		bool again = server->kill_pid == pid && now - server->kill_ms < 3000;
+		kill(pid, again ? SIGKILL : SIGTERM);
+		wlr_log(WLR_INFO, "wb-kill %d %s", pid, again ? "KILL" : "TERM");
+		server->kill_pid = again ? -1 : pid;
+		server->kill_ms = now;
+		break;
+	}
+	case T::Decorate:
+	case T::Undecorate:
+		t->decorations = type == T::Decorate ? wb::DecorMode::Full : wb::DecorMode::None;
+		apply_toplevel_decoration(t);
+		update_toplevel_decoration(t);
+		break;
+	case T::RaiseLower: {
+		/* On top of its layer already: lowered; else raised. */
+		struct wlr_scene_node *n = &t->scene_tree->node;
+		bool on_top = n->parent != nullptr && n->link.next == &n->parent->children;
+		if (on_top)
+			lower_toplevel(t);
+		else
+			raise_toplevel(t);
+		break;
+	}
+	case T::ShadeLower:
+		if (!t->shaded)
+			set_toplevel_shaded(t, true);
+		else
+			lower_toplevel(t);
+		break;
+	case T::UnshadeRaise:
+		if (t->shaded)
+			set_toplevel_shaded(t, false);
+		else
+			raise_toplevel(t);
+		break;
+	case T::FocusToBottom:
+		focus_order_to_bottom(t);
+		break;
+	case T::Unfocus:
+		unfocus_toplevel(t);
+		break;
+	default:
+		break;
+	}
+}
+
 void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	switch (action.type) {
 	case wb::ActionType::Execute:
@@ -670,6 +741,20 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 			focus_toplevel(wins[*i]);
 			raise_toplevel(wins[*i]);
 		}
+		break;
+	}
+	case wb::ActionType::Kill:
+	case wb::ActionType::Decorate:
+	case wb::ActionType::Undecorate:
+	case wb::ActionType::RaiseLower:
+	case wb::ActionType::ShadeLower:
+	case wb::ActionType::UnshadeRaise:
+	case wb::ActionType::FocusToBottom:
+	case wb::ActionType::Unfocus: {
+		struct wb_toplevel *t = action_target(server);
+		if (t == nullptr || !t->mapped)
+			break;
+		run_window_action(action.type, server, t);
 		break;
 	}
 	case wb::ActionType::ToggleShowDesktop:

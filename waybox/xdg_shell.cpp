@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <unistd.h>
 #include "script.h"
 #include "bell.h"
 #include "toplevel_drag.h"
@@ -402,6 +403,36 @@ static void end_show_desktop(struct wb_server *server) {
 		t->hidden_by_show_desktop = false;
 	server->showing_desktop = false;
 	wlr_log(WLR_INFO, "%s", "wb-showdesktop ended");
+}
+
+pid_t view_pid(struct wb_toplevel *t, uid_t *uid) {
+	*uid = static_cast<uid_t>(-1);
+#if WLR_HAS_XWAYLAND
+	if (t->kind == wb_view_kind::Xwayland)
+		return -1;  /* only the program's own say: not to be trusted */
+#endif
+	struct wlr_surface *s = view_surface(t);
+	if (s == nullptr || s->resource == nullptr)
+		return -1;
+	pid_t pid = -1;
+	gid_t gid;
+	wl_client_get_credentials(wl_resource_get_client(s->resource), &pid, uid, &gid);
+	return pid;
+}
+
+void unfocus_toplevel(struct wb_toplevel *toplevel) {
+	struct wb_server *server = toplevel->server;
+	struct wlr_surface *s = view_surface(toplevel);
+	if (s == nullptr || server->seat->seat->keyboard_state.focused_surface != s)
+		return;
+	seat_focus_surface(server->seat.get(), nullptr);
+	sync_frame_active(server);
+	wlr_log(WLR_INFO, "wb-focus none (unfocused %s)", view_app_id(toplevel));
+}
+
+void focus_order_to_bottom(struct wb_toplevel *toplevel) {
+	wl_list_remove(&toplevel->focus_link);
+	wl_list_insert(toplevel->server->focus_order.prev, &toplevel->focus_link);
 }
 
 void set_toplevel_urgent(struct wb_toplevel *toplevel, bool urgent) {

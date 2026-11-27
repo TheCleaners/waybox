@@ -184,6 +184,10 @@ struct wb_server {
 	/* ToggleShowDesktop is on (its windows: hidden_by_show_desktop). */
 	bool showing_desktop = false;
 	bool show_desktop_busy = false;  /* while it minimizes and restores */
+	/* Kill: the process last sent SIGTERM, and when (ms): asked again for
+	 * it within 3 s, SIGKILL. */
+	pid_t kill_pid = -1;
+	int64_t kill_ms = 0;
 	/* The desktop name shown after switching (<desktops><popupTime>). */
 	std::unique_ptr<wb::DesktopPopup> desktop_popup;
 	/* wbconf's Test for the on-screen display: settings not saved yet. */
