@@ -342,6 +342,7 @@ struct Ui {
 		GtkEntry *command = nullptr;
 		GtkEntry *name_entry = nullptr;       /* custom programs */
 		std::map<std::string, std::unique_ptr<OptionField>> options;
+		GtkWidget *geo = nullptr;  /* Location=: the map, above its two options */
 		GtkWidget *box = nullptr;
 		GtkWidget *details = nullptr;  /* options and command: shown when on */
 		GtkLabel *status = nullptr;

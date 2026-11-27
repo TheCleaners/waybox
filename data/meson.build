@@ -79,6 +79,14 @@ install_data(
   rename: ['waybox-wallpaper']
   )
 
+# wbconf's location picker: countries' outlines and cities, from Natural
+# Earth (public domain; tools/geo/make_geo.py makes them).
+install_data(
+  'geo' / 'countries.bin',
+  'geo' / 'cities.tsv',
+  install_dir: get_option('prefix') / get_option('datadir') / 'waybox' / 'geo',
+)
+
 # Companion programs wbconf can set up (see #153); users can add their own in
 # $XDG_CONFIG_HOME/waybox/integrations.
 install_subdir('integrations',
