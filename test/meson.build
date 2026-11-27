@@ -497,6 +497,11 @@ integration_env = {
   # ignores them when empty).
   'WB_RC_XML': '',
   'WB_MENU_XML': '',
+  # Nor may a test's waybox-msg or wbconf reach that session's Waybox (its
+  # socket and pid, exported to programs it starts): empty is unset to both,
+  # so they find the test's own through its WAYLAND_DISPLAY.
+  'WAYBOX_SOCK': '',
+  'WAYBOX_PID': '',
   # GTK programs under test (wbconf) abort on any critical: a test fails
   # on one rather than letting it scroll by.
   'G_DEBUG': 'fatal-criticals',
