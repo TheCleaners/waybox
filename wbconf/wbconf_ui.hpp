@@ -345,6 +345,10 @@ struct Ui {
 		 * options changed. */
 		std::shared_ptr<void> page;
 		std::function<void()> page_refresh;
+		/* "NAME Settings": its typed options or built-in page, folded or
+		 * not as "Keep Program Settings Open" says (a Lua page folds its
+		 * own). */
+		GtkWidget *settings = nullptr;
 		bool syncing = false;
 		bool removed = false;
 		/* Turned on while the autostart script starts it too: asked

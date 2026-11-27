@@ -1031,6 +1031,9 @@ std::string lua_page_fold(Ui *ui, const std::string &id) {
 		if (p->in != nullptr && p->in->id == id && p->expander != nullptr)
 			return !gtk_widget_get_visible(p->expander) ? "hidden"
 					: gtk_expander_get_expanded(GTK_EXPANDER(p->expander)) ? "open" : "folded";
+	for (auto &r : ui->programs)  /* typed options, the wallpaper page */
+		if (r->in != nullptr && r->in->id == id && r->settings != nullptr)
+			return gtk_expander_get_expanded(GTK_EXPANDER(r->settings)) ? "open" : "folded";
 	return "no page";
 }
 
@@ -1075,6 +1078,9 @@ void set_lua_pages_open(Ui *ui, bool open) {
 	for (LuaPage *p : live_pages(ui))
 		if (p->expander != nullptr)
 			gtk_expander_set_expanded(GTK_EXPANDER(p->expander), open);
+	for (auto &r : ui->programs)
+		if (r->settings != nullptr)
+			gtk_expander_set_expanded(GTK_EXPANDER(r->settings), open);
 }
 
 bool save_lua_pages(Ui *ui, std::string *error) {
