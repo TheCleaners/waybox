@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 
+#include <map>
 #include <optional>
 #include <string>
 
@@ -45,6 +46,19 @@ std::optional<wb::Rect> script_place(struct wb_server *server, const ScriptWindo
 /* wb.policy("layout"): windows changed: lay them out again (on idle,
  * once for several changes). */
 void script_request_layout(struct wb_server *server);
+/* wb.policy("bell"): what this ring does. false if the script left it to
+ * rc.xml (or has no such policy); else `out` says: silent (it answered
+ * false), or settings over rc.xml's (flash, color, duration, count,
+ * width) and, if given, the command ("" for none). */
+struct ScriptBell {
+	bool silent = false;
+	std::map<std::string, std::string> over;
+	std::optional<std::string> command;
+};
+bool script_bell(struct wb_server *server, struct wb_toplevel *t, ScriptBell *out);
+/* wb.on("bell"): delivered after the ring was dealt with; t may be null;
+ * `skipped`: rings before it that came too soon to count. */
+void script_bell_event(struct wb_server *server, struct wb_toplevel *t, int skipped);
 
 /* SIGCHLD: programs scripts started (wb.spawn) that have ended. */
 void scripts_reap(struct wb_server *server);

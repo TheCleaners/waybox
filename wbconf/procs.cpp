@@ -11,6 +11,7 @@
 #if defined(__FreeBSD__) || defined(__DragonFly__)
 #include <sys/types.h>
 #include <sys/sysctl.h>
+#include <cerrno>
 #include <sys/user.h>
 #endif
 
@@ -28,12 +29,22 @@ std::vector<ProcessInfo> list_processes() {
 	std::vector<ProcessInfo> out;
 #if defined(__FreeBSD__) || defined(__DragonFly__)
 	int mib[3] = {CTL_KERN, KERN_PROC, KERN_PROC_PROC};
+	/* Room for processes started meanwhile; more started than that
+	 * (ENOMEM): asked again, rather than coming back with none. */
+	std::vector<char> buf;
 	size_t len = 0;
-	if (sysctl(mib, 3, nullptr, &len, nullptr, 0) != 0)
-		return out;
-	len += len / 4;  /* room for processes started meanwhile */
-	std::vector<char> buf(len);
-	if (sysctl(mib, 3, buf.data(), &len, nullptr, 0) != 0)
+	bool read = false;
+	for (int attempt = 0; attempt < 8 && !read; ++attempt) {
+		if (sysctl(mib, 3, nullptr, &len, nullptr, 0) != 0)
+			return out;
+		len += len / 4 + static_cast<size_t>(attempt) * len / 2;
+		buf.resize(len);
+		if (sysctl(mib, 3, buf.data(), &len, nullptr, 0) == 0)
+			read = true;
+		else if (errno != ENOMEM)
+			return out;
+	}
+	if (!read)
 		return out;
 	for (size_t off = 0; off + sizeof(struct kinfo_proc) <= len; off += sizeof(struct kinfo_proc)) {
 		const auto *kp = reinterpret_cast<const struct kinfo_proc *>(buf.data() + off);
@@ -99,6 +110,48 @@ std::vector<std::string> process_args(pid_t pid) {
 		start = end + 1;
 	}
 	return out;
+}
+
+std::optional<std::string> process_env(pid_t pid, const std::string &name) {
+	std::string raw;
+#if defined(__FreeBSD__) || defined(__DragonFly__)
+	int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ENV, static_cast<int>(pid)};
+	size_t len = 0;
+	if (sysctl(mib, 4, nullptr, &len, nullptr, 0) != 0 || len == 0)
+		return std::nullopt;
+	raw.resize(len);
+	if (sysctl(mib, 4, raw.data(), &len, nullptr, 0) != 0)
+		return std::nullopt;
+	raw.resize(len);
+#else
+	std::ifstream f("/proc/" + std::to_string(pid) + "/environ", std::ios::binary);
+	if (!f)
+		return std::nullopt;
+	raw.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+#endif
+	std::string prefix = name + "=";
+	size_t start = 0;
+	while (start < raw.size()) {
+		size_t end = raw.find('\0', start);
+		if (end == std::string::npos)
+			end = raw.size();
+		if (raw.compare(start, prefix.size(), prefix) == 0)
+			return raw.substr(start + prefix.size(), end - start - prefix.size());
+		start = end + 1;
+	}
+	return std::string();  /* readable, not set */
+}
+
+bool in_this_session(pid_t pid) {
+	/* Its Wayland display, as ours (one session's programs, not another's:
+	 * a nested Waybox's, or the one around it). Unreadable: not ours. */
+	for (const char *var : {"WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"}) {
+		const char *mine = getenv(var);
+		auto theirs = process_env(pid, var);
+		if (!theirs || *theirs != (mine != nullptr ? mine : ""))
+			return false;
+	}
+	return true;
 }
 
 std::string process_name(pid_t pid) {

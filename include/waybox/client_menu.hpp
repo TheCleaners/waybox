@@ -18,11 +18,13 @@ namespace wb {
 
 constexpr std::string_view kClientMenuId = "client-menu";
 constexpr std::string_view kClientMenuDesktopsId = "client-menu-desktops";
+constexpr std::string_view kClientMenuLayerId = "client-menu-layer";
 
 struct ClientMenuState {
 	std::vector<std::string> desktop_names;  /* one per desktop */
 	int desktop = 0;          /* the window's desktop (0-based) */
 	bool omnipresent = false;
+	int layer = 0;            /* -1 always below, 0 normal, 1 always on top */
 	bool maximized = false;
 	bool shaded = false;
 	bool decorated = false;

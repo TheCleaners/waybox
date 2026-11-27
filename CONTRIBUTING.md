@@ -39,6 +39,19 @@ your new features work correctly). Document all of the edge cases you're aware
 of so we can adequately test them - then verify the test plan yourself before
 submitting.
 
+## Openbox's Code and Waybox's License
+
+Waybox is MIT-licensed; Openbox is GPL-2.0. Openbox is the reference for how
+things should *behave*: its documentation and its source show which actions
+exist, what their options mean, and what rc.xml and menu.xml accept. Read
+it for that, then write Waybox's code in your own words and structure.
+
+Don't copy Openbox's code, translations (`po/`), themes or the text of its
+default rc.xml and menu.xml into Waybox, even adapted: GPL-2.0 material in
+an MIT project would make the whole of it GPL. Matching Openbox's action
+names, option names, file formats and default key bindings is fine; that's
+the compatibility Waybox is for.
+
 ## Commit Messages
 
 Please strive to write good commit messages. Here's some guidelines to follow:

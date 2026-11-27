@@ -83,6 +83,9 @@ struct wb_server {
 	 * (background, bottom) and upper (top, overlay) layer-shell trees so panels
 	 * like Waybar correctly render above ordinary windows. */
 	struct wlr_scene_tree *toplevel_tree;
+	/* Inside it, bottom to top: the always-below, normal and always-on-top
+	 * windows (Openbox's layers). */
+	struct wlr_scene_tree *toplevel_layers[3];
 	/* X11 override-redirect windows (menus, tooltips), above toplevels. */
 	struct wlr_scene_tree *unmanaged_tree = nullptr;
 	/* The icon of a drag-and-drop in progress, at the pointer, on top. */
@@ -178,6 +181,10 @@ struct wb_server {
 	std::unique_ptr<wb::SwitcherWidget> switcher;
 	/* The desktop name shown after switching (<desktops><popupTime>). */
 	std::unique_ptr<wb::DesktopPopup> desktop_popup;
+	/* wbconf's Test for the on-screen display: settings not saved yet. */
+	std::unique_ptr<wb::DesktopPopup> osd_preview;
+	/* "identify" (IPC): each monitor's name, large, on it, for a moment. */
+	std::vector<std::unique_ptr<wb::DesktopPopup>> identify_popups;
 	std::vector<struct wb_toplevel *> switcher_windows;
 	uint32_t switcher_mods = 0;
 	uint32_t last_key_modifiers = 0;

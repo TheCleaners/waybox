@@ -92,10 +92,15 @@ WB_TEST(context_matching) {
 	for (C c : {C::Client, C::Titlebar, C::Top, C::Left})
 		WB_CHECK(wb::mouse_context_matches(C::Frame, c));
 	WB_CHECK(!wb::mouse_context_matches(C::Frame, C::Root));
-	/* Desktop and Root are the same place. */
+	/* Desktop covers the empty desktop and desktop surfaces; Root only the
+	 * empty desktop (a desktop-icon program keeps its clicks). */
 	WB_CHECK(wb::mouse_context_matches(C::Desktop, C::Root));
-	WB_CHECK(wb::mouse_context_matches(C::Root, C::Desktop));
+	WB_CHECK(wb::mouse_context_matches(C::Desktop, C::Desktop));
+	WB_CHECK(!wb::mouse_context_matches(C::Root, C::Desktop));
+	WB_CHECK(wb::mouse_context_matches(C::Root, C::Root));
 	WB_CHECK(!wb::mouse_context_matches(C::Root, C::Client));
+	WB_CHECK(!wb::mouse_context_matches(C::Desktop, C::Client));
+	WB_CHECK(!wb::mouse_context_matches(C::Frame, C::Desktop));
 }
 
 WB_TEST(lock_modifiers_are_ignored) {

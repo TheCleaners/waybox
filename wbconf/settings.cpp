@@ -17,12 +17,15 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 	if (ui->theme_names.empty() && !current.empty())
 		ui->theme_names.push_back(current);
 
-	/* Clear any existing rows, then repopulate. */
+	/* Clear any existing rows, then repopulate. The thumbnails are
+	 * forgotten first: removing the selected row changes the selection,
+	 * which redraws the previews (preview_refresh), and must not reach the
+	 * rows already gone. */
+	ui->theme_thumbs.clear();
 	GtkListBoxRow *row;
 	while ((row = gtk_list_box_get_row_at_index(ui->theme_list, 0)) != nullptr)
 		gtk_list_box_remove(ui->theme_list, GTK_WIDGET(row));
 	int sel = -1;
-	ui->theme_thumbs.clear();
 	for (size_t i = 0; i < ui->theme_names.size(); ++i) {
 		/* The name over a thumbnail of the theme's titlebars. */
 		GtkWidget *item = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
@@ -49,10 +52,14 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 		gtk_list_box_select_row(ui->theme_list, selected);
 		/* Scroll it into view within the theme list once laid out (not
 		 * by focusing it, which scrolled the whole settings list too). */
-		/* Retried until the window is shown and laid out (a few tries). */
+		/* Retried until the window is shown and laid out (a few tries).
+		 * The timer holds a reference: a reload meanwhile removes the row,
+		 * which then has no parent, and the timer just ends. */
 		g_object_set_data(G_OBJECT(selected), "wb-tries", GINT_TO_POINTER(0));
-		g_timeout_add(100, [](gpointer data) -> gboolean {
+		g_timeout_add_full(G_PRIORITY_DEFAULT, 100, [](gpointer data) -> gboolean {
 			GtkWidget *row = GTK_WIDGET(data);
+			if (gtk_widget_get_parent(row) == nullptr)
+				return G_SOURCE_REMOVE;
 			int tries = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(row), "wb-tries"));
 			g_object_set_data(G_OBJECT(row), "wb-tries", GINT_TO_POINTER(tries + 1));
 			GtkWidget *sw = gtk_widget_get_ancestor(row, GTK_TYPE_SCROLLED_WINDOW);
@@ -67,31 +74,57 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 			double page = gtk_adjustment_get_page_size(adj);
 			gtk_adjustment_set_value(adj, out.y - page / 2 + gtk_widget_get_height(row) / 2.0);
 			return G_SOURCE_REMOVE;
-		}, selected);
+		}, g_object_ref(selected), g_object_unref);
 	}
 
 	populate_monitors(ui, s.outputs);
-
-	ui->hdr_loaded = s.hdr_outputs;
-	ui->hdr_others.clear();
-	std::vector<std::string> hdr = split_names(s.hdr_outputs.value_or(""));
-	for (const std::string &n : hdr)
-		if (ui->hdr.count(n) == 0)
-			ui->hdr_others.push_back(n);
-	for (auto &[name, check] : ui->hdr)
-		gtk_check_button_set_active(check,
-				std::find(hdr.begin(), hdr.end(), name) != hdr.end());
+	populate_hdr(ui, s.hdr_outputs);
+	/* The pointer: rc.xml's <cursor> over GTK's own value. */
+	ui->gtk.rc_cursor_theme = s.cursor_theme;
+	ui->gtk.rc_cursor_size = s.cursor_size;
+	ui->gtk.pointer_to_rc = false;
+	if (ui->gtk.cursor != nullptr && s.cursor_theme && !s.cursor_theme->empty()) {
+		select_value(ui->gtk.cursor, ui->gtk.cursor_values, *s.cursor_theme);
+		ui->gtk.saved.cursor = *s.cursor_theme;
+	}
+	if (ui->gtk.size != nullptr && s.cursor_size && atoi(s.cursor_size->c_str()) >= 8) {
+		gtk_spin_button_set_value(ui->gtk.size, atoi(s.cursor_size->c_str()));
+		ui->gtk.saved.size = atoi(s.cursor_size->c_str());
+	}
 
 	populate_programs(ui, s.startup);
 	populate_bindings(ui, doc);
 	populate_input_method(ui, s.input_method);
 	populate_rows(ui, doc);
 
-	ui->shown = collect(ui);
+	ui->shown = shown_settings(ui);
 	preview_refresh(ui);
 }
 
 /* What the custom editors hold now. */
+void populate_hdr(Ui *ui, const std::optional<std::string> &hdr_outputs) {
+	ui->hdr_loaded = hdr_outputs;
+	ui->hdr_others.clear();
+	std::vector<std::string> hdr = split_names(hdr_outputs.value_or(""));
+	for (const std::string &n : hdr)
+		if (ui->hdr.count(n) == 0)
+			ui->hdr_others.push_back(n);
+	for (auto &[name, check] : ui->hdr)
+		gtk_check_button_set_active(check,
+				std::find(hdr.begin(), hdr.end(), name) != hdr.end());
+}
+
+wb::WayboxSettings shown_settings(Ui *ui) {
+	wb::WayboxSettings s = collect(ui);
+	/* Only where rc.xml has a <cursor> (half of one, say: a size alone):
+	 * one that has none isn't given one until the pointer is changed. */
+	if (ui->gtk.rc_cursor_theme || ui->gtk.rc_cursor_size) {
+		s.cursor_theme = ui->gtk.rc_cursor_theme;
+		s.cursor_size = ui->gtk.rc_cursor_size;
+	}
+	return s;
+}
+
 wb::WayboxSettings collect(Ui *ui) {
 	wb::WayboxSettings s;
 	if (GtkListBoxRow *r = gtk_list_box_get_selected_row(ui->theme_list)) {
@@ -100,23 +133,22 @@ wb::WayboxSettings collect(Ui *ui) {
 			s.theme_name = ui->theme_names[idx];
 	}
 
-	for (Ui::Monitor &m : ui->monitors) {
-		wb::OutputSetting out{m.name, m.kept};
-		if (!gtk_switch_get_active(m.enabled))
-			out.attrs["enabled"] = "no";
-		auto put = [&out](const char *key, const std::string &v) {
-			if (!v.empty())
-				out.attrs[key] = v;
-		};
-		put("mode", selected_value(m.mode, m.modes));
-		put("scale", selected_value(m.scale, m.scales));
-		put("position", gtk_editable_get_text(GTK_EDITABLE(m.position)));
-		put("transform", selected_value(m.transform, kTransforms));
-		if (!out.attrs.empty())
-			s.outputs.push_back(out);
-	}
+	for (Ui::Monitor &m : ui->monitors)
+		if (auto rule = monitor_rule(m))
+			s.outputs.push_back(*rule);
 	for (const wb::OutputSetting &o : ui->other_outputs)
 		s.outputs.push_back(o);
+
+	/* The pointer controls (Appearance > Applications) write <cursor> too:
+	 * Waybox draws the pointer for most programs. */
+	s.cursor_theme = ui->gtk.rc_cursor_theme;
+	s.cursor_size = ui->gtk.rc_cursor_size;
+	if (ui->gtk.cursor != nullptr) {
+		std::string theme = selected_value(ui->gtk.cursor, ui->gtk.cursor_values);
+		if (!theme.empty())
+			s.cursor_theme = theme;
+		s.cursor_size = std::to_string(gtk_spin_button_get_value_as_int(ui->gtk.size));
+	}
 
 	std::vector<std::string> hdr;
 	for (const Ui::Monitor &m : ui->monitors)

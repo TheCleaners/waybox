@@ -6,9 +6,12 @@
    (restart="no" turns that off).
 2. Reconfigure with a changed list: a removed program is stopped (its
    process is gone), one enabled now starts, an unchanged one-shot isn't
-   run again, a changed command is restarted.
+   run again, a changed command is restarted. A removed program that
+   exited cleanly but left something running in its process group (as
+   waypaper --restore leaves swaybg) has that stopped.
 3. A program killed is started again.
-4. When Waybox exits, the programs it started end.
+4. When Waybox exits, the programs it started end, and what a program
+   that exited left running.
 5. Without <startup>, nothing is started.
 
 Usage: startup_programs_test.py <waybox>
@@ -37,13 +40,14 @@ def alive(pid):
 
 
 def process_state(pid):
-    """A process's state letter(s): /proc where there is one (Linux), else
-    ps (the BSDs, where /proc isn't mounted); "" if it's gone."""
+    """A process's state letter(s): Linux's /proc where there is one, else
+    ps (the BSDs: FreeBSD's procfs, when mounted, has no stat file); "" if
+    it's gone."""
     try:
         with open(f"/proc/{pid}/stat") as f:
             return f.read().rsplit(") ", 1)[1][0]
     except FileNotFoundError:
-        if os.path.isdir("/proc/self"):
+        if os.path.exists("/proc/self/stat"):
             return ""
     except (OSError, IndexError):
         return ""
@@ -61,6 +65,8 @@ def main():
     os.makedirs(os.path.join(cfg, "waybox"))
     rc_path = os.path.join(cfg, "waybox", "rc.xml")
     once_log = os.path.join(workdir, "once.log")
+    left_pid = os.path.join(workdir, "left.pid")
+    kept_pid = os.path.join(workdir, "kept.pid")
 
     def write_rc(programs):
         body = "\n".join(
@@ -79,6 +85,9 @@ def main():
         ("once", f"echo ran &gt;&gt; {once_log}", ""),
         ("crashy", "exit 3", ""),
         ("quitter", "exit 4", ' restart="no"'),
+        # Exit cleanly, leaving a process in their group.
+        ("restorer", f"sleep 1003 &amp; echo $! &gt; {left_pid}", ""),
+        ("keeper", f"sleep 1004 &amp; echo $! &gt; {kept_pid}", ""),
     ]
     write_rc(first)
     runtime = os.path.join(workdir, "run")
@@ -128,6 +137,7 @@ def main():
         return [int(p) for p in re.findall(rf"wb-startup start {name} (\d+)", text(lp))]
 
     proc, log, lp = launch("main")
+    kept = None
     try:
         time.sleep(1.8)
         t = text(lp)
@@ -144,11 +154,21 @@ def main():
             failures.append('restart="no" was restarted')
         sleeper = pids(lp, "sleeper")[-1] if pids(lp, "sleeper") else None
 
+        def pid_in(path):
+            try:
+                return int(open(path).read().strip())
+            except (OSError, ValueError):
+                return None
+        leftover, kept = pid_in(left_pid), pid_in(kept_pid)
+        if leftover is None or not alive(leftover) or kept is None or not alive(kept):
+            failures.append("a program's background process didn't start (or ended)")
+
         # 2. Reconfigure with a changed list.
         write_rc([
             ("later", "exec sleep 1001", ""),
             ("once", f"echo ran &gt;&gt; {once_log}", ""),
             ("crashy", "exec sleep 1002", ""),
+            ("keeper", f"sleep 1004 &amp; echo $! &gt; {kept_pid}", ""),
         ])
         proc.send_signal(signal.SIGUSR2)
         time.sleep(1.0)
@@ -163,6 +183,11 @@ def main():
             runs = f.read().count("ran")
         if runs != 1:
             failures.append(f"an unchanged one-shot program ran {runs} times")
+        if leftover is not None and alive(leftover):
+            failures.append("what a removed program left running wasn't stopped")
+            os.kill(leftover, signal.SIGKILL)
+        if kept is not None and not alive(kept):
+            failures.append("an unchanged program's leftover process was stopped")
         crashy = pids(lp, "crashy")
         if not crashy or not alive(crashy[-1]):
             failures.append("a program whose command changed wasn't restarted with it")
@@ -181,6 +206,8 @@ def main():
     # 4. Exiting ends them.
     time.sleep(0.5)
     left = [p for name in ("later", "crashy") for p in pids(lp, name)[-1:] if alive(p)]
+    if kept is not None and alive(kept):
+        left.append(kept)
     if left:
         failures.append(f"programs still running after waybox exited: {left}")
         for p in left:

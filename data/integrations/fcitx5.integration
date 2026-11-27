@@ -3,6 +3,7 @@ Name=Fcitx 5
 Category=InputMethod
 Comment=Input method framework (Chinese, Japanese, Korean, emoji and more); speaks Wayland's input-method protocol
 Exec=fcitx5 --replace
+Configure=fcitx5-configtool
 Kind=inputmethod
 Env=XMODIFIERS=@im=fcitx
 Env=QT_IM_MODULE=fcitx

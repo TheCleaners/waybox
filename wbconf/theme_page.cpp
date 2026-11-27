@@ -21,14 +21,14 @@ wb::Theme preview_theme(Ui *ui, const std::string &name) {
 	auto apply_font = [](const std::optional<std::string> &v, wb::FontSpec &f) {
 		if (!v)
 			return;
-		PangoFontDescription *d = pango_font_description_from_string(v->c_str());
-		if (const char *fam = pango_font_description_get_family(d))
-			f.family = fam;
-		int sz = pango_font_description_get_size(d);
-		if (sz > 0)
-			f.size_pt = sz / PANGO_SCALE;
-		f.bold = pango_font_description_get_weight(d) >= PANGO_WEIGHT_BOLD;
-		pango_font_description_free(d);
+		wb::font::Styled st = wb::font::from_pango(*v);
+		if (!st.family.empty())
+			f.family = st.family;
+		if (st.size > 0)
+			f.size_pt = static_cast<int>(st.size + 0.5);
+		f.weight = st.weight;
+		f.italic = st.italic;
+		f.width = st.width;
 	};
 	apply_font(setting_value(ui, "theme.font.activeWindow"), theme.font_active_title);
 	apply_font(setting_value(ui, "theme.font.inactiveWindow"), theme.font_inactive_title);

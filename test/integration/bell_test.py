@@ -4,8 +4,11 @@
 1. Without a <bell> setting, a ring is received and does nothing else.
 2. With <bell flash="yes" command="...">: a ring from a window flashes
    that window, one with no window flashes the screen; the command runs,
-   once for a quick burst of rings. The flash is only drawn: the pointer
-   over the window stays on it (it used to land on the flash instead).
+   once for a quick burst of rings. A quick burst counts once: the rest
+   are stopped before anything (flash, command, script), and the next ring
+   that counts says how many were. The flash is only
+   drawn: the pointer over the window stays on it (it used to land on the
+   flash instead).
 
 Usage: bell_test.py <waybox> <bell_client> <vpointer_client>
 """
@@ -130,7 +133,10 @@ def run(waybox, client_bin, workdir, bell_xml, vptr_bin=None):
                 if "pointer-leave" in seen:
                     problem = "the pointer left the window for the bell's flash"
                 time.sleep(0.3)
-            for what in ("window", "window", "window", "none"):
+            for what in ("window", "window", "window", "pause", "none"):
+                if what == "pause":
+                    time.sleep(0.45)  # past the pacing: shown again
+                    continue
                 client.proc.stdin.write(what + "\n")
                 client.proc.stdin.flush()
                 if not client.wait_for("rang"):
@@ -168,8 +174,12 @@ def main():
         sys.exit(SKIP)
     if problem:
         failures.append(f"default: {problem}")
-    if log.count("wb-bell ring bell-test") != 3 or "wb-bell ring (no window)" not in log:
-        failures.append("the rings weren't all received")
+    # The burst's first ring, then (after the pause) the one from no window,
+    # which says the burst's other two were skipped.
+    if log.count("wb-bell ring bell-test") != 1 or "wb-bell ring (no window)" not in log:
+        failures.append("the rings weren't received as they should be")
+    if "wb-bell skipped 2" not in log:
+        failures.append("the burst's other rings weren't counted as skipped")
     if "wb-bell flash" in log:
         failures.append("the bell flashed without being set to")
 
@@ -177,15 +187,19 @@ def main():
                        f'<bell flash="yes" command="echo x &gt;&gt; {marker}"/>', vptr_bin)
     if problem:
         failures.append(f"set: {problem}")
-    if log.count("wb-bell flash window") != 4:
+    # The pointer test's ring, then the burst's first; its other two let go.
+    if log.count("wb-bell flash window") != 2:
         failures.append(f"a ring from a window didn't flash it ({log.count('wb-bell flash window')})")
+    if "wb-bell skipped 2" not in log:
+        failures.append("a quick burst wasn't stopped at the gate")
     if "wb-bell flash output" not in log:
         failures.append("a ring with no window didn't flash the screen")
     lines = open(marker).read().count("x") if os.path.exists(marker) else 0
     if lines < 1:
         failures.append("the bell's command didn't run")
-    elif lines > 2:
-        failures.append(f"a burst of rings ran the command {lines} times")
+    elif lines != 3:
+        # The pointer test's ring, the burst (once), the ring after the pause.
+        failures.append(f"the command ran {lines} times, not 3 (a burst runs it once)")
 
     for f in failures:
         print(f"FAIL: {f}", file=sys.stderr)

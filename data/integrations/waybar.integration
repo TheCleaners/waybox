@@ -4,8 +4,12 @@ Category=Panel
 Comment=Panel with workspaces, tray, clock and status modules
 Exec=waybar
 Version=waybar --version
+Page=waybar.lua
+Files=~/.config/waybar/config.jsonc, ~/.config/waybar/config, /etc/xdg/waybar/config.jsonc
+Reload=signal USR2
 
 [Option config]
 Label=Config file
 Flag=-c
 Hint=~/.config/waybar/config.jsonc
+Type=file

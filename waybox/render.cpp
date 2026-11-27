@@ -2,7 +2,12 @@
  * Cairo/Pango painting primitives. Depends on cairo + pango (+ glib via pango),
  * but NOT on wlroots, so it links into the standalone pixel test.
  */
+#include <cstdlib>
 #include "waybox/render.hpp"
+
+#include <cmath>
+
+#include <algorithm>
 
 #include <string>
 
@@ -22,8 +27,18 @@ PangoLayout *make_layout(cairo_t *cr, std::string_view text,
 	PangoLayout *layout = pango_cairo_create_layout(cr);
 	PangoFontDescription *desc = pango_font_description_new();
 	pango_font_description_set_family(desc, font.family.c_str());
-	pango_font_description_set_weight(desc,
-			font.bold ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
+	pango_font_description_set_weight(desc, static_cast<PangoWeight>(font.weight));
+	if (font.italic)
+		pango_font_description_set_style(desc, PANGO_STYLE_ITALIC);
+	if (font.width != 100) {
+		/* Pango's stretches, by the percent each stands for. */
+		static const int percent[] = {50, 63, 75, 87, 100, 113, 125, 150, 200};
+		int best = 4;
+		for (int i = 0; i < 9; ++i)
+			if (std::abs(percent[i] - font.width) < std::abs(percent[best] - font.width))
+				best = i;
+		pango_font_description_set_stretch(desc, static_cast<PangoStretch>(best));
+	}
 	pango_font_description_set_size(desc, font.size_pt * PANGO_SCALE);
 	pango_layout_set_font_description(layout, desc);
 	pango_font_description_free(desc);
@@ -74,6 +89,41 @@ void paint_texture(cairo_t *cr, double x, double y, double w, double h,
 		return;
 	}
 	paint_rect(cr, x, y, w, h, texture.color);
+}
+
+namespace {
+
+void rounded_path(cairo_t *cr, double x, double y, double w, double h, double r) {
+	r = std::max(0.0, std::min(r, std::min(w, h) / 2));
+	cairo_new_sub_path(cr);
+	if (r <= 0) {
+		cairo_rectangle(cr, x, y, w, h);
+		return;
+	}
+	cairo_arc(cr, x + w - r, y + r, r, -M_PI / 2, 0);
+	cairo_arc(cr, x + w - r, y + h - r, r, 0, M_PI / 2);
+	cairo_arc(cr, x + r, y + h - r, r, M_PI / 2, M_PI);
+	cairo_arc(cr, x + r, y + r, r, M_PI, 3 * M_PI / 2);
+	cairo_close_path(cr);
+}
+
+}  // namespace
+
+void paint_panel(cairo_t *cr, double w, double h, const Surface &panel) {
+	const Border &bd = panel.border;
+	double r = bd.radius;
+	cairo_save(cr);
+	if (bd.width > 0) {
+		rounded_path(cr, 0, 0, w, h, r);
+		cairo_clip(cr);
+		paint_rect(cr, 0, 0, w, h, bd.color);
+		cairo_reset_clip(cr);
+	}
+	double b = bd.width;
+	rounded_path(cr, b, b, w - 2 * b, h - 2 * b, std::max(0.0, r - b));
+	cairo_clip(cr);
+	paint_fill(cr, b, b, w - 2 * b, h - 2 * b, panel.fill);
+	cairo_restore(cr);
 }
 
 void paint_fill(cairo_t *cr, double x, double y, double w, double h,

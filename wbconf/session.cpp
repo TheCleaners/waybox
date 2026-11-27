@@ -126,11 +126,10 @@ int signal_waybox_reload() {
 	return signalled;
 }
 
-/* The running Waybox's version: from the environment it gave us, else
- * asked over its scripting socket; "" if neither. */
-std::string running_waybox_version() {
-	if (const char *v = getenv("WAYBOX_VERSION"); v && *v)
-		return v;
+/* One request to the running Waybox's scripting socket (on unless <ipc
+ * enabled="no"/>): its reply's JSON object, or nullptr (no socket, no
+ * answer within a second). Free with json_object_unref. */
+JsonObject *waybox_request(const std::string &request, int timeout_s) {
 	std::string path;
 	if (const char *s = getenv("WAYBOX_SOCK"); s && *s) {
 		path = s;
@@ -143,35 +142,46 @@ std::string running_waybox_version() {
 	struct sockaddr_un addr = {};
 	addr.sun_family = AF_UNIX;
 	if (path.empty() || path.size() >= sizeof(addr.sun_path))
-		return {};
+		return nullptr;
 	memcpy(addr.sun_path, path.c_str(), path.size() + 1);
 	int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (fd < 0)
-		return {};
+		return nullptr;
 	std::string reply;
-	struct timeval tv = {1, 0};  /* never hang the window on it */
+	/* Never hang the window on it (a long wait goes on another thread). */
+	struct timeval tv = {std::clamp(timeout_s, 1, 120), 0};
 	setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-	const char req[] = "{\"request\":\"get_version\"}\n";
+	std::string line = request + "\n";
 	if (connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) == 0 &&
-			write(fd, req, sizeof(req) - 1) == static_cast<ssize_t>(sizeof(req) - 1)) {
+			write(fd, line.data(), line.size()) == static_cast<ssize_t>(line.size())) {
 		char buf[512];
 		ssize_t n;
-		while (reply.find('\n') == std::string::npos &&
+		while (reply.find('\n') == std::string::npos && reply.size() < (1 << 20) &&
 				(n = read(fd, buf, sizeof(buf))) > 0)
 			reply.append(buf, static_cast<size_t>(n));
 	}
 	close(fd);
+	JsonObject *out = nullptr;
 	JsonParser *parser = json_parser_new();
-	std::string version;
-	if (json_parser_load_from_data(parser, reply.c_str(), -1, nullptr)) {
+	if (!reply.empty() && json_parser_load_from_data(parser, reply.c_str(), -1, nullptr)) {
 		JsonNode *root = json_parser_get_root(parser);
-		if (root && JSON_NODE_HOLDS_OBJECT(root)) {
-			JsonObject *o = json_node_get_object(root);
-			if (json_object_has_member(o, "version"))
-				version = json_object_get_string_member(o, "version");
-		}
+		if (root && JSON_NODE_HOLDS_OBJECT(root))
+			out = json_object_ref(json_node_get_object(root));
 	}
 	g_object_unref(parser);
+	return out;
+}
+
+/* The running Waybox's version: from the environment it gave us, else
+ * asked over its scripting socket; "" if neither. */
+std::string running_waybox_version() {
+	if (const char *v = getenv("WAYBOX_VERSION"); v && *v)
+		return v;
+	std::string version;
+	if (JsonObject *o = waybox_request("{\"request\":\"get_version\"}")) {
+		version = json_object_get_string_member_with_default(o, "version", "");
+		json_object_unref(o);
+	}
 	return version;
 }
 

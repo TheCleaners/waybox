@@ -3,6 +3,7 @@ Name=IBus (Wayland)
 Category=InputMethod
 Comment=IBus speaking Wayland's input-method protocol to Waybox (needs ibus-wayland): GTK apps need no module, candidates show at the text cursor
 Exec=sh -c 'ibus-daemon --replace --xim & sleep 1; exec /usr/libexec/ibus-wayland'
+Configure=ibus-setup
 Binary=/usr/libexec/ibus-wayland
 Kind=inputmethod
 Env=XMODIFIERS=@im=ibus

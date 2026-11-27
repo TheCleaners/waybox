@@ -1,6 +1,7 @@
 [Integration]
 Name=fnott
 Category=Notifications
+Provides=notifications
 Comment=Keyboard-driven notification daemon
 Exec=fnott
 Version=fnott --version

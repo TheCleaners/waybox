@@ -24,27 +24,8 @@ void set_status(Ui *ui, const std::string &text) {
 
 namespace {
 
-/* How many settings differ from rc.xml: rows, plus each custom editor. */
-int unsaved_count(Ui *ui) {
-	if (!ui->loaded)
-		return 0;
-	int n = 0;
-	for (auto &r : ui->rows)
-		if (r->value != r->saved)
-			++n;
-	wb::WayboxSettings now = collect(ui);
-	n += now.theme_name != ui->shown.theme_name;
-	n += now.outputs != ui->shown.outputs || now.hdr_outputs != ui->shown.hdr_outputs;
-	n += now.startup != ui->shown.startup;
-	n += now.input_method != ui->shown.input_method;
-	n += bindings_unsaved(ui);
-	n += sources_unsaved(ui);
-	n += gtk_unsaved(ui);
-	return n;
-}
-
 bool unsaved(Ui *ui) {
-	return unsaved_count(ui) > 0;
+	return !unsaved_changes(ui).empty();
 }
 
 const char *kUnsavedTag = "wb-unsaved-status";
@@ -54,8 +35,11 @@ const char *kUnsavedTag = "wb-unsaved-status";
 void refresh_save_state(Ui *ui) {
 	if (ui->save == nullptr || ui->status == nullptr)
 		return;
-	int n = unsaved_count(ui);
+	std::vector<UnsavedChange> changes = unsaved_changes(ui);
+	int n = static_cast<int>(changes.size());
 	gtk_widget_set_sensitive(ui->save, n > 0);
+	refresh_changes_button(ui, changes);
+	refresh_problems(ui);
 	bool showing = g_object_get_data(G_OBJECT(ui->status), kUnsavedTag) != nullptr;
 	if (n > 0) {
 		char *t = g_strdup_printf(ngettext("%d change not saved yet",
@@ -91,14 +75,35 @@ void on_save(GtkButton *, gpointer data) {
 		if (r->def->type != wb::SettingType::Custom && r->value != r->saved)
 			doc->set(r->def->rc, r->value);
 	wb::WayboxSettings now = collect(ui);
-	doc->apply(now, ui->shown);
+	wb::WayboxSettings before = ui->shown;
+	/* The monitor rules as they are, to put back exactly if not kept. */
+	std::string outputs_xml = doc->snapshot({"waybox", "outputs"});
+	std::string hdr_xml = doc->snapshot({"waybox", "hdr"});
+	/* The pointer's fix chosen: compared with rc.xml's own pointer (none,
+	 * say), so the theme shown is written. */
+	wb::WayboxSettings base = ui->shown;
+	if (ui->gtk.pointer_to_rc) {
+		base.cursor_theme = ui->gtk.rc_cursor_theme;
+		base.cursor_size = ui->gtk.rc_cursor_size;
+	}
+	doc->apply(now, base);
 	apply_bindings(ui, *doc);
 	std::string err;
 	if (!doc->save_file(path, &err)) {
 		set_status(ui, std::string(_("Not saved: ")) + err);
 		return;
 	}
-	ui->shown = now;
+	/* The cards from the rules as written: each knows the rule it edits by
+	 * the matcher it has now. */
+	{
+		wb::WayboxSettings written = doc->read();
+		populate_monitors(ui, written.outputs);
+		populate_hdr(ui, written.hdr_outputs);
+		ui->gtk.rc_cursor_theme = written.cursor_theme;
+		ui->gtk.rc_cursor_size = written.cursor_size;
+		ui->gtk.pointer_to_rc = false;
+	}
+	ui->shown = shown_settings(ui);
 	rows_saved(ui);
 	bindings_saved(ui);
 	if (!save_sources(ui, &err)) {
@@ -107,6 +112,12 @@ void on_save(GtkButton *, gpointer data) {
 		return;
 	}
 	sources_saved(ui);
+	ui->save_notes.clear();
+	if (!save_lua_pages(ui, &err)) {
+		refresh_save_state(ui);
+		set_status(ui, std::string(_("Saved rc.xml, but not a program's own settings: ")) + err);
+		return;
+	}
 	if (!save_gtk(ui, &err)) {
 		refresh_save_state(ui);
 		set_status(ui, std::string(_("Saved rc.xml, but not the GTK settings: ")) + err);
@@ -114,12 +125,25 @@ void on_save(GtkButton *, gpointer data) {
 	}
 	refresh_save_state(ui);
 	stop_moved_programs(ui);
+	g_timeout_add_once(800, [](gpointer data) {
+		refresh_output_manager_notice(static_cast<Ui *>(data));
+	}, ui);
 	int n = signal_waybox_reload();
 	if (n > 0)
 		set_status(ui, _("Saved and reloaded waybox."));
-	else
+	/* Monitors changed and in use: keep them, or have the old ones back
+	 * if no one answers (a mode the monitor can't show hides the dialog). */
+	if (n > 0 && (now.outputs != before.outputs || now.hdr_outputs != before.hdr_outputs))
+		ask_keep_monitors(ui, outputs_xml, hdr_xml);
+	else if (n <= 0)
 		set_status(ui, std::string(_("Saved to ")) + path + " " +
 				_("(no running waybox to reload)."));
+	if (!ui->save_notes.empty() && ui->status != nullptr) {
+		std::string text = gtk_label_get_text(ui->status);
+		for (const std::string &note : ui->save_notes)
+			text += " " + note;
+		set_status(ui, text);
+	}
 }
 
 void on_close(GtkButton *, gpointer data) {
@@ -239,7 +263,7 @@ void build_window(GtkApplication *app, Ui *ui) {
 	gtk_window_set_titlebar(ui->window, header);
 	GtkWidget *search = gtk_search_entry_new();
 	gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(search),
-			_("Search settings (@modified, @id:...)"));
+			_("Search settings (@modified, @problems, @id:...)"));
 	gtk_widget_set_size_request(search, 420, -1);
 	gtk_header_bar_set_title_widget(GTK_HEADER_BAR(header), search);
 	ui->search = GTK_SEARCH_ENTRY(search);
@@ -303,6 +327,7 @@ void build_window(GtkApplication *app, Ui *ui) {
 	gtk_widget_set_margin_top(actions, 8);
 	gtk_widget_set_margin_bottom(actions, 8);
 
+	gtk_box_append(GTK_BOX(actions), build_changes_button(ui));
 	GtkWidget *status = gtk_label_new("");
 	gtk_widget_set_hexpand(status, TRUE);
 	gtk_widget_set_halign(status, GTK_ALIGN_START);
@@ -344,6 +369,8 @@ void build_window(GtkApplication *app, Ui *ui) {
 		ui->test_choice = choice;
 	if (const char *set = getenv("WBCONF_TEST_SET"))
 		apply_test_values(ui, set);
+	if (const char *toc = getenv("WBCONF_TEST_TOC"))
+		start_toc_script(ui, toc);
 	refresh_save_state(ui);
 	/* The custom editors (theme, monitors, programs) change in many ways:
 	 * check now and then rather than wire every widget. */
@@ -373,6 +400,13 @@ void build_window(GtkApplication *app, Ui *ui) {
 }
 
 void on_activate(GtkApplication *app, gpointer data) {
+	/* wbconf's own icons where installed (a prefix the theme may not
+	 * search), or $WBCONF_ICONS_DIR (run from the build: data/icons). */
+	if (GdkDisplay *display = gdk_display_get_default()) {
+		GtkIconTheme *icons = gtk_icon_theme_get_for_display(display);
+		const char *dev = getenv("WBCONF_ICONS_DIR");
+		gtk_icon_theme_add_search_path(icons, dev != nullptr && *dev ? dev : WB_ICONS_DIR);
+	}
 	auto *ui = static_cast<Ui *>(data);
 	/* wbconf runs once: launching it again brings the open window to the
 	 * front (building a second one over the same state broke the first). */

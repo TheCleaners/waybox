@@ -1,7 +1,8 @@
 [Integration]
 Name=wlsunset
 Category=NightLight
-Comment=Warmer screen colours after sunset
+Provides=night-light
+Comment=Warmer screen colors after sunset
 Exec=wlsunset -l 51.5 -L -0.1
 Version=wlsunset -v
 
@@ -9,18 +10,28 @@ Version=wlsunset -v
 Label=Latitude
 Flag=-l
 Hint=51.5
+Type=number
+Min=-90
+Max=90
 
 [Option longitude]
 Label=Longitude
 Flag=-L
 Hint=-0.1
+Type=number
+Min=-180
+Max=180
 
 [Option night]
 Label=Night temperature (K)
 Flag=-t
 Hint=4000
+Type=number
+Min=1000
 
 [Option day]
 Label=Day temperature (K)
 Flag=-T
 Hint=6500
+Type=number
+Min=1000

@@ -1,14 +1,18 @@
 #ifndef WB_ACTION_HPP
 #define WB_ACTION_HPP
 
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 struct wb_server;
 
 namespace wb {
+
+struct Conditional;
 
 /*
  * Action framework.
@@ -28,12 +32,13 @@ enum class ActionType {
 	PreviousWindow,
 	Close,
 	ToggleMaximize,
-	ToggleMaximizeHorizontal,
-	ToggleMaximizeVertical,
+	Maximize,       /* <direction>: both (default), horizontal, vertical */
+	Unmaximize,
 	Fullscreen,
 	Iconify,
 	Shade,
 	Unshade,
+	ToggleShade,
 	Raise,
 	Lower,
 	Exit,
@@ -43,9 +48,18 @@ enum class ActionType {
 	GoToDesktop,
 	SendToDesktop,
 	ToggleOmnipresent,
+	/* Openbox's layers: <direction> (or the name) top, normal or bottom;
+	 * the toggles between that layer and normal. */
+	SendToLayer,
+	ToggleAlwaysOnTop,
+	ToggleAlwaysOnBottom,
 	SnapToEdge,
 	Move,
 	Resize,
+	Focus,
+	If,       /* Openbox's conditional actions (conditions.hpp) */
+	ForEach,
+	Stop,
 	/* Not an rc.xml action: calls a function a script gave a menu entry
 	 * (script_callback; see wb.show_menu in waybox-lua(5)). */
 	ScriptCall,
@@ -62,6 +76,8 @@ struct Action {
 	bool follow = true;
 	std::string direction{};  /* SnapToEdge: left, right, up, down, up-left, ... */
 	int script_callback = 0;  /* ScriptCall */
+	/* If and ForEach: the conditions and the actions of each branch. */
+	std::shared_ptr<const Conditional> conditional{};
 };
 
 /* Registry entry describing one action by its rc.xml name. */
@@ -69,6 +85,9 @@ struct ActionSpec {
 	std::string_view name;
 	ActionType type;
 	bool takes_command;
+	/* A direction the name itself implies (Openbox's MaximizeHorz is
+	 * Maximize with <direction>horizontal</direction>); empty: none. */
+	std::string_view direction = {};
 };
 
 /* The full table of known actions, in declaration order. */
@@ -86,6 +105,10 @@ std::optional<Action> make_action(std::string_view name, std::string_view comman
 /* Run a single parsed action against the server. Defined in seat.cpp; not
  * unit-tested because it drives live compositor state. */
 void run_action(const Action &action, struct wb_server *server);
+/* Run a list of actions in order: the actions after a Stop don't run (nor
+ * after a Reconfigure: they belong to the old configuration). True if it
+ * ended early that way. */
+bool run_actions(const std::vector<Action> &actions, struct wb_server *server);
 
 }  // namespace wb
 

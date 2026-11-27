@@ -35,9 +35,6 @@ void DesktopPopup::hide() {
 }
 
 void DesktopPopup::show(const std::string &label, int duration_ms) {
-	if (duration_ms <= 0 || session_locked(server_))
-		return;
-
 	/* The monitor under the pointer. */
 	int cx = static_cast<int>(server_->cursor->cursor->x);
 	int cy = static_cast<int>(server_->cursor->cursor->y);
@@ -45,7 +42,12 @@ void DesktopPopup::show(const std::string &label, int duration_ms) {
 			wlr_output_layout_output_at(server_->output_layout, cx, cy);
 	if (output == nullptr)
 		output = wlr_output_layout_get_center_output(server_->output_layout);
-	if (output == nullptr)
+	show_on(output, label, duration_ms);
+}
+
+void DesktopPopup::show_on(struct wlr_output *output, const std::string &label,
+		int duration_ms) {
+	if (output == nullptr || duration_ms <= 0 || session_locked(server_))
 		return;
 	struct wlr_box box = {};
 	wlr_output_layout_get_box(server_->output_layout, output, &box);
@@ -56,21 +58,19 @@ void DesktopPopup::show(const std::string &label, int duration_ms) {
 	int w = std::min(text.width + 2 * pad_x, std::max(box.width - 40, 80));
 	int h = text.height + 2 * pad_y;
 	int x = box.x + (box.width - w) / 2;
-	int y = box.y + (box.height - h) / 2;
+	int y = osd_y(style_.position, box.y, box.height, h);
 
 	canvas_ = std::make_unique<SceneCanvas>(tree_, w, h,
 			output->scale > 0 ? output->scale : 1.0f);
 	canvas_->set_position(x, y);
 	cairo_t *cr = canvas_->cr();
-	const Border &bd = style_.panel.border;
-	if (bd.width > 0)
-		paint_rect(cr, 0, 0, w, h, bd.color);
-	paint_fill(cr, bd.width, bd.width, w - 2 * bd.width, h - 2 * bd.width,
-			style_.panel.fill);
+	paint_panel(cr, w, h, style_.panel);
 	const StateStyle &st = style_.item.for_state(WidgetState::Normal);
 	paint_text(cr, (w - text.width) / 2, (h - text.height) / 2, label, st.fg,
 			style_.item_text.font);
 	canvas_->commit();
+	wlr_scene_buffer_set_opacity(canvas_->node(),
+			static_cast<float>(std::clamp(style_.panel.opacity, 0.1, 1.0)));
 
 	/* Above windows and panels; a lock screen stays above everything. */
 	wlr_scene_node_raise_to_top(&tree_->node);

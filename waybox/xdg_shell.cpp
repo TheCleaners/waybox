@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "script.h"
 #include "bell.h"
 #include "toplevel_drag.h"
@@ -295,6 +296,33 @@ static struct wb_toplevel *family_root(struct wb_toplevel *t) {
  * focused (one that just opened, one picked with Alt+Tab), the fullscreen
  * one is stacked with ordinary windows, so the focused window is seen;
  * focused again, it is back on top. */
+struct wlr_scene_tree *toplevel_layer_tree(struct wb_server *server, int layer) {
+	return server->toplevel_layers[std::clamp(layer, -1, 1) + 1];
+}
+
+static void update_fullscreen_layers(struct wb_server *server);
+
+void set_toplevel_layer(struct wb_toplevel *toplevel, int layer) {
+	layer = std::clamp(layer, -1, 1);
+	if (toplevel == nullptr || toplevel->scene_tree == nullptr || toplevel->layer == layer)
+		return;
+	toplevel->layer = layer;
+	struct wb_server *server = toplevel->server;
+	/* Out of the fullscreen layer it stays put: update_fullscreen_layers
+	 * puts it in its own layer when it's no longer the active fullscreen. */
+	bool in_fullscreen = false;
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link)
+		if (toplevel->scene_tree->node.parent == o->layers.shell_fullscreen)
+			in_fullscreen = true;
+	if (!in_fullscreen) {
+		wlr_scene_node_reparent(&toplevel->scene_tree->node, toplevel_layer_tree(server, layer));
+		wlr_scene_node_raise_to_top(&toplevel->scene_tree->node);
+	}
+	update_fullscreen_layers(server);
+	ipc_window_event(toplevel, "state");
+}
+
 static void update_fullscreen_layers(struct wb_server *server) {
 	struct wb_toplevel *root = family_root(first_toplevel(server));
 	bool moved = false;
@@ -303,7 +331,7 @@ static void update_fullscreen_layers(struct wb_server *server) {
 		if (!t->mapped || t->scene_tree == nullptr)
 			continue;
 		struct wb_toplevel *r = family_root(t);
-		struct wlr_scene_tree *target = server->toplevel_tree;
+		struct wlr_scene_tree *target = toplevel_layer_tree(server, t->layer);
 		if (r != nullptr && r == root && r->fullscreen) {
 			struct wlr_output *wo = get_active_output(r);
 			if (wo != nullptr && wo->data != nullptr)
@@ -477,13 +505,42 @@ void focus_current_desktop(struct wb_server *server) {
 }
 
 void wb_show_popup(struct wb_server *server, const std::string &text, int duration_ms) {
-	if (server->desktop_popup == nullptr) {
-		wb::Theme theme = server->config != nullptr ? server->config->theme
-				: wb::default_theme();
+	if (server->desktop_popup == nullptr)
 		server->desktop_popup = std::make_unique<wb::DesktopPopup>(server,
-				wb::switcher_style_from_theme(theme));
-	}
+				wb_osd_style(server));
 	server->desktop_popup->show(text, duration_ms);
+}
+
+wb::SwitcherStyle wb_osd_style(struct wb_server *server) {
+	if (server->config == nullptr)
+		return wb::switcher_style_from_theme(wb::default_theme());
+	return wb::osd_style(server->config->theme, server->config->osd);
+}
+
+int wb_identify_outputs(struct wb_server *server, const std::string &only, int duration_ms) {
+	/* The OSD's look, but always in the middle: it names the monitor. */
+	wb::SwitcherStyle base = wb_osd_style(server);
+	base.position = wb::OsdPosition::Center;
+	base.item_text.font.weight = 700;
+	server->identify_popups.clear();
+	int shown = 0;
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link) {
+		struct wlr_output *wo = o->wlr_output;
+		if (!wo->enabled || (!only.empty() && only != wo->name))
+			continue;
+		/* Big enough to read across the room: a twelfth of its height. */
+		struct wlr_box box = {};
+		wlr_output_layout_get_box(server->output_layout, wo, &box);
+		wb::SwitcherStyle style = base;
+		style.item_text.font.size_pt = std::clamp(box.height / 12, 36, 400);
+		auto popup = std::make_unique<wb::DesktopPopup>(server, style);
+		popup->show_on(wo, wo->name, duration_ms);
+		server->identify_popups.push_back(std::move(popup));
+		++shown;
+	}
+	wlr_log(WLR_INFO, "wb-identify %d", shown);
+	return shown;
 }
 
 /* Show the desktop's name for a moment (Openbox's <popupTime>). */
@@ -997,6 +1054,8 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 			apply_toplevel_decoration(toplevel);   /* wlr protocol mode */
 			update_toplevel_decoration(toplevel);  /* build/destroy our frame */
 		}
+		if (rule->layer.has_value())
+			set_toplevel_layer(toplevel, *rule->layer);
 		if (rule->maximized.value_or(false))
 			set_toplevel_maximized(toplevel, true, true);
 		if (rule->fullscreen.value_or(false))
@@ -1580,6 +1639,39 @@ static struct wb_toplevel *popup_root_toplevel(struct wlr_xdg_popup *xdg_popup) 
 	return NULL;
 }
 
+/* Flip, slide or resize the popup (as its positioner allows) to fit the
+ * output its window is on, below the top margin. False if it has no
+ * window or output to fit (nothing is scheduled then). */
+static bool popup_keep_on_screen(struct wb_popup *popup) {
+	struct wb_toplevel *toplevel = popup_root_toplevel(popup->xdg_popup);
+	if (toplevel == NULL)
+		return false;
+	struct wlr_output *wlr_output = wlr_output_layout_output_at(
+			toplevel->server->output_layout,
+			toplevel->geometry.x + popup->xdg_popup->scheduled.geometry.x,
+			toplevel->geometry.y + popup->xdg_popup->scheduled.geometry.y);
+	if (wlr_output == NULL)  /* its corner off every output: the window's */
+		wlr_output = wlr_output_layout_output_at(toplevel->server->output_layout,
+				toplevel->geometry.x, toplevel->geometry.y);
+	if (wlr_output == NULL || wlr_output->data == NULL)
+		return false;
+	struct wb_output *output = static_cast<struct wb_output *>(wlr_output->data);
+	int top = toplevel->server->config ? toplevel->server->config->margins.top : 0;
+	if (top < 0 || top >= output->geometry.height)
+		top = 0;
+	/* In the window's coordinates, as wlroots wants it. The top margin
+	 * moves the top edge down (a panel there). */
+	struct wlr_box box = {
+		.x = output->geometry.x - toplevel->geometry.x,
+		.y = output->geometry.y + top - toplevel->geometry.y,
+		.width = output->geometry.width,
+		.height = output->geometry.height - top,
+	};
+	/* Schedules the configure too. */
+	wlr_xdg_popup_unconstrain_from_box(popup->xdg_popup, &box);
+	return true;
+}
+
 static void xdg_popup_commit(struct wb_popup *popup, void *data) {
 	if (!popup->xdg_popup) return;
 	struct wlr_xdg_surface *base = popup->xdg_popup->base;
@@ -1596,35 +1688,11 @@ static void xdg_popup_commit(struct wb_popup *popup, void *data) {
 					static_cast<int32_t>(ceil(o->scale)));
 		}
 
-	/* Unconstrain the popup against its toplevel's output. This must happen
-	 * here, on the initial commit, rather than when the popup is created:
-	 * wlr_xdg_popup_unconstrain_from_box() schedules a configure, which
-	 * asserts the surface is initialized, and it is not yet initialized at
-	 * creation time. */
-	struct wb_toplevel *toplevel = popup_root_toplevel(popup->xdg_popup);
-	if (toplevel != NULL) {
-		struct wlr_output *wlr_output = wlr_output_layout_output_at(
-				toplevel->server->output_layout,
-				toplevel->geometry.x + popup->xdg_popup->current.geometry.x,
-				toplevel->geometry.y + popup->xdg_popup->current.geometry.y);
-		if (wlr_output != NULL && wlr_output->data != NULL) {
-			struct wb_output *output = static_cast<struct wb_output *>(wlr_output->data);
-			int top_margin = toplevel->server->config ?
-				toplevel->server->config->margins.top : 0;
-			struct wlr_box output_toplevel_box = {
-				.x = output->geometry.x - toplevel->geometry.x,
-				.y = output->geometry.y - toplevel->geometry.y,
-				.width = output->geometry.width,
-				.height = output->geometry.height - top_margin,
-			};
-			wlr_xdg_popup_unconstrain_from_box(popup->xdg_popup,
-					&output_toplevel_box);
-			/* unconstrain_from_box schedules the configure for us. */
-			return;
-		}
-	}
-
-	wlr_xdg_surface_schedule_configure(base);
+	/* Kept on screen from its first commit (not at creation:
+	 * unconstraining schedules a configure, which asserts the surface is
+	 * initialized), and again each time the client places it anew. */
+	if (!popup_keep_on_screen(popup))
+		wlr_xdg_surface_schedule_configure(base);
 }
 
 static void xdg_popup_destroy(struct wb_popup *popup, void *data) {
@@ -1655,6 +1723,14 @@ static void handle_new_xdg_popup(struct wb_server *server, void *data) {
 	popup->xdg_popup = xdg_popup;
 	popup->commit.connect(&xdg_popup->base->surface->events.commit,
 			[popup](void *data) { xdg_popup_commit(popup, data); });
+	/* Placed anew (GTK does it once it knows its size, and on each
+	 * change): kept on screen again. */
+	popup->reposition.connect(&xdg_popup->events.reposition,
+			[popup](void *) {
+				/* Before its first commit: done then. */
+				if (popup->xdg_popup->base->initialized)
+					popup_keep_on_screen(popup);
+			});
 	popup->destroy.connect(&xdg_popup->events.destroy,
 			[popup](void *data) { xdg_popup_destroy(popup, data); });
 }
@@ -1711,7 +1787,7 @@ void register_toplevel(struct wb_toplevel *toplevel) {
 			server->foreign_toplevel_list, &toplevel->foreign_toplevel_state);
 	/* The frame container: holds the client surface tree and, with
 	 * server-side decorations, the frame nodes. */
-	toplevel->scene_tree = wlr_scene_tree_create(server->toplevel_tree);
+	toplevel->scene_tree = wlr_scene_tree_create(toplevel_layer_tree(server, 0));
 	assign_scene_descriptor(&toplevel->scene_tree->node,
 			WB_SCENE_DESC_TOPLEVEL, toplevel);
 	toplevel->desktop = server->current_desktop;

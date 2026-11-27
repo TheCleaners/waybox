@@ -1,5 +1,5 @@
 project(
-  'Waybox',
+  'waybox',
   ['c', 'cpp'],
   version: '0.2.3',
   license: 'MIT',
@@ -17,7 +17,7 @@ project_args = [
   '-D_DEFAULT_SOURCE',
   '-DWL_HIDE_DEPRECATED', # Hide the deprecated parts of the Wayland API
   '-DWLR_USE_UNSTABLE',
-  '-DPACKAGE_NAME="' + meson.project_name() + '"',
+  '-DPACKAGE_NAME="Waybox"',
   '-DPACKAGE_VERSION="' + meson.project_version() + '"',
   '-DWB_SYSCONFDIR="' + get_option('prefix') / get_option('sysconfdir') + '"',
 ]
@@ -79,6 +79,7 @@ inc_dir = include_directories('include')
 # Defined here (always processed) so the unit tests can build in tests_only mode
 # without configuring the full compositor.
 action_src = files('waybox/action.cpp')
+conditions_src = files('waybox/conditions.cpp')
 window_cycle_src = files('waybox/window_cycle.cpp')
 geometry_src = files('waybox/geometry.cpp')
 mousebind_src = files('waybox/mousebind.cpp')
@@ -107,6 +108,18 @@ wb_version_cmd = ['git', '-C', meson.project_source_root(), 'describe', '--tags'
   '--dirty', '--always', '--abbrev=12']
 version_in = files('version.h.in')
 integrations_src = files('waybox/integrations.cpp')
+monitor_layout_src = files('waybox/monitor_layout.cpp')
+bell_style_src = files('waybox/bell_style.cpp')
+color_text_src = files('waybox/color_text.cpp')
+xcursor_themes_src = files('waybox/xcursor_themes.cpp')
+change_list_src = files('waybox/change_list.cpp')
+setting_problems_src = files('waybox/setting_problems.cpp')
+page_protocol_src = files('waybox/page_protocol.cpp')
+ini_doc_src = files('waybox/ini_doc.cpp')
+jsonc_doc_src = files('waybox/jsonc_doc.cpp')
+toml_doc_src = files('waybox/toml_doc.cpp')
+name_list_src = files('waybox/name_list.cpp')
+font_spec_src = files('waybox/font_spec.cpp')
 startup_sources_src = files('waybox/startup_sources.cpp')
 gtk_appearance_src = files('waybox/gtk_appearance.cpp')
 stall_src = files('waybox/stall.cpp')
@@ -181,6 +194,17 @@ if not tests_only
   endif
 endif
 
+# waybox-check-integration: an integration file checked as wbconf reads it,
+# for packagers and CI. Pure C++ (built in tests_only too).
+waybox_check_integration = executable('waybox-check-integration',
+  ['msg/waybox-check-integration.cpp', integrations_src, startup_src, page_protocol_src,
+   json_src],
+  include_directories: [inc_dir],
+  cpp_args: ['-DWB_PAGE_RUNNER="' + get_option('prefix') / get_option('libexecdir') /
+             'wbconf-lua' + '"'],
+  install: not get_option('tests_only'),
+)
+
 # waybox-msg: the scripting socket from the shell.
 if not get_option('tests_only')
   msg_version_h = vcs_tag(
@@ -196,4 +220,17 @@ if not get_option('tests_only')
   )
 endif
 
+# The Python module for the scripting socket (python/waybox): standard
+# library only, installed where the system's Python 3 finds modules.
+py_installation = import('python').find_installation('python3',
+  required: get_option('python'))
+if py_installation.found() and not get_option('python').disabled()
+  py_installation.install_sources('python/waybox/__init__.py', subdir: 'waybox')
+endif
+python_src_dir = meson.project_source_root() / 'python'
+
 subdir('test')
+
+# The release tarball (meson dist) without the images git keeps for the
+# README and the documentation's gallery.
+meson.add_dist_script('tools/dist.sh')

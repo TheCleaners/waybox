@@ -1,6 +1,8 @@
 #ifndef WB_IPC_H
 #define WB_IPC_H
 
+#include <string>
+
 #include "waybox/server.h"
 
 struct wb_toplevel;
@@ -18,8 +20,10 @@ struct wb_toplevel;
  *       (any rc.xml action; "command", "to", "direction", "wrap",
  *       "follow" as in rc.xml; "window": an id, "app_id:X", "title:X" or
  *       "focused" (the default))
+ *   {"request": "pick_color"}  -> the next click's color: {"ok": true,
+ *       "color": "#rrggbb"} (Escape, a right click, 30 s: an error)
  *   {"request": "subscribe", "events": ["window", "desktop", "output",
- *       "config"]}  -> then {"event": "window", "change": "new"|"close"|
+ *       "config", "bell"]}  -> then {"event": "window", "change": "new"|"close"|
  *       "focus"|"title", "window": {...}} and so on as they happen.
  *
  * Only the user running Waybox can connect.
@@ -31,5 +35,8 @@ void ipc_finish(struct wb_server *server);
 void ipc_window_event(struct wb_toplevel *toplevel, const char *change);
 void ipc_desktop_event(struct wb_server *server);
 void ipc_output_event(struct wb_server *server, struct wlr_output *output, const char *change);
+/* A bell rang (from `t`, or no window), and what it showed. */
+void ipc_bell_event(struct wb_server *server, struct wb_toplevel *t, const std::string &shown,
+		int skipped);
 
 #endif

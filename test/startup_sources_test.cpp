@@ -133,3 +133,79 @@ WB_TEST(script_start_command_strips) {
 	WB_CHECK(wb::script_start_command("which x && x --opt 'a && b' &") == "x --opt 'a && b'");
 	WB_CHECK(wb::script_start_command("foo") == "foo");
 }
+
+WB_TEST(script_lines_that_are_not_start_lines) {
+	/* Lines that look like "prog &" but aren't commands of their own:
+	 * switching them off would corrupt the script. */
+	const char *script = R"SH(#!/bin/sh
+cat > ~/.config/thing.conf <<EOF
+swaybg &
+EOF
+cat <<-'END'
+	mako &
+	END
+long_command --option \
+    waybar &
+MSG="first line
+kanshi &
+last line"
+wlsunset &
+)SH";
+	std::vector<wb::ScriptEntry> entries = wb::script_entries(script);
+	/* Only wlsunset is a start line of its own. */
+	WB_CHECK(entries.size() == 1);
+	WB_CHECK(!entries.empty() && entries[0].program == "wlsunset" && entries[0].line == 12);
+	/* None of the others counts as started at all. */
+	for (const char *p : {"swaybg", "mako", "kanshi"}) {
+		wb::ScriptStarters s = wb::script_starters(script, p);
+		WB_CHECK(s.lines.empty() && !s.elsewhere);
+	}
+	/* waybar is really started, by a continued command: elsewhere, not a
+	 * line to switch. */
+	wb::ScriptStarters w = wb::script_starters(script, "waybar");
+	WB_CHECK(w.lines.empty() && w.elsewhere);
+	/* Switching a here-doc, continuation or string line is refused (the
+	 * script comes back as it was). */
+	WB_CHECK(wb::script_set_enabled(script, 2, false) == script);
+	WB_CHECK(wb::script_set_enabled(script, 8, false) == script);
+	WB_CHECK(wb::script_set_enabled(script, 10, false) == script);
+}
+
+WB_TEST(script_starters_mentions_are_runs) {
+	/* A function that only names the program (a message, a check, a kill)
+	 * doesn't start it. */
+	const char *script = R"SH(#!/bin/sh
+announce() {
+    notify-send "swaybg started"
+    pkill swaybg
+    command -v swaybg >/dev/null
+}
+announce &
+start() {
+    command -v swaybg >/dev/null && swaybg -c '#000' &
+}
+start &
+)SH";
+	wb::ScriptStarters s = wb::script_starters(script, "swaybg");
+	WB_CHECK(s.lines.size() == 1);
+	WB_CHECK(!s.lines.empty() && s.lines[0].program == "start");
+	WB_CHECK(!s.elsewhere);
+}
+
+WB_TEST(find_script_entry_after_changes) {
+	auto was = wb::script_entries("#!/bin/sh\nmako &\nwaybar &\n");
+	WB_CHECK(wb::find_script_entry(was, "mako &", 1) == 1);
+	/* A line put above: found where it went. */
+	auto now = wb::script_entries("#!/bin/sh\nkanshi &\nmako &\nwaybar &\n");
+	WB_CHECK(wb::find_script_entry(now, "mako &", 1) == 2);
+	/* Commented out since: still the entry. */
+	auto off = wb::script_entries("#!/bin/sh\n#mako &\nwaybar &\n");
+	WB_CHECK(wb::find_script_entry(off, "mako &", 1) == 1);
+	/* Gone. */
+	WB_CHECK(wb::find_script_entry(now, "dunst &", 1) == -1);
+	/* Twice: the one nearest where it was. */
+	auto twice = wb::script_entries("#!/bin/sh\nfoo &\nbar &\nbaz &\nfoo &\n");
+	WB_CHECK(wb::find_script_entry(twice, "foo &", 1) == 1);
+	WB_CHECK(wb::find_script_entry(twice, "foo &", 5) == 4);
+}
+

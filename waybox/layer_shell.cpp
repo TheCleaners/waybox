@@ -26,8 +26,10 @@ void assign_scene_descriptor(struct wlr_scene_node *node,
 	node->data = desc;
 }
 
+/* One layer's surfaces: those reserving space (an exclusive zone above 0),
+ * or the others. */
 static void arrange_surface(struct wb_output *output, struct wlr_box *full_area,
-		struct wlr_box *usable_area, struct wlr_scene_tree *scene_tree) {
+		struct wlr_box *usable_area, struct wlr_scene_tree *scene_tree, bool exclusive) {
 	struct wlr_scene_node *node;
 	wl_list_for_each(node, &scene_tree->children, link) {
 		struct wb_scene_descriptor *desc = static_cast<struct wb_scene_descriptor *>(node->data);
@@ -40,6 +42,9 @@ static void arrange_surface(struct wb_output *output, struct wlr_box *full_area,
 			/* Configure only after the client's initial commit (the
 			 * protocol's order); that commit arranges it. */
 			if (!surface->scene->layer_surface->initialized)
+				continue;
+			bool reserves = surface->scene->layer_surface->current.exclusive_zone > 0;
+			if (reserves != exclusive)
 				continue;
 			wlr_scene_layer_surface_v1_configure(surface->scene,
 					full_area, usable_area);
@@ -70,10 +75,17 @@ void arrange_layers(struct wb_output *output) {
 
 	memcpy(&full_area, &usable_area, sizeof(struct wlr_box));
 
-	arrange_surface(output, &full_area, &usable_area, output->layers.shell_background);
-	arrange_surface(output, &full_area, &usable_area, output->layers.shell_bottom);
-	arrange_surface(output, &full_area, &usable_area, output->layers.shell_top);
-	arrange_surface(output, &full_area, &usable_area, output->layers.shell_overlay);
+	/* Two passes, as the protocol has it: first every surface reserving
+	 * space (a panel), from the top layer down, so that a surface keeping
+	 * clear of panels (exclusive zone 0) does, whatever their layers; then
+	 * the rest, within what's left (or the whole output, for -1). */
+	struct wlr_scene_tree *top_down[] = {output->layers.shell_overlay,
+			output->layers.shell_top, output->layers.shell_bottom,
+			output->layers.shell_background};
+	for (struct wlr_scene_tree *tree : top_down)
+		arrange_surface(output, &full_area, &usable_area, tree, true);
+	for (struct wlr_scene_tree *tree : top_down)
+		arrange_surface(output, &full_area, &usable_area, tree, false);
 
 	/* Remember the area left over after subtracting layer-shell exclusive
 	 * zones (e.g. a panel like Waybar) so that toplevels can be placed and
@@ -310,6 +322,18 @@ static struct wb_layer_popup *create_popup(struct wlr_xdg_popup *wlr_popup,
 
 	popup->commit.connect(&wlr_popup->base->surface->events.commit,
 			[popup](void *data) { popup_handle_commit(popup, data); });
+	/* Placed anew by the client: kept on screen again. Let go when the
+	 * popup role goes (wlroots asserts nothing listens then; the surface's
+	 * destroy, below, may come after). */
+	popup->reposition.connect(&wlr_popup->events.reposition,
+			[popup](void *) {
+				if (popup->wlr_popup->base->initialized)  /* else at its first commit */
+					popup_unconstrain(popup);
+			});
+	popup->popup_destroy.connect(&wlr_popup->events.destroy, [popup](void *) {
+		popup->reposition.disconnect();
+		popup->popup_destroy.disconnect();
+	});
 	popup->destroy.connect(&wlr_popup->base->events.destroy,
 			[popup](void *data) { popup_handle_destroy(popup, data); });
 	popup->new_popup.connect(&wlr_popup->base->events.new_popup,

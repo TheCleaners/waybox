@@ -31,6 +31,7 @@ struct AppRule {
 	std::optional<bool> iconic;      /* start minimised */
 	std::optional<bool> focus;       /* whether to focus on map */
 	std::optional<bool> decor;       /* server-side decorations on/off */
+	std::optional<int> layer;        /* <layer>: -1 below, 0 normal, 1 above */
 	/* Desktop to open on (0-based), or kAllDesktops for every desktop. */
 	static constexpr int kAllDesktops = -1;
 	std::optional<int> desktop;

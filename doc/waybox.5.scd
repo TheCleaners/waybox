@@ -46,7 +46,11 @@ The root element is *<openbox_config xmlns="http://openbox.org/3.4/rc">*.
 *<name>* is an Openbox theme (see *THEMES*). *<font>* sets the font for a
 _place_: *ActiveWindow*, *InactiveWindow*, *MenuHeader*, *MenuItem* or
 *ActiveOnScreenDisplay* (the window switcher). *<weight>* is *bold* or
-*normal*.
+*normal*, as in Openbox, or another weight: *thin*, *extralight*, *light*,
+*medium*, *semibold*, *extrabold*, *black* (or a number, 100 to 1000).
+*<slant>* is *italic* (or *oblique*) or *normal*, as in Openbox. *<width>*
+is Waybox's own (Openbox ignores it): *condensed*, *semicondensed*,
+*expanded* and the like, drawn where the font has them.
 
 *<titleLayout>* lays out the titlebar, as in Openbox: *N* the window's icon,
 *L* the title, *I* iconify, *M* maximize, *C* close, *S* shade (roll up or
@@ -82,7 +86,7 @@ turns it off.
 *<policy>* is where new windows go: *Smart* (avoid other windows, the
 default), *Center* or *UnderMouse*. New windows open on the monitor with the
 pointer (X11 windows start from the position they ask for); a dialog opens
-centred over its parent window. *<margins>* keeps
+centered over its parent window. *<margins>* keeps
 space free at the screen edges, in pixels, in addition to the space panels
 reserve.
 
@@ -155,13 +159,32 @@ Num Lock don't matter.
 A scroll-wheel notch is a *Press* and a *Click* of *Up* or *Down*. Touchpad
 scrolling is not.
 
-The contexts are *Root* or *Desktop* (the empty desktop), *Client* (inside
-a window), *Titlebar*, *Icon* (the window icon in the titlebar), *Top*,
-*Bottom*, *Left* and *Right* (the borders of a window with a server-side
-frame), and *Frame* (anywhere on a window). For a window context, the window
-is focused before the actions run. Clicks on panels go to the panel, and the
-titlebar buttons work on their own; without an *Icon* binding, clicking the
-icon opens the window menu.
+The contexts are:
+- *Root*: the empty desktop.
+- *Desktop*: the empty desktop, and also desktop surfaces, which are the
+  background and bottom layers. A desktop-icon program (pcmanfm-qt's desktop,
+  xfdesktop) draws there, as do wallpaper programs that take input.
+- *Client*: inside a window.
+- *Titlebar*.
+- *Icon*: the window icon in the titlebar.
+- *Top*, *Bottom*, *Left* and *Right*: the borders of a window with a
+  server-side frame.
+- *Frame*: anywhere on a window.
+
+*Desktop* bindings on a desktop program behave as in Openbox:
+- **They run, and the program still gets the click**, as a window does for
+  *Client* bindings. A configuration from Openbox, with *Focus*, *Raise* or
+  desktop switching on the wheel in *Desktop*, leaves desktop icons working.
+- **A binding that opens a menu (*ShowMenu*) is the exception:** that click
+  goes to the menu only, so the program doesn't open its own under it. To
+  keep the root menu on right-click with a desktop-icon program running,
+  bind *ShowMenu* in *Desktop*.
+
+A *Root* binding leaves desktop programs alone.
+
+For a window context, the window is focused before the actions run. Clicks on
+panels go to the panel, and the titlebar buttons work on their own; without an
+*Icon* binding, clicking the icon opens the window menu.
 
 Without any binding, dragging a titlebar or border moves or resizes the
 window, and so do Alt+left-drag and Alt+right-drag anywhere on a window. A
@@ -225,6 +248,8 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 :[ server-side decorations on or off
 |  *<desktop>*
 :[ the desktop to open on (1, 2, ...), or *all*
+|  *<layer>*
+:[ *above* (always on top), *normal* or *below* (always on bottom)
 
 ## Waybox extensions
 
@@ -238,7 +263,9 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
   <virtualInput allow="unlocked"/>
   <xwayland enabled="yes"/>
   <bell flash="yes" command="paplay /usr/share/sounds/freedesktop/stereo/bell.oga"/>
+  <osd position="bottom" opacity="90" cornerRadius="8"/>
   <hdr outputs="HDMI-A-1"/>
+  <cursor theme="Adwaita" size="32"/>
   <outputs>
     <output name="HDMI-A-1" mode="3840x2160@60" scale="1.5" position="0,0"/>
     <output make="Dell Inc." serial="ABC123" position="2560,0"/>
@@ -293,18 +320,58 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 	Run X11 programs through Xwayland, started when the first one
 	connects (default *yes*).
 
+*<osd>*
+	The on-screen displays: the window switcher, the desktop name, the
+	bell's note and *wb.osd*'s messages. Each attribute is optional; unset,
+	the theme decides (see *THEMES*).
+	- *position*: *center* (default), *top* or *bottom* of the monitor (a
+	  tenth of its height in from the edge). Identify always shows in the
+	  middle.
+	- *opacity*: percent, 10 to 100.
+	- *cornerRadius*: pixels, 0 to 64.
+	- *bg*, *text*, *border*: *#rrggbb* or *#rrggbbaa*, over the theme's.
+	The font is *<theme><font place="ActiveOnScreenDisplay">*.
+
 *<bell>*
 	What a program ringing the bell (a terminal's \\a, a toolkit's error
-	beep) does; nothing unless set. *flash*: briefly flash the window that
-	rang (or the monitor under the pointer). *command*: run it (through
-	*sh*), at most once per quick burst of rings.
+	beep) does; nothing unless set.
+	- *flash*: *yes* (or *window*) flashes the window that rang; *border*
+	  only its edges, *width* pixels thick (1 to 64, default 4); *screen*
+	  the whole monitor; *osd* shows a note naming the window instead of
+	  flashing; *no*. A ring from no window flashes the monitor under the
+	  pointer.
+	- *color*: *#rrggbb* or *#rrggbbaa* (default *#ffffff80*).
+	- *duration*: milliseconds each flash lasts, 50 to 2000 (default 150);
+	  for *osd*, how long the note shows, up to 10000 (default 1500).
+	- *count*: flashes per ring, 1 to 5 (default 1).
+	- *command*: run it (through *sh*), at most once per quick burst of
+	  rings.
+
+	Flashes never start more than 3 times a second, whatever the settings:
+	a ring while the bell is still showing, or too soon after the last
+	that counted, does nothing at all (no flash, command, script or
+	event); the next that counts says how many there were. A Lua *bell*
+	policy can decide ring by ring (see *waybox-lua*(5)).
+
+*<cursor>*
+	The pointer: *theme* (a cursor theme's folder name, such as Adwaita)
+	and *size* (8 to 512). Waybox draws it for itself, for programs that
+	ask it to (most do: GTK 4, Qt 6, Firefox, Chromium) and for X11
+	programs; programs started afterwards get *XCURSOR_THEME* and
+	*XCURSOR_SIZE* to match. Applied at once on Reconfigure. Unset, the
+	*XCURSOR_THEME* and *XCURSOR_SIZE* Waybox was started with apply, else
+	the default theme at 24. A theme with no cursors of its own or through
+	what it inherits (a "default" whose *index.theme* inherits nothing,
+	say) is logged as an error, and Adwaita (or another installed cursor
+	theme) is used instead. wbconf's pointer settings write the theme and
+	size together, and GTK's own setting with them.
 
 *<hdr>*
 	*outputs* lists outputs (by name, separated by spaces) to drive in
 	HDR10: BT.2020 primaries and the PQ transfer function, 10 bits per
 	channel. It needs the Vulkan renderer (the default on real displays;
 	see *WLR_RENDERER* in *waybox*(1)) and an output that supports HDR10; otherwise, or if the output refuses it,
-	the output stays in SDR and the log says why. Colour-managed programs
+	the output stays in SDR and the log says why. Color-managed programs
 	(see *waybox*(1)) then show HDR content on it.
 
 *<outputs>*
@@ -350,13 +417,22 @@ act on a window use the focused one.
 *Close*, *Iconify*, *Raise*, *Lower*
 	Close, minimize, raise or lower the window.
 
-*ToggleMaximize*, *ToggleMaximizeHorizontal*, *ToggleMaximizeVertical*
-	Maximize, or maximize in one direction only.
+*Focus*
+	Give the window keyboard focus: it's raised, brought back if minimized,
+	and its desktop is shown if it's on another.
 
-*Fullscreen*
-	Toggle fullscreen.
+*Maximize*, *Unmaximize*, *ToggleMaximize*
+	Maximize, restore, or toggle. *<direction>* is *both* (the default),
+	*horizontal* (*horz*) or *vertical* (*vert*). In one direction, the
+	toggle looks only at that direction. As in Openbox, the direction can
+	be in the name instead: *MaximizeFull*, *MaximizeHorz*, *MaximizeVert*,
+	and likewise for *Unmaximize* and *ToggleMaximize*. Waybox's earlier
+	names *ToggleMaximizeHorizontal* and *ToggleMaximizeVertical* still work.
 
-*Shade*, *Unshade*
+*ToggleFullscreen*
+	Toggle fullscreen. (*Fullscreen*, Waybox's earlier name, still works.)
+
+*Shade*, *Unshade*, *ToggleShade*
 	Roll the window up to its titlebar, hiding its contents, and back down.
 	Only windows with a server-side titlebar can be rolled up.
 
@@ -367,6 +443,39 @@ act on a window use the focused one.
 
 *ToggleDecorations*
 	Turn server-side decorations on or off.
+
+*If*
+	Run *<then>*'s actions if the conditions hold, else *<else>*'s.
+	The conditions sit in the action itself, or in *<query>* elements,
+	all of which must hold; *<query target="focus">* asks about the focused
+	window instead of the one the action is for. The conditions:
+	- *<shaded>*, *<maximized>*, *<maximizedhorizontal>*,
+	  *<maximizedvertical>*, *<iconified>*, *<fullscreen>*, *<focused>*,
+	  *<focusable>*, *<undecorated>*, *<omnipresent>*, *<urgent>*:
+	  *yes* or *no*. Waybox keeps no urgency, so *<urgent>yes</urgent>*
+	  never holds.
+	- *<desktop>*: a number, *current*, *other* or *last*.
+	- *<activedesktop>*: the number of the desktop shown. It holds even
+	  with no window.
+	- *<monitor>*: a number, counting the monitors in the order *waybox-msg
+	  get_outputs* lists them.
+	- *<title>*, *<class>*, *<name>*, *<role>*, *<type>*: text to match,
+	  with *type="pattern"* (a pattern with *\** and *?*, the default),
+	  *"regex"* (found anywhere) or *"exact"*. Wayland programs have one
+	  name, their app id, so *<class>* and *<name>* both match it. *<role>*
+	  matches the window's tag, and *<type>* is *dialog* for a window with
+	  a parent, *normal* otherwise.
+
+	An *If* never ends its own list: the actions after it still run.
+
+*ForEach*
+	The same test on every window, oldest first. For each window, *<then>*
+	or *<else>* runs with that window as the one they act on. If no window
+	matched, *<none>* runs.
+
+*Stop*
+	The actions after it in its list don't run. In a *ForEach*, it also
+	ends the loop over windows.
 
 *GoToDesktop*
 	Go to the desktop in *<to>*: a number, *left*/*previous*,
@@ -379,6 +488,15 @@ act on a window use the focused one.
 
 *ToggleOmnipresent*
 	Show the window on all desktops, or only the current one.
+
+*SendToTopLayer*, *SendToNormalLayer*, *SendToBottomLayer*
+	Put the window in a layer: always on top, with the others, or always on
+	bottom. Raising and lowering stay within a window's layer; panels stay
+	above all three, and the active fullscreen window above them.
+
+*ToggleAlwaysOnTop*, *ToggleAlwaysOnBottom*
+	Between that layer and the normal one. The window menu's *Layer*
+	submenu does the same.
 
 *SnapToEdge*
 	Tile the window: *<direction>* is *left*, *right*, *up* (maximize),
@@ -433,6 +551,15 @@ _name_ in _$XDG_DATA_HOME/themes_ (normally _~/.local/share/themes_),
 _~/.themes_, and the _themes_ directory of each entry in *XDG_DATA_DIRS*.
 Openbox themes work as they are.
 
+The on-screen displays use Openbox's *osd.\** keys where a theme has them:
+*osd.bg* (and its *.color*, *.colorTo*), *osd.border.width*,
+*osd.border.color*, *osd.label.text.color* (or
+*osd.inactive.label.text.color*), and for the switcher's selected row
+*osd.hilight.bg* and *osd.active.label.text.color*. What a theme leaves
+out comes from its menu: *menu.items.bg*, *menu.items.text.color*,
+*menu.items.active.bg*, the border, *waybox.menu.corner.radius* and
+*waybox.menu.opacity*. *<osd>* in rc.xml goes over both.
+
 # SEE ALSO
 
-*waybox*(1), *openbox*(1), *xkeyboard-config*(7), *libinput*(4)
+*waybox*(1), *waybox-integration*(5), *openbox*(1), *xkeyboard-config*(7), *libinput*(4)

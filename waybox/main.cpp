@@ -129,9 +129,8 @@ int main(int argc, char **argv) {
 	 * it starts and hands to D-Bus, need them too. */
 	startup_apply_env(&server);
 	if (startup_cmd) {
-		wb_spawn(startup_cmd);
+		wb_spawn(startup_cmd);  /* the scripting socket open: it gets WAYBOX_SOCK */
 	}
-	ipc_reconfigured(&server);  /* before startup programs: they get WAYBOX_SOCK */
 	startup_apply(&server);
 	idle_reconfigured(&server);  /* start counting for <idle screenOff> */
 

@@ -1,6 +1,7 @@
 #include "waybox/startup_sources.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <set>
 #include <map>
 #include <sstream>
@@ -175,6 +176,125 @@ bool uncomment(std::string_view line, std::string &rest) {
 	return true;
 }
 
+/* What a line of a script is, so only lines that are commands of their own
+ * are ever offered to be switched:
+ *   Code       a line of its own (or a comment)
+ *   Continued  part of a command spanning lines: it ends with "\", or the
+ *              line before it did
+ *   Data       inside a here-document (<<WORD ... WORD, its end line
+ *              included) or a quoted string that spans lines */
+enum class LineKind { Code, Continued, Data };
+
+std::vector<LineKind> classify_lines(const std::vector<std::string> &lines) {
+	std::vector<LineKind> kinds(lines.size(), LineKind::Code);
+	struct Heredoc { std::string word; bool strip_tabs; };
+	std::vector<Heredoc> pending;  /* here-docs started, in order */
+	char open_quote = 0;           /* a quote left open by an earlier line */
+	bool continued = false;        /* the line before ended with "\" */
+	for (size_t n = 0; n < lines.size(); ++n) {
+		const std::string &l = lines[n];
+		if (!pending.empty()) {
+			kinds[n] = LineKind::Data;
+			std::string_view body = l;
+			if (pending.front().strip_tabs)
+				while (!body.empty() && body.front() == '\t')
+					body.remove_prefix(1);
+			if (!body.empty() && body.back() == '\r')
+				body.remove_suffix(1);
+			if (body == pending.front().word)
+				pending.erase(pending.begin());
+			continue;
+		}
+		size_t i = 0;
+		if (open_quote != 0) {
+			kinds[n] = LineKind::Data;
+			/* Up to the closing quote; the rest of the line is scanned on. */
+			for (; i < l.size(); ++i) {
+				if (l[i] == '\\' && open_quote == '"') {
+					++i;
+				} else if (l[i] == open_quote) {
+					open_quote = 0;
+					++i;
+					break;
+				}
+			}
+			if (open_quote != 0)
+				continue;
+		} else if (continued) {
+			kinds[n] = LineKind::Continued;
+		} else {
+			std::string_view t = trim(l);
+			if (!t.empty() && t.front() == '#')
+				continue;  /* a comment: nothing in it counts */
+		}
+		/* The rest: quotes, comments, here-doc starts, a final backslash. */
+		bool word_start = true, escaped_end = false;
+		char quote = 0;
+		for (; i < l.size(); ++i) {
+			char c = l[i];
+			escaped_end = false;
+			if (quote != 0) {
+				if (c == '\\' && quote == '"' && i + 1 < l.size())
+					++i;
+				else if (c == quote)
+					quote = 0;
+				continue;
+			}
+			if (c == '\\') {
+				if (i + 1 == l.size())
+					escaped_end = true;
+				else
+					++i;
+				word_start = false;
+				continue;
+			}
+			if (c == '\'' || c == '"') {
+				quote = c;
+				word_start = false;
+				continue;
+			}
+			if (c == '#' && word_start)
+				break;
+			if (c == '<' && i + 1 < l.size() && l[i + 1] == '<' &&
+					(i + 2 >= l.size() || l[i + 2] != '<')) {
+				i += 2;
+				bool strip = i < l.size() && l[i] == '-';
+				if (strip)
+					++i;
+				while (i < l.size() && (l[i] == ' ' || l[i] == '\t'))
+					++i;
+				std::string word;
+				for (; i < l.size(); ++i) {
+					char w = l[i];
+					if (w == '\'' || w == '"' || w == '\\')
+						continue;  /* <<'EOF', <<"EOF", <<\EOF: the word unquoted */
+					if (w == ' ' || w == '\t' || w == ';' || w == '&' || w == '|' ||
+							w == '>' || w == '<' || w == ')')
+						break;
+					word += w;
+				}
+				if (!word.empty())
+					pending.push_back({word, strip});
+				--i;
+				word_start = false;
+				continue;
+			}
+			word_start = c == ' ' || c == '\t' || c == ';' || c == '&' || c == '|' ||
+					c == '(' || c == ')';
+		}
+		if (quote != 0) {
+			open_quote = quote;
+			kinds[n] = LineKind::Data;  /* opens a string: not a line of its own */
+		}
+		/* "\" at the end continues the command on the next line. */
+		bool ends_continued = escaped_end && quote == 0;
+		if (ends_continued && kinds[n] == LineKind::Code)
+			kinds[n] = LineKind::Continued;
+		continued = ends_continued;
+	}
+	return kinds;
+}
+
 /* "name() {" or "function name": a shell function's name, else "". */
 std::string function_defined(std::string_view line) {
 	std::string_view l = trim(line);
@@ -197,19 +317,23 @@ std::string function_defined(std::string_view line) {
 std::vector<ScriptEntry> script_entries(std::string_view script) {
 	std::vector<ScriptEntry> out;
 	std::vector<std::string> lines = split_lines(script);
+	std::vector<LineKind> kinds = classify_lines(lines);
 	std::vector<std::string> functions;
-	for (const std::string &l : lines)
-		if (std::string f = function_defined(l); !f.empty())
-			functions.push_back(f);
+	for (size_t n = 0; n < lines.size(); ++n)
+		if (kinds[n] == LineKind::Code)
+			if (std::string f = function_defined(lines[n]); !f.empty())
+				functions.push_back(f);
 	int depth = 0;
 	for (size_t n = 0; n < lines.size(); ++n) {
+		if (kinds[n] == LineKind::Data)
+			continue;
 		std::string commented;
 		bool is_comment = uncomment(lines[n], commented);
 		std::vector<std::string> words;
 		if (!shell_words(is_comment ? std::string_view(commented)
 				: std::string_view(lines[n]), words))
 			continue;
-		if (depth == 0) {
+		if (depth == 0 && kinds[n] == LineKind::Code) {
 			std::string prog = simple_start(words);
 			if (!prog.empty()) {
 				ScriptEntry e;
@@ -231,28 +355,45 @@ std::vector<ScriptEntry> script_entries(std::string_view script) {
 
 namespace {
 
-/* Whether `line` (code, not a comment) names `program` as a word. */
+/* Whether `line` (code, not a comment) may run `program`: it's a word of
+ * its own, not in quotes ("swaybg started"), not a redirection, and not
+ * what a check or a kill names (which, command -v, pkill, ...). */
 bool mentions(std::string_view line, const std::string &program) {
-	std::string word;
-	bool found = false;
-	auto flush = [&] {
-		if (!word.empty()) {
-			size_t slash = word.rfind('/');
-			if (word.substr(slash == std::string::npos ? 0 : slash + 1) == program)
-				found = true;
+	std::vector<std::string> words;
+	if (!shell_words(line, words))
+		return false;
+	static const char *const kNames[] = {"which", "type", "hash", "pkill", "killall",
+			"pgrep", "pidof", "kill"};
+	bool skip_next = false;
+	for (size_t i = 0; i < words.size(); ++i) {
+		const std::string &w = words[i];
+		if (skip_next) {
+			skip_next = false;
+			if (!w.empty() && w[0] != '-')
+				continue;
+			skip_next = true;  /* past its options */
+			continue;
 		}
-		word.clear();
-	};
-	for (char c : trim(line)) {
-		if (c == '#' && word.empty())
-			break;
-		if (std::string_view(" \t;&|()<>'\"`$={}").find(c) != std::string_view::npos)
-			flush();
-		else
-			word += c;
+		/* (A quoted word keeps its quotes, so "swaybg started" never
+		 * equals a program's name.) */
+		if (w.empty() || is_redirection(w))
+			continue;
+		size_t slash = w.rfind('/');
+		std::string base = w.substr(slash == std::string::npos ? 0 : slash + 1);
+		if (std::find(std::begin(kNames), std::end(kNames), base) != std::end(kNames)) {
+			skip_next = true;
+			continue;
+		}
+		if (base == "command" && i + 1 < words.size() &&
+				(words[i + 1] == "-v" || words[i + 1] == "-V")) {
+			++i;
+			skip_next = true;
+			continue;
+		}
+		if (base == program)
+			return true;
 	}
-	flush();
-	return found;
+	return false;
 }
 
 }  // namespace
@@ -288,10 +429,14 @@ std::string script_start_command(std::string_view line) {
 ScriptStarters script_starters(std::string_view script, const std::string &program) {
 	ScriptStarters out;
 	std::vector<std::string> lines = split_lines(script);
+	std::vector<LineKind> kinds = classify_lines(lines);
+	auto data = [&kinds](size_t n) { return kinds[n] == LineKind::Data; };
 	/* Function bodies: from "name() {" until its braces close. */
 	std::map<std::string, bool> runs;  /* function -> runs the program */
 	std::vector<bool> in_body(lines.size(), false);
 	for (size_t n = 0; n < lines.size(); ++n) {
+		if (kinds[n] != LineKind::Code)
+			continue;
 		std::string name = function_defined(lines[n]);
 		if (name.empty())
 			continue;
@@ -300,8 +445,10 @@ ScriptStarters script_starters(std::string_view script, const std::string &progr
 		size_t m = n;
 		for (; m < lines.size(); ++m) {
 			std::string commented;
-			if (uncomment(lines[m], commented))
+			if (data(m) || uncomment(lines[m], commented)) {
+				in_body[m] = true;
 				continue;
+			}
 			in_body[m] = true;
 			if (m > n && mentions(lines[m], program))
 				found = true;
@@ -333,7 +480,7 @@ ScriptStarters script_starters(std::string_view script, const std::string &progr
 	}
 	for (size_t n = 0; n < lines.size(); ++n) {
 		std::string commented;
-		if (in_body[n] || entry_lines.count(static_cast<int>(n)) ||
+		if (in_body[n] || data(n) || entry_lines.count(static_cast<int>(n)) ||
 				uncomment(lines[n], commented))
 			continue;
 		if (mentions(lines[n], program))
@@ -346,7 +493,8 @@ ScriptStarters script_starters(std::string_view script, const std::string &progr
 			bool called = false;
 			for (size_t n = 0; n < lines.size(); ++n) {
 				std::string commented;
-				if (!in_body[n] && !uncomment(lines[n], commented) && mentions(lines[n], name))
+				if (!in_body[n] && !data(n) && !uncomment(lines[n], commented) &&
+						mentions(lines[n], name))
 					called = true;
 			}
 			if (called)
@@ -520,6 +668,14 @@ std::string autostart_set_enabled(std::string_view text, bool on) {
 	for (size_t i = 0; i < out.size(); ++i)
 		s += out[i] + "\n";
 	return s;
+}
+
+int find_script_entry(const std::vector<ScriptEntry> &now, const std::string &command, int was) {
+	int best = -1;
+	for (const ScriptEntry &e : now)
+		if (e.command == command && (best < 0 || std::abs(e.line - was) < std::abs(best - was)))
+			best = e.line;
+	return best;
 }
 
 }  // namespace wb

@@ -13,12 +13,29 @@
  *   Exec=wlsunset -l 51.5 -L -0.1
  *   Binary=wlsunset
  *
+ *   Configure=wlsunset-gui (its own settings tool, if it has one)
+ *   Page=wallpaper        (a page of wbconf's for it, if there's one)
+ *   Manages=outputs       (it sets monitors itself, as kanshi: wbconf says
+ *                          so while it runs)
+ *
  *   Kind=binding          (run from a key, not at startup)
  *   Key=W-period          (the key it suggests)
  *
  *   [Option latitude]
  *   Label=Latitude
  *   Flag=-l
+ *   Type=number           (wbconf's widget for it; text if not given)
+ *   Min=-90
+ *   Max=90
+ *   Default=0             (what the program does without it; shown only)
+ *
+ * Types: text, file, folder, image, image-folder, image-or-folder, color,
+ * choice (with Choices=a,b,c), number (Min=, Max=), and switch: a flag
+ * with no value, there or not.
+ *
+ * The format is public (waybox-integration(5)): FormatVersion=MAJOR[.MINOR]
+ * in [Integration], 1 if left out. A file of a newer major version is
+ * skipped (not misread); a newer minor one is read, its new keys ignored.
  */
 #include <map>
 #include <optional>
@@ -28,12 +45,50 @@
 
 namespace wb {
 
+enum class OptionType {
+	Text, File, Folder, Image, ImageFolder, ImageOrFolder, Color, Choice, Number, Switch,
+	List,  /* names, one a line: pages only (not read from Type=) */
+};
+
 struct IntegrationOption {
 	std::string id;      /* from [Option id] */
 	std::string label;
-	std::string flag;    /* "-l": the value is the next word */
+	std::string flag;    /* "-l": the value is the next word (none for a switch) */
 	std::string hint;    /* example value, shown when empty */
+	OptionType type = OptionType::Text;
+	std::vector<std::string> choices;  /* Choice */
+	std::optional<double> min, max;    /* Number */
+	/* Default=: what the program does with the option left out
+	 * (swaybg's mode: stretch), shown as such; never written. */
+	std::string default_value;
+	/* For pages (wbconf's Lua pages), not read from integration files:
+	 * each choice's label (in step with `choices`; empty: the value),
+	 * no "Default" entry (a page's choice always has a value), the unit
+	 * after a number, a text field's width in characters (0: the row's). */
+	std::vector<std::string> choice_labels;
+	bool no_default_choice = false;
+	std::string unit;
+	int width_chars = 0;
+	bool color_alpha = false;  /* a color with transparency (#rrggbbaa) */
 	bool operator==(const IntegrationOption &) const = default;
+};
+
+/* Type= names ("image-folder"); Text for an unknown name. */
+OptionType option_type_from_name(std::string_view name);
+
+/* Whether `value` suits the option: a number in range, one of the
+ * choices, "on" for a switch. Empty (not given) always does; the other
+ * types take any text (a path may be "~/x" or "$VAR"). */
+bool option_value_valid(const IntegrationOption &o, std::string_view value);
+
+/* Reload=: how the program takes its settings again once a page saved
+ * them (the page's wb.reload()). */
+struct IntegrationReload {
+	enum class Kind { Unset, None, Command, Signal, Restart };
+	Kind kind = Kind::Unset;
+	std::vector<std::string> argv;  /* command: what to run, as written */
+	std::string signal;             /* signal: USR1, USR2 or HUP */
+	bool operator==(const IntegrationReload &) const = default;
 };
 
 struct Integration {
@@ -57,6 +112,26 @@ struct Integration {
 	 * the program has one; never guessed, as a program that doesn't
 	 * know the flag may just start. */
 	std::string version_command;
+	/* Configure=: the program's own settings tool (azote, waypaper,
+	 * blueman-manager), which wbconf offers to open. */
+	std::string configure;
+	/* Page=: a page wbconf has for this kind of program ("wallpaper"),
+	 * shown with its options; where wbconf has none, just the options. */
+	std::string page;
+	/* Manages=outputs: it sets monitors itself (kanshi, shikane): while
+	 * it runs, its profiles win over Waybox's <outputs> on a hotplug. */
+	bool manages_outputs = false;
+	/* Page=NAME.lua: a settings page written in Lua (wbconf-lua), beside
+	 * the file; Files= the files it may read and write ("~/..." allowed),
+	 * Runs= the programs it may run, both comma-separated. */
+	std::vector<std::string> files, runs;
+	/* Provides=wallpaper, notifications: what it occupies, that only one
+	 * program can (two that provide the same thing compete). */
+	std::vector<std::string> provides;
+	IntegrationReload reload;
+	/* The directory the file was read from (load_integrations): where a
+	 * Lua page is looked for. */
+	std::string dir;
 	bool operator==(const Integration &) const = default;
 };
 
@@ -65,8 +140,65 @@ struct Integration {
  * is a version number, without a leading "v"; "" if none. */
 std::string version_from_output(std::string_view output);
 
-/* Parse one file's text; nullopt without an [Integration] Name and Exec. */
+/* The format version read here: a file whose FormatVersion's major part
+ * is greater is skipped. */
+inline constexpr int kIntegrationFormat = 1;
+
+/* What's wrong with a file, by line (0: the file as a whole). Errors make
+ * it unusable (no Name or Exec, a newer major version); warnings are what
+ * is ignored or guessed (an unknown key, an option without a Flag). */
+struct IntegrationProblem {
+	int line = 0;
+	bool error = false;
+	std::string message;
+	bool operator==(const IntegrationProblem &) const = default;
+};
+
+struct IntegrationCheck {
+	std::optional<Integration> integration;  /* nullopt: not usable */
+	std::vector<IntegrationProblem> problems;
+};
+
+/* Read one file's text, saying what's wrong with it (wbconf
+ * --check-integration prints this). */
+IntegrationCheck check_integration(std::string_view id, std::string_view text);
+
+/* Parse one file's text; nullopt without an [Integration] Name and Exec,
+ * or of a newer format. */
 std::optional<Integration> parse_integration(std::string_view id, std::string_view text);
+
+/* A Lua page's script (Page=NAME.lua, beside the file): its path, or ""
+ * for a built-in page or none. */
+std::string lua_page_path(const Integration &in);
+
+/* What a Lua page's Runs= and Files= amount to: full access to the account
+ * when a program can run any command (a shell, an interpreter, env, sudo,
+ * find, an editor...) or a file runs something later (a shell's startup
+ * file, Waybox's autostart or rc.xml, ~/.local/bin...). The reason, said
+ * after the program or file ("it can run any command"); "" if neither.
+ * `home` makes absolute paths under it count as "~/..." too. */
+std::string full_access_run(const std::string &program);
+std::string full_access_file(const std::string &path, const std::string &home = "");
+
+/* How far what a page may touch reaches. A list can't tell which programs
+ * are dangerous (any can start others), so only what's plainly the
+ * integration's own counts as routine:
+ * - Own: its program (Binary=) or a companion named after it: the name
+ *   and ctl, msg, client or cli, with or without a '-' (makoctl for mako;
+ *   not any name it starts: a page names its program itself); a file in a
+ *   folder named after it (~/.config/mako/config; its system-wide default
+ *   in /etc/xdg/mako/ too).
+ * - Other: anything else: another program, with the account's access, or
+ *   another program's file.
+ * - Full: known to be full access (full_access_run, full_access_file). */
+enum class Reach { Own, Other, Full };
+struct PageAccess {
+	Reach reach = Reach::Other;
+	std::string why;  /* Full: the reason */
+};
+PageAccess run_access(const Integration &in, const std::string &program);
+PageAccess file_access(const Integration &in, const std::string &path,
+		const std::string &home = "");
 
 /* Every *.integration in `dirs`, the first found of each id winning (pass
  * the user's directory first). Sorted by category, then name. */
@@ -87,7 +219,9 @@ std::string join_command(const std::vector<std::string> &words);
 
 /* The options' values found in `command` (by flag), and a command with
  * `values` set: a changed value replaces the old one, an empty one drops
- * the flag, a new one is appended; everything else is kept as it was. */
+ * the flag, a new one is appended; everything else is kept as it was.
+ * A switch's value is "on" when its flag is there; any value but "" adds
+ * it (alone). */
 std::map<std::string, std::string> read_options(const Integration &in,
 		std::string_view command);
 std::string write_options(const Integration &in, std::string_view command,

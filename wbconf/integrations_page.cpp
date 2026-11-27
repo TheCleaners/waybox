@@ -49,6 +49,69 @@ std::string autostart_text() {
 	return ss.str();
 }
 
+/* What a Provides= name does, said plainly. */
+std::string provides_phrase(const std::string &what) {
+	static const std::map<std::string, const char *> phrases = {
+		{"wallpaper", N_("set the wallpaper")},
+		{"notifications", N_("show notifications")},
+		{"night-light", N_("tint the screen at night")},
+		{"idle", N_("lock and blank the screen when idle")},
+		{"polkit-agent", N_("ask for passwords")},
+		{"output-profiles", N_("arrange the monitors")},
+	};
+	auto it = phrases.find(what);
+	if (it != phrases.end())
+		return _(it->second);
+	char *t = g_strdup_printf(_("provide %s"), what.c_str());
+	std::string s = t;
+	g_free(t);
+	return s;
+}
+
+/* Two programs kept running together though they compete ("Keep Both"):
+ * remembered as "a+b" (sorted) in wbconf's view settings, until either is
+ * turned off. */
+std::string pair_key(const std::string &a, const std::string &b) {
+	return a < b ? a + "+" + b : b + "+" + a;
+}
+
+bool kept_both(const std::string &a, const std::string &b) {
+	std::string all = "," + view_get("kept-both") + ",";
+	return all.find("," + pair_key(a, b) + ",") != std::string::npos;
+}
+
+void set_kept_both(const std::string &a, const std::string &b, bool keep) {
+	std::string key = pair_key(a, b), out;
+	std::istringstream in(view_get("kept-both"));
+	for (std::string k; std::getline(in, k, ',');)
+		if (!k.empty() && k != key)
+			out += (out.empty() ? "" : ",") + k;
+	if (keep)
+		out += (out.empty() ? "" : ",") + key;
+	view_set("kept-both", out);
+}
+
+/* Other programs switched on that provide what this one does (Provides=):
+ * each with what they share. */
+std::vector<std::pair<Ui::ProgramRow *, std::string>> competitors(Ui *ui,
+		Ui::ProgramRow *row) {
+	std::vector<std::pair<Ui::ProgramRow *, std::string>> out;
+	if (row->in == nullptr || row->in->provides.empty())
+		return out;
+	for (auto &o : ui->programs) {
+		if (o.get() == row || o->in == nullptr || o->removed || o->on == nullptr ||
+				!gtk_switch_get_active(o->on))
+			continue;
+		for (const std::string &w : row->in->provides)
+			if (std::find(o->in->provides.begin(), o->in->provides.end(), w) !=
+					o->in->provides.end()) {
+				out.emplace_back(o.get(), w);
+				break;
+			}
+	}
+	return out;
+}
+
 void program_status(Ui *ui, Ui::ProgramRow *row) {
 	if (row->status == nullptr)
 		return;
@@ -78,7 +141,20 @@ void program_status(Ui *ui, Ui::ProgramRow *row) {
 		add(_("also started by your autostart script: it would run twice"));
 	else if (st.from_script)
 		add(_("started by your autostart script"));
-	bool warn = st.twice;
+	/* "competes with swaybg: both set the wallpaper" */
+	bool competing = false;
+	if (gtk_switch_get_active(row->on))
+		for (const auto &[o, what] : competitors(ui, row)) {
+			bool chosen = kept_both(row->in->id, o->in->id);
+			char *t = chosen
+				? g_strdup_printf(_("runs alongside %s, as you chose"), o->in->name.c_str())
+				: g_strdup_printf(_("competes with %s: both %s"), o->in->name.c_str(),
+						provides_phrase(what).c_str());
+			add(t);
+			g_free(t);
+			competing = competing || !chosen;
+		}
+	bool warn = st.twice || competing;
 	gtk_label_set_text(row->status, text.c_str());
 	gtk_widget_set_visible(GTK_WIDGET(row->status), !text.empty());
 	if (warn)
@@ -408,15 +484,90 @@ void stop_moved_programs(Ui *ui) {
 	}
 }
 
+/* The answer: turn the others off, or keep both (remembered, the warning
+ * then a plain note). */
+void answer_competitors(Ui *ui, Ui::ProgramRow *row, const std::vector<Ui::ProgramRow *> &others,
+		bool turn_off) {
+	for (Ui::ProgramRow *o : others) {
+		if (turn_off)
+			gtk_switch_set_active(o->on, FALSE);
+		else
+			set_kept_both(row->in->id, o->in->id, true);
+	}
+	program_status(ui, row);
+	for (Ui::ProgramRow *o : others)
+		program_status(ui, o);
+}
+
+/* Switched on while others providing the same are: turn them off? */
+void ask_competitors(Ui *ui, Ui::ProgramRow *row) {
+	auto others = competitors(ui, row);
+	std::erase_if(others, [row](const auto &o) { return kept_both(row->in->id, o.first->in->id); });
+	if (others.empty())
+		return;
+	std::string names;
+	for (const auto &[o, what] : others)
+		names += (names.empty() ? "" : ", ") + o->in->name;
+	/* Tests: answered at once (WBCONF_TEST_COMPETING=off|keep), said on stderr. */
+	if (const char *t = getenv("WBCONF_TEST_COMPETING"); t != nullptr && *t) {
+		fprintf(stderr, "competing-asked:%s|%s\n", row->in->id.c_str(), names.c_str());
+		std::vector<Ui::ProgramRow *> rows;
+		for (const auto &[o, what] : others)
+			rows.push_back(o);
+		answer_competitors(ui, row, rows, std::string(t) == "off");
+		return;
+	}
+	char *msg = g_strdup_printf(_("Turn off %s?"), names.c_str());
+	char *detail = g_strdup_printf(_("%s and %s both %s: running together, they get in "
+			"each other's way."), row->in->name.c_str(), names.c_str(),
+			provides_phrase(others[0].second).c_str());
+	GtkAlertDialog *dialog = gtk_alert_dialog_new("%s", msg);
+	gtk_alert_dialog_set_detail(dialog, detail);
+	g_free(msg);
+	g_free(detail);
+	std::string off = std::string(_("Turn Off")) + " " + names;
+	const char *buttons[] = {_("Keep Both"), off.c_str(), nullptr};
+	gtk_alert_dialog_set_buttons(dialog, buttons);
+	gtk_alert_dialog_set_cancel_button(dialog, 0);
+	gtk_alert_dialog_set_default_button(dialog, 1);
+	struct Ask {
+		Ui *ui;
+		Ui::ProgramRow *row;
+		std::vector<Ui::ProgramRow *> rows;
+	};
+	auto *ask = new Ask{ui, row, {}};
+	for (const auto &[o, what] : others)
+		ask->rows.push_back(o);
+	gtk_alert_dialog_choose(dialog, GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(row->on))),
+			nullptr, [](GObject *src, GAsyncResult *res, gpointer data) {
+		auto *ask = static_cast<Ask *>(data);
+		int b = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(src), res, nullptr);
+		answer_competitors(ask->ui, ask->row, ask->rows, b == 1);
+		delete ask;
+	}, ask);
+	g_object_unref(dialog);
+}
+
 void on_program_toggled(GObject *, GParamSpec *, gpointer data) {
 	auto *row = static_cast<Ui::ProgramRow *>(data);
 	Ui *ui = static_cast<Ui *>(g_object_get_data(G_OBJECT(row->on), "wb-ui"));
 	gtk_widget_set_visible(row->details, gtk_switch_get_active(row->on));
 	program_status(ui, row);
+	/* Those it competes with: their status says so too. */
+	for (auto &o : ui->programs)
+		if (o.get() != row && o->in != nullptr && !o->in->provides.empty())
+			program_status(ui, o.get());
 	if (!gtk_switch_get_active(row->on)) {
 		row->stop_on_save = false;
+		/* Off: a "Keep Both" with it is forgotten (on again, asked again). */
+		if (ui->ready && row->in != nullptr)
+			for (auto &o : ui->programs)
+				if (o.get() != row && o->in != nullptr && kept_both(row->in->id, o->in->id))
+					set_kept_both(row->in->id, o->in->id, false);
 		return;
 	}
+	if (ui->ready)
+		ask_competitors(ui, row);
 	if (!ui->ready || row->asked || row->listed || ui->script_path.empty())
 		return;
 	/* The script the session runs (the user's, else the default): the
@@ -431,18 +582,74 @@ void on_program_toggled(GObject *, GParamSpec *, gpointer data) {
 	ask_move(ui, row, starters);
 }
 
+/* Configure=: the program's own settings tool, started apart from wbconf
+ * (it stays open when wbconf closes). No shell: the command's words. */
+bool configure_installed(const wb::Integration *in) {
+	if (in == nullptr || in->configure.empty())
+		return false;
+	std::vector<std::string> words = wb::split_command(in->configure);
+	return !words.empty() && installed(words[0]);
+}
+
+void open_configure(const wb::Integration *in) {
+	std::vector<std::string> words = wb::split_command(in->configure);
+	if (words.empty())
+		return;
+	std::vector<char *> argv;
+	for (std::string &w : words)
+		argv.push_back(w.data());
+	argv.push_back(nullptr);
+	GPid pid = 0;
+	GError *error = nullptr;
+	if (!g_spawn_async(nullptr, argv.data(), nullptr,
+			static_cast<GSpawnFlags>(G_SPAWN_SEARCH_PATH | G_SPAWN_DO_NOT_REAP_CHILD),
+			[](gpointer) { setsid(); }, nullptr, &pid, &error)) {
+		g_warning("can't start %s: %s", in->configure.c_str(), error->message);
+		g_clear_error(&error);
+		return;
+	}
+	g_child_watch_add(pid, [](GPid pid, gint, gpointer) { g_spawn_close_pid(pid); }, nullptr);
+}
+
+GtkWidget *configure_button(const wb::Integration *in) {
+	GtkWidget *b = gtk_button_new_with_label(_("Configure…"));
+	char *tip = g_strdup_printf(_("Open %s"), in->configure.c_str());
+	gtk_widget_set_tooltip_text(b, tip);
+	g_free(tip);
+	gtk_widget_set_halign(b, GTK_ALIGN_START);
+	g_object_set_data(G_OBJECT(b), "wb-integration", const_cast<wb::Integration *>(in));
+	g_signal_connect(b, "clicked", G_CALLBACK(+[](GtkButton *b, gpointer) {
+		auto *in = static_cast<const wb::Integration *>(
+				g_object_get_data(G_OBJECT(b), "wb-integration"));
+		if (in != nullptr)
+			open_configure(in);
+	}), nullptr);
+	return b;
+}
+
+GtkWidget *build_integration_page(Ui *ui, Ui::ProgramRow *row) {
+	if (row->in == nullptr)
+		return nullptr;
+	if (row->in->page == "wallpaper")
+		return build_wallpaper_page(ui, row);
+	if (!wb::lua_page_path(*row->in).empty())
+		return build_lua_page(ui, row);
+	return nullptr;
+}
+
 /* Options and the command line stay in step, both ways. */
-void on_option_changed(GtkEditable *, gpointer data) {
-	auto *row = static_cast<Ui::ProgramRow *>(data);
+void on_option_changed(Ui::ProgramRow *row) {
 	if (row->syncing || row->in == nullptr)
 		return;
 	std::map<std::string, std::string> values;
-	for (auto &[id, e] : row->options)
-		values[id] = gtk_editable_get_text(GTK_EDITABLE(e));
+	for (auto &[id, f] : row->options)
+		values[id] = option_field_value(*f);
 	row->syncing = true;
 	gtk_editable_set_text(GTK_EDITABLE(row->command), wb::write_options(*row->in,
 			gtk_editable_get_text(GTK_EDITABLE(row->command)), values).c_str());
 	row->syncing = false;
+	if (row->page_refresh)
+		row->page_refresh();
 }
 
 void on_command_changed(GtkEditable *, gpointer data) {
@@ -451,9 +658,11 @@ void on_command_changed(GtkEditable *, gpointer data) {
 		return;
 	auto values = wb::read_options(*row->in, gtk_editable_get_text(GTK_EDITABLE(row->command)));
 	row->syncing = true;
-	for (auto &[id, e] : row->options)
-		gtk_editable_set_text(GTK_EDITABLE(e), values.count(id) ? values[id].c_str() : "");
+	for (auto &[id, f] : row->options)
+		set_option_field_value(*f, values.count(id) ? values[id] : "");
 	row->syncing = false;
+	if (row->page_refresh)
+		row->page_refresh();
 }
 
 void on_remove_program(GtkButton *, gpointer data) {
@@ -512,6 +721,12 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 	GtkWidget *body = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
 	gtk_widget_set_margin_start(body, 52);
 	gtk_box_append(GTK_BOX(box), body);
+	/* Its own settings tool: there whether it's on or not (azote, say, is
+	 * where its wallpaper is chosen before it's started). */
+	if (configure_installed(in)) {
+		row->configure = configure_button(in);
+		gtk_box_append(GTK_BOX(body), row->configure);
+	}
 	row->status = GTK_LABEL(gtk_label_new(""));
 	gtk_label_set_xalign(row->status, 0);
 	gtk_label_set_wrap(row->status, TRUE);
@@ -519,24 +734,61 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 	gtk_box_append(GTK_BOX(body), GTK_WIDGET(row->status));
 	row->details = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
 	gtk_box_append(GTK_BOX(body), row->details);
+	/* Its command (made now, for a page to read; shown under the options). */
+	row->command = GTK_ENTRY(gtk_entry_new());
+	gtk_editable_set_text(GTK_EDITABLE(row->command), command.c_str());
+	/* "NAME Settings", folded unless kept open, around what it holds. */
+	auto fold = [&row, in](GtkWidget *child) {
+		std::string title = in->name + " " + _("Settings");
+		GtkWidget *e = gtk_expander_new(title.c_str());
+		gtk_widget_add_css_class(e, "wb-page-expander");
+		gtk_widget_set_margin_top(child, 6);
+		gtk_expander_set_child(GTK_EXPANDER(e), child);
+		gtk_expander_set_expanded(GTK_EXPANDER(e), lua_pages_open());
+		row->settings = e;
+		return e;
+	};
 	if (in != nullptr && !in->options.empty()) {
-		GtkWidget *grid = section_grid(row->details);
+		/* With a page, the options go under it, folded; without, they're
+		 * its settings, folded as a page is. */
+		GtkWidget *options_parent = row->details;
+		GtkWidget *expander = nullptr;
+		if (!in->page.empty()) {
+			expander = gtk_expander_new(_("All options"));
+			options_parent = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+			gtk_expander_set_child(GTK_EXPANDER(expander), options_parent);
+		} else {
+			options_parent = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+			gtk_box_append(GTK_BOX(row->details), fold(options_parent));
+		}
+		GtkWidget *grid = section_grid(options_parent);
 		int r = 0;
 		for (const wb::IntegrationOption &o : in->options) {
 			grid_label(grid, r, (o.label + ":").c_str());
-			GtkEntry *e = GTK_ENTRY(grid_control(grid, r++, gtk_entry_new()));
-			gtk_entry_set_placeholder_text(e, o.hint.c_str());
-			row->options[o.id] = e;
-			g_signal_connect(e, "changed", G_CALLBACK(on_option_changed), row.get());
+			Ui::ProgramRow *rp = row.get();
+			auto f = make_option_field(o, [rp] { on_option_changed(rp); });
+			grid_control(grid, r++, f->widget);
+			if (o.type != wb::OptionType::Switch)
+				gtk_widget_set_hexpand(f->widget, TRUE);
+			row->options[o.id] = std::move(f);
 		}
+		if (expander != nullptr) {
+			if (GtkWidget *page = build_integration_page(ui, row.get()))
+				gtk_box_append(GTK_BOX(row->details), in->page == "wallpaper"
+						? fold(page) : page);  /* a Lua page folds its own */
+			gtk_box_append(GTK_BOX(row->details), expander);
+		}
+	} else if (in != nullptr && !in->page.empty()) {
+		/* A page with no options of the command's (a Lua page). */
+		if (GtkWidget *page = build_integration_page(ui, row.get()))
+			gtk_box_append(GTK_BOX(row->details), page);
 	}
-	row->command = GTK_ENTRY(gtk_entry_new());
 	gtk_widget_set_hexpand(GTK_WIDGET(row->command), TRUE);
 	gtk_entry_set_placeholder_text(row->command, _("Command"));
 	gtk_widget_set_tooltip_text(GTK_WIDGET(row->command), _("The command Waybox runs"));
 	gtk_box_append(GTK_BOX(row->details), GTK_WIDGET(row->command));
 	g_signal_connect(row->command, "changed", G_CALLBACK(on_command_changed), row.get());
-	gtk_editable_set_text(GTK_EDITABLE(row->command), command.c_str());
+	on_command_changed(GTK_EDITABLE(row->command), row.get());  /* the options from it */
 	g_signal_connect(row->on, "notify::active", G_CALLBACK(on_program_toggled), row.get());
 	on_program_toggled(nullptr, nullptr, row.get());
 	ui->programs.push_back(std::move(row));
@@ -634,7 +886,7 @@ const char *integration_category_title(const std::string &category) {
 		{"Panel", N_("Panel")}, {"Notifications", N_("Notifications")},
 		{"Wallpaper", N_("Wallpaper")}, {"NightLight", N_("Night Light")},
 		{"Idle", N_("Idle and Locking")}, {"Clipboard", N_("Clipboard")},
-		{"Pickers", N_("Pickers")},
+		{"Pickers", N_("Pickers")}, {"Launcher", N_("App Launchers")},
 		{"Tray", N_("Tray Applets")}, {"Polkit", N_("Password Prompts")},
 		{"Displays", N_("Displays")}, {"Screenshots", N_("Screenshots")},
 	};
@@ -809,6 +1061,19 @@ GtkWidget *build_binding_block(Ui *ui, const std::string &id) {
 	gtk_widget_set_hexpand(GTK_WIDGET(b->command), TRUE);
 	gtk_entry_set_placeholder_text(b->command, _("Command"));
 	gtk_box_append(GTK_BOX(b->details), GTK_WIDGET(b->command));
+	/* Its settings page, if it has one: shown while it's bound. */
+	if (!wb::lua_page_path(*in).empty()) {
+		GtkEntry *cmd = b->command;
+		GtkSwitch *on = b->on;
+		GtkWidget *page = build_lua_page_for(ui, in, &b->page, [cmd] {
+			return std::string(gtk_editable_get_text(GTK_EDITABLE(cmd)));
+		}, [on] { return on != nullptr && gtk_switch_get_active(on); });
+		g_signal_connect(b->command, "changed", G_CALLBACK(+[](GtkEditable *, gpointer d) {
+			lua_page_command_changed(static_cast<Ui::BindingRow *>(d)->page);
+		}), b.get());
+		gtk_widget_set_margin_top(page, 8);
+		gtk_box_append(GTK_BOX(b->details), page);
+	}
 	gtk_box_append(GTK_BOX(box), b->details);
 
 	g_signal_connect_swapped(b->on, "notify::active", G_CALLBACK(on_binding_changed), b.get());
@@ -863,6 +1128,19 @@ void bindings_saved(Ui *ui) {
 	}
 }
 
+void binding_changes(Ui *ui, const std::string &id, const std::string &where,
+		GtkWidget *target, std::vector<UnsavedChange> &out) {
+	auto text = [](const std::optional<std::pair<std::string, std::string>> &b) {
+		return b ? b->first + "  " + b->second : std::string(_("off"));
+	};
+	for (auto &b : ui->bindings)
+		if (b->in != nullptr && b->in->id == id) {
+			auto now = binding_now(b.get());
+			if (now != b->saved)
+				out.push_back({{where, text(b->saved), text(now)}, target});
+		}
+}
+
 int bindings_unsaved(Ui *ui) {
 	int n = 0;
 	for (auto &b : ui->bindings)
@@ -892,16 +1170,36 @@ void set_env_text(Ui *ui, const std::string &text) {
 	gtk_text_buffer_set_text(gtk_text_view_get_buffer(ui->im.env), text.c_str(), -1);
 }
 
+/* The chosen framework's settings tool, if it has one installed. */
+void update_im_configure(Ui *ui) {
+	if (ui->im.configure == nullptr)
+		return;
+	guint idx = gtk_drop_down_get_selected(ui->im.choice);
+	const wb::Integration *in = idx >= 1 && idx <= ui->im.frameworks.size()
+			? ui->im.frameworks[idx - 1] : nullptr;
+	bool show = configure_installed(in);
+	if (show) {
+		g_object_set_data(G_OBJECT(ui->im.configure), "wb-integration",
+				const_cast<wb::Integration *>(in));
+		char *tip = g_strdup_printf(_("Open %s"), in->configure.c_str());
+		gtk_widget_set_tooltip_text(ui->im.configure, tip);
+		g_free(tip);
+	}
+	gtk_widget_set_visible(ui->im.configure, show);
+}
+
 /* The dropdown changed: show (and for a framework, fill) the details. */
 void on_im_choice(Ui *ui) {
 	guint idx = gtk_drop_down_get_selected(ui->im.choice);
 	size_t n = ui->im.frameworks.size();
 	gtk_widget_set_visible(ui->im.details, idx != 0);
+	update_im_configure(ui);
 	if (ui->im.updating || idx == 0 || idx > n)
 		return;
 	const wb::Integration *in = ui->im.frameworks[idx - 1];
 	gtk_editable_set_text(GTK_EDITABLE(ui->im.command), in->exec.c_str());
 	set_env_text(ui, env_text(in->env));
+	update_im_configure(ui);
 }
 
 }  // namespace
@@ -925,6 +1223,13 @@ GtkWidget *build_input_method_block(Ui *ui) {
 	gtk_box_append(GTK_BOX(box), GTK_WIDGET(ui->im.choice));
 
 	ui->im.details = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+	{
+		/* Pointing at whichever framework is chosen (update_im_configure). */
+		static const wb::Integration none;
+		ui->im.configure = configure_button(&none);
+		gtk_widget_set_visible(ui->im.configure, FALSE);
+		gtk_box_append(GTK_BOX(ui->im.details), ui->im.configure);
+	}
 	ui->im.command = GTK_ENTRY(gtk_entry_new());
 	gtk_entry_set_placeholder_text(ui->im.command, _("Command, e.g. fcitx5 --replace"));
 	gtk_widget_set_size_request(GTK_WIDGET(ui->im.command), 360, -1);

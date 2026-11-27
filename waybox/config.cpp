@@ -14,6 +14,7 @@
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 
+#include "waybox/font_spec.hpp"
 #include "waybox/stall.hpp"
 #include "config.h"
 #include "waybox/action_xml.hpp"
@@ -335,6 +336,15 @@ static void parse_app_rules(struct wb_config *config, xmlXPathContextPtr ctxt) {
 			rule.iconic = parse_bool(child_text(app, "iconic"));
 			rule.focus = parse_bool(child_text(app, "focus"));
 			rule.decor = parse_bool(child_text(app, "decor"));
+			if (const char *l = child_text(app, "layer")) {
+				std::string v = l;
+				if (v == "above" || v == "top")
+					rule.layer = 1;
+				else if (v == "below" || v == "bottom")
+					rule.layer = -1;
+				else if (v == "normal")
+					rule.layer = 0;
+			}
 			/* <desktop>N</desktop> (1-based) or "all"; anything else
 			 * (including Openbox's "current") leaves the default. */
 			if (const char *d = child_text(app, "desktop")) {
@@ -647,7 +657,7 @@ static void parse_input_method(struct wb_config *config, xmlXPathContextPtr ctxt
 	xmlXPathFreeObject(object);
 }
 
-/* Parse <waybox><ipc enabled="yes|no"/>. */
+/* Parse <waybox><ipc enabled="yes|no"/> (on unless "no"). */
 static void parse_ipc(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
 			(const xmlChar *) "//ob:waybox/ob:ipc", ctxt);
@@ -675,7 +685,34 @@ static void parse_shortcuts_inhibit(struct wb_config *config, xmlXPathContextPtr
 	xmlXPathFreeObject(object);
 }
 
-/* Parse <waybox><bell flash="yes|no" command="..."/>. */
+/* Parse <waybox><cursor theme= size=/>. */
+static void parse_cursor(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:cursor", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *n = object->nodesetval->nodeTab[0];
+		std::string theme = (const char *) get_attribute(n, "theme");
+		/* A theme is a folder's name: no path in it. */
+		if (theme.find('/') != std::string::npos || theme == "." || theme == "..")
+			wlr_log(WLR_ERROR, "Ignoring the cursor theme \"%s\"", theme.c_str());
+		else
+			config->cursor_theme = theme;
+		std::string size = (const char *) get_attribute(n, "size");
+		if (!size.empty()) {
+			char *end = nullptr;
+			long v = strtol(size.c_str(), &end, 10);
+			if (end != size.c_str() + size.size() || v < 8 || v > 512)
+				wlr_log(WLR_ERROR, "Ignoring the cursor size \"%s\" (8 to 512)", size.c_str());
+			else
+				config->cursor_size = static_cast<int>(v);
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
+/* Parse <waybox><bell flash= color= duration= count= width= command=/>. */
 static void parse_bell(struct wb_config *config, xmlXPathContextPtr ctxt) {
 	xmlXPathObjectPtr object = xmlXPathEvalExpression(
 			(const xmlChar *) "//ob:waybox/ob:bell", ctxt);
@@ -683,9 +720,31 @@ static void parse_bell(struct wb_config *config, xmlXPathContextPtr ctxt) {
 		return;
 	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
 		xmlNode *n = object->nodesetval->nodeTab[0];
-		if (auto v = parse_bool((const char *) get_attribute(n, "flash")))
-			config->bell_flash = *v;
-		config->bell_command = (const char *) get_attribute(n, "command");
+		auto a = [n](const char *k) { return std::string((const char *) get_attribute(n, k)); };
+		std::vector<std::string> problems;
+		config->bell_style = wb::parse_bell_style(a("flash"), a("color"), a("duration"),
+				a("count"), a("width"), &problems);
+		for (const std::string &p : problems)
+			wlr_log(WLR_ERROR, "Ignoring the bell setting %s", p.c_str());
+		config->bell_command = a("command");
+	}
+	xmlXPathFreeObject(object);
+}
+
+/* Parse <waybox><osd position= opacity= cornerRadius= bg= text= border=/>. */
+static void parse_osd(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:osd", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		xmlNode *n = object->nodesetval->nodeTab[0];
+		auto a = [n](const char *k) { return std::string((const char *) get_attribute(n, k)); };
+		std::vector<std::string> problems;
+		config->osd = wb::parse_osd_config(a("position"), a("opacity"), a("cornerRadius"),
+				a("bg"), a("text"), a("border"), &problems);
+		for (const std::string &p : problems)
+			wlr_log(WLR_ERROR, "Ignoring the on-screen display setting %s", p.c_str());
 	}
 	xmlXPathFreeObject(object);
 }
@@ -826,8 +885,18 @@ static void parse_fonts(struct wb_config *config, xmlXPathContextPtr ctxt) {
 					if (s > 0)
 						target->size_pt = s;
 				} else if (xmlStrcmp(c->name, (const xmlChar *) "weight") == 0) {
-					target->bold = (xmlStrcasecmp((const xmlChar *) v,
-							(const xmlChar *) "bold") == 0);
+					/* Openbox's bold or normal; Waybox also takes the
+					 * other weights' names (semibold, light) or a number. */
+					int w = wb::font::weight_named(v);
+					target->weight = w > 0 ? w : 400;
+				} else if (xmlStrcmp(c->name, (const xmlChar *) "slant") == 0) {
+					target->italic = xmlStrcasecmp((const xmlChar *) v,
+							(const xmlChar *) "italic") == 0 || xmlStrcasecmp(
+							(const xmlChar *) v, (const xmlChar *) "oblique") == 0;
+				} else if (xmlStrcmp(c->name, (const xmlChar *) "width") == 0) {
+					/* Waybox's own (Openbox has none): condensed, expanded... */
+					int w = wb::font::width_named(v);
+					target->width = w > 0 ? w : 100;
 				}
 				if (content)
 					xmlFree(content);
@@ -976,6 +1045,8 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	parse_tearing(config, ctxt);
 	parse_shortcuts_inhibit(config, ctxt);
 	parse_bell(config, ctxt);
+	parse_osd(config, ctxt);
+	parse_cursor(config, ctxt);
 	parse_scripts(config, ctxt);
 	parse_ipc(config, ctxt);
 	parse_input_method(config, ctxt);

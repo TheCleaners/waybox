@@ -3,6 +3,8 @@
  */
 #include "waybox/action_xml.hpp"
 
+#include "waybox/conditions.hpp"
+
 #include <cstring>
 #include <string>
 
@@ -45,9 +47,103 @@ bool parse_yes(const std::string &s, bool fallback) {
 	return fallback;
 }
 
+/* A yes/no condition: <shaded>yes</shaded>. */
+void condition(xmlNode *c, const char *name, std::optional<bool> &out) {
+	if (is(c, name)) {
+		std::string t = text(c);
+		if (t == "yes" || t == "true" || t == "on" || t == "1")
+			out = true;
+		else if (t == "no" || t == "false" || t == "off" || t == "0")
+			out = false;
+	}
+}
+
+int positive(const std::string &s) {
+	int n = 0;
+	for (char ch : s) {
+		if (ch < '0' || ch > '9' || n > 100000)
+			return 0;
+		n = n * 10 + (ch - '0');
+	}
+	return n;
+}
+
+/* One query from the condition elements among `first` and its siblings. */
+Query parse_query(xmlNode *first, bool focus_target) {
+	Query q;
+	q.focus_target = focus_target;
+	for (xmlNode *c = first; c; c = c->next) {
+		if (c->type != XML_ELEMENT_NODE)
+			continue;
+		condition(c, "shaded", q.shaded);
+		condition(c, "maximized", q.maximized);
+		condition(c, "maximizedhorizontal", q.maximized_horizontal);
+		condition(c, "maximizedvertical", q.maximized_vertical);
+		condition(c, "iconified", q.iconified);
+		condition(c, "fullscreen", q.fullscreen);
+		condition(c, "focused", q.focused);
+		condition(c, "focusable", q.focusable);
+		condition(c, "urgent", q.urgent);
+		condition(c, "undecorated", q.undecorated);
+		condition(c, "omnipresent", q.omnipresent);
+		if (is(c, "desktop")) {
+			std::string t = text(c);
+			if (t == "current")
+				q.desktop = Query::Desktop::Current;
+			else if (t == "other")
+				q.desktop = Query::Desktop::Other;
+			else if (t == "last")
+				q.desktop = Query::Desktop::Last;
+			else if (int n = positive(t); n > 0) {
+				q.desktop = Query::Desktop::Number;
+				q.desktop_number = n;
+			}
+		} else if (is(c, "activedesktop")) {
+			q.active_desktop = positive(text(c));
+		} else if (is(c, "monitor")) {
+			q.monitor = positive(text(c));
+		} else if (is(c, "title")) {
+			q.title = make_text_match(attr(c, "type"), text(c));
+		} else if (is(c, "class")) {
+			q.cls = make_text_match(attr(c, "type"), text(c));
+		} else if (is(c, "name")) {
+			q.name = make_text_match(attr(c, "type"), text(c));
+		} else if (is(c, "role")) {
+			q.role = make_text_match(attr(c, "type"), text(c));
+		} else if (is(c, "type")) {
+			q.type = make_text_match(attr(c, "type"), text(c));
+		}
+	}
+	return q;
+}
+
+/* The <action>s directly in a branch (<then>, <else>, <none>). */
+std::vector<Action> branch(xmlNode *node, int depth);
+
+std::optional<Action> parse_action_depth(xmlNode *action_node, int depth);
+
+std::vector<Action> branch(xmlNode *node, int depth) {
+	std::vector<Action> out;
+	for (xmlNode *c = node->children; c; c = c->next)
+		if (is(c, "action"))
+			if (auto a = parse_action_depth(c, depth + 1))
+				out.push_back(std::move(*a));
+	return out;
+}
+
+/* Deep enough for any real configuration; past it, If and ForEach are
+ * dropped (a config file must not nest without bound). */
+constexpr int kMaxNesting = 16;
+
 }  // namespace
 
 std::optional<Action> parse_action_xml(xmlNode *action_node) {
+	return parse_action_depth(action_node, 0);
+}
+
+namespace {
+
+std::optional<Action> parse_action_depth(xmlNode *action_node, int depth) {
 	const char *name = attr(action_node, "name");
 	const ActionSpec *spec = action_spec_from_name(name);
 	if (spec == nullptr)
@@ -78,8 +174,33 @@ std::optional<Action> parse_action_xml(xmlNode *action_node) {
 		else if (is(c, "follow"))
 			action->follow = parse_yes(text(c), action->follow);
 	}
+	if (action->type == ActionType::If || action->type == ActionType::ForEach) {
+		if (depth >= kMaxNesting)
+			return std::nullopt;
+		auto cond = std::make_shared<Conditional>();
+		bool queries = false;
+		for (xmlNode *c = action_node->children; c; c = c->next) {
+			if (is(c, "query")) {
+				queries = true;
+				cond->queries.push_back(parse_query(c->children,
+						std::string(attr(c, "target")).find("focus") != std::string::npos));
+			} else if (is(c, "then")) {
+				cond->then_actions = branch(c, depth);
+			} else if (is(c, "else")) {
+				cond->else_actions = branch(c, depth);
+			} else if (is(c, "none")) {
+				cond->none_actions = branch(c, depth);
+			}
+		}
+		/* Without <query>, the conditions sit in the action itself. */
+		if (!queries)
+			cond->queries.push_back(parse_query(action_node->children, false));
+		action->conditional = std::move(cond);
+	}
 	return action;
 }
+
+}  // namespace
 
 void collect_actions_xml(xmlNode *first, std::vector<Action> &out, bool recurse) {
 	for (xmlNode *node = first; node; node = node->next) {

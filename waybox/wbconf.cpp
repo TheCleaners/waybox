@@ -5,6 +5,7 @@
  * plain WayboxSettings struct; this file is the XML glue and is unit-tested via
  * in-memory round-trips (test/wbconf_test.cpp).
  */
+#include "waybox/font_spec.hpp"
 #include "waybox/wbconf.hpp"
 #include "waybox/startup.hpp"
 
@@ -132,6 +133,15 @@ std::optional<std::string> attr_value(xmlNode *node, const char *attr) {
 	return value;
 }
 
+bool is_match_key(const std::string &key) {
+	return key == "name" || key == "make" || key == "model" || key == "serial";
+}
+
+OutputMatch output_match_of(xmlNode *o) {
+	return {attr_value(o, "name").value_or(""), attr_value(o, "make").value_or(""),
+			attr_value(o, "model").value_or(""), attr_value(o, "serial").value_or("")};
+}
+
 std::optional<int> to_int(const std::optional<std::string> &s) {
 	if (!s)
 		return std::nullopt;
@@ -194,73 +204,29 @@ xmlNode *find_font(xmlNode *root, const char *place) {
 	return nullptr;
 }
 
-/* Compose a <font place="P"> into a Pango-style "Family [Bold] Size" string,
- * or nullopt if the place is absent. */
+/* Compose a <font place="P"> into a Pango-style string, "Inter Semi-Bold
+ * Italic Condensed 11" (wb::font::to_pango), or nullopt if it's absent. */
 std::optional<std::string> read_font(xmlNode *root, const char *place) {
 	xmlNode *font = find_font(root, place);
 	if (font == nullptr)
 		return std::nullopt;
-	std::string family = node_text(child_named(font, "name")).value_or("Sans");
-	std::optional<std::string> size = node_text(child_named(font, "size"));
-	std::optional<std::string> weight = node_text(child_named(font, "weight"));
-	std::string out = family;
-	if (weight) {
-		std::string w = *weight;
-		std::transform(w.begin(), w.end(), w.begin(),
+	wb::font::Styled st;
+	st.family = node_text(child_named(font, "name")).value_or("Sans");
+	if (auto size = node_text(child_named(font, "size")); size && !size->empty())
+		st.size = std::atof(size->c_str());
+	if (auto w = node_text(child_named(font, "weight")))
+		if (int v = wb::font::weight_named(*w); v > 0)
+			st.weight = v;
+	if (auto sl = node_text(child_named(font, "slant"))) {
+		std::string l = *sl;
+		std::transform(l.begin(), l.end(), l.begin(),
 				[](unsigned char c) { return std::tolower(c); });
-		if (w == "bold")
-			out += " Bold";
+		st.italic = l == "italic" || l == "oblique";
 	}
-	if (size && !size->empty())
-		out += " " + *size;
-	return out;
-}
-
-/* Split a Pango-style "Family [Bold] Size" string into (family, size, bold).
- * A trailing integer is the size; a "Bold" token sets weight; the rest is the
- * family. */
-void parse_font(const std::string &spec, std::string &family, std::string &size,
-		bool &bold) {
-	std::vector<std::string> tokens;
-	std::string cur;
-	for (char c : spec) {
-		if (c == ' ') {
-			if (!cur.empty()) { tokens.push_back(cur); cur.clear(); }
-		} else {
-			cur.push_back(c);
-		}
-	}
-	if (!cur.empty())
-		tokens.push_back(cur);
-
-	bold = false;
-	size.clear();
-	/* Only a final number is the size: "3270 Nerd Font 11" is the family
-	 * "3270 Nerd Font". */
-	if (!tokens.empty() && tokens.back().find_first_not_of("0123456789") ==
-			std::string::npos) {
-		size = tokens.back();
-		tokens.pop_back();
-	}
-	std::vector<std::string> fam;
-	for (const std::string &t : tokens) {
-		std::string lo = t;
-		std::transform(lo.begin(), lo.end(), lo.begin(),
-				[](unsigned char c) { return std::tolower(c); });
-		if (lo == "bold") {
-			bold = true;
-		} else if (lo == "regular" || lo == "normal" || lo == "italic" ||
-				lo == "oblique" || lo == "light" || lo == "medium") {
-			/* style/weight words we don't model: drop from the family name */
-		} else {
-			fam.push_back(t);
-		}
-	}
-	family.clear();
-	for (size_t i = 0; i < fam.size(); ++i)
-		family += (i ? " " : "") + fam[i];
-	if (family.empty())
-		family = "Sans";
+	if (auto wd = node_text(child_named(font, "width")))
+		if (int v = wb::font::width_named(*wd); v > 0)
+			st.width = v;
+	return wb::font::to_pango(st);
 }
 
 }  // namespace
@@ -314,6 +280,22 @@ std::optional<RcDocument> RcDocument::from_string(const std::string &xml,
 	if (!doc)
 		return std::nullopt;
 	return RcDocument(static_cast<void *>(*doc));
+}
+
+bool output_rule_matches(const OutputMatch &rule, const OutputMatch &monitor) {
+	if (rule.empty())
+		return false;
+	return (rule.name.empty() || rule.name == monitor.name) &&
+			(rule.make.empty() || rule.make == monitor.make) &&
+			(rule.model.empty() || rule.model == monitor.model) &&
+			(rule.serial.empty() || rule.serial == monitor.serial);
+}
+
+int applying_output_rule(const std::vector<OutputSetting> &rules, const OutputMatch &monitor) {
+	for (size_t i = 0; i < rules.size(); ++i)
+		if (output_rule_matches(rules[i].match(), monitor))
+			return static_cast<int>(i);
+	return -1;
 }
 
 WayboxSettings RcDocument::read() const {
@@ -372,20 +354,31 @@ WayboxSettings RcDocument::read() const {
 		for (xmlNode *o = outs->children; o != nullptr; o = o->next) {
 			if (!is_element(o, "output"))
 				continue;
-			auto name = attr_value(o, "name");
-			if (!name || name->empty() || attr_value(o, "make") ||
-					attr_value(o, "model") || attr_value(o, "serial"))
-				continue;  /* only plain by-name rules */
-			OutputSetting out{*name, {}};
+			OutputSetting out;
+			OutputMatch m = output_match_of(o);
+			if (m.empty())
+				continue;  /* matches nothing */
+			bool seen = false;
+			for (const OutputSetting &e : s.outputs)
+				seen = seen || e.from == m;
+			if (seen)
+				continue;  /* never applies: an earlier rule has its matcher */
+			out.name = m.name;
+			out.make = m.make;
+			out.model = m.model;
+			out.serial = m.serial;
+			out.from = m;
 			for (xmlAttr *a = o->properties; a != nullptr; a = a->next) {
 				std::string key = reinterpret_cast<const char *>(a->name);
-				if (key != "name")
+				if (!is_match_key(key))
 					out.attrs[key] = attr_value(o, key.c_str()).value_or("");
 			}
 			s.outputs.push_back(out);
 		}
 	}
 	s.hdr_outputs = attr_value(find_path(root, {"waybox", "hdr"}), "outputs");
+	s.cursor_theme = attr_value(find_path(root, {"waybox", "cursor"}), "theme");
+	s.cursor_size = attr_value(find_path(root, {"waybox", "cursor"}), "size");
 
 	auto read_children = [](xmlNode *parent, std::map<std::string, std::string> &into) {
 		for (xmlNode *c = parent ? parent->children : nullptr; c != nullptr; c = c->next)
@@ -559,48 +552,79 @@ void put_startup(xmlNode *root, const std::vector<StartupSetting> &now,
 	}
 }
 
-/* The <waybox><outputs><output name="NAME"> element, or nullptr. */
-xmlNode *find_output(xmlNode *root, const std::string &name) {
+/* The first <waybox><outputs><output> with exactly matcher `m`, or
+ * nullptr. */
+xmlNode *find_output(xmlNode *root, const OutputMatch &m) {
+	if (m.empty())
+		return nullptr;
 	xmlNode *outs = find_path(root, {"waybox", "outputs"});
 	for (xmlNode *o = outs ? outs->children : nullptr; o != nullptr; o = o->next)
-		if (is_element(o, "output") && attr_value(o, "name") == name &&
-				!attr_value(o, "make") && !attr_value(o, "model") &&
-				!attr_value(o, "serial"))
+		if (is_element(o, "output") && output_match_of(o) == m)
 			return o;
 	return nullptr;
 }
 
-/* Write one output's attributes: only those that differ from `base` (all
- * of them without one). An output left with no settings is removed. */
+/* Write one rule: its matcher (rewritten where the rule is), and of its
+ * attributes only those that differ from `base` (all of them without
+ * one). A rule left with no settings is removed. */
 void put_output(xmlNode *root, const OutputSetting &out, const OutputSetting *base) {
-	xmlNode *node = find_output(root, out.name);
+	xmlNode *node = find_output(root, out.from);
 	std::map<std::string, std::string> before = base ? base->attrs
 			: std::map<std::string, std::string>{};
+	if (out.attrs.empty() || out.match().empty()) {
+		if (node != nullptr) {
+			xmlUnlinkNode(node);
+			xmlFreeNode(node);
+		}
+		return;
+	}
 	if (node == nullptr) {
-		if (out.attrs.empty())
-			return;
 		xmlNode *outs = ensure_path(root, {"waybox", "outputs"});
 		node = new_child(outs, "output");
-		xmlSetProp(node, xc("name"), xc(out.name.c_str()));
+		/* Before the rule it must win over (the first match applies). */
+		if (xmlNode *ahead = find_output(root, out.before); ahead != nullptr && ahead != node) {
+			xmlUnlinkNode(node);
+			xmlAddPrevSibling(ahead, node);
+		}
+		before.clear();  /* every attribute written */
 	}
-	for (const auto &[key, value] : out.attrs)
-		if (base == nullptr || before.count(key) == 0 || before.at(key) != value)
+	/* Last to first, each new one put first: name, make, model, serial
+	 * lead, as written by hand; one already there stays where it is. */
+	const std::pair<const char *, const std::string *> match[] = {
+		{"serial", &out.serial}, {"model", &out.model}, {"make", &out.make},
+		{"name", &out.name}};
+	for (const auto &[key, value] : match) {
+		if (value->empty()) {
+			if (xmlHasProp(node, xc(key)))
+				xmlUnsetProp(node, xc(key));
+		} else if (xmlHasProp(node, xc(key))) {
+			xmlSetProp(node, xc(key), xc(value->c_str()));
+		} else if (xmlAttr *a = xmlNewProp(node, xc(key), xc(value->c_str()));
+				a != nullptr && a != node->properties) {
+			/* Appended: moved to the front. */
+			if (a->prev != nullptr)
+				a->prev->next = a->next;
+			if (a->next != nullptr)
+				a->next->prev = a->prev;
+			a->prev = nullptr;
+			a->next = node->properties;
+			node->properties->prev = a;
+			node->properties = a;
+		}
+	}
+	for (const auto &[key, value] : out.attrs) {
+		if (is_match_key(key))
+			continue;
+		if (before.count(key) == 0 || before.at(key) != value)
 			xmlSetProp(node, xc(key.c_str()), xc(value.c_str()));
-	for (const auto &[key, value] : before)
-		if (out.attrs.count(key) == 0)
-			xmlUnsetProp(node, xc(key.c_str()));
-	bool empty = true;
-	for (xmlAttr *a = node->properties; a != nullptr; a = a->next)
-		if (xmlStrcmp(a->name, xc("name")) != 0)
-			empty = false;
-	if (empty) {
-		xmlUnlinkNode(node);
-		xmlFreeNode(node);
 	}
+	for (const auto &[key, value] : before)
+		if (out.attrs.count(key) == 0 && !is_match_key(key))
+			xmlUnsetProp(node, xc(key.c_str()));
 }
 
 /* Create/update or remove the <theme><font place="P"> element from a
- * Pango-style "Family [Bold] Size" string. */
+ * Pango-style string (wb::font::from_pango). */
 void put_font(xmlNode *root, const char *place,
 		const std::optional<std::string> &value) {
 	xmlNode *existing = find_font(root, place);
@@ -611,9 +635,9 @@ void put_font(xmlNode *root, const char *place,
 		}
 		return;
 	}
-	std::string family, size;
-	bool bold = false;
-	parse_font(*value, family, size, bold);
+	wb::font::Styled st = wb::font::from_pango(*value);
+	if (st.family.empty())
+		st.family = "Sans";
 
 	xmlNode *theme = ensure_child(root, "theme");
 	xmlNode *font = existing;
@@ -630,10 +654,41 @@ void put_font(xmlNode *root, const char *place,
 		}
 		xmlNodeSetContent(c, xc(text.c_str()));
 	};
-	set_child("name", family);
-	if (!size.empty())
-		set_child("size", size);
-	set_child("weight", bold ? "bold" : "normal");
+	auto drop_child = [&](const char *name) {
+		if (xmlNode *c = child_named(font, name)) {
+			xmlUnlinkNode(c);
+			xmlFreeNode(c);
+		}
+	};
+	set_child("name", st.family);
+	/* rc.xml's size is whole points. */
+	if (st.size > 0)
+		set_child("size", std::to_string(static_cast<int>(st.size + 0.5)));
+	/* Openbox's bold and normal; the other weights by name (Waybox's). */
+	std::string weight = "normal";
+	if (st.weight != 400) {
+		int w = wb::font::nearest_weight(st.weight);
+		weight = w == 700 ? "bold" : "normal";
+		for (const wb::font::Named &n : wb::font::weights())
+			if (n.value == w && w != 400 && w != 700)
+				weight = n.fc;
+	}
+	set_child("weight", weight);
+	/* Openbox's <slant>: written when italic, or when it was there. */
+	if (st.italic)
+		set_child("slant", "italic");
+	else if (child_named(font, "slant") != nullptr)
+		set_child("slant", "normal");
+	/* Waybox's <width> (Openbox has none): only when it isn't normal. */
+	if (st.width != 100) {
+		std::string name = std::to_string(st.width);
+		for (const wb::font::Named &n : wb::font::widths())
+			if (n.value == wb::font::nearest_width(st.width))
+				name = n.fc;
+		set_child("width", name);
+	} else {
+		drop_child("width");
+	}
 }
 
 }  // namespace
@@ -713,6 +768,14 @@ void apply_fields(xmlNode *root, const WayboxSettings &s, const WayboxSettings *
 
 	if (WB_CHANGED(hdr_outputs))
 		put_attr(root, {"waybox", "hdr"}, "outputs", s.hdr_outputs);
+	/* The pointer's theme and size are one thing: a change to either writes
+	 * both. (wbconf shows GTK's theme where rc.xml has none; a new size
+	 * alone would otherwise leave Waybox on a theme other than the one
+	 * shown.) */
+	if (WB_CHANGED(cursor_theme) || WB_CHANGED(cursor_size)) {
+		put_attr(root, {"waybox", "cursor"}, "theme", s.cursor_theme);
+		put_attr(root, {"waybox", "cursor"}, "size", s.cursor_size);
+	}
 	if (WB_CHANGED(xwayland))
 		put_attr(root, {"waybox", "xwayland"}, "enabled", bool_opt_str(s.xwayland));
 	if (WB_CHANGED(idle_screen_off))
@@ -764,29 +827,39 @@ void apply_fields(xmlNode *root, const WayboxSettings &s, const WayboxSettings *
 	if (WB_CHANGED(libinput))
 		put_children("mouse", "libinput", s.libinput, base ? base->libinput : none);
 
-	for (const OutputSetting &out : s.outputs) {
-		const OutputSetting *was = nullptr;
-		if (base != nullptr)
-			for (const OutputSetting &b : base->outputs)
-				if (b.name == out.name)
-					was = &b;
-		if (base != nullptr && was != nullptr && *was == out)
-			continue;
-		/* Without a base, every attribute is written; with one, an output
-		 * the base didn't have is written whole. */
-		OutputSetting empty{out.name, {}};
-		put_output(root, out, base == nullptr ? nullptr : (was ? was : &empty));
-	}
-	/* A monitor in the base but no longer in the settings (set back to all
-	 * automatic): its rule goes. */
-	if (base != nullptr)
-		for (const OutputSetting &was : base->outputs) {
-			bool kept = false;
-			for (const OutputSetting &out : s.outputs)
-				kept = kept || out.name == was.name;
-			if (!kept)
-				put_output(root, OutputSetting{was.name, {}}, &was);
+	/* Rules are known by the matcher they were read with (`from`): the
+	 * same in the base and the settings, whatever they match now. */
+	auto in_base = [&](const OutputSetting &out) -> const OutputSetting * {
+		if (base == nullptr || out.from.empty())
+			return nullptr;
+		for (const OutputSetting &b : base->outputs)
+			if (b.from == out.from)
+				return &b;
+		return nullptr;
+	};
+	if (base != nullptr || !s.outputs.empty() || find_path(root, {"waybox", "outputs"})) {
+		for (const OutputSetting &out : s.outputs) {
+			const OutputSetting *was = in_base(out);
+			if (base != nullptr && was != nullptr && *was == out)
+				continue;
+			put_output(root, out, was);
 		}
+		/* In the base but no longer in the settings (set back to all
+		 * automatic): its rule goes. */
+		if (base != nullptr)
+			for (const OutputSetting &was : base->outputs) {
+				if (was.from.empty())
+					continue;
+				bool kept = false;
+				for (const OutputSetting &out : s.outputs)
+					kept = kept || out.from == was.from;
+				if (!kept) {
+					OutputSetting gone = was;
+					gone.attrs.clear();
+					put_output(root, gone, &was);
+				}
+			}
+	}
 #undef WB_CHANGED
 }
 
@@ -800,6 +873,69 @@ void RcDocument::apply(const WayboxSettings &s) {
 void RcDocument::apply(const WayboxSettings &s, const WayboxSettings &unchanged) {
 	if (xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_)))
 		apply_fields(root, s, &unchanged);
+}
+
+namespace {
+
+/* `node` and everything in it into namespace `ns` (the document's default,
+ * as the elements around it). */
+void set_ns_deep(xmlNode *node, xmlNs *ns) {
+	for (; node != nullptr; node = node->next)
+		if (node->type == XML_ELEMENT_NODE) {
+			xmlSetNs(node, ns);
+			set_ns_deep(node->children, ns);
+		}
+}
+
+}  // namespace
+
+std::string RcDocument::snapshot(const std::vector<const char *> &path) const {
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	xmlNode *node = root ? find_path(root, path) : nullptr;
+	if (node == nullptr)
+		return {};
+	xmlBufferPtr buf = xmlBufferCreate();
+	xmlNodeDump(buf, static_cast<xmlDocPtr>(doc_), node, 0, 0);
+	std::string out(reinterpret_cast<const char *>(xmlBufferContent(buf)),
+			static_cast<size_t>(xmlBufferLength(buf)));
+	xmlBufferFree(buf);
+	return out;
+}
+
+void RcDocument::restore(const std::vector<const char *> &path, const std::string &xml) {
+	xmlDocPtr doc = static_cast<xmlDocPtr>(doc_);
+	xmlNode *root = xmlDocGetRootElement(doc);
+	if (root == nullptr || path.empty())
+		return;
+	xmlNode *now = find_path(root, path);
+	xmlNode *copy = nullptr;
+	if (!xml.empty()) {
+		/* No network, no entities expanded: it's our own text, but text. */
+		xmlDocPtr part = xmlReadMemory(xml.data(), static_cast<int>(xml.size()), nullptr,
+				nullptr, XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING);
+		xmlNode *top = part ? xmlDocGetRootElement(part) : nullptr;
+		if (top != nullptr && xmlStrcmp(top->name, xc(path.back())) == 0)
+			copy = xmlDocCopyNode(top, doc, 1);
+		if (part != nullptr)
+			xmlFreeDoc(part);
+		if (copy == nullptr)
+			return;  /* not what was saved: leave things as they are */
+	}
+	if (now != nullptr && copy != nullptr) {
+		set_ns_deep(copy, now->ns);
+		xmlReplaceNode(now, copy);
+		xmlFreeNode(now);
+	} else if (now != nullptr) {
+		xmlUnlinkNode(now);
+		xmlFreeNode(now);
+	} else if (copy != nullptr) {
+		std::vector<const char *> up(path.begin(), path.end() - 1);
+		xmlNode *parent = up.empty() ? root : ensure_path(root, up);
+		set_ns_deep(copy, parent->ns);
+		xmlNode *placed = new_child(parent, reinterpret_cast<const char *>(copy->name));
+		xmlReplaceNode(placed, copy);
+		xmlFreeNode(placed);
+	}
 }
 
 std::string RcDocument::to_string() const {

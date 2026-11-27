@@ -26,6 +26,11 @@ struct ScriptEntry {
 };
 std::vector<ScriptEntry> script_entries(std::string_view script);
 
+/* Where an entry read earlier (its command, on line `was`) is now, the
+ * script having changed since: the entry with the same command nearest
+ * that line; -1 if it's gone. */
+int find_script_entry(const std::vector<ScriptEntry> &now, const std::string &command, int was);
+
 /* The script with that entry's line commented out or back in (unchanged
  * if the line isn't such an entry). The rest stays byte for byte. */
 std::string script_set_enabled(std::string_view script, int line, bool on);

@@ -22,6 +22,7 @@ namespace wb { class FrameView; }
 struct wb_popup {
 	struct wlr_xdg_popup *xdg_popup = nullptr;
 	wb::Listener commit;
+	wb::Listener reposition;  /* xdg_popup.reposition: placed again, kept on screen */
 	wb::Listener destroy;
 };
 
@@ -124,6 +125,9 @@ struct wb_toplevel {
 	 * shows on every desktop (Openbox's "all desktops"/sticky). */
 	int desktop = 0;
 	bool omnipresent = false;
+	/* Openbox's layer: -1 always below, 0 normal, 1 always on top. Raising
+	 * and lowering stay within it. */
+	int layer = 0;
 
 	struct wl_list link;       /* server::toplevels — stacking (z-)order */
 	struct wl_list focus_link; /* server::focus_order — MRU focus order */
@@ -178,6 +182,11 @@ void set_toplevel_minimized(struct wb_toplevel *toplevel, bool minimized);
 /* Roll a window up to its titlebar (hiding its contents) or back down.
  * Only windows with a server-side frame can be rolled up. */
 void set_toplevel_shaded(struct wb_toplevel *toplevel, bool shaded);
+/* The scene tree a window's layer lives in (-1, 0, 1), and moving it there:
+ * on top of that layer (a fullscreen window stays in the fullscreen layer
+ * while active). */
+struct wlr_scene_tree *toplevel_layer_tree(struct wb_server *server, int layer);
+void set_toplevel_layer(struct wb_toplevel *toplevel, int layer);
 /* Insert a new toplevel into the server lists and create its scene
  * container (both kinds). */
 void register_toplevel(struct wb_toplevel *toplevel);
@@ -246,6 +255,11 @@ struct wlr_box output_usable_area(struct wb_server *server, struct wlr_output *o
 /* Show `text` for a moment, centred, in the on-screen display style (the
  * desktop popup's; showing again replaces it). */
 void wb_show_popup(struct wb_server *server, const std::string &text, int duration_ms);
+/* The on-screen displays' style: the theme's, with rc.xml's <osd> over it. */
+wb::SwitcherStyle wb_osd_style(struct wb_server *server);
+/* Each monitor's name on it, large (or only `only`'s, if not ""), for
+ * `duration_ms`; how many were shown. */
+int wb_identify_outputs(struct wb_server *server, const std::string &only, int duration_ms);
 /* Move a window to desktop `index`; with `follow`, go there with it. */
 void wb_send_to_desktop(struct wb_toplevel *toplevel, int index, bool follow);
 void wb_toggle_omnipresent(struct wb_toplevel *toplevel);

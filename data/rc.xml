@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <openbox_config xmlns="http://openbox.org/3.4/rc" xmlns:xi="http://www.w3.org/2001/XInclude">
-  <!-- You can reserve a portion of your screen where windows will not cover when
-       they are maximized, or when they are initially placed. -->
+  <!-- Space at each screen edge that maximized and newly placed windows keep
+       clear of (panels reserve their own space already). -->
   <margins>
     <top>0</top>
     <bottom>0</bottom>
@@ -24,7 +24,7 @@
     <font place="MenuItem"><name>Sans</name><size>10</size><weight>normal</weight></font>
     <font place="ActiveOnScreenDisplay"><name>Sans</name><size>10</size><weight>bold</weight></font>
   </theme> -->
-  <!-- waybox-only extensions (Openbox ignores this block). Menu behaviour:
+  <!-- waybox-only extensions (Openbox ignores this block). Menu behavior:
        submenuOpen="hover|click", wrap (keyboard navigation wraps at the
        ends), icons (show per-item icons from the icon theme, when
        available). source selects the built-in native menu ("builtin", the
@@ -68,8 +68,9 @@
     </inputMethod>
     -->
     <!-- The scripting socket ($WAYBOX_SOCK; see waybox-msg): list windows,
-         run actions, follow events. Off unless set.
-    <ipc enabled="yes"/>
+         run actions, follow events; wbconf's previews and restarting a
+         program use it too. On; only your own programs can reach it.
+    <ipc enabled="no"/>
     -->
     <!-- A focused VM viewer or remote desktop may take the keyboard
          shortcuts (Super+Escape takes them back); "no" never lets it.
@@ -125,7 +126,7 @@
       <action name="ToggleMaximize"/>
     </keybind>
     <keybind key="F11">
-      <action name="Fullscreen"/>
+      <action name="ToggleFullscreen"/>
     </keybind>
     <keybind key="W-t">
       <action name="ToggleDecorations"/>

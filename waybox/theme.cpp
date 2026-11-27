@@ -301,6 +301,14 @@ Color *color_field_for(Theme &t, std::string_view key) {
 	if (key == "menu.items.active.bg.colorTo") return &t.menu.items_active_bg.color_to;
 	if (key == "menu.items.active.text.color") return &t.menu.items_active_text;
 	if (key == "menu.separator.color") return &t.menu.separator;
+	if (key == "osd.bg.color") return &t.osd.bg.color;
+	if (key == "osd.bg.colorTo") return &t.osd.bg.color_to;
+	if (key == "osd.hilight.bg.color") return &t.osd.hilight_bg.color;
+	if (key == "osd.hilight.bg.colorTo") return &t.osd.hilight_bg.color_to;
+	if (key == "osd.label.text.color" || key == "osd.inactive.label.text.color")
+		return &t.osd.text;
+	if (key == "osd.active.label.text.color") return &t.osd.active_text;
+	if (key == "osd.border.color") return &t.osd.border_color;
 	return nullptr;
 }
 
@@ -375,6 +383,28 @@ void apply_key(Theme &t, std::string_view key, std::string_view value) {
 		t.window_inactive.button_bg_parentrelative =
 				to_lower(value).find("parentrelative") != std::string::npos;
 		return;
+	}
+	/* Openbox's osd.* keys: each marks itself set (the displays keep the
+	 * menu's look for what a theme leaves out). */
+	if (key == "osd.border.width") { set_int(t.osd.border_width); return; }
+	if (key == "osd.bg") { apply_texture_type(value, t.osd.bg); t.osd.bg_set = true; return; }
+	if (key == "osd.hilight.bg") {
+		apply_texture_type(value, t.osd.hilight_bg);
+		t.osd.hilight_set = true;
+		return;
+	}
+	/* An osd colour that parses (one that doesn't sets nothing). */
+	if (key.rfind("osd.", 0) == 0 && parse_color(trim(value)).has_value()) {
+		if (key == "osd.bg.color" || key == "osd.bg.colorTo")
+			t.osd.bg_set = true;
+		else if (key == "osd.hilight.bg.color" || key == "osd.hilight.bg.colorTo")
+			t.osd.hilight_set = true;
+		else if (key == "osd.label.text.color" || key == "osd.inactive.label.text.color")
+			t.osd.text_set = true;
+		else if (key == "osd.active.label.text.color")
+			t.osd.active_text_set = true;
+		else if (key == "osd.border.color")
+			t.osd.border_color_set = true;
 	}
 	if (key == "menu.title.bg") { apply_texture_type(value, t.menu.title_bg); return; }
 	if (key == "menu.items.bg") { apply_texture_type(value, t.menu.items_bg); return; }

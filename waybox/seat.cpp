@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "script.h"
+#include "color_pick.h"
 #include "waybox/stall.hpp"
 #include "idle.h"
 #include "shortcuts_inhibit.h"
@@ -23,6 +24,7 @@
 #include "waybox/window_cycle.hpp"
 #include "waybox/desktops.hpp"
 #include "waybox/client_menu.hpp"
+#include "waybox/conditions.hpp"
 #include "waybox/xdg_shell.h"
 #include "waybox/menu_widget.hpp"
 #include "waybox/switcher_widget.hpp"
@@ -191,9 +193,7 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 			ordered.begin());
 	int sel = reverse ? (current - 1 + n) % n : (current + 1) % n;
 	wins = std::move(ordered);
-	wb::SwitcherStyle style = server->config
-			? wb::switcher_style_from_theme(server->config->theme)
-			: wb::switcher_style_from_theme(wb::default_theme());
+	wb::SwitcherStyle style = wb_osd_style(server);
 	wb::StallScope timing("switcher");
 	auto widget = std::make_unique<wb::SwitcherWidget>(server, style, behavior);
 	std::vector<wb::SwitcherWidget::Entry> rows;
@@ -232,6 +232,7 @@ void wb_show_client_menu(struct wb_server *server) {
 				wb::desktop_name(server->config->desktops, i));
 	state.desktop = t->desktop;
 	state.omnipresent = t->omnipresent;
+	state.layer = t->layer;
 	state.maximized = t->max_horz && t->max_vert;
 	state.shaded = t->shaded;
 	state.decorated = t->frame != nullptr;
@@ -269,8 +270,129 @@ void wb_run_menu_actions(struct wb_server *server, std::vector<wb::Action> actio
 			return;
 		focus_toplevel(target);
 	}
-	for (const wb::Action &action : actions)
+	wb::run_actions(actions, server);
+}
+
+bool wb::run_actions(const std::vector<wb::Action> &actions, struct wb_server *server) {
+	const struct wb_config *config = server->config;
+	for (const wb::Action &action : actions) {
+		if (action.type == wb::ActionType::Stop)
+			return true;
 		wb::run_action(action, server);
+		if (server->config != config)
+			return true;
+	}
+	return false;
+}
+
+/* ---- If, ForEach (Openbox's conditional actions; conditions.hpp) ---- */
+
+namespace {
+
+int conditional_depth = 0;  /* If/ForEach within If/ForEach, bounded */
+
+/* What a condition can ask about a window. */
+wb::WindowFacts window_facts(struct wb_server *server, struct wb_toplevel *t) {
+	wb::WindowFacts f;
+	f.title = view_title(t) ? view_title(t) : "";
+	f.app_id = view_app_id(t) ? view_app_id(t) : "";
+	f.tag = t->tag;
+	f.type = view_parent(t) != nullptr ? "dialog" : "normal";
+	f.shaded = t->shaded;
+	f.maximized_horizontal = t->max_horz;
+	f.maximized_vertical = t->max_vert;
+	f.iconified = t->minimized;
+	f.fullscreen = t->fullscreen;
+	struct wlr_surface *s = view_surface(t);
+	f.focused = s != nullptr && server->seat->seat->keyboard_state.focused_surface == s;
+	f.focusable = t->mapped;
+	f.urgent = false;  /* (Waybox keeps no urgency) */
+	f.decorated = t->frame != nullptr;
+	f.omnipresent = t->omnipresent;
+	f.desktop = t->desktop;
+	/* Monitors are numbered from 1, in the order IPC lists them. */
+	struct wlr_output *output = get_active_output(t);
+	int n = 0;
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link) {
+		++n;
+		if (o->wlr_output == output) {
+			f.monitor = n;
+			break;
+		}
+	}
+	return f;
+}
+
+struct wb_toplevel *keyboard_focused(struct wb_server *server) {
+	struct wlr_surface *focused = server->seat->seat->keyboard_state.focused_surface;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link)
+		if (t->mapped && focused != nullptr && view_surface(t) == focused)
+			return t;
+	return nullptr;
+}
+
+bool conditions_hold(struct wb_server *server, const wb::Conditional &c,
+		struct wb_toplevel *target) {
+	std::optional<wb::WindowFacts> action_facts, focus_facts;
+	if (target != nullptr)
+		action_facts = window_facts(server, target);
+	if (struct wb_toplevel *f = keyboard_focused(server))
+		focus_facts = window_facts(server, f);
+	wb::DesktopFacts d{server->current_desktop, server->last_desktop};
+	return wb::conditions_true(c.queries, action_facts ? &*action_facts : nullptr,
+			focus_facts ? &*focus_facts : nullptr, d);
+}
+
+/* Run `actions` for `window` (the window they act on). */
+bool run_for(struct wb_server *server, const std::vector<wb::Action> &actions,
+		struct wb_toplevel *window) {
+	struct wb_toplevel *saved = server->action_window;
+	server->action_window = window;
+	bool stopped = wb::run_actions(actions, server);
+	server->action_window = toplevel_alive(server, saved) ? saved : nullptr;
+	return stopped;
+}
+
+}  // namespace
+
+static struct wb_toplevel *action_target(struct wb_server *server);
+
+/* If: the branch its conditions choose, on the action's window. ForEach:
+ * that for every window, oldest first, until a Stop; <none> if no window
+ * matched. Like any other action, they never end their own list (a Stop
+ * inside a branch ends that branch, and a ForEach loop). */
+static void run_conditional(const wb::Action &action, struct wb_server *server) {
+	const wb::Conditional *c = action.conditional.get();
+	if (c == nullptr || conditional_depth >= 16)
+		return;
+	++conditional_depth;
+	struct wb_toplevel *target = action_target(server);
+	if (action.type == wb::ActionType::If) {
+		bool yes = conditions_hold(server, *c, target);
+		run_for(server, yes ? c->then_actions : c->else_actions, target);
+	} else {
+		/* A snapshot: the actions may open, close or restack windows. */
+		std::vector<struct wb_toplevel *> windows;
+		struct wb_toplevel *t;
+		wl_list_for_each_reverse(t, &server->toplevels, link)
+			if (t->mapped)
+				windows.push_back(t);
+		bool any = false;
+		for (struct wb_toplevel *w : windows) {
+			if (!toplevel_alive(server, w) || !w->mapped)
+				continue;
+			bool yes = conditions_hold(server, *c, w);
+			any = any || yes;
+			if (run_for(server, yes ? c->then_actions : c->else_actions, w))
+				break;  /* a Stop ends the loop */
+		}
+		if (!any)
+			run_for(server, c->none_actions,
+					toplevel_alive(server, target) ? target : nullptr);
+	}
+	--conditional_depth;
 }
 
 /* Run a single parsed action against the live compositor state. This is the
@@ -294,26 +416,25 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 			view_close(toplevel);
 		break;
 	}
+	case wb::ActionType::Maximize:
+	case wb::ActionType::Unmaximize:
 	case wb::ActionType::ToggleMaximize: {
+		/* As Openbox: <direction> both (default), horizontal (horz) or
+		 * vertical (vert); a toggle in one direction looks only at that
+		 * direction, a toggle of both at whether it's fully maximized. */
 		struct wb_toplevel *toplevel = action_target(server);
-		if (toplevel && toplevel->scene_tree->node.enabled) {
-			bool full = toplevel->max_horz && toplevel->max_vert;
-			set_toplevel_maximized(toplevel, !full, !full);
-		}
-		break;
-	}
-	case wb::ActionType::ToggleMaximizeHorizontal: {
-		struct wb_toplevel *toplevel = action_target(server);
-		if (toplevel && toplevel->scene_tree->node.enabled)
-			set_toplevel_maximized(toplevel, !toplevel->max_horz,
-					toplevel->max_vert);
-		break;
-	}
-	case wb::ActionType::ToggleMaximizeVertical: {
-		struct wb_toplevel *toplevel = action_target(server);
-		if (toplevel && toplevel->scene_tree->node.enabled)
-			set_toplevel_maximized(toplevel, toplevel->max_horz,
-					!toplevel->max_vert);
+		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled)
+			break;
+		const std::string &d = action.direction;
+		bool horz = d == "horizontal" || d == "horz";
+		bool vert = d == "vertical" || d == "vert";
+		bool on = action.type == wb::ActionType::Maximize;
+		if (action.type == wb::ActionType::ToggleMaximize)
+			on = horz ? !toplevel->max_horz : vert ? !toplevel->max_vert
+					: !(toplevel->max_horz && toplevel->max_vert);
+		bool h = horz || !vert ? on : toplevel->max_horz;
+		bool v = vert || !horz ? on : toplevel->max_vert;
+		set_toplevel_maximized(toplevel, h, v);
 		break;
 	}
 	case wb::ActionType::Fullscreen: {
@@ -330,11 +451,25 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		}
 		break;
 	}
+	case wb::ActionType::ToggleShade: {
+		struct wb_toplevel *toplevel = action_target(server);
+		if (toplevel && toplevel->scene_tree->node.enabled)
+			set_toplevel_shaded(toplevel, !toplevel->shaded);
+		break;
+	}
 	case wb::ActionType::Shade:
 	case wb::ActionType::Unshade: {
 		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)
 			set_toplevel_shaded(toplevel, action.type == wb::ActionType::Shade);
+		break;
+	}
+	case wb::ActionType::Focus: {
+		/* Openbox's Focus: keyboard focus to the window. focus_toplevel()
+		 * raises it, brings it back if minimized, and shows its desktop. */
+		struct wb_toplevel *toplevel = action_target(server);
+		if (toplevel != nullptr && toplevel->mapped)
+			focus_toplevel(toplevel);
 		break;
 	}
 	case wb::ActionType::Raise: {
@@ -387,6 +522,12 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		}
 		break;
 	}
+	case wb::ActionType::If:
+	case wb::ActionType::ForEach:
+		run_conditional(action, server);
+		break;
+	case wb::ActionType::Stop:
+		break;  /* (it ends a list: run_actions) */
 	case wb::ActionType::ScriptCall:
 		script_menu_call(server, action.script_callback);
 		break;
@@ -405,6 +546,22 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 				server->current_desktop, server->last_desktop,
 				desktop_count(server), action.wrap))
 			wb_send_to_desktop(toplevel, *target, action.follow);
+		break;
+	}
+	case wb::ActionType::SendToLayer:
+	case wb::ActionType::ToggleAlwaysOnTop:
+	case wb::ActionType::ToggleAlwaysOnBottom: {
+		struct wb_toplevel *toplevel = action_target(server);
+		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled)
+			break;
+		int layer = 0;
+		if (action.type == wb::ActionType::ToggleAlwaysOnTop)
+			layer = toplevel->layer == 1 ? 0 : 1;
+		else if (action.type == wb::ActionType::ToggleAlwaysOnBottom)
+			layer = toplevel->layer == -1 ? 0 : -1;
+		else
+			layer = action.direction == "top" ? 1 : action.direction == "bottom" ? -1 : 0;
+		set_toplevel_layer(toplevel, layer);
 		break;
 	}
 	case wb::ActionType::ToggleOmnipresent: {
@@ -536,8 +693,7 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 		/* Expose the triggering modifiers so NextWindow/PreviousWindow can tell
 		 * an Alt-held interactive cycle from a modifier-less instant switch. */
 		server->last_key_modifiers = modifiers;
-		for (const wb::Action &action : actions)
-			wb::run_action(action, server);
+		wb::run_actions(actions, server);
 		return true;
 	}
 	case wb::ChainOutcome::Descend:
@@ -642,6 +798,10 @@ void wb_keyboard::on_key(void *data) {
 	}
 
 	if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+		/* Escape ends a color pick (and goes no further). */
+		for (int i = 0; i < nsyms; i++)
+			if (color_pick_key(server, syms[i]))
+				return;
 		/* The Alt+Tab OSD grabs the keyboard: Tab/Shift+Tab move the selection,
 		 * Escape cancels, Return commits. All keys are swallowed so they neither
 		 * fire bindings nor reach clients while cycling. */

@@ -369,10 +369,20 @@ GtkWidget *build_gtk_block(Ui *ui) {
 	grid_label(grid, row, _("GTK theme"));
 	ui->gtk.theme = names_dropdown(gtk_names, ui->gtk.theme_values, ui->gtk.saved.theme);
 	grid_control(grid, row++, GTK_WIDGET(ui->gtk.theme));
-	grid_label(grid, row, _("Cursor"));
+	/* The pointer is Waybox's to draw for most programs (cursor-shape,
+	 * X11): rc.xml's <cursor> wins where it's set, and saving writes both. */
+	if (ui->gtk.rc_cursor_theme && !ui->gtk.rc_cursor_theme->empty())
+		ui->gtk.saved.cursor = *ui->gtk.rc_cursor_theme;
+	if (ui->gtk.rc_cursor_size && atoi(ui->gtk.rc_cursor_size->c_str()) >= 8)
+		ui->gtk.saved.size = atoi(ui->gtk.rc_cursor_size->c_str());
+	grid_label(grid, row, _("Pointer"));
 	ui->gtk.cursor = names_dropdown(cursor_names, ui->gtk.cursor_values, ui->gtk.saved.cursor);
+	gtk_widget_set_tooltip_text(GTK_WIDGET(ui->gtk.cursor), _("For every program: Waybox's "
+			"pointer (rc.xml <cursor>) and GTK's own setting"));
 	grid_control(grid, row++, GTK_WIDGET(ui->gtk.cursor));
-	ui->gtk.size = add_spin(grid, row++, _("Cursor size"), 8, 256);
+	ui->gtk.size = add_spin(grid, row++, _("Pointer size"), 8, 256);
+	gtk_widget_set_tooltip_text(GTK_WIDGET(ui->gtk.size), _("For every program: Waybox's "
+			"pointer (rc.xml <cursor>) and GTK's own setting"));
 	gtk_spin_button_set_value(ui->gtk.size, ui->gtk.saved.size);
 	grid_label(grid, row, _("Style"));
 	ui->gtk.scheme = choice_dropdown({{"default", _("As the program prefers")},
@@ -393,10 +403,34 @@ GtkWidget *build_gtk_block(Ui *ui) {
 	return grid;
 }
 
+Ui::GtkLook gtk_look_now(Ui *ui) {
+	return current_look(ui);
+}
+
+void gtk_changes(Ui *ui, const std::string &where, GtkWidget *target,
+		std::vector<UnsavedChange> &out) {
+	if (!ui->gtk.built)
+		return;
+	Ui::GtkLook was = ui->gtk.saved, now = current_look(ui);
+	/* The pointer's fix: the theme shown, for Waybox too. */
+	if (ui->gtk.pointer_to_rc && was.cursor == now.cursor)
+		out.push_back({{where + " \xE2\x80\xBA " + _("Pointer for Waybox"),
+				ui->gtk.rc_cursor_theme.value_or("default"), now.cursor}, target});
+	auto one = [&](const char *what, const std::string &a, const std::string &b) {
+		if (a != b)
+			out.push_back({{where + " \xE2\x80\xBA " + what, a, b}, target});
+	};
+	one(_("Icons"), was.icons, now.icons);
+	one(_("GTK theme"), was.theme, now.theme);
+	one(_("Pointer"), was.cursor, now.cursor);
+	one(_("Pointer size"), std::to_string(was.size), std::to_string(now.size));
+	one(_("Style"), was.scheme, now.scheme);
+}
+
 int gtk_unsaved(Ui *ui) {
 	if (!ui->gtk.built)
 		return 0;
-	return current_look(ui) == ui->gtk.saved ? 0 : 1;
+	return current_look(ui) == ui->gtk.saved && !ui->gtk.pointer_to_rc ? 0 : 1;
 }
 
 bool save_gtk(Ui *ui, std::string *error) {
@@ -444,7 +478,7 @@ bool save_gtk(Ui *ui, std::string *error) {
 }
 
 void gtk_test_value(Ui *ui, const std::string &key, const std::string &value) {
-	/* "gtk.icons=ID", "gtk.fill=1", "gtk.scheme=prefer-dark". */
+	/* "gtk.icons=ID", "gtk.fill=1", "gtk.scheme=prefer-dark", "gtk.size=40". */
 	if (!ui->gtk.built)
 		return;
 	if (key == "gtk.icons")
@@ -453,6 +487,8 @@ void gtk_test_value(Ui *ui, const std::string &key, const std::string &value) {
 		select_value(ui->gtk.scheme, ui->gtk.scheme_values, value);
 	else if (key == "gtk.fill")
 		fill_gaps(ui);
+	else if (key == "gtk.size")
+		gtk_spin_button_set_value(ui->gtk.size, atoi(value.c_str()));
 }
 
 }  // namespace wbconf

@@ -1,5 +1,10 @@
 [Integration]
 Name=mako
 Category=Notifications
+Provides=notifications
 Comment=Notification daemon (settings in ~/.config/mako/config)
 Exec=mako
+Page=mako.lua
+Files=~/.config/mako/config
+Runs=makoctl, notify-send
+Reload=command makoctl reload

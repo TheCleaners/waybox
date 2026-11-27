@@ -28,11 +28,23 @@ struct Program {
 	struct wb_server *server = nullptr;
 	wb::StartupProgram prog;
 	pid_t pid = -1;
+	/* Its process group: what it started may still run after it exits
+	 * (waypaper --restore leaves swaybg), and goes with it when it's
+	 * stopped. The kernel doesn't reuse an id while a group has it. */
+	pid_t group = -1;
 	std::vector<int64_t> crashes;
 	struct wl_event_source *restart_timer = nullptr;
+	/* Restarted on request: started again once this one has exited (a
+	 * second copy alongside would lose a single-instance lock, mako's bus
+	 * name). */
+	pid_t relaunch_after = -1;
+	int64_t relaunch_since = 0;
+	struct wl_event_source *relaunch_timer = nullptr;
 	~Program() {
 		if (restart_timer != nullptr)
 			wl_event_source_remove(restart_timer);
+		if (relaunch_timer != nullptr)
+			wl_event_source_remove(relaunch_timer);
 	}
 };
 
@@ -183,6 +195,7 @@ static void apply_env(struct wb_server *server,
 
 static void start(Program *p) {
 	p->pid = spawn(p->prog.command);
+	p->group = p->pid;
 	if (p->pid > 0)
 		wlr_log(WLR_INFO, "wb-startup start %s %d", p->prog.name.c_str(), p->pid);
 }
@@ -191,8 +204,12 @@ static void start(Program *p) {
 /* SIGTERM to the program's group (or the program, if the group isn't
  * there); SIGKILL in 3 s if it's still running then. */
 static void stop(struct wb_startup_state *st, Program *p) {
-	if (p->pid <= 0)
+	if (p->pid <= 0) {
+		/* Exited: what's left of its group, if anything. */
+		if (p->group > 0 && kill(-p->group, SIGTERM) == 0)
+			wlr_log(WLR_INFO, "wb-startup stop %s (left running)", p->prog.name.c_str());
 		return;
+	}
 	wlr_log(WLR_INFO, "wb-startup stop %s", p->prog.name.c_str());
 	if (kill(-p->pid, SIGTERM) != 0 && errno == ESRCH)
 		kill(p->pid, SIGTERM);
@@ -300,13 +317,75 @@ void startup_reap(struct wb_server *server) {
 	}
 }
 
+/* A restarted program's old copy: gone (it and what's left of its group,
+ * a shell's trap still running), or 5 s on: started again. */
+static int relaunch_check(void *data) {
+	auto *p = static_cast<Program *>(data);
+	struct wb_startup_state *st = p->server->startup;
+	pid_t old = p->relaunch_after;
+	bool reaped = st == nullptr || std::find(st->stopping.begin(), st->stopping.end(), old) ==
+			st->stopping.end();
+	bool group_gone = kill(-old, 0) != 0 && errno == ESRCH;
+	if ((reaped && group_gone) || now_ms() - p->relaunch_since > 5000) {
+		wl_event_source_remove(p->relaunch_timer);
+		p->relaunch_timer = nullptr;
+		p->relaunch_after = -1;
+		start(p);
+	} else {
+		wl_event_source_timer_update(p->relaunch_timer, 50);
+	}
+	return 0;
+}
+
+/* Stop the program and start it again once it has exited: by its name, else
+ * (named otherwise in rc.xml) by its command's program. */
+std::string startup_restart(struct wb_server *server, const std::string &name,
+		const std::string &binary) {
+	struct wb_startup_state *st = server->startup;
+	if (st == nullptr)
+		return "Waybox didn't start it";
+	Program *p = nullptr;
+	for (auto &q : st->programs)
+		if (q->prog.name == name)
+			p = q.get();
+	if (p == nullptr && !binary.empty())
+		for (auto &q : st->programs) {
+			std::string first = q->prog.command.substr(0,
+					q->prog.command.find_first_of(" \t"));
+			if (first.substr(first.rfind('/') + 1) == binary)
+				p = q.get();
+		}
+	if (p == nullptr)
+		return "Waybox didn't start it";
+	if (p->restart_timer != nullptr) {
+		wl_event_source_remove(p->restart_timer);
+		p->restart_timer = nullptr;
+	}
+	p->crashes.clear();
+	if (p->relaunch_after > 0)
+		return "";  /* already on its way */
+	wlr_log(WLR_INFO, "wb-startup restart %s (asked)", p->prog.name.c_str());
+	if (p->pid <= 0) {
+		stop(st, p);  /* what's left of its group */
+		start(p);
+		return "";
+	}
+	pid_t old = p->pid;
+	stop(st, p);
+	p->relaunch_after = old;
+	p->relaunch_since = now_ms();
+	p->relaunch_timer = wl_event_loop_add_timer(server->wl_event_loop, relaunch_check, p);
+	wl_event_source_timer_update(p->relaunch_timer, 50);
+	return "";
+}
+
 void startup_finish(struct wb_server *server) {
 	struct wb_startup_state *st = server->startup;
 	if (st == nullptr)
 		return;
 	for (auto &p : st->programs)
-		if (p->pid > 0)
-			kill(-p->pid, SIGTERM);
+		if (p->group > 0)
+			kill(-p->group, SIGTERM);
 	for (KillLater *later : st->kills) {
 		wl_event_source_remove(later->timer);
 		delete later;

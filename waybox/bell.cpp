@@ -6,28 +6,40 @@
 #include "waybox/wlroots.hpp"
 #include "waybox/listener.hpp"
 #include "waybox/cursor.h"
+#include "waybox/desktop_popup.hpp"
 #include "waybox/xdg_shell.h"
 #include "config.h"
+#include "ipc.h"
+#include "script.h"
 #include "waybox/session_lock.h"
 
 namespace {
 
-constexpr int kFlashMs = 150;
 constexpr uint32_t kCommandGapMs = 200;  /* a burst of rings runs it once */
 
-/* A flash on screen, removed by its timer (or gone with its window). */
+/* A flash on screen: its rectangles in one subtree, shown and hidden as its
+ * blinks go, removed after the last (or gone with its window). */
 struct Flash {
-	struct wlr_scene_rect *rect = nullptr;
+	struct wlr_scene_tree *tree = nullptr;
 	struct wl_event_source *timer = nullptr;
-	wb::Listener rect_destroy;
+	wb::Listener tree_destroy;
+	std::vector<int> toggles;  /* ms from the start: on, off, on, off... */
+	size_t next = 0;
+	uint32_t start = 0;
+	bool visible = false;
 };
 
 struct BellState {
 	struct wlr_xdg_system_bell_v1 *bell = nullptr;
 	wb::Listener ring, destroy;
 	std::list<std::unique_ptr<Flash>> flashes;
+	std::unique_ptr<wb::DesktopPopup> note;
+	wb::BellPacer pacer;
+	wb::RingGate gate;
+	int skipped = 0;  /* rings stopped at the gate since the last let through */
 	uint32_t last_command = 0;
 	bool commanded = false;
+	bool hit_testing = false;  /* flashes off while the pointer's target is found */
 };
 
 BellState *state = nullptr;
@@ -41,84 +53,214 @@ uint32_t now_ms() {
 void drop(Flash *f) {
 	if (f->timer != nullptr)
 		wl_event_source_remove(f->timer);
-	f->rect_destroy.disconnect();
-	if (f->rect != nullptr)
-		wlr_scene_node_destroy(&f->rect->node);
+	f->tree_destroy.disconnect();
+	if (f->tree != nullptr)
+		wlr_scene_node_destroy(&f->tree->node);
 	state->flashes.remove_if([f](const auto &p) { return p.get() == f; });
 }
 
-void flash(struct wb_server *server, struct wlr_scene_tree *parent, int x, int y,
-		int w, int h) {
-	if (w <= 0 || h <= 0)
-		return;
-	static const float colour[4] = {0.5f, 0.5f, 0.5f, 0.5f};  /* premultiplied */
-	auto f = std::make_unique<Flash>();
-	f->rect = wlr_scene_rect_create(parent, w, h, colour);
-	if (f->rect == nullptr)
-		return;
-	wlr_scene_node_set_position(&f->rect->node, x, y);
-	wlr_scene_node_raise_to_top(&f->rect->node);
-	Flash *raw = f.get();
-	raw->rect_destroy.connect(&raw->rect->node.events.destroy, [raw](void *) {
-		raw->rect = nullptr;  /* its window went first */
-		raw->rect_destroy.disconnect();
-	});
-	raw->timer = wl_event_loop_add_timer(server->wl_event_loop, [](void *data) {
-		drop(static_cast<Flash *>(data));  /* removes this timer too */
-		return 0;
-	}, raw);
-	if (raw->timer == nullptr) {
-		wlr_scene_node_destroy(&raw->rect->node);
-		return;
-	}
-	wl_event_source_timer_update(raw->timer, kFlashMs);
-	state->flashes.push_back(std::move(f));
+void show(Flash *f, bool visible) {
+	f->visible = visible;
+	if (f->tree != nullptr)
+		wlr_scene_node_set_enabled(&f->tree->node, visible && !state->hit_testing);
 }
 
-void ring(struct wb_server *server, struct wlr_xdg_system_bell_v1_ring_event *e) {
+/* The next on or off, then the timer for the one after (none left: gone). */
+int step(void *data) {
+	auto *f = static_cast<Flash *>(data);
+	if (f->tree == nullptr || f->next >= f->toggles.size()) {
+		drop(f);  /* removes this timer too */
+		return 0;
+	}
+	bool on = f->next % 2 == 0;
+	show(f, on);
+	if (on)
+		wlr_log(WLR_INFO, "%s", "wb-bell blink");
+	++f->next;
+	if (f->next >= f->toggles.size()) {
+		drop(f);
+		return 0;
+	}
+	int wait = f->toggles[f->next] - static_cast<int>(now_ms() - f->start);
+	wl_event_source_timer_update(f->timer, std::max(1, wait));
+	return 0;
+}
+
+/* Rectangles at x,y w*h under `parent` in the style's colour: all of it,
+ * or (`border`) its edges. */
+void flash(struct wb_server *server, struct wlr_scene_tree *parent, int x, int y,
+		int w, int h, const wb::BellStyle &style, bool border,
+		const std::vector<wb::Blink> &blinks) {
+	if (w <= 0 || h <= 0 || blinks.empty())
+		return;
+	const wb::Color &c = style.color;
+	float a = c.a / 255.0f;
+	const float colour[4] = {c.r / 255.0f * a, c.g / 255.0f * a, c.b / 255.0f * a, a};
+	auto f = std::make_unique<Flash>();
+	f->tree = wlr_scene_tree_create(parent);
+	if (f->tree == nullptr)
+		return;
+	wlr_scene_node_set_position(&f->tree->node, x, y);
+	wlr_scene_node_raise_to_top(&f->tree->node);
+	if (border) {
+		int b = std::max(1, std::min({style.width, w / 2, h / 2}));
+		const int rects[4][4] = {{0, 0, w, b}, {0, h - b, w, b}, {0, b, b, h - 2 * b},
+				{w - b, b, b, h - 2 * b}};
+		for (const auto &r : rects)
+			if (r[2] > 0 && r[3] > 0) {
+				struct wlr_scene_rect *rect = wlr_scene_rect_create(f->tree, r[2], r[3], colour);
+				if (rect != nullptr)
+					wlr_scene_node_set_position(&rect->node, r[0], r[1]);
+			}
+	} else {
+		wlr_scene_rect_create(f->tree, w, h, colour);
+	}
+	for (const wb::Blink &bl : blinks) {
+		f->toggles.push_back(bl.on_ms);
+		f->toggles.push_back(bl.off_ms);
+	}
+	Flash *raw = f.get();
+	raw->tree_destroy.connect(&raw->tree->node.events.destroy, [raw](void *) {
+		raw->tree = nullptr;  /* its window went first */
+		raw->tree_destroy.disconnect();
+	});
+	raw->timer = wl_event_loop_add_timer(server->wl_event_loop, step, raw);
+	if (raw->timer == nullptr) {
+		wlr_scene_node_destroy(&raw->tree->node);
+		return;
+	}
+	raw->start = now_ms();
+	state->flashes.push_back(std::move(f));
+	step(raw);  /* the first blink, now */
+}
+
+struct wlr_output *output_for(struct wb_server *server, struct wb_toplevel *t) {
+	if (t != nullptr)
+		if (struct wlr_output *o = get_active_output(t))
+			return o;
+	return wlr_output_layout_output_at(server->output_layout, server->cursor->cursor->x,
+			server->cursor->cursor->y);
+}
+
+/* Show the bell as `style` says; what was shown, for the log and IPC. */
+std::string show_bell(struct wb_server *server, struct wb_toplevel *t,
+		const wb::BellStyle &style) {
+	std::vector<wb::Blink> blinks = wb::blink_schedule(style);
+	if (blinks.empty() || session_locked(server))  /* not over the lock screen */
+		return "none";
+	if (!state->pacer.allow(now_ms(), blinks)) {
+		wlr_log(WLR_INFO, "%s", "wb-bell paced");
+		return "paced";
+	}
+	bool window = t != nullptr && t->mapped && t->scene_tree != nullptr &&
+			t->scene_tree->node.enabled;
+	if (style.flash == wb::BellFlash::Osd) {
+		struct wlr_output *o = output_for(server, t);
+		if (o == nullptr)
+			return "none";
+		state->note = std::make_unique<wb::DesktopPopup>(server, wb_osd_style(server));
+		std::string text = _("Bell");
+		const char *title = t != nullptr ? view_title(t) : nullptr;
+		const char *app = t != nullptr ? view_app_id(t) : nullptr;
+		if (title != nullptr && *title)
+			text += std::string(": ") + title;
+		else if (app != nullptr && *app)
+			text += std::string(": ") + app;
+		state->note->show_on(o, text, style.duration_ms);
+		wlr_log(WLR_INFO, "%s", "wb-bell osd");
+		return "osd";
+	}
+	if (window && style.flash != wb::BellFlash::Screen) {
+		wb::FrameInsets in = toplevel_insets(t);
+		bool border = style.flash == wb::BellFlash::Border;
+		flash(server, t->scene_tree, 0, 0, t->geometry.width + in.left + in.right,
+				t->geometry.height + in.top + in.bottom, style, border, blinks);
+		wlr_log(WLR_INFO, "wb-bell flash %s", border ? "border" : "window");
+		return border ? "border" : "window";
+	}
+	if (struct wlr_output *o = output_for(server, t)) {
+		struct wlr_box box;
+		wlr_output_layout_get_box(server->output_layout, o, &box);
+		flash(server, &server->scene->tree, box.x, box.y, box.width, box.height, style,
+				false, blinks);
+		wlr_log(WLR_INFO, "%s", "wb-bell flash output");
+		return "screen";
+	}
+	return "none";
+}
+
+void ring_event(struct wb_server *server, struct wlr_xdg_system_bell_v1_ring_event *e) {
 	struct wb_toplevel *t = nullptr;
 	if (e->surface != nullptr)
 		t = toplevel_from_surface(server, wlr_surface_get_root_surface(e->surface));
-	wlr_log(WLR_INFO, "wb-bell ring %s", t != nullptr ? view_app_id(t) : "(no window)");
-	struct wb_config *config = server->config;
-	if (config == nullptr)
-		return;
-	/* Not over the lock screen (nor anything under it). */
-	if (config->bell_flash && !session_locked(server)) {
-		if (t != nullptr && t->mapped && t->scene_tree != nullptr &&
-				t->scene_tree->node.enabled) {
-			wb::FrameInsets in = toplevel_insets(t);
-			flash(server, t->scene_tree, 0, 0,
-					t->geometry.width + in.left + in.right,
-					t->geometry.height + in.top + in.bottom);
-			wlr_log(WLR_INFO, "wb-bell flash window");
-		} else if (struct wlr_output *o = wlr_output_layout_output_at(
-				server->output_layout, server->cursor->cursor->x,
-				server->cursor->cursor->y)) {
-			struct wlr_box box;
-			wlr_output_layout_get_box(server->output_layout, o, &box);
-			flash(server, &server->scene->tree, box.x, box.y, box.width, box.height);
-			wlr_log(WLR_INFO, "wb-bell flash output");
-		}
-	}
-	if (!config->bell_command.empty()) {
-		uint32_t now = now_ms();
-		if (!state->commanded || now - state->last_command >= kCommandGapMs) {
-			state->commanded = true;
-			state->last_command = now;
-			wb_spawn(config->bell_command.c_str());
-		}
-	}
+	bell_ring(server, t, nullptr);
 }
 
 }  // namespace
 
+std::string bell_ring(struct wb_server *server, struct wb_toplevel *t, const ScriptBell *preview) {
+	struct wb_config *config = server->config;
+	if (config == nullptr || state == nullptr)
+		return "none";
+	/* A ring too soon after the last (or while it still shows): counted,
+	 * and nothing else, before any script or command. */
+	uint32_t now = now_ms();
+	if (preview == nullptr &&
+			(!state->pacer.ready(now) || !state->gate.pass(now))) {
+		if (state->skipped++ == 0)
+			wlr_log(WLR_INFO, "%s", "wb-bell skipping");
+		return "skipped";
+	}
+	if (preview == nullptr)
+		wlr_log(WLR_INFO, "wb-bell ring %s",
+				t != nullptr && view_app_id(t) ? view_app_id(t) : "(no window)");
+	int skipped = preview == nullptr ? state->skipped : 0;
+	if (preview == nullptr && skipped > 0) {
+		wlr_log(WLR_INFO, "wb-bell skipped %d", skipped);
+		state->skipped = 0;
+	}
+	wb::BellStyle style = config->bell_style;
+	std::string command = config->bell_command;
+	ScriptBell decided;
+	const ScriptBell *over = preview;
+	/* A Lua "bell" policy decides each real ring (a preview is wbconf's). */
+	if (over == nullptr && script_bell(server, t, &decided))
+		over = &decided;
+	if (over != nullptr) {
+		if (over->silent) {
+			style.flash = wb::BellFlash::None;
+			command.clear();
+		} else {
+			std::vector<std::string> problems;
+			style = wb::bell_style_with(style, over->over, &problems);
+			for (const std::string &p : problems)
+				wlr_log(WLR_ERROR, "Ignoring the bell setting %s", p.c_str());
+			if (over->command)
+				command = *over->command;
+		}
+	}
+	std::string shown = show_bell(server, t, style);
+	if (!command.empty()) {
+		if (!state->commanded || now - state->last_command >= kCommandGapMs) {
+			state->commanded = true;
+			state->last_command = now;
+			wb_spawn(command.c_str());
+		}
+	}
+	if (preview == nullptr) {
+		script_bell_event(server, t, skipped);
+		ipc_bell_event(server, t, shown, skipped);
+	}
+	return shown;
+}
+
 void bell_flashes_set_enabled(bool enabled) {
 	if (state == nullptr)
 		return;
+	state->hit_testing = !enabled;
 	for (auto &f : state->flashes)
-		if (f->rect != nullptr)
-			wlr_scene_node_set_enabled(&f->rect->node, enabled);
+		if (f->tree != nullptr)
+			wlr_scene_node_set_enabled(&f->tree->node, enabled && f->visible);
 }
 
 void init_bell(struct wb_server *server) {
@@ -127,7 +269,7 @@ void init_bell(struct wb_server *server) {
 	if (state->bell == nullptr)
 		return;
 	state->ring.connect(&state->bell->events.ring, [server](void *data) {
-		ring(server, static_cast<struct wlr_xdg_system_bell_v1_ring_event *>(data));
+		ring_event(server, static_cast<struct wlr_xdg_system_bell_v1_ring_event *>(data));
 	});
 	state->destroy.connect(&state->bell->events.destroy, [](void *) {
 		state->ring.disconnect();
@@ -141,6 +283,7 @@ void finish_bell(struct wb_server *) {
 		return;
 	while (!state->flashes.empty())
 		drop(state->flashes.front().get());
+	state->note.reset();
 	state->ring.disconnect();
 	state->destroy.disconnect();
 	delete state;

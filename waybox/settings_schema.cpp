@@ -46,6 +46,7 @@ SettingType type_of(const std::string &t) {
 	if (t == "enum") return SettingType::Enum;
 	if (t == "font") return SettingType::Font;
 	if (t == "lines") return SettingType::Lines;
+	if (t == "color") return SettingType::Color;
 	if (t == "custom") return SettingType::Custom;
 	return SettingType::String;
 }
@@ -179,7 +180,7 @@ std::vector<SettingCategory> load_settings_schema(const std::vector<std::string>
 }
 
 bool setting_matches(const SettingDef &s, std::string_view category_title,
-		std::string_view query, bool modified) {
+		std::string_view query, bool modified, bool problem) {
 	std::string hay = lower(s.title + "\n" + s.description + "\n" + s.keywords + "\n" +
 			s.id + "\n" + s.section + "\n" + std::string(category_title));
 	std::istringstream words{std::string(query)};
@@ -188,6 +189,9 @@ bool setting_matches(const SettingDef &s, std::string_view category_title,
 		std::string lw = lower(w);
 		if (lw == "@modified") {
 			if (!modified)
+				return false;
+		} else if (lw == "@problems") {
+			if (!problem)
 				return false;
 		} else if (lw.rfind("@id:", 0) == 0) {
 			if (lower(s.id).find(lw.substr(4)) == std::string::npos)

@@ -17,6 +17,7 @@
 #include "fixes.h"
 #include "toplevel_drag.h"
 #include "bell.h"
+#include "color_pick.h"
 #include "stall_watch.h"
 #include "script.h"
 #include "startup_supervisor.h"
@@ -82,6 +83,7 @@ void wb_reconfigure(struct wb_server *server) {
 	server->menu.reset();
 	server->switcher.reset();
 	server->desktop_popup.reset();  /* restyled from the new theme */
+	server->osd_preview.reset();
 	server->switcher_windows.clear();
 	server->switcher_mods = 0;
 	server->active_keychain = nullptr;
@@ -94,6 +96,7 @@ void wb_reconfigure(struct wb_server *server) {
 	deinit_config(server->config);
 	server->config = fresh;
 	seat_reconfigure_input(server);  /* keymap, <libinput> */
+	wb_cursor_apply_theme(server);   /* <cursor> */
 	shortcuts_inhibit_update(server);  /* <shortcutsInhibit allow> */
 
 	/* Existing frames were styled from the old theme: rebuild them from the
@@ -218,7 +221,7 @@ bool wb_test_renderer_lost(struct wb_server *server) {
 static void init_color_management(struct wb_server *server) {
 #if WLR_CHECK_VERSION(0, 20, 0)
 	if (!server->renderer->features.input_color_transform) {
-		wlr_log(WLR_INFO, "%s", _("Colour management needs the Vulkan renderer"));
+		wlr_log(WLR_INFO, "%s", _("Color management needs the Vulkan renderer"));
 		return;
 	}
 	const enum wp_color_manager_v1_render_intent intents[] = {
@@ -245,7 +248,7 @@ static void init_color_management(struct wb_server *server) {
 	free(primaries);
 	wlr_color_representation_manager_v1_create_with_renderer(server->wl_display, 1,
 			server->renderer);
-	wlr_log(WLR_INFO, "%s", _("Colour management enabled"));
+	wlr_log(WLR_INFO, "%s", _("Color management enabled"));
 #else
 	(void) server;
 #endif
@@ -340,6 +343,7 @@ bool wb_create_backend(struct wb_server* server) {
 
 bool wb_start_server(struct wb_server* server) {
 	init_config(server);
+	wb_cursor_apply_theme(server);  /* <cursor>, before anything shows it */
 	/* Initialise the toplevel list before the backend starts, since bringing
 	 * up outputs can trigger arrange_toplevels() before xdg-shell is set up. */
 	wl_list_init(&server->toplevels);
@@ -365,6 +369,8 @@ bool wb_start_server(struct wb_server* server) {
 	 * its children, so adding/raising a window never lifts it above the panel
 	 * layers. */
 	server->toplevel_tree = wlr_scene_tree_create(&server->scene->tree);
+	for (struct wlr_scene_tree *&layer : server->toplevel_layers)
+		layer = wlr_scene_tree_create(server->toplevel_tree);
 	server->unmanaged_tree = wlr_scene_tree_create(&server->scene->tree);
 	server->drag_icon_tree = wlr_scene_tree_create(&server->scene->tree);
 
@@ -373,6 +379,10 @@ bool wb_start_server(struct wb_server* server) {
 	 * and the display: freeing them here too was a double free. */
 	if (!socket)
 		return false;
+	/* The scripting socket with it, named after it: whatever sees the
+	 * display (a test, the autostart script) can reach it too. */
+	setenv("WAYLAND_DISPLAY", socket, true);
+	ipc_reconfigured(server);
 
 	if (!wlr_backend_start(server->backend)) {
 		wlr_log(WLR_ERROR, "%s", _("Failed to start backend"));
@@ -507,6 +517,9 @@ bool wb_terminate(struct wb_server* server) {
 	finish_input_method(server);
 
 	server->desktop_popup.reset();  /* its timer is on the event loop */
+	server->osd_preview.reset();
+	server->identify_popups.clear();
+	finish_color_pick(server);
 	finish_bell(server);  /* its flashes' timers too */
 	finish_stall_watch(server);
 	finish_scripts(server);  /* its timers are on the event loop */

@@ -54,6 +54,10 @@ a slow file hold Waybox up for as long as they take. To run a program, use
 :[ the new desktop's number
 |  _output.added_, _output.removed_
 :[ the output's name
+|  _bell_
+:[ the window that rang (or *nil*), and a table with its *id*, *app_id* and
+   *title* ("" when no window rang), and *skipped*: rings before it that
+   came too soon to count; after Waybox has shown it (or not)
 
 Events are delivered just after the change that caused them is over, never in
 the middle of it.
@@ -88,6 +92,27 @@ again replaces the function; *nil* removes it.
 	to a desktop, after a desktop switch and when the usable area
 	changes, once for several changes in a row; *wb.relayout()* asks
 	for it too.
+
+*bell*: _function(w)_
+	For each ring of the bell, before Waybox shows it. _w_ is the window
+	that rang (a window handle), or *nil*. Return *false* for nothing
+	(no flash, no command); a table of settings over rc.xml's *<bell>*,
+	key by key: *flash* ("window", "border", "screen", "osd", "no"),
+	*color*, *duration*, *count*, *width*, *command* (*false* or "" for
+	none); or *nil* to leave it to rc.xml. The same limits apply as in
+	rc.xml: flashes never come more than 3 times a second. A ring too
+	soon after the last that counted (or while it still shows) doesn't
+	reach the policy at all, so a program ringing in a loop can't keep a
+	script busy.
+
+```
+wb.policy("bell", function(w)
+  if w and w.app_id == "foot" then
+    return {flash = "border", color = "#ff8800cc"}
+  end
+  if w and w.app_id == "firefox" then return false end
+end)
+```
 
 # WINDOWS
 
@@ -163,9 +188,9 @@ any action.
 	the menu shows a note instead.
 
 *wb.osd(*_text_*,* _ms_*)*
-	Shows _text_ centred on the monitor under the pointer for _ms_
-	milliseconds (default 1500), in the style of the desktop popup; showing
-	again replaces it, and *""* hides it.
+	Shows _text_ on the monitor under the pointer for _ms_ milliseconds
+	(default 1500), as the desktop name shows (where rc.xml's *<osd>* puts
+	it, in its look); showing again replaces it, and *""* hides it.
 
 *wb.timer(*_ms_*,* _function_*)*, *wb.every(*_ms_*,* _function_*)*
 	Runs the function once after _ms_ milliseconds, or every _ms_ (at least
@@ -176,7 +201,7 @@ any action.
 
 *wb.api_version*
 	1. Additions keep it; changes or removals raise it, with the old
-	behaviour kept for one release.
+	behavior kept for one release.
 
 # MENUS
 
@@ -193,7 +218,7 @@ A menu is a list of items, each a table:
 	by id (menu.xml's or a provider's).
 
 *{ separator = true, label = "..." }*
-	A separator, labelled if there's a label.
+	A separator, labeled if there's a label.
 
 Entry functions run once the menu has closed.
 

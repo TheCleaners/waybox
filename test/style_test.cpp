@@ -107,19 +107,104 @@ WB_TEST(enum_parsers_round_trip_names) {
 
 WB_TEST(theme_fonts_flow_into_resolved_styles) {
 	wb::Theme t = wb::default_theme();
-	t.font_active_title = {"Inter", 13, true};
-	t.font_inactive_title = {"Inter", 11, false};
-	t.font_menu_item = {"Cantarell", 12, false};
-	t.font_osd = {"Mono", 9, false};
+	t.font_active_title = {"Inter", 13, 700};
+	t.font_inactive_title = {"Inter", 11, 400};
+	t.font_menu_item = {"Cantarell", 12, 400};
+	t.font_osd = {"Mono", 9, 400};
 
 	wb::FrameStyle fa = wb::frame_style_from_theme(t, true);
 	WB_CHECK(fa.label.font.family == "Inter");
-	WB_CHECK(fa.label.font.size_pt == 13 && fa.label.font.bold == true);
+	WB_CHECK(fa.label.font.size_pt == 13 && fa.label.font.bold() == true);
 	wb::FrameStyle fi = wb::frame_style_from_theme(t, false);
-	WB_CHECK(fi.label.font.size_pt == 11 && fi.label.font.bold == false);
+	WB_CHECK(fi.label.font.size_pt == 11 && fi.label.font.bold() == false);
 
 	wb::MenuStyle ms = wb::menu_style_from_theme(t);
 	WB_CHECK(ms.item_text.font.family == "Cantarell");
 	wb::SwitcherStyle ss = wb::switcher_style_from_theme(t);
 	WB_CHECK(ss.item_text.font.family == "Mono" && ss.item_text.font.size_pt == 9);
+}
+
+namespace {
+
+const wb::SolidPaint *solid(const wb::Paint &p) {
+	return std::get_if<wb::SolidPaint>(&p);
+}
+
+}  // namespace
+
+WB_TEST(osd_keys_from_the_theme) {
+	/* No osd.* keys: the menu's look, as before. */
+	wb::Theme plain = wb::parse_themerc(
+			"menu.items.bg: flat solid\nmenu.items.bg.color: #102030\n"
+			"menu.items.text.color: #ffffff\nborder.width: 2\n");
+	wb::SwitcherStyle p = wb::switcher_style_from_theme(plain);
+	WB_CHECK(solid(p.panel.fill) && solid(p.panel.fill)->color.r == 0x10);
+	WB_CHECK(p.item_text.color.r == 0xff && p.panel.border.width == 2);
+	/* Openbox's osd.* keys over them, each on its own. */
+	wb::Theme t = wb::parse_themerc(
+			"menu.items.bg: flat solid\nmenu.items.bg.color: #102030\n"
+			"menu.items.text.color: #ffffff\nborder.width: 2\n"
+			"osd.bg: flat solid\nosd.bg.color: #00ff00\n"
+			"osd.label.text.color: #112233\nosd.border.width: 0\n"
+			"osd.hilight.bg.color: #445566\nosd.active.label.text.color: #778899\n");
+	wb::SwitcherStyle s = wb::switcher_style_from_theme(t);
+	WB_CHECK(solid(s.panel.fill) && solid(s.panel.fill)->color.g == 0xff);
+	WB_CHECK(s.item_text.color.r == 0x11 && s.item.normal.fg.r == 0x11);
+	WB_CHECK(s.panel.border.width == 0);
+	WB_CHECK(solid(s.item.hover.fill) && solid(s.item.hover.fill)->color.r == 0x44);
+	WB_CHECK(s.item.hover.fg.r == 0x77);
+	/* osd.inactive.label.text.color is the same key; the selected row's
+	 * text follows the label's when only that is set. */
+	wb::Theme t2 = wb::parse_themerc("osd.inactive.label.text.color: #abcdef\n");
+	wb::SwitcherStyle s2 = wb::switcher_style_from_theme(t2);
+	WB_CHECK(s2.item_text.color.r == 0xab && s2.item.hover.fg.r == 0xab);
+	/* A colour that doesn't parse sets nothing. */
+	wb::Theme bad = wb::parse_themerc("menu.items.text.color: #ffffff\n"
+			"osd.label.text.color: not-a-colour\n");
+	WB_CHECK(!bad.osd.text_set &&
+			wb::switcher_style_from_theme(bad).item_text.color.r == 0xff);
+}
+
+WB_TEST(osd_config_over_the_theme) {
+	std::vector<std::string> problems;
+	wb::OsdConfig c = wb::parse_osd_config("bottom", "80", "12", "#ff0000", "#00ff00",
+			"#0000ff", &problems);
+	WB_CHECK(problems.empty());
+	WB_CHECK(c.position == wb::OsdPosition::Bottom && c.opacity == 80 &&
+			c.corner_radius == 12);
+	wb::Theme t = wb::default_theme();
+	t.border_width = 0;
+	wb::SwitcherStyle s = wb::osd_style(t, c);
+	WB_CHECK(s.position == wb::OsdPosition::Bottom);
+	WB_CHECK(solid(s.panel.fill) && solid(s.panel.fill)->color.r == 0xff);
+	WB_CHECK(s.item_text.color.g == 0xff && s.panel.border.color.b == 0xff);
+	WB_CHECK(s.panel.border.width == 1);  /* a border colour asked for: shown */
+	WB_CHECK(s.panel.border.radius == 12 && s.panel.opacity > 0.79 && s.panel.opacity < 0.81);
+	/* Nothing set: the theme's, centered. */
+	wb::SwitcherStyle d = wb::osd_style(t, wb::parse_osd_config("", "", "", "", "", ""));
+	wb::SwitcherStyle base = wb::switcher_style_from_theme(t);
+	WB_CHECK(d.position == wb::OsdPosition::Center && d.panel.opacity == base.panel.opacity);
+	/* Out of range or unreadable: left unset, named. */
+	problems.clear();
+	wb::OsdConfig b = wb::parse_osd_config("middle", "5", "65", "red-ish", "", "#12",
+			&problems);
+	WB_CHECK(b == wb::OsdConfig{});
+	WB_CHECK(problems.size() == 5 && problems[0] == "position=middle" &&
+			problems[1] == "opacity=5");
+	WB_CHECK(wb::parse_osd_config("centre", "100", "0", "", "", "").position ==
+			wb::OsdPosition::Center);
+}
+
+WB_TEST(osd_placement) {
+	/* A 720-tall monitor at y=0, a 40-tall display. */
+	WB_CHECK(wb::osd_y(wb::OsdPosition::Center, 0, 720, 40) == 340);
+	WB_CHECK(wb::osd_y(wb::OsdPosition::Top, 0, 720, 40) == 72);
+	WB_CHECK(wb::osd_y(wb::OsdPosition::Bottom, 0, 720, 40) == 720 - 40 - 72);
+	/* On a monitor further down the layout. */
+	WB_CHECK(wb::osd_y(wb::OsdPosition::Top, 1080, 720, 40) == 1152);
+	/* Taller than the room the margin leaves: never off the monitor. */
+	WB_CHECK(wb::osd_y(wb::OsdPosition::Bottom, 0, 100, 95) == 0);
+	WB_CHECK(wb::osd_y(wb::OsdPosition::Top, 0, 100, 95) == 5);
+	/* Taller than the monitor: its top at the top. */
+	WB_CHECK(wb::osd_y(wb::OsdPosition::Bottom, 10, 100, 200) == 10);
 }

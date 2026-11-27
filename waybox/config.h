@@ -3,6 +3,7 @@
 
 #include <vector>
 
+#include "waybox/bell_style.hpp"
 #include "waybox/action.hpp"
 #include "waybox/applications.hpp"
 #include "waybox/desktops.hpp"
@@ -110,19 +111,28 @@ struct wb_config {
 	 * (a VM viewer, a remote desktop) take Waybox's key bindings. */
 	bool allow_shortcuts_inhibit = true;
 
-	/* rc.xml <waybox><bell flash="yes" command="..."/>: what a program
-	 * ringing the bell does. Nothing unless set. */
-	bool bell_flash = false;
+	/* rc.xml <waybox><bell flash= color= duration= count= width=
+	 * command=/>: what a program ringing the bell does. Nothing unless set
+	 * (a Lua "bell" policy may decide instead, ring by ring). */
+	wb::BellStyle bell_style;
+	/* rc.xml <waybox><cursor theme="Adwaita" size="32"/>: the pointer's
+	 * theme and size (else XCURSOR_THEME, XCURSOR_SIZE as Waybox was
+	 * started, else the default theme at 24). */
+	std::string cursor_theme;
+	int cursor_size = 0;  /* 0: not set */
 	/* rc.xml <waybox><scripts budget="10"><script>...: Lua scripts to load
 	 * (after $XDG_CONFIG_HOME/waybox/init.lua); budget: milliseconds a call
 	 * may run. */
 	std::vector<std::string> scripts;
 	int script_budget_ms = 10;
 	std::string bell_command;
+	/* rc.xml <waybox><osd position= opacity= cornerRadius= bg= text=
+	 * border=/>: the on-screen displays' place and look over the theme's. */
+	wb::OsdConfig osd;
 
 	/* rc.xml <waybox><ipc enabled="yes"/>: the scripting socket. Off
 	 * unless set. */
-	bool ipc_enabled = false;
+	bool ipc_enabled = true;  /* <ipc enabled="no"/> turns it off */
 
 	/* rc.xml <waybox><inputMethod command="fcitx5"><env name="XMODIFIERS"
 	 * value="@im=fcitx"/></inputMethod>: the input method (IBus, Fcitx5,

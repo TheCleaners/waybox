@@ -7,7 +7,7 @@ local key = "W-grave"
 local app_id = "scratchpad"
 -- A terminal that can set its app id: foot -a, kitty --class, alacritty --class.
 local command = { "foot", "-a", app_id }
-local geometry = { width = 1000, height = 500 }  -- centred near the top
+local geometry = { width = 1000, height = 500 }  -- centered near the top
 
 local function find()
   for _, w in ipairs(wb.windows()) do

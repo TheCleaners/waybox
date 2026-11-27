@@ -6,6 +6,7 @@
 #include "toplevel_drag.h"
 #include "idle.h"
 #include "waybox/cursor.h"
+#include "waybox/xcursor_themes.hpp"
 #include "config.h"
 #include "waybox/geometry.hpp"
 #include "waybox/mousebind.hpp"
@@ -16,6 +17,8 @@
 #include "waybox/frame_view.hpp"
 #include "waybox/session_lock.h"
 #include "waybox/pointer_constraints.h"
+#include "waybox/xwayland.h"
+#include "color_pick.h"
 
 /* How close (in layout pixels) a dragged window's edge must come to a usable-
  * area or window edge before it snaps. */
@@ -123,9 +126,12 @@ static void update_tile_preview(struct wb_server *server) {
 		return;
 	wlr_scene_rect_set_size(server->tile_preview, r.width, r.height);
 	wlr_scene_node_set_position(&server->tile_preview->node, r.x, r.y);
-	if (toplevel->scene_tree->node.parent == server->toplevel_tree)
+	/* Just below the window, in its layer. */
+	if (toplevel->scene_tree->node.parent == toplevel_layer_tree(server, toplevel->layer)) {
+		wlr_scene_node_reparent(&server->tile_preview->node, toplevel->scene_tree->node.parent);
 		wlr_scene_node_place_below(&server->tile_preview->node,
 				&toplevel->scene_tree->node);
+	}
 	wlr_scene_node_set_enabled(&server->tile_preview->node, true);
 }
 
@@ -266,6 +272,9 @@ struct HideCarried {
 }  // namespace
 
 static void process_cursor_motion(struct wb_server *server, uint32_t time) {
+	/* Picking a color: the pointer points at nothing else. */
+	if (color_pick_motion(server))
+		return;
 	if (server->seat->seat->drag != nullptr) {
 		wlr_scene_node_set_position(&server->drag_icon_tree->node,
 				static_cast<int>(server->cursor->cursor->x),
@@ -285,8 +294,7 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 			wlr_seat_pointer_notify_motion(seat, time, sx, sy);
 		} else {
 			wlr_seat_pointer_clear_focus(seat);
-			wlr_cursor_set_xcursor(server->cursor->cursor,
-					server->cursor->xcursor_manager, "default");
+			server->cursor->show_xcursor("default");
 		}
 		idle_activity(server, seat);
 		return;
@@ -310,8 +318,7 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 	if (server->menu != nullptr) {
 		server->menu->on_motion(server->cursor->cursor->x,
 				server->cursor->cursor->y);
-		wlr_cursor_set_xcursor(server->cursor->cursor,
-				server->cursor->xcursor_manager, "default");
+		server->cursor->show_xcursor("default");
 		idle_activity(server,
 				server->seat->seat);
 		return;
@@ -358,12 +365,10 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 		}
 		if (fhover != nullptr) {
 			if (const char *cur = wb::frame_part_cursor(fh.part)) {
-				wlr_cursor_set_xcursor(server->cursor->cursor,
-						server->cursor->xcursor_manager, cur);
+				server->cursor->show_xcursor(cur);
 			} else {
 				/* Titlebar / button: a normal pointer. */
-				wlr_cursor_set_xcursor(server->cursor->cursor,
-						server->cursor->xcursor_manager, "default");
+				server->cursor->show_xcursor("default");
 			}
 			/* The pointer is over our decoration, not the client surface: drop
 			 * the client's pointer focus so that moving back inside the window
@@ -386,8 +391,7 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 		/* If there's no toplevel under the cursor, set the cursor image to a
 		 * default. This is what makes the cursor image appear when you move it
 		 * around the screen, not over any toplevels. */
-		wlr_cursor_set_xcursor(
-				server->cursor->cursor, server->cursor->xcursor_manager, "default");
+		server->cursor->show_xcursor("default");
 	}
 	if (surface) {
 		/*
@@ -657,14 +661,16 @@ void wb_cursor::on_pointer_focus_change(void *data) {
 	 * fall back to the default cursor image if there is no target surface. */
 	auto *event = static_cast<struct wlr_seat_pointer_focus_change_event *>(data);
 	if (event->new_surface == nullptr) {
-		wlr_cursor_set_xcursor(cursor, xcursor_manager, "default");
+		show_xcursor("default");
 	}
 }
 
 /* The mouse-binding context under the pointer, and the window there (if
- * any). std::nullopt where bindings don't apply: a panel or other
- * layer-shell surface (its own clicks are its business) and the titlebar
- * buttons (which work on their own). */
+ * any). Desktop on a surface in the background or bottom layer (a
+ * desktop-icon program, or a wallpaper that takes input): Openbox's desktop
+ * window. std::nullopt where bindings don't apply: a panel or other
+ * layer-shell surface, popups (its own clicks are its business), and the
+ * titlebar buttons (which work on their own). */
 static std::optional<wb::MouseContext> pointer_context(struct wb_server *server,
 		struct wb_toplevel **window) {
 	*window = nullptr;
@@ -694,8 +700,16 @@ static std::optional<wb::MouseContext> pointer_context(struct wb_server *server,
 		*window = toplevel;
 		return wb::MouseContext::Client;
 	}
-	if (surface != nullptr)
+	if (surface != nullptr) {
+		/* (A layer surface's popups are surfaces of their own: no layer.) */
+		struct wlr_layer_surface_v1 *layer = wlr_layer_surface_v1_try_from_wlr_surface(
+				wlr_surface_get_root_surface(surface));
+		if (layer != nullptr &&
+				(layer->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND ||
+				 layer->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM))
+			return wb::MouseContext::Desktop;
 		return std::nullopt;  /* a panel, a popup or an X11 menu */
+	}
 	return wb::MouseContext::Root;
 }
 
@@ -722,6 +736,8 @@ static bool run_mouse_bindings(struct wb_server *server, wb::MouseContext contex
 		for (const wb::Action &action : actions) {
 			if (window != nullptr && !toplevel_alive(server, window))
 				break;  /* closed by an earlier action */
+			if (action.type == wb::ActionType::Stop)
+				break;  /* the rest of this binding's actions don't run */
 			wb::run_action(action, server);
 			if (server->config != config)
 				break;  /* reconfigured: the rest belongs to the old config */
@@ -732,6 +748,22 @@ static bool run_mouse_bindings(struct wb_server *server, wb::MouseContext contex
 			break;
 	}
 	return handled;
+}
+
+/* Whether bindings that ran for a press (or scroll) keep it from the
+ * surface under the pointer. In a window (Client) and on a desktop program
+ * (Desktop) it still reaches the program, as in Openbox: "Focus, Raise" on
+ * a click, or desktop switching on the wheel, must not eat it (Openbox's
+ * own rc.xml binds both on Desktop). Except a binding that opened a menu on
+ * a desktop program: the menu has the pointer now, and the program
+ * mustn't open its own menu under it. Elsewhere (the empty desktop, the
+ * frame) there's nothing to pass it to. */
+static bool takes_click(struct wb_server *server, wb::MouseContext context, bool had_menu) {
+	if (context == wb::MouseContext::Client)
+		return false;
+	if (context == wb::MouseContext::Desktop)
+		return !had_menu && server->menu != nullptr;
+	return true;
 }
 
 static uint32_t keyboard_modifiers(struct wb_server *server) {
@@ -747,6 +779,9 @@ void wb_cursor::on_button(void *data) {
 }
 
 void wb_cursor::button_event(struct wlr_pointer_button_event *event) {
+	if (color_pick_button(server, event->button,
+			event->state == WL_POINTER_BUTTON_STATE_PRESSED))
+		return;
 	/* Release, Click and DoubleClick bindings run after everything else a
 	 * release does (e.g. ending the move a titlebar press started). */
 	std::optional<wb::ClickTracker::Pressed> pressed;
@@ -860,12 +895,10 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 			server->click_tracker.press(event->button, *context,
 					reinterpret_cast<uintptr_t>(bound_window), mods,
 					cursor->x, cursor->y, event->time_msec);
+			bool had_menu = server->menu != nullptr;
 			if (run_mouse_bindings(server, *context, bound_window,
 					event->button, mods, wb::MouseEvent::Press) &&
-					*context != wb::MouseContext::Client) {
-				/* A binding took the press over. In a window (the Client
-				 * context) the click still reaches the program, as in
-				 * Openbox ("Focus, Raise" on a click must not eat it). */
+					takes_click(server, *context, had_menu)) {
 				idle_activity(server, seat);
 				return;
 			}
@@ -981,12 +1014,13 @@ void wb_cursor::on_axis(void *data) {
 			uint32_t button = steps < 0 ? wb::MOUSE_BUTTON_UP
 					: wb::MOUSE_BUTTON_DOWN;
 			uint32_t mods = keyboard_modifiers(server);
+			bool had_menu = server->menu != nullptr;
 			bool pressed = run_mouse_bindings(server, *context, window, button,
 					mods, wb::MouseEvent::Press);
 			bool clicked = (window == nullptr || toplevel_alive(server, window)) &&
 					run_mouse_bindings(server, *context, window, button, mods,
 							wb::MouseEvent::Click);
-			if (pressed || clicked)
+			if ((pressed || clicked) && takes_click(server, *context, had_menu))
 				return;
 		}
 	}
@@ -1008,6 +1042,7 @@ void wb_cursor::on_request_set_cursor(void *data) {
 	if (focused_client == event->seat_client) {
 		wlr_cursor_set_surface(cursor, event->surface,
 				event->hotspot_x, event->hotspot_y);
+		xcursor_name.clear();  /* the program's own image */
 	}
 }
 
@@ -1019,8 +1054,7 @@ void wb_cursor::on_request_set_shape(void *data) {
 	struct wlr_seat_client *focused_client =
 		server->seat->seat->pointer_state.focused_client;
 	if (focused_client == event->seat_client) {
-		wlr_cursor_set_xcursor(cursor, xcursor_manager,
-				wlr_cursor_shape_v1_name(event->shape));
+		show_xcursor(wlr_cursor_shape_v1_name(event->shape));
 	}
 }
 
@@ -1050,6 +1084,80 @@ wb_cursor::~wb_cursor() {
 	}
 }
 
+void wb_cursor::show_xcursor(const char *name) {
+	xcursor_name = name != nullptr ? name : "default";
+	wlr_cursor_set_xcursor(cursor, xcursor_manager, xcursor_name.c_str());
+}
+
+void wb_cursor_apply_theme(struct wb_server *server) {
+	wb_cursor *c = server->cursor.get();
+	if (c == nullptr)
+		return;
+	const struct wb_config *config = server->config;
+	std::string theme = config != nullptr && !config->cursor_theme.empty()
+			? config->cursor_theme : c->start_theme;
+	unsigned size = config != nullptr && config->cursor_size > 0
+			? static_cast<unsigned>(config->cursor_size) : c->start_size;
+	/* Programs started from now on use the same (Xwayland, startup
+	 * programs, what scripts and menus run). */
+	bool theme_from_rc = config != nullptr && !config->cursor_theme.empty();
+	bool size_from_rc = config != nullptr && config->cursor_size > 0;
+	/* A theme without any cursors (an empty "default" hiding the system's,
+	 * left by some settings tool, say) would leave wlroots on its built-in
+	 * cursor, which has one size: one that has some instead. */
+	bool fell_back = false;
+	{
+		const char *home = getenv("HOME");
+		std::vector<std::string> path = wb::xcursor_search_path(getenv("XCURSOR_PATH"),
+				getenv("XDG_DATA_HOME"), home != nullptr ? home : "");
+		wb::XcursorThemeCheck check = wb::xcursor_theme_check(theme, path);
+		if (!check.has_cursors) {
+			std::string instead = wb::xcursor_fallback_theme(path);
+			std::string why = check.index_file.empty() ? std::string("not installed")
+					: "its " + check.index_file + " falls back to nothing with cursors";
+			if (theme != c->failed_theme)
+				wlr_log(WLR_ERROR, "Cursor theme %s has no cursors (%s): using %s",
+						theme.empty() ? "default" : theme.c_str(), why.c_str(),
+						instead.empty() ? "the built-in cursor, at one size" : instead.c_str());
+			c->failed_theme = theme;
+			if (!instead.empty()) {
+				theme = instead;
+				fell_back = true;
+			}
+		} else {
+			c->failed_theme.clear();
+		}
+	}
+	if (theme_from_rc || c->start_theme_set || fell_back)
+		setenv("XCURSOR_THEME", theme.c_str(), 1);
+	else
+		unsetenv("XCURSOR_THEME");
+	if (size_from_rc || c->start_size_set)
+		setenv("XCURSOR_SIZE", std::to_string(size).c_str(), 1);
+	else
+		unsetenv("XCURSOR_SIZE");
+	if (theme == c->theme && size == c->size)
+		return;
+	struct wlr_xcursor_manager *fresh = wlr_xcursor_manager_create(
+			theme.empty() ? nullptr : theme.c_str(), size);
+	if (fresh == nullptr) {
+		wlr_log(WLR_ERROR, "Could not load the cursor theme %s at size %u", theme.c_str(), size);
+		return;
+	}
+	/* The new one in use (and the cursor shown from it) before the old
+	 * one goes: the cursor keeps the manager it was last shown from. */
+	struct wlr_xcursor_manager *old = c->xcursor_manager;
+	c->xcursor_manager = fresh;
+	c->theme = theme;
+	c->size = size;
+	if (!c->xcursor_name.empty())
+		wlr_cursor_set_xcursor(c->cursor, fresh, c->xcursor_name.c_str());
+	wlr_xcursor_manager_destroy(old);
+	xwayland_update_cursor(server);
+	wlr_log(WLR_INFO, "wb-cursor theme %s size %u", theme.empty() ? "(default)" : theme.c_str(),
+			size);
+}
+
 std::unique_ptr<wb_cursor> wb_cursor_create(struct wb_server *server) {
 	auto cursor = std::make_unique<wb_cursor>();
 	cursor->cursor = wlr_cursor_create();
@@ -1058,9 +1166,22 @@ std::unique_ptr<wb_cursor> wb_cursor_create(struct wb_server *server) {
 	}
 	cursor->server = server;
 
-	const char *xcursor_size = getenv("XCURSOR_SIZE");
-	cursor->xcursor_manager = wlr_xcursor_manager_create(getenv("XCURSOR_THEME"),
-			xcursor_size ? strtoul(xcursor_size, nullptr, 10) : 24);
+	/* What Waybox was started with, until (and unless) rc.xml says. */
+	if (const char *t = getenv("XCURSOR_THEME"); t != nullptr && *t) {
+		cursor->start_theme = t;
+		cursor->start_theme_set = true;
+	}
+	if (const char *sz = getenv("XCURSOR_SIZE"); sz != nullptr && *sz) {
+		unsigned long v = strtoul(sz, nullptr, 10);
+		if (v >= 8 && v <= 512) {
+			cursor->start_size = static_cast<unsigned>(v);
+			cursor->start_size_set = true;
+		}
+	}
+	cursor->theme = cursor->start_theme;
+	cursor->size = cursor->start_size;
+	cursor->xcursor_manager = wlr_xcursor_manager_create(
+			cursor->theme.empty() ? nullptr : cursor->theme.c_str(), cursor->size);
 
 	wb_cursor *c = cursor.get();
 	c->cursor_motion.connect(&c->cursor->events.motion,

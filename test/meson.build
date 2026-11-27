@@ -155,7 +155,131 @@ integrations_test = executable(
   ['integrations_test.cpp', 'wb_test_main.cpp', integrations_src, startup_src],
   include_directories: [inc_dir],
   )
-test('integrations', integrations_test)
+test('integrations', integrations_test,
+  env: {'WB_INTEGRATIONS_SRC': meson.project_source_root() / 'data' / 'integrations'})
+# The Lua Language Server hints describe all a page is given (none left out
+# as the runner grows).
+test('lua_stubs', find_program('python3'),
+  args: [meson.current_source_dir() / 'integration' / 'lua_stubs_test.py',
+         meson.project_source_root() / 'wbconf' / 'page_runner.cpp',
+         meson.project_source_root() / 'data' / 'lua' / 'waybox-page.lua'])
+# waybox-check-integration --strict over the files Waybox ships, as
+# packagers and the community repository's CI will run it.
+test('check_integration', find_program('sh'),
+  args: ['-c', '"$0" --strict "$1"/*.integration', waybox_check_integration,
+         meson.project_source_root() / 'data' / 'integrations'])
+# A warning: passes, but not with --strict; a newer major format: fails.
+check_files = meson.current_source_dir() / 'integration_files'
+test('check_integration_warning', waybox_check_integration,
+  args: [check_files / 'warning.integration'])
+test('check_integration_strict', waybox_check_integration,
+  args: ['--strict', check_files / 'warning.integration'], should_fail: true)
+test('check_integration_newer', waybox_check_integration,
+  args: [check_files / 'newer.integration'], should_fail: true)
+
+# wbconf's color fields: their tint and text.
+color_text_test = executable(
+  'color_text_test',
+  ['color_text_test.cpp', 'wb_test_main.cpp', color_text_src, theme_src],
+  include_directories: [inc_dir],
+  )
+test('color_text', color_text_test)
+
+# Cursor themes as wlroots finds them: with cursors or not, and a fallback.
+xcursor_themes_test = executable(
+  'xcursor_themes_test',
+  ['xcursor_themes_test.cpp', 'wb_test_main.cpp', xcursor_themes_src],
+  include_directories: [inc_dir],
+  )
+test('xcursor_themes', xcursor_themes_test)
+
+# wbconf's list of changes not saved: one line each, kept short.
+change_list_test = executable(
+  'change_list_test',
+  ['change_list_test.cpp', 'wb_test_main.cpp', change_list_src],
+  include_directories: [inc_dir],
+  )
+test('change_list', change_list_test)
+
+# Problems wbconf shows beside settings: the pointer's.
+setting_problems_test = executable(
+  'setting_problems_test',
+  ['setting_problems_test.cpp', 'wb_test_main.cpp', setting_problems_src, xcursor_themes_src],
+  include_directories: [inc_dir],
+  )
+test('setting_problems', setting_problems_test)
+
+# Settings pages from another process: the page model and its JSON.
+page_protocol_test = executable(
+  'page_protocol_test',
+  ['page_protocol_test.cpp', 'wb_test_main.cpp', page_protocol_src, json_src],
+  include_directories: [inc_dir],
+  )
+test('page_protocol', page_protocol_test)
+
+# Lua pages' wb.ini: INI files edited without disturbing them.
+ini_doc_test = executable(
+  'ini_doc_test',
+  ['ini_doc_test.cpp', 'wb_test_main.cpp', ini_doc_src],
+  include_directories: [inc_dir],
+  )
+test('ini_doc', ini_doc_test)
+
+# Lua pages' wb.json: JSON with comments edited without disturbing it.
+jsonc_doc_test = executable(
+  'jsonc_doc_test',
+  ['jsonc_doc_test.cpp', 'wb_test_main.cpp', jsonc_doc_src],
+  include_directories: [inc_dir],
+  )
+test('jsonc_doc', jsonc_doc_test)
+
+# Lua pages' wb.toml: TOML files edited without disturbing them.
+toml_doc_test = executable(
+  'toml_doc_test',
+  ['toml_doc_test.cpp', 'wb_test_main.cpp', toml_doc_src, jsonc_doc_src],
+  include_directories: [inc_dir],
+  )
+test('toml_doc', toml_doc_test)
+
+# List controls: names added, moved and removed.
+name_list_test = executable(
+  'name_list_test',
+  ['name_list_test.cpp', 'wb_test_main.cpp', name_list_src],
+  include_directories: [inc_dir],
+  )
+test('name_list', name_list_test)
+
+# Font controls: fontconfig names read and written.
+font_spec_test = executable(
+  'font_spec_test',
+  ['font_spec_test.cpp', 'wb_test_main.cpp', font_spec_src],
+  include_directories: [inc_dir],
+  )
+test('font_spec', font_spec_test)
+
+# The bell: its style, its blinks, never strobing.
+bell_style_test = executable(
+  'bell_style_test',
+  ['bell_style_test.cpp', 'wb_test_main.cpp', bell_style_src, theme_src],
+  include_directories: [inc_dir],
+  )
+test('bell_style', bell_style_test)
+
+# wbconf's monitor arranger: sizes, snapping, placing.
+monitor_layout_test = executable(
+  'monitor_layout_test',
+  ['monitor_layout_test.cpp', 'wb_test_main.cpp', monitor_layout_src],
+  include_directories: [inc_dir],
+  )
+test('monitor_layout', monitor_layout_test)
+
+# Openbox's If/ForEach conditions: matching, desktops, targets.
+conditions_test = executable(
+  'conditions_test',
+  ['conditions_test.cpp', 'wb_test_main.cpp', conditions_src, applications_src, action_src],
+  include_directories: [inc_dir],
+  )
+test('conditions', conditions_test)
 
 # Session restore's store: JSON, limits, expiry, where a window goes back.
 session_store_test = executable(
@@ -180,6 +304,15 @@ startup_sources_test = executable(
   include_directories: [inc_dir],
   )
 test('startup_sources', startup_sources_test)
+
+# The same parsers under random input (fixed seeds; sanitized in debug builds).
+startup_sources_fuzz_test = executable(
+  'startup_sources_fuzz_test',
+  ['startup_sources_fuzz_test.cpp', 'wb_test_main.cpp', startup_sources_src, startup_src,
+   integrations_src],
+  include_directories: [inc_dir],
+  )
+test('startup_sources_fuzz', startup_sources_fuzz_test, timeout: 120)
 
 # waybox-wallpaper: the image and the wallpaper program it picks.
 python3 = find_program('python3')
@@ -208,6 +341,10 @@ json_test = executable(
   include_directories: [inc_dir],
   )
 test('json', json_test)
+
+# The waybox Python module, against a fake socket (no compositor needed).
+test('python_module', find_program('python3'),
+  args: [files('python/waybox_module_test.py'), python_src_dir])
 
 # Pixel test for the Cairo/Pango painting primitives. Needs cairo/pango, so it
 # is only built in the full build (not tests_only); it links no wlroots.
@@ -247,7 +384,8 @@ if not get_option('tests_only')
   menu_parse_test = executable(
     'menu_parse_test',
     ['menu_parse_test.cpp', 'wb_test_main.cpp', menu_src,
-     action_src, files('../waybox/menu_parse.cpp', '../waybox/action_xml.cpp')],
+     action_src, conditions_src, applications_src,
+     files('../waybox/menu_parse.cpp', '../waybox/action_xml.cpp')],
     include_directories: [inc_dir],
     dependencies: [libxml2],
     )
@@ -259,6 +397,8 @@ if not get_option('tests_only')
   wbconf_test = executable(
     'wbconf_test',
     ['wbconf_test.cpp', 'wb_test_main.cpp', files('../waybox/wbconf.cpp'), startup_src,
+     font_spec_src,
+     output_rules_src,
      xml_strict_src,
      theme_src],
     include_directories: [inc_dir],
@@ -270,7 +410,7 @@ if not get_option('tests_only')
   settings_schema_test = executable(
     'settings_schema_test',
     ['settings_schema_test.cpp', 'wb_test_main.cpp', files('../waybox/settings_schema.cpp',
-     '../waybox/wbconf.cpp'), startup_src, xml_strict_src, theme_src],
+     '../waybox/wbconf.cpp'), startup_src, xml_strict_src, theme_src, font_spec_src],
     include_directories: [inc_dir],
     dependencies: [libxml2, json_glib],
     cpp_args: ['-DWB_SOURCE_ROOT="' + meson.project_source_root() + '"'],
@@ -295,6 +435,9 @@ integration_env = {
   # ignores them when empty).
   'WB_RC_XML': '',
   'WB_MENU_XML': '',
+  # GTK programs under test (wbconf) abort on any critical: a test fails
+  # on one rather than letting it scroll by.
+  'G_DEBUG': 'fatal-criticals',
 }
 if python.found() and not get_option('tests_only')
   # A minimal ext-session-lock-v1 client for the session-lock test.
@@ -598,6 +741,18 @@ if python.found() and not get_option('tests_only')
   # A minimal wlr-layer-shell panel client for the output-hotplug test.
   layer_shell_xml = meson.project_source_root() / 'protocol' / 'wlr-layer-shell-unstable-v1.xml'
   xdg_shell_xml = wl_protocol_dir / 'stable/xdg-shell/xdg-shell.xml'
+  # A stand-in for a desktop-icon program: a full-output layer surface.
+  desktop_client = executable(
+    'desktop_client',
+    [
+      'integration' / 'desktop_client.c',
+      wayland_scanner_client.process(layer_shell_xml),
+      wayland_scanner_code.process(layer_shell_xml),
+      wayland_scanner_code.process(xdg_shell_xml),
+    ],
+    dependencies: [dependency('wayland-client')],
+    )
+
   layer_client = executable(
     'layer_client',
     [
@@ -631,6 +786,9 @@ if python.found() and not get_option('tests_only')
     ['alt_tab', 'alt_tab_test.py', [default_rc], 60],
     ['app_rule', 'app_rule_test.py', [], 60],
     ['bell', 'bell_test.py', [bell_client, vpointer_client], 60],
+    ['bell_styles', 'bell_styles_test.py', [bell_client, waybox_msg], 60],
+    ['cursor_theme', 'cursor_theme_test.py', [], 60],
+    ['color_pick', 'color_pick_test.py', [waybox_msg, desktop_client], 60],
     ['color_management', 'color_management_test.py', [], 90],
     ['config_errors', 'config_errors_test.py', [], 60],
     ['desktop_popup', 'desktop_popup_test.py', [], 60],
@@ -640,6 +798,7 @@ if python.found() and not get_option('tests_only')
     ['edge_tiling', 'edge_tiling_test.py', [vpointer_client], 90],
     ['foreign_toplevel', 'foreign_toplevel_test.py', [default_rc], 60],
     ['fullscreen_panel', 'fullscreen_panel_test.py', [layer_client], 60],
+    ['window_layers', 'window_layers_test.py', [], 60],
     ['ibus_real', 'ibus_real_test.py', [text_input_client], 60],
     ['idle_inhibit', 'idle_inhibit_test.py', [inhibit_client], 60],
     ['idle_screen_off', 'idle_screen_off_test.py', [inhibit_client], 60],
@@ -647,8 +806,14 @@ if python.found() and not get_option('tests_only')
     ['input_method', 'input_method_test.py', [ime_client, text_input_client], 90],
     ['input_method_setting', 'input_method_setting_test.py', [], 60],
     ['ipc', 'ipc_test.py', [waybox_msg, lock_client], 60],
+    ['osd_look', 'osd_look_test.py', [waybox_msg], 60],
+    ['python_ipc', 'python_ipc_test.py', [touch_client, python_src_dir], 60],
+    ['desktop_context', 'desktop_context_test.py', [desktop_client, vpointer_client], 60],
+    ['openbox_actions', 'openbox_actions_test.py', [touch_client], 60],
+    ['if_foreach', 'if_foreach_test.py', [touch_client], 60],
     ['key_chain', 'key_chain_test.py', [], 60],
     ['lock_popup', 'lock_popup_test.py', [popup_client, lock_client], 60],
+    ['popup_reposition', 'popup_reposition_test.py', [popup_client], 40],
     ['keymap_reconfigure', 'keymap_reconfigure_test.py', [], 60],
     ['lua', 'lua_test.py', [touch_client, meson.project_source_root() / 'data' / 'scripts'], 60],
     ['lua_policy', 'lua_policy_test.py', [touch_client, meson.project_source_root() / 'data' / 'scripts'], 60],
@@ -663,6 +828,7 @@ if python.found() and not get_option('tests_only')
     ['output_power', 'output_power_test.py', [power_client], 60],
     ['output_rules', 'output_rules_test.py', [], 60],
     ['panel_reflow', 'panel_reflow_test.py', [layer_client], 60],
+    ['layer_order', 'layer_order_test.py', [layer_client, desktop_client], 60],
     ['pipe_menu', 'pipe_menu_test.py', [], 60],
     ['apps_menu', 'apps_menu_test.py', [], 60],
     ['session_restore', 'session_restore_test.py', [session_client], 90],
@@ -708,6 +874,62 @@ if python.found() and not get_option('tests_only')
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', fake_daemon], 60]]
     integration_tests += [['wbconf_startup', 'wbconf_startup_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_autostart_watch', 'wbconf_autostart_watch_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_options', 'wbconf_options_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_wallpaper', 'wbconf_wallpaper_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_monitors', 'wbconf_monitors_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_outputs', 'wbconf_outputs_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    if is_variable('wbconf_lua_exe')
+      # Integrations' pages in Lua: the runner over its protocol, and in wbconf.
+      integration_tests += [['page_runner', 'page_runner_test.py', [wbconf_lua_exe], 60]]
+      integration_tests += [['json_page', 'json_page_test.py', [wbconf_lua_exe], 60]]
+      # The checker running pages (wbconf-lua, an empty home).
+      test('check_pages', python3,
+        args: [meson.current_source_dir() / 'integration' / 'check_pages_test.py',
+               waybox_check_integration, wbconf_lua_exe,
+               meson.project_source_root() / 'data' / 'integrations'],
+        timeout: 120)
+      integration_tests += [['toml_page', 'toml_page_test.py', [wbconf_lua_exe], 60]]
+      integration_tests += [['mako_page', 'mako_page_test.py',
+          [wbconf_lua_exe, meson.project_source_root() / 'data' / 'integrations'], 60]]
+      integration_tests += [['waybar_page', 'waybar_page_test.py',
+          [wbconf_lua_exe, meson.project_source_root() / 'data' / 'integrations'], 60]]
+      integration_tests += [['fuzzel_page', 'fuzzel_page_test.py',
+          [wbconf_lua_exe, meson.project_source_root() / 'data' / 'integrations'], 60]]
+      integration_tests += [['wbconf_lua_page', 'wbconf_lua_page_test.py',
+          [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', wbconf_lua_exe], 150]]
+      integration_tests += [['wbconf_page_reload', 'wbconf_page_reload_test.py',
+          [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', wbconf_lua_exe], 90]]
+      integration_tests += [['wbconf_page_option', 'wbconf_page_option_test.py',
+          [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', wbconf_lua_exe], 90]]
+      integration_tests += [['wbconf_page_list', 'wbconf_page_list_test.py',
+          [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', wbconf_lua_exe], 90]]
+    endif
+    integration_tests += [['wbconf_provides', 'wbconf_provides_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_problems', 'wbconf_problems_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_changes', 'wbconf_changes_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 90]]
+    integration_tests += [['wbconf_reload', 'wbconf_reload_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_toc', 'wbconf_toc_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_color', 'wbconf_color_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', desktop_client], 60]]
+    integration_tests += [['wbconf_output_manager', 'wbconf_output_manager_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', fake_daemon], 60]]
+    integration_tests += [['bell_wbconf', 'bell_styles_test.py',
+        [bell_client, waybox_msg, wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_osd', 'wbconf_osd_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['identify', 'identify_test.py',
+        [waybox_msg, wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
   endif
   # Run alone (Xwayland, and edge_tiling, which starts an X11 window):
   # every Waybox instance reserves an X display (wlroots tries

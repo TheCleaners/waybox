@@ -3,8 +3,8 @@
 
 Two desktops and framed foot windows (decorations forced on by an app
 rule). The menu is driven with the keyboard; its entries are, with
-separators skipped: Send to desktop, Iconify, Maximize, Move, Resize,
-Roll up, Decorate, Close.
+separators skipped: Send to desktop, Layer, Iconify, Maximize, Move,
+Resize, Roll up, Decorate, Close.
 
 1. Right-clicking the titlebar opens it; Maximize maximizes the window.
 2. Roll up hides the window's contents (the desktop shows through) without
@@ -163,7 +163,7 @@ def main():
         # 1. Right-click the titlebar; Maximize.
         go_to(*title)
         pointer("click", "right", pause=0.4)
-        key("Down", "Down", "Down", "Return")  # Send to, Iconify, Maximize
+        key("Down", "Down", "Down", "Down", "Return")  # Send to, Layer, Iconify, Maximize
         time.sleep(0.5)
         expect("wb-geom maximize-on" in logtext(),
                "Maximize from the titlebar's window menu did not maximize")
@@ -178,7 +178,7 @@ def main():
         expect(colour_at(*centre) != black, "window contents not drawn")
         go_to(mx + mw // 3, my - 6)
         pointer("click", "right", pause=0.4)
-        key(*(["Down"] * 6), "Return")  # ... Resize, Roll up
+        key(*(["Down"] * 7), "Return")  # ... Resize, Roll up
         time.sleep(0.5)
         shade = re.findall(r"wb-geom shade-on (\d+)x(\d+)", logtext())
         expect(bool(shade) and tuple(map(int, shade[-1])) == (mw, mh),
@@ -187,7 +187,7 @@ def main():
                f"rolled-up window still shows its contents: {colour_at(*centre)}")
         go_to(mx + mw // 3, my - 6)
         pointer("click", "right", pause=0.4)
-        key(*(["Down"] * 6), "Return")  # ... Roll down
+        key(*(["Down"] * 7), "Return")  # ... Roll down
         time.sleep(0.5)
         expect("wb-geom shade-off" in logtext(), "Roll down did not roll down")
         expect(colour_at(*centre) != black, "contents not back after Roll down")
@@ -206,7 +206,7 @@ def main():
         b, (bw, bh, bx, by) = open_foot("second")
         go_to(bx + bw + 300, by + bh + 200)  # off the window
         key("space", mods=("alt",))
-        key(*(["Down"] * 8), "Return")       # ... Decorate, Close
+        key(*(["Down"] * 9), "Return")       # ... Decorate, Close
         for _ in range(30):
             if b.poll() is not None:
                 break
@@ -221,7 +221,7 @@ def main():
         c.terminate()
         c.wait()
         time.sleep(0.5)
-        key(*(["Down"] * 8), "Return")
+        key(*(["Down"] * 9), "Return")
         time.sleep(0.8)
         expect(d.poll() is None,
                "after its window closed, the window menu acted on another window")

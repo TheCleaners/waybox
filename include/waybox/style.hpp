@@ -2,6 +2,8 @@
 #define WB_STYLE_HPP
 
 #include <optional>
+#include <string>
+#include <vector>
 #include <string_view>
 
 #include "waybox/menu.hpp"    // MenuMetrics
@@ -68,13 +70,41 @@ struct FrameStyle {
 
 enum class SwitcherOrientation { Vertical, Horizontal };
 
+/* Where an on-screen display sits on its monitor. */
+enum class OsdPosition { Center, Top, Bottom };
+
+/* The look of every on-screen display (the switcher, the desktop name,
+ * the bell's note, wb.osd), from the theme (osd.*, else its menu's) and
+ * rc.xml's <waybox><osd>. */
 struct SwitcherStyle {
 	Surface panel;
 	ControlStyle item;
 	TextStyle item_text;
 	SwitcherOrientation orientation = SwitcherOrientation::Vertical;
+	OsdPosition position = OsdPosition::Center;
 	bool show_thumbnails = false;  /* reserved */
 };
+
+/* rc.xml <waybox><osd position= opacity= cornerRadius= bg= text= border=/>:
+ * each over the theme's where set. */
+struct OsdConfig {
+	OsdPosition position = OsdPosition::Center;
+	std::optional<int> opacity;        /* percent, 10..100 */
+	std::optional<int> corner_radius;  /* px, 0..64 */
+	std::optional<Color> bg, text, border;
+	bool operator==(const OsdConfig &) const = default;
+};
+
+/* From rc.xml's strings ("" = not set); a value that doesn't parse is left
+ * unset and named in `problems` ("opacity=x"). */
+OsdConfig parse_osd_config(std::string_view position, std::string_view opacity,
+		std::string_view corner_radius, std::string_view bg, std::string_view text,
+		std::string_view border, std::vector<std::string> *problems = nullptr);
+std::optional<OsdPosition> osd_position_from_name(std::string_view name);
+
+/* Its top on a monitor box (y, height) for a display `h` tall: centered,
+ * or a tenth of the way in from the top or bottom edge (never off it). */
+int osd_y(OsdPosition position, int box_y, int box_h, int h);
 
 enum class SwitcherOrder { MRU, Stacking, Spatial };
 
@@ -92,6 +122,8 @@ struct SwitcherBehavior {
 MenuStyle menu_style_from_theme(const Theme &theme);
 FrameStyle frame_style_from_theme(const Theme &theme, bool active);
 SwitcherStyle switcher_style_from_theme(const Theme &theme);
+/* The theme's, with rc.xml's <osd> over it. */
+SwitcherStyle osd_style(const Theme &theme, const OsdConfig &config);
 
 /* Bridge a resolved MenuStyle to the geometry layout_menu() consumes. */
 MenuMetrics menu_metrics(const MenuStyle &style);

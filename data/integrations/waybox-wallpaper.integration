@@ -1,20 +1,34 @@
 [Integration]
 Name=Wallpaper (Waybox)
 Category=Wallpaper
+Provides=wallpaper
 Comment=A random wallpaper, or one you choose, with whichever wallpaper program is installed (swaybg, hyprpaper or wpaperd)
 Exec=waybox-wallpaper
+Page=wallpaper
 
 [Option image]
 Label=Image or folder
 Flag=-i
 Hint=~/Pictures/Wallpapers
+Type=image-or-folder
 
 [Option every]
 Label=Change every (minutes)
 Flag=-e
 Hint=60
+Type=number
+Min=1
 
 [Option colour]
-Label=Colour
+Label=Color
 Flag=-c
 Hint=#303030
+Type=color
+Default=#303030
+
+[Option mode]
+Label=Mode
+Flag=-m
+Type=choice
+Choices=fill,fit,stretch,center,tile
+Default=fill

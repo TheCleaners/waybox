@@ -18,8 +18,11 @@
 #include <unistd.h>
 #include <vector>
 
+#include "startup_supervisor.h"
 #include "config.h"
 #include "ipc.h"
+#include "color_pick.h"
+#include "bell.h"
 #include "script.h"
 #include "waybox/seat.h"
 #include "waybox/session_lock.h"
@@ -28,6 +31,7 @@
 #include "waybox/desktops.hpp"
 #include "waybox/json.hpp"
 #include "waybox/output.h"
+#include "waybox/desktop_popup.hpp"
 #include "waybox/xdg_shell.h"
 
 using wb::json::Array;
@@ -39,6 +43,9 @@ namespace {
 constexpr size_t kMaxRequest = 64 * 1024;
 constexpr size_t kMaxPending = 4 * 1024 * 1024;  /* a client not reading goes */
 
+/* An answer handle() leaves for later (a color pick replies itself). */
+const char *const kLater = "__later";
+
 struct Client {
 	struct wb_server *server = nullptr;
 	struct wb_ipc_state *st = nullptr;  /* outlives server->ipc while closing */
@@ -47,6 +54,7 @@ struct Client {
 	std::string in, out;
 	std::set<std::string> events;  /* subscribed to */
 	bool closing = false;
+	bool picking = false;  /* waiting for a color pick's answer */
 };
 
 }  // namespace
@@ -83,6 +91,11 @@ void drop(struct wb_ipc_state *st, Client *c) {
 	if (c->closing)
 		return;
 	c->closing = true;
+	/* Its pick ends now (unanswered): it mustn't outlive the client. */
+	if (c->picking) {
+		c->picking = false;
+		color_pick_cancel(c->server, "the client went");
+	}
 	if (c->source != nullptr) {
 		wl_event_source_remove(c->source);
 		c->source = nullptr;
@@ -138,10 +151,12 @@ Value window_json(struct wb_toplevel *t) {
 	w["tag"] = t->tag;
 	w["desktop"] = t->desktop + 1;
 	w["omnipresent"] = t->omnipresent;
+	w["layer"] = t->layer > 0 ? "above" : t->layer < 0 ? "below" : "normal";
 	w["focused"] = focused(t);
 	w["minimized"] = t->minimized;
 	w["maximized"] = t->max_horz && t->max_vert;
 	w["fullscreen"] = t->fullscreen;
+	w["shaded"] = t->shaded;
 	w["x"] = t->geometry.x;
 	w["y"] = t->geometry.y;
 	w["width"] = t->geometry.width;
@@ -214,6 +229,115 @@ Value handle(Client *c, const Value &req) {
 			return error("no test touchscreen");
 		return Object{{"ok", true}};
 	}
+	/* Restart a program Waybox started (wbconf's Reload=restart): "name",
+	 * its startup name, or "binary", its command's program. */
+	if (cmd == "restart_program") {
+		std::string name = req.str("name").substr(0, 256);
+		std::string binary = req.str("binary").substr(0, 256);
+		if (name.empty() && binary.empty())
+			return error("restart_program needs a name or binary");
+		std::string why = startup_restart(server, name, binary);
+		if (!why.empty())
+			return error(why);
+		return Object{{"ok", true}};
+	}
+	/* Ring the bell, as the focused window would (wbconf's Test): with
+	 * "flash", "color", "duration", "count", "width", "command", those
+	 * settings over rc.xml's, as a preview (no policy, no event). */
+	if (cmd == "bell") {
+		ScriptBell preview;
+		bool any = false;
+		for (const char *k : {"flash", "color", "duration", "count", "width"})
+			if (const Value *v = req.get(k)) {
+				any = true;
+				if (v->string() != nullptr)
+					preview.over[k] = v->string()->substr(0, 64);
+				else if (v->number() != nullptr)
+					preview.over[k] = std::to_string(static_cast<long>(
+							std::clamp(*v->number(), -1e9, 1e9)));
+			}
+		if (const Value *v = req.get("command"); v != nullptr && v->string() != nullptr) {
+			any = true;
+			preview.command = v->string()->substr(0, 4096);
+		}
+		std::string shown = bell_ring(server, first_toplevel(server), any ? &preview : nullptr);
+		return Object{{"ok", true}, {"shown", shown}};
+	}
+	/* An on-screen display shown for a moment (wbconf's Test): "message"
+	 * (else "On-screen display"), with "position", "opacity", "cornerRadius",
+	 * "bg", "text", "border" over rc.xml's <osd>, as a preview. */
+	if (cmd == "osd") {
+		wb::OsdConfig base = server->config != nullptr ? server->config->osd : wb::OsdConfig{};
+		auto str = [&req](const char *k) -> std::string {
+			const Value *v = req.get(k);
+			if (v == nullptr)
+				return "";
+			if (v->string() != nullptr)
+				return v->string()->substr(0, 64);
+			if (v->number() != nullptr)
+				return std::to_string(static_cast<long>(std::clamp(*v->number(), -1e9, 1e9)));
+			return "";
+		};
+		std::vector<std::string> problems;
+		wb::OsdConfig over = wb::parse_osd_config(str("position"), str("opacity"),
+				str("cornerRadius"), str("bg"), str("text"), str("border"), &problems);
+		if (!problems.empty())
+			return error("not an on-screen display setting: " + problems.front());
+		if (req.get("position") != nullptr)
+			base.position = over.position;
+		if (over.opacity) base.opacity = over.opacity;
+		if (over.corner_radius) base.corner_radius = over.corner_radius;
+		if (over.bg) base.bg = over.bg;
+		if (over.text) base.text = over.text;
+		if (over.border) base.border = over.border;
+		wb::Theme theme = server->config != nullptr ? server->config->theme
+				: wb::default_theme();
+		std::string message = "On-screen display";
+		if (const Value *m = req.get("message"); m != nullptr && m->string() != nullptr &&
+				!m->string()->empty())
+			message = m->string()->substr(0, 200);
+		if (server->desktop_popup != nullptr)
+			server->desktop_popup->hide();  /* not two at once */
+		server->osd_preview = std::make_unique<wb::DesktopPopup>(server,
+				wb::osd_style(theme, base));
+		server->osd_preview->show(message, 2000);
+		return Object{{"ok", true}};
+	}
+	/* A color from the screen (wbconf's eyedropper): the pointer becomes a
+	 * crosshair, and the answer comes with the click ({"ok": true,
+	 * "color": "#rrggbb"}), or an error (cancelled, timed out). */
+	if (cmd == "pick_color") {
+		struct wb_ipc_state *st = c->st;
+		bool started = color_pick_start(server, [c, st](bool ok, const wb::Color &col,
+				const std::string &why) {
+			if (c->closing || !c->picking)
+				return;
+			c->picking = false;
+			if (ok) {
+				char hex[8];
+				snprintf(hex, sizeof hex, "#%02x%02x%02x", col.r, col.g, col.b);
+				reply(c, Object{{"ok", true}, {"color", std::string(hex)}});
+			} else {
+				reply(c, error(why));
+			}
+			if (!flush(c))
+				drop(st, c);
+		});
+		if (!started)
+			return error("a color pick is already on");
+		c->picking = true;
+		return Value(Object{{kLater, true}});
+	}
+	/* Each monitor's name, large, on it (wbconf's Identify). */
+	if (cmd == "identify") {
+		const Value *ms = req.get("ms");
+		int duration = ms != nullptr && ms->number() != nullptr
+				? static_cast<int>(std::clamp(*ms->number(), 100.0, 30000.0)) : 3000;
+		int n = wb_identify_outputs(server, req.str("output"), duration);
+		if (n == 0 && !req.str("output").empty())
+			return error("no such monitor");
+		return Object{{"ok", true}, {"shown", n}};
+	}
 	if (cmd == "get_version")
 		return Object{{"ok", true}, {"name", "waybox"}, {"version", WB_BUILD_VERSION},
 				{"release", PACKAGE_VERSION}};
@@ -275,10 +399,12 @@ Value handle(Client *c, const Value &req) {
 		return Object{{"ok", true}};
 	}
 	if (cmd == "subscribe") {
-		static const std::set<std::string> known = {"window", "desktop", "output", "config"};
+		static const std::set<std::string> known = {"window", "desktop", "output", "config",
+				"bell"};
 		const Value *ev = req.get("events");
 		if (ev == nullptr || ev->array() == nullptr)
-			return error("subscribe needs \"events\": [\"window\", \"desktop\", \"output\", \"config\"]");
+			return error("subscribe needs \"events\": [\"window\", \"desktop\", \"output\", "
+					"\"config\", \"bell\"]");
 		for (const Value &e : *ev->array()) {
 			if (e.string() == nullptr || known.count(*e.string()) == 0)
 				return error("unknown event: " + wb::json::dump(e));
@@ -319,8 +445,10 @@ int on_client(int fd, uint32_t mask, void *data) {
 			Value answer = req && req->object() ? handle(c, *req)
 					: error("not a JSON object");
 			/* The request may have dropped this client (or stopped the
-			 * socket): it's still allocated, just closed. */
-			if (!c->closing)
+			 * socket): it's still allocated, just closed. An answer for
+			 * later (a color pick) is sent when it comes. */
+			bool later = answer.object() != nullptr && answer.object()->count(kLater);
+			if (!c->closing && !later)
 				reply(c, answer);
 		}
 		if (c->in.size() > kMaxRequest)
@@ -474,6 +602,17 @@ void ipc_desktop_event(struct wb_server *server) {
 		return;
 	send_event(server, "desktop", Object{{"change", "switch"},
 			{"desktop", desktop_json(server, server->current_desktop)}});
+}
+
+void ipc_bell_event(struct wb_server *server, struct wb_toplevel *t, const std::string &shown,
+		int skipped) {
+	if (server->ipc == nullptr)
+		return;
+	/* skipped: rings since the last event that came too soon to count. */
+	Object body{{"shown", shown}, {"skipped", skipped}};
+	if (t != nullptr && t->mapped)
+		body["window"] = window_json(t);
+	send_event(server, "bell", body);
 }
 
 void ipc_output_event(struct wb_server *server, struct wlr_output *output, const char *change) {

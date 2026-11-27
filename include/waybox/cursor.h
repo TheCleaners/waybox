@@ -19,6 +19,18 @@ enum wb_cursor_mode {
 struct wb_cursor {
 	struct wlr_cursor *cursor = nullptr;
 	struct wlr_xcursor_manager *xcursor_manager = nullptr;
+	/* The theme's cursor shown now ("" when a program's own image is), so
+	 * a new theme can show it again before the old one goes. */
+	std::string xcursor_name;
+	/* The theme and size in use; and those Waybox was started with
+	 * (XCURSOR_THEME, XCURSOR_SIZE), for when rc.xml sets none. */
+	std::string theme, start_theme;
+	unsigned size = 24, start_size = 24;
+	bool start_theme_set = false, start_size_set = false;
+	std::string failed_theme;  /* last theme found without cursors (logged once) */
+
+	/* Show the theme's cursor `name` ("default", "text", ...). */
+	void show_xcursor(const char *name);
 
 	struct wb_server *server = nullptr;
 
@@ -95,6 +107,11 @@ struct wb_cursor {
 };
 
 std::unique_ptr<wb_cursor> wb_cursor_create(struct wb_server *server);
+/* The cursor theme and size from rc.xml's <cursor> (else what Waybox was
+ * started with): at startup and on Reconfigure. Takes effect at once, for
+ * Waybox's own cursor, programs that ask it for one (cursor-shape), X11
+ * programs, and (XCURSOR_THEME, XCURSOR_SIZE) programs started later. */
+void wb_cursor_apply_theme(struct wb_server *server);
 void reset_cursor_mode(struct wb_server *server);
 /* Re-pick the surface under the pointer after the scene changed underneath it
  * (e.g. a desktop switch), without the pointer having moved. */

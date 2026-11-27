@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace wb {
 
@@ -117,23 +118,127 @@ FrameStyle frame_style_from_theme(const Theme &theme, bool active) {
 
 SwitcherStyle switcher_style_from_theme(const Theme &theme) {
 	const MenuColors &m = theme.menu;
+	const OsdColors &o = theme.osd;
 	SwitcherStyle s;
+	/* Openbox's osd.* keys where the theme has them, else the menu's. */
+	Texture bg = o.bg_set ? o.bg : m.items_bg;
+	Texture hilight = o.hilight_set ? o.hilight_bg : m.items_active_bg;
+	Color text = o.text_set ? o.text : m.items_text;
+	Color active_text = o.active_text_set ? o.active_text
+			: o.text_set ? o.text : m.items_active_text;
 
-	s.panel.fill = paint_from_texture(m.items_bg);
-	s.panel.border.width = theme.border_width;
-	s.panel.border.color = theme.border_color;
+	s.panel.fill = paint_from_texture(bg);
+	s.panel.border.width = o.border_width >= 0 ? o.border_width : theme.border_width;
+	s.panel.border.color = o.border_color_set ? o.border_color : theme.border_color;
 	s.panel.border.radius = theme.menu_corner_radius;
 	s.panel.padding = Insets{theme.padding_y, theme.padding_x,
 			theme.padding_y, theme.padding_x};
 	s.panel.opacity = theme.menu_opacity;
 
-	s.item.normal = StateStyle{paint_from_texture(m.items_bg), m.items_text};
-	s.item.hover = StateStyle{paint_from_texture(m.items_active_bg), m.items_active_text};
+	s.item.normal = StateStyle{paint_from_texture(bg), text};
+	s.item.hover = StateStyle{paint_from_texture(hilight), active_text};
 	s.item.pressed = s.item.hover;
-	s.item.disabled = StateStyle{paint_from_texture(m.items_bg), m.separator};
-	s.item_text.color = m.items_text;
+	s.item.disabled = StateStyle{paint_from_texture(bg), m.separator};
+	s.item_text.color = text;
 	s.item_text.font = theme.font_osd;
 	return s;
+}
+
+SwitcherStyle osd_style(const Theme &theme, const OsdConfig &c) {
+	SwitcherStyle s = switcher_style_from_theme(theme);
+	s.position = c.position;
+	if (c.bg) {
+		Texture t;
+		t.color = t.color_to = *c.bg;
+		s.panel.fill = paint_from_texture(t);
+		s.item.normal.fill = s.panel.fill;
+		s.item.disabled.fill = s.panel.fill;
+	}
+	if (c.text) {
+		s.item_text.color = *c.text;
+		s.item.normal.fg = *c.text;
+	}
+	if (c.border) {
+		s.panel.border.color = *c.border;
+		if (s.panel.border.width == 0)
+			s.panel.border.width = 1;  /* a colour asked for: shown */
+	}
+	if (c.corner_radius)
+		s.panel.border.radius = *c.corner_radius;
+	if (c.opacity)
+		s.panel.opacity = *c.opacity / 100.0;
+	return s;
+}
+
+std::optional<OsdPosition> osd_position_from_name(std::string_view name) {
+	if (name == "center" || name == "centre")
+		return OsdPosition::Center;
+	if (name == "top")
+		return OsdPosition::Top;
+	if (name == "bottom")
+		return OsdPosition::Bottom;
+	return std::nullopt;
+}
+
+OsdConfig parse_osd_config(std::string_view position, std::string_view opacity,
+		std::string_view corner_radius, std::string_view bg, std::string_view text,
+		std::string_view border, std::vector<std::string> *problems) {
+	OsdConfig c;
+	auto problem = [problems](const char *key, std::string_view v) {
+		if (problems != nullptr)
+			problems->push_back(std::string(key) + "=" + std::string(v.substr(0, 64)));
+	};
+	if (!position.empty()) {
+		if (auto p = osd_position_from_name(position))
+			c.position = *p;
+		else
+			problem("position", position);
+	}
+	auto number = [&](const char *key, std::string_view v, int lo, int hi)
+			-> std::optional<int> {
+		if (v.empty())
+			return std::nullopt;
+		std::string s(v);
+		char *end = nullptr;
+		long n = strtol(s.c_str(), &end, 10);
+		if (end == s.c_str() || *end != '\0' || n < lo || n > hi) {
+			problem(key, v);
+			return std::nullopt;
+		}
+		return static_cast<int>(n);
+	};
+	c.opacity = number("opacity", opacity, 10, 100);
+	c.corner_radius = number("cornerRadius", corner_radius, 0, 64);
+	auto color = [&](const char *key, std::string_view v) -> std::optional<Color> {
+		if (v.empty())
+			return std::nullopt;
+		if (auto col = parse_color(v))
+			return col;
+		problem(key, v);
+		return std::nullopt;
+	};
+	c.bg = color("bg", bg);
+	c.text = color("text", text);
+	c.border = color("border", border);
+	return c;
+}
+
+int osd_y(OsdPosition position, int box_y, int box_h, int h) {
+	int room = box_h - h;
+	if (room <= 0)
+		return box_y;  /* taller than the monitor: its top at the top */
+	int margin = box_h / 10;
+	if (margin > room)
+		margin = room;
+	switch (position) {
+	case OsdPosition::Top:
+		return box_y + margin;
+	case OsdPosition::Bottom:
+		return box_y + box_h - h - margin;
+	case OsdPosition::Center:
+	default:
+		return box_y + room / 2;
+	}
 }
 
 MenuMetrics menu_metrics(const MenuStyle &style) {

@@ -142,6 +142,40 @@ WB_TEST(round_trips_fonts) {
 	WB_CHECK(doc2->to_string().find("place=\"ActiveWindow\"") == std::string::npos);
 }
 
+WB_TEST(round_trips_font_styles) {
+	auto doc = RcDocument::from_string(kMinimalRc);
+	WB_CHECK(doc.has_value());
+	WayboxSettings s = doc->read();
+	/* Weight, italic and width as the font control writes them. */
+	s.font_active_window = "Inter Semi-Bold Italic Condensed 11";
+	s.font_menu_item = "Cantarell Light 10.5";
+	doc->apply(s);
+	std::string xml = doc->to_string();
+	WB_CHECK(xml.find("<weight>semibold</weight>") != std::string::npos);
+	WB_CHECK(xml.find("<slant>italic</slant>") != std::string::npos);
+	WB_CHECK(xml.find("<width>condensed</width>") != std::string::npos);
+	WB_CHECK(xml.find("<weight>light</weight>") != std::string::npos);
+	WB_CHECK(xml.find("<size>11</size>") != std::string::npos);  /* 10.5: whole points */
+	auto doc2 = RcDocument::from_string(xml);
+	WayboxSettings r = doc2->read();
+	WB_CHECK(r.font_active_window == std::optional<std::string>(
+			"Inter Semi-Bold Italic Condensed 11"));
+	/* Back to upright, normal width: <slant> kept as normal (it was there),
+	 * <width> gone (Waybox's own). */
+	r.font_active_window = "Inter Bold 11";
+	doc2->apply(r);
+	std::string again = doc2->to_string();
+	WB_CHECK(again.find("<weight>bold</weight>") != std::string::npos);
+	WB_CHECK(again.find("<slant>normal</slant>") != std::string::npos);
+	WB_CHECK(again.find("<width>") == std::string::npos);
+	/* Openbox's own: italic and normal, read. */
+	auto ob = RcDocument::from_string(
+		"<?xml version=\"1.0\"?>\n<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><theme>"
+		"<font place=\"MenuItem\"><name>Sans</name><size>9</size><weight>normal</weight>"
+		"<slant>italic</slant></font></theme></openbox_config>\n");
+	WB_CHECK(ob && ob->read().font_menu_item == std::optional<std::string>("Sans Italic 9"));
+}
+
 /* ---- Safety: strict loading, writing only what changed, safe saving ---- */
 
 #include <filesystem>
@@ -291,12 +325,15 @@ WB_TEST(reads_desktops_edge_tiling_and_outputs) {
 	WB_CHECK(!s.desktop_popup_time.has_value());
 	WB_CHECK(s.edge_tiling == std::optional<bool>(false));
 	WB_CHECK(s.edge_tiling_range == std::optional<int>(12));
-	/* Only the rules matched by name alone. */
-	WB_CHECK(s.outputs.size() == 2);
+	/* Every rule, in order; a matcher isn't an attribute. */
+	WB_CHECK(s.outputs.size() == 3);
 	WB_CHECK(s.outputs[0].name == "HDMI-A-1" &&
 			s.outputs[0].attrs.at("mode") == "3840x2160@60" &&
 			s.outputs[0].attrs.at("scale") == "1.5");
 	WB_CHECK(s.outputs[1].name == "DP-4" && s.outputs[1].attrs.size() == 1);
+	WB_CHECK(s.outputs[2].name == "DP-9" && s.outputs[2].make == "Dell Inc." &&
+			s.outputs[2].attrs.size() == 1 && s.outputs[2].attrs.count("make") == 0);
+	WB_CHECK((s.outputs[2].from == wb::OutputMatch{"DP-9", "Dell Inc.", "", ""}));
 }
 
 WB_TEST(writes_only_the_output_setting_that_changed) {
@@ -321,8 +358,8 @@ WB_TEST(writes_only_the_output_setting_that_changed) {
 	/* Read back: what was written is what is read. */
 	auto again = RcDocument::from_string(out);
 	WayboxSettings r = again->read();
-	WB_CHECK(r.outputs.size() == 2 && r.outputs[0].attrs.at("scale") == "2" &&
-			r.outputs[1].name == "DP-1");
+	WB_CHECK(r.outputs.size() == 3 && r.outputs[0].attrs.at("scale") == "2" &&
+			r.outputs[1].name == "DP-9" && r.outputs[2].name == "DP-1");
 	WB_CHECK(r.desktop_names && r.desktop_names->size() == 3);
 }
 
@@ -528,4 +565,299 @@ WB_TEST(input_method_read_and_written) {
 	none.input_method.reset();
 	again->apply(none, read);
 	WB_CHECK(again->to_string().find("inputMethod") == std::string::npos);
+}
+
+/* ---- Output rules matched by make, model and serial ---- */
+
+#include <random>
+
+#include "waybox/output_rules.hpp"
+
+namespace {
+
+const char *kRulesRc =
+		"<?xml version=\"1.0\"?>\n"
+		"<openbox_config xmlns=\"http://openbox.org/3.4/rc\">\n"
+		"  <waybox>\n"
+		"    <outputs>\n"
+		"      <output make=\"Dell Inc.\" model=\"DELL U2723QE\" serial=\"5XYZ\" scale=\"2\"/>\n"
+		"      <output name=\"DP-3\" scale=\"1\" position=\"0,0\"/>\n"
+		"      <output make=\"Dell Inc.\" model=\"DELL U2723QE\" serial=\"5XYZ\" scale=\"3\"/>\n"
+		"      <output enabled=\"no\"/>\n"
+		"      <output make=\"BOE\" model=\"Twin\" adaptiveSync=\"yes\"/>\n"
+		"      <output name=\"HDMI-A-1\" transform=\"flipped-90\" note=\"a &amp; &lt;b&gt; &quot;x&quot;\"/>\n"
+		"    </outputs>\n"
+		"  </waybox>\n"
+		"</openbox_config>\n";
+
+wb::OutputMatch dell_on_dp3() { return {"DP-3", "Dell Inc.", "DELL U2723QE", "5XYZ"}; }
+
+}  // namespace
+
+WB_TEST(output_rules_read_as_waybox_uses_them) {
+	auto doc = RcDocument::from_string(kRulesRc);
+	WB_CHECK(doc.has_value());
+	WayboxSettings s = doc->read();
+	/* The second Dell rule (same matcher) and the one matching nothing are
+	 * left out: they never apply. */
+	WB_CHECK(s.outputs.size() == 4);
+	WB_CHECK(s.outputs[0].serial == "5XYZ" && s.outputs[0].name.empty() &&
+			s.outputs[0].attrs.at("scale") == "2");
+	WB_CHECK(s.outputs[3].attrs.at("note") == "a & <b> \"x\"");
+	/* The Dell on DP-3: the serial rule, first, wins over the name rule. */
+	WB_CHECK(wb::applying_output_rule(s.outputs, dell_on_dp3()) == 0);
+	/* Another monitor on DP-3: the name rule. */
+	WB_CHECK(wb::applying_output_rule(s.outputs, {"DP-3", "LG", "27GL", "9"}) == 1);
+	/* Two BOE "Twin" panels: both get the make+model rule. */
+	WB_CHECK(wb::applying_output_rule(s.outputs, {"eDP-1", "BOE", "Twin", "A"}) == 2);
+	WB_CHECK(wb::applying_output_rule(s.outputs, {"DP-7", "BOE", "Twin", "B"}) == 2);
+	WB_CHECK(wb::applying_output_rule(s.outputs, {"DP-8", "", "", ""}) == -1);
+	/* A monitor with no make/model/serial: a rule asking for one never
+	 * matches it. */
+	WB_CHECK(!wb::output_rule_matches({"", "", "", "5XYZ"}, {"DP-3", "", "", ""}));
+	WB_CHECK(!wb::output_rule_matches({}, {"", "", "", ""}));
+}
+
+WB_TEST(output_rule_matching_agrees_with_waybox) {
+	/* The same choice as the compositor's, for any rules and monitor. */
+	std::mt19937 rng(235);
+	const char *names[] = {"", "DP-1", "DP-2"}, *makes[] = {"", "Dell", "LG"},
+			*models[] = {"", "A", "B"}, *serials[] = {"", "1", "2"};
+	auto pick = [&](const char *const *v) { return std::string(v[rng() % 3]); };
+	for (int round = 0; round < 3000; ++round) {
+		std::vector<wb::OutputSetting> mine;
+		std::vector<wb::OutputRule> theirs;
+		int n = static_cast<int>(rng() % 5);
+		for (int i = 0; i < n; ++i) {
+			wb::OutputSetting o;
+			o.name = pick(names);
+			o.make = pick(makes);
+			o.model = pick(models);
+			o.serial = pick(serials);
+			mine.push_back(o);
+			wb::OutputRule r;
+			r.match = {o.name, o.make, o.model, o.serial};
+			theirs.push_back(r);
+		}
+		wb::OutputMatch m{pick(names + 1 - 1), pick(makes), pick(models), pick(serials)};
+		if (m.name.empty())
+			m.name = "DP-1";  /* a monitor always has a connector */
+		const wb::OutputRule *r = wb::match_output(theirs, {m.name, m.make, m.model, m.serial});
+		int want = r == nullptr ? -1 : static_cast<int>(r - theirs.data());
+		if (wb::applying_output_rule(mine, m) != want) {
+			WB_CHECK(false);
+			break;
+		}
+	}
+}
+
+WB_TEST(output_rules_written_in_place) {
+	auto doc = RcDocument::from_string(kRulesRc);
+	WayboxSettings before = doc->read(), s = before;
+	/* The serial rule edited where it is. */
+	s.outputs[0].attrs["scale"] = "1.5";
+	/* The name rule turned into one following the monitor (make, model,
+	 * serial): rewritten in place, so it stays second. */
+	s.outputs[1].name.clear();
+	s.outputs[1].make = "LG";
+	s.outputs[1].model = "27GL";
+	s.outputs[1].serial = "9";
+	/* The make+model rule's monitor (one of two) gets its own rule, before
+	 * the shared one, so it wins. */
+	wb::OutputSetting mine;
+	mine.name = "eDP-1";
+	mine.attrs = {{"scale", "1.25"}};
+	mine.before = s.outputs[2].from;
+	s.outputs.push_back(mine);
+	/* HDMI-A-1's rule back to automatic: it goes (and its odd attribute). */
+	s.outputs[3].attrs.clear();
+	doc->apply(s, before);
+	std::string out = doc->to_string();
+	size_t serial = out.find("serial=\"5XYZ\" scale=\"1.5\"");
+	size_t lg = out.find("make=\"LG\" model=\"27GL\" serial=\"9\"");
+	size_t edp = out.find("<output name=\"eDP-1\" scale=\"1.25\"/>");
+	size_t boe = out.find("make=\"BOE\"");
+	WB_CHECK(serial != std::string::npos && lg != std::string::npos);
+	WB_CHECK(edp != std::string::npos && boe != std::string::npos);
+	WB_CHECK(serial < lg && lg < edp && edp < boe);           /* order kept */
+	WB_CHECK(out.find("name=\"DP-3\"") == std::string::npos);  /* rewritten, not added */
+	WB_CHECK(out.find("scale=\"1\" position=\"0,0\"") != std::string::npos);
+	WB_CHECK(out.find("HDMI-A-1") == std::string::npos);
+	/* Left as they were: the duplicate and the rule matching nothing. */
+	WB_CHECK(out.find("serial=\"5XYZ\" scale=\"3\"") != std::string::npos);
+	WB_CHECK(out.find("<output enabled=\"no\"/>") != std::string::npos);
+
+	/* Read back: as written; and writing it again changes nothing. */
+	auto again = RcDocument::from_string(out);
+	WayboxSettings r = again->read();
+	WB_CHECK(r.outputs.size() == 4);
+	WB_CHECK(r.outputs[1].make == "LG" && r.outputs[1].name.empty() &&
+			r.outputs[1].attrs.at("position") == "0,0");
+	WB_CHECK(r.outputs[2].name == "eDP-1");
+	WB_CHECK(wb::applying_output_rule(r.outputs, {"eDP-1", "BOE", "Twin", "A"}) == 2);
+	WB_CHECK(wb::applying_output_rule(r.outputs, {"DP-7", "BOE", "Twin", "B"}) == 3);
+	again->apply(r, r);
+	WB_CHECK(again->to_string() == out);
+}
+
+WB_TEST(output_rules_back_and_forth) {
+	/* Following a monitor, then not: the same place, nothing doubled. */
+	auto doc = RcDocument::from_string(kRulesRc);
+	WayboxSettings a = doc->read(), b = a;
+	b.outputs[1].name.clear();
+	b.outputs[1].serial = "9";
+	doc->apply(b, a);
+	WayboxSettings c = doc->read(), d = c;
+	WB_CHECK(c.outputs[1].serial == "9" && c.outputs[1].from.serial == "9");
+	d.outputs[1].serial.clear();
+	d.outputs[1].name = "DP-3";
+	doc->apply(d, c);
+	auto first = RcDocument::from_string(kRulesRc);
+	WB_CHECK(doc->to_string() == first->to_string());
+	/* A matcher emptied altogether: the rule goes (it would match nothing). */
+	WayboxSettings e = doc->read(), f = e;
+	f.outputs[1].name.clear();
+	doc->apply(f, e);
+	WB_CHECK(doc->to_string().find("position=\"0,0\"") == std::string::npos);
+}
+
+WB_TEST(output_snapshot_and_restore) {
+	auto doc = RcDocument::from_string(kRulesRc);
+	std::string outputs = doc->snapshot({"waybox", "outputs"});
+	std::string hdr = doc->snapshot({"waybox", "hdr"});
+	WB_CHECK(outputs.find("<!--") == std::string::npos && outputs.find("5XYZ") != std::string::npos);
+	WB_CHECK(hdr.empty());
+	std::string original = doc->to_string();
+	WayboxSettings a = doc->read(), b = a;
+	b.outputs.clear();
+	b.hdr_outputs = "DP-3";
+	doc->apply(b, a);
+	WB_CHECK(doc->to_string() != original);
+	doc->restore({"waybox", "outputs"}, outputs);
+	doc->restore({"waybox", "hdr"}, hdr);
+	auto back = RcDocument::from_string(doc->to_string());
+	WB_CHECK(back.has_value());
+	WB_CHECK(back->read().outputs == a.outputs);
+	WB_CHECK(!back->read().hdr_outputs.has_value());
+	/* Into a file without them: added; not what was saved: ignored. */
+	auto bare = RcDocument::from_string("<?xml version=\"1.0\"?>\n"
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"/>\n");
+	bare->restore({"waybox", "outputs"}, outputs);
+	WB_CHECK(bare->read().outputs == a.outputs);
+	std::string before_junk = bare->to_string();
+	bare->restore({"waybox", "outputs"}, "<hdr outputs=\"x\"/>");
+	bare->restore({"waybox", "outputs"}, "not xml <<<");
+	WB_CHECK(bare->to_string() == before_junk);
+}
+
+WB_TEST(output_rules_random_edits) {
+	/* Random rules and random edits: always valid XML, edits read back as
+	 * meant, untouched rules kept, a second write a no-op. */
+	std::mt19937 rng(2350);
+	const char *vals[] = {"", "DP-1", "DP-2", "Dell Inc.", "\xc3\xa9\xe6\x97\xa5", "a&b",
+			"q\"uote", "<x>", "  sp  "};
+	auto val = [&] { return std::string(vals[rng() % 9]); };
+	auto esc = [](const std::string &v) {
+		std::string o;
+		for (char c : v)
+			o += c == '&' ? "&amp;" : c == '"' ? "&quot;" : c == '<' ? "&lt;" : std::string(1, c);
+		return o;
+	};
+	for (int round = 0; round < 1500; ++round) {
+		std::string xml = "<?xml version=\"1.0\"?>\n<openbox_config xmlns=\"http://openbox.org/3.4/rc\">"
+				"<waybox><outputs>\n";
+		int n = static_cast<int>(rng() % 6);
+		for (int i = 0; i < n; ++i) {
+			xml += "<output";
+			for (const char *k : {"name", "make", "model", "serial"})
+				if (rng() % 2)
+					xml += std::string(" ") + k + "=\"" + esc(val()) + "\"";
+			if (rng() % 2)
+				xml += " scale=\"" + std::to_string(1 + rng() % 3) + "\"";
+			if (rng() % 3 == 0)
+				xml += " note=\"" + esc(val()) + "\"";
+			xml += "/>\n";
+		}
+		xml += "</outputs></waybox></openbox_config>\n";
+		auto doc = RcDocument::from_string(xml);
+		if (!doc) {
+			WB_CHECK(false);
+			break;
+		}
+		WayboxSettings a = doc->read(), b = a;
+		std::vector<bool> touched(b.outputs.size(), false);
+		for (size_t i = 0; i < b.outputs.size(); ++i) {
+			switch (rng() % 5) {
+			case 0:  /* rematched */
+				b.outputs[i].name = val();
+				b.outputs[i].serial = val();
+				touched[i] = true;
+				break;
+			case 1:  /* back to automatic */
+				b.outputs[i].attrs.clear();
+				touched[i] = true;
+				break;
+			case 2:
+				b.outputs[i].attrs["scale"] = "1.5";
+				touched[i] = true;
+				break;
+			default:
+				break;
+			}
+		}
+		if (rng() % 2) {
+			wb::OutputSetting fresh;
+			fresh.name = val();
+			fresh.attrs = {{"scale", "2"}};
+			if (!b.outputs.empty())
+				fresh.before = b.outputs[rng() % b.outputs.size()].from;
+			b.outputs.push_back(fresh);
+		}
+		doc->apply(b, a);
+		std::string out = doc->to_string();
+		auto again = RcDocument::from_string(out);
+		if (!again) {
+			WB_CHECK(false);
+			break;
+		}
+		WayboxSettings r = again->read();
+		/* Every rule meant to be there, with its attributes. */
+		bool ok = true;
+		for (size_t i = 0; i < b.outputs.size(); ++i) {
+			const wb::OutputSetting &want = b.outputs[i];
+			bool gone = want.attrs.empty() || want.match().empty();
+			bool found = false;
+			for (const wb::OutputSetting &got : r.outputs)
+				found = found || (got.match() == want.match() && got.attrs == want.attrs);
+			/* A rule whose new matcher an earlier rule has already isn't
+			 * read (it never applies): only check those that can apply. */
+			bool shadowed = false;
+			for (size_t j = 0; j < b.outputs.size(); ++j)
+				if (j != i && b.outputs[j].match() == want.match())
+					shadowed = true;
+			if (!gone && !shadowed && !found)
+				ok = false;
+		}
+		/* Untouched rules: still read, as they were. */
+		for (size_t i = 0; i < a.outputs.size(); ++i)
+			if (!touched[i]) {
+				bool found = false;
+				for (const wb::OutputSetting &got : r.outputs)
+					found = found || (got.match() == a.outputs[i].match() &&
+							got.attrs == a.outputs[i].attrs);
+				bool shadowed = false;
+				for (size_t j = 0; j < b.outputs.size(); ++j)
+					if (j >= a.outputs.size() || touched[j])
+						shadowed = shadowed || b.outputs[j].match() == a.outputs[i].match();
+				if (!found && !shadowed)
+					ok = false;
+			}
+		/* Writing what was read changes nothing. */
+		again->apply(r, r);
+		if (!ok || again->to_string() != out) {
+			WB_CHECK(false);
+			fprintf(stderr, "round %d:\n%s\n->\n%s\n", round, xml.c_str(), out.c_str());
+			break;
+		}
+	}
 }
