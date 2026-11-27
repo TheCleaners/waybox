@@ -700,10 +700,29 @@ std::string autostart_set_enabled(std::string_view text, bool on, const std::str
 	 * out of OnlyShowIn); on takes it out of NotShowIn, adds it to an
 	 * OnlyShowIn that leaves it out, and drops Hidden and
 	 * X-GNOME-Autostart-enabled=false (which turn it off everywhere). Other
-	 * desktops' starting of it is left as it was. */
+	 * desktops' starting of it is left as it was: so when those keys go,
+	 * OnlyShowIn says only `desktop`, as they had it off. */
 	std::vector<std::string> lines = split_lines(text);
 	std::vector<std::string> out;
-	bool in_entry = false, had_entry = false, wrote_not = false;
+	bool in_entry = false, had_entry = false, wrote_not = false, wrote_only = false;
+	bool off_everywhere = false;
+	{
+		bool in = false;
+		for (const std::string &raw : lines) {
+			std::string_view l = trim(raw);
+			if (!l.empty() && l[0] == '[') {
+				in = l == "[Desktop Entry]";
+				continue;
+			}
+			size_t eq = l.find('=');
+			if (!in || eq == std::string_view::npos)
+				continue;
+			std::string_view k = trim(l.substr(0, eq)), v = trim(l.substr(eq + 1));
+			if ((k == "Hidden" && v == "true") || (k == "X-GNOME-Autostart-enabled" && v == "false"))
+				off_everywhere = true;
+		}
+	}
+	bool only_here = on && off_everywhere;
 	size_t entry_end = std::string::npos;  /* where to add NotShowIn */
 	auto edit_list = [&](const std::string &key, std::string_view value) {
 		std::vector<std::string> l = desktop_list(value);
@@ -740,6 +759,11 @@ std::string autostart_set_enabled(std::string_view text, bool on, const std::str
 			if (on && (key == "Hidden" || (key == "X-GNOME-Autostart-enabled" &&
 					value == "false")))
 				continue;
+			if (key == "OnlyShowIn" && only_here) {
+				out.push_back("OnlyShowIn=" + desktop + ";");
+				wrote_only = true;
+				continue;
+			}
 			if (key == "NotShowIn" || key == "OnlyShowIn") {
 				std::vector<std::string> list = edit_list(key, value);
 				if (key == "NotShowIn" && list.empty())
@@ -752,6 +776,8 @@ std::string autostart_set_enabled(std::string_view text, bool on, const std::str
 	}
 	if (in_entry)
 		entry_end = out.size();
+	if (only_here && !wrote_only && entry_end != std::string::npos)
+		out.insert(out.begin() + static_cast<long>(entry_end), "OnlyShowIn=" + desktop + ";");
 	if (!on && !wrote_not) {
 		if (!had_entry) {
 			out.push_back("[Desktop Entry]");

@@ -725,6 +725,10 @@ void scroll_to(Ui *ui, GtkWidget *heading) {
 	gtk_adjustment_set_value(adj, y_in_list(ui, heading) - 8);
 	ui->scrolling_to = false;
 	bool first = ui->scroll_target == nullptr;
+	/* Held while it waits: the list may be rebuilt meanwhile. */
+	g_object_ref(heading);
+	if (ui->scroll_target != nullptr)
+		g_object_unref(ui->scroll_target);
 	ui->scroll_target = heading;
 	ui->scroll_set = gtk_adjustment_get_value(adj);
 	if (!first)
@@ -734,11 +738,16 @@ void scroll_to(Ui *ui, GtkWidget *heading) {
 		GtkAdjustment *adj = gtk_scrolled_window_get_vadjustment(ui->scroller);
 		GtkWidget *target = ui->scroll_target;
 		ui->scroll_target = nullptr;
-		if (target == nullptr || std::abs(gtk_adjustment_get_value(adj) - ui->scroll_set) > 1)
-			return;  /* the user scrolled since */
-		ui->scrolling_to = true;
-		gtk_adjustment_set_value(adj, y_in_list(ui, target) - 8);
-		ui->scrolling_to = false;
+		if (target == nullptr)
+			return;
+		/* Still in the window, and the user hasn't scrolled since. */
+		if (gtk_widget_get_root(target) != nullptr &&
+				std::abs(gtk_adjustment_get_value(adj) - ui->scroll_set) <= 1) {
+			ui->scrolling_to = true;
+			gtk_adjustment_set_value(adj, y_in_list(ui, target) - 8);
+			ui->scrolling_to = false;
+		}
+		g_object_unref(target);
 	}, ui);
 }
 

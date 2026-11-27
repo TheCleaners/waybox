@@ -90,6 +90,15 @@ WB_TEST(switching_autostart_is_for_waybox_only) {
 	wb::AutostartEntry h;
 	WB_CHECK(wb::parse_autostart(wb::autostart_set_enabled(gnome, true), {"Waybox"}, h) &&
 			h.enabled && h.for_here);
+	/* ... and only for Waybox: GNOME, which had it off, still has it off. */
+	WB_CHECK(wb::autostart_set_enabled(gnome, true) ==
+			"[Desktop Entry]\nExec=foo\nOnlyShowIn=Waybox;\n");
+	wb::AutostartEntry gn;
+	WB_CHECK(wb::parse_autostart(wb::autostart_set_enabled(gnome, true), {"GNOME"}, gn) &&
+			!gn.for_here);
+	/* An OnlyShowIn that had others, all off: now Waybox's alone. */
+	WB_CHECK(wb::autostart_set_enabled("[Desktop Entry]\nExec=a\nOnlyShowIn=XFCE;\nHidden=true\n",
+			true) == "[Desktop Entry]\nExec=a\nOnlyShowIn=Waybox;\n");
 	/* Another desktop's name, given. */
 	WB_CHECK(wb::autostart_set_enabled("[Desktop Entry]\nExec=b\n", false, "sway") ==
 			"[Desktop Entry]\nExec=b\nNotShowIn=sway;\n");

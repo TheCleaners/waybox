@@ -205,6 +205,26 @@ def main():
         do(action="Reconfigure")
         time.sleep(0.4)
         expect(desktops()[0], 2, "rc.xml's new number after a Reconfigure")
+        # Names stay with their desktops when one is added or removed
+        # between them.
+        with open(os.path.join(cfg, "waybox", "rc.xml"), "w") as f:
+            f.write(RC.replace("<applications>",
+                               "<desktops><number>2</number><names><name>Web</name>"
+                               "<name>Mail</name></names></desktops><applications>"))
+        do(action="Reconfigure")
+        time.sleep(0.4)
+
+        def names():
+            return [d["name"] for d in ipc({"request": "get_desktops"})["desktops"]]
+        do(action="GoToDesktop", to="1")
+        do(action="AddDesktop", where="current")
+        got = names()
+        if len(got) != 3 or got[0] != "Web" or got[2] != "Mail" or got[1] in ("Web", "Mail"):
+            failures.append(f"names after AddDesktop current: {got}")
+        do(action="GoToDesktop", to="2")
+        do(action="RemoveDesktopCurrent")
+        expect(names(), ["Web", "Mail"], "names after RemoveDesktopCurrent")
+        do(action="GoToDesktop", to="1")
         do(action="SendToDesktop", to="1", follow=False, window="app_id:a")
 
         # A minimized window is sent too, and stays minimized.

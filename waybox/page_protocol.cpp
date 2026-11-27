@@ -301,9 +301,12 @@ std::string expand_home(const std::string &path, const std::string &home) {
 bool path_allowed(const std::string &path, const std::vector<std::string> &files,
 		const std::string &home) {
 	std::string p = expand_home(path, home);
-	/* No ".." tricks: only exactly a declared file. */
+	/* Only exactly a declared file, written plainly: no "." or ".." steps,
+	 * no "//" (each another spelling of a path, past the checks that name
+	 * what a file does, such as runs at login). */
 	if (p.empty() || p[0] != '/' || p.find("/../") != std::string::npos ||
-			p.find("/./") != std::string::npos)
+			p.find("/./") != std::string::npos || p.find("//") != std::string::npos ||
+			p.ends_with("/.") || p.ends_with("/..") || p.ends_with("/"))
 		return false;
 	for (const std::string &f : files)
 		if (expand_home(f, home) == p)

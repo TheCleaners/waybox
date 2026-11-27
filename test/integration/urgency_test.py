@@ -9,6 +9,7 @@ Two desktops; a window "far" on desktop 1, then desktop 2 shown.
 2. far focused (desktop 1 shown): no longer urgent, nor its desktop.
 3. On the shown desktop, another window "near" asks while far has focus:
    urgent, not focused (a program can't take the keyboard on its own).
+4. near on every desktop, desktop 2 shown: desktop 2 is the urgent one.
 Skips (exit 77) without a headless display.
 
 Usage: urgency_test.py <waybox> <activate_client> <workspace_client>
@@ -167,6 +168,21 @@ def main():
         if not window("far").get("focused") or not window("near").get("urgent"):
             failures.append(f"near took focus or isn't urgent: far={window('far')} "
                             f"near={window('near')}")
+        # 4. On every desktop and urgent: the desktop shown is the urgent
+        # one to the panel, not the one it was stored on.
+        ipc({"request": "action", "action": "ToggleOmnipresent", "window": "app_id:near"})
+        ipc({"request": "action", "action": "GoToDesktop", "to": "2"})
+        time.sleep(0.4)
+        keeper = client("keeper")  # has the keyboard on desktop 2
+        time.sleep(0.3)
+        ask(near)
+        if not window("near").get("urgent"):
+            failures.append(f"near not urgent on every desktop: {window('near')}")
+        st = ws_state() or ""
+        urgent = [m.group(1) for m in re.finditer(r" (\d+):[^:]*:(?:active|-)(:urgent)?", st)
+                  if m.group(2)]
+        if urgent != ["2"]:
+            failures.append(f"an urgent window on every desktop: the shown one, 2, urgent: {st!r}")
     except (OSError, RuntimeError, ValueError) as e:
         failures.append(str(e))
     finally:

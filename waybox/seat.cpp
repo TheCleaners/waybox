@@ -778,6 +778,9 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		toggle_show_desktop(server);
 		break;
 	case wb::ActionType::ShowAbout:
+		/* Nothing drawn over the lock screen. */
+		if (session_locked(server))
+			break;
 		server->menu.reset();
 		server->about_card = std::make_unique<wb::AboutCard>(server, wb_osd_style(server),
 				about_info(server));

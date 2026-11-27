@@ -30,6 +30,9 @@ WB_TEST(descriptions) {
 	WB_CHECK(describe_action({"Execute", {{"command", "foot"}}}) == "Run foot");
 	WB_CHECK(describe_action({"Execute", {{"execute", "foot"}}}) == "Run foot");
 	WB_CHECK(describe_action({"GoToDesktop", {{"to", "2"}}}) == "Go to desktop 2");
+	/* No desktop given: the current one, so nothing moves. */
+	WB_CHECK(describe_action({"SendToDesktop", {}}) == "Keep the window here (no desktop given)");
+	WB_CHECK(describe_action({"GoToDesktop", {}}) == "Stay on this desktop (no desktop given)");
 	WB_CHECK(describe_action({"GoToDesktop", {{"to", "right"}}}) == "Go to the next desktop");
 	WB_CHECK(describe_action({"SendToDesktop", {{"to", "left"}}}) ==
 			"Send to the previous desktop");

@@ -740,8 +740,13 @@ bool Document::remove(const Path &path) {
 		};
 		size_t s = start_of(i), e = end_of(i);
 		size_t comma = comma_after(text_, e);
+		/* The last one on a line of its own: its line goes, and only the
+		 * comma before it (not a comment after that comma). */
+		size_t prev_comma = std::string::npos;
 		if (comma != std::string::npos) {
 			e = comma + 1;
+		} else if (i > 0 && starts_line(text_, s)) {
+			prev_comma = comma_after(text_, end_of(i - 1));
 		} else if (i > 0) {
 			s = end_of(i - 1);  /* the comma before it goes */
 		}
@@ -769,6 +774,8 @@ bool Document::remove(const Path &path) {
 			while (e < text_.size() && (text_[e] == ' ' || text_[e] == '\t'))
 				++e;
 		edit(s, e - s, "");
+		if (prev_comma != std::string::npos && prev_comma < s)
+			edit(prev_comma, 1, "");
 		reparse();
 		if (!ok())
 			return false;

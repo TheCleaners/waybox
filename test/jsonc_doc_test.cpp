@@ -262,3 +262,11 @@ WB_TEST(jsonc_lists_keep_their_lines) {
 			std::string::npos && e.ok());
 }
 
+
+/* The last member removed: the comment after the one before it stays. */
+WB_TEST(jsonc_remove_last_keeps_comment) {
+	auto d = Document::parse("{\n  \"a\": 1, // keep me\n  \"b\": 2\n}\n");
+	WB_CHECK(d.remove({"b"}));
+	WB_CHECK(d.ok());
+	WB_CHECK(d.text() == "{\n  \"a\": 1 // keep me\n}\n");
+}
