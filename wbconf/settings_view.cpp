@@ -5,6 +5,7 @@
  * title, description, control, a bar marking it as set in rc.xml (or not
  * saved yet) and a menu to reset it or copy it.
  */
+#include "geo_picker.hpp"
 #include "wbconf_ui.hpp"
 
 #include "waybox/monitor_layout.hpp"
@@ -1295,6 +1296,41 @@ gboolean toc_step(gpointer data) {
 		shortcut_dump(ui);
 	} else if (step.rfind("shortcut-", 0) == 0) {
 		shortcut_test_step(ui, step);
+	} else if (step.rfind("geo:", 0) == 0) {
+		/* "geo:ID=find:CITY" / "geo:ID=click:FX,FY" / "geo:ID=show": then
+		 * "geo|ID|LAT-FIELD|LON-FIELD|CAPTION". */
+		std::string rest = step.substr(4);
+		size_t eq = rest.find('=');
+		std::string id = rest.substr(0, eq), what = eq == std::string::npos ? "" : rest.substr(eq + 1);
+		for (auto &p : ui->programs) {
+			if (p->in == nullptr || p->in->id != id || p->geo == nullptr)
+				continue;
+			if (what.rfind("find:", 0) == 0)
+				geo_picker_find(p->geo, what.substr(5));
+			else if (what == "zone")
+				geo_picker_use_zone(p->geo);
+			else if (what.rfind("type:", 0) == 0) {
+				/* Typed in the latitude field, as a person would. */
+				auto it = p->options.find(p->in->location[0]);
+				if (it != p->options.end() && it->second->entry != nullptr)
+					gtk_editable_set_text(GTK_EDITABLE(it->second->entry), what.substr(5).c_str());
+			}
+			else if (what.rfind("click:", 0) == 0) {
+				std::string xy = what.substr(6);
+				size_t c = xy.find(',');
+				geo_picker_click(p->geo, g_ascii_strtod(xy.substr(0, c).c_str(), nullptr),
+						g_ascii_strtod(xy.substr(c + 1).c_str(), nullptr));
+			}
+			const auto &l = p->in->location;
+			auto text = [&p](const std::string &o) {
+				auto it = p->options.find(o);
+				return it != p->options.end() && it->second->entry != nullptr
+						? std::string(gtk_editable_get_text(GTK_EDITABLE(it->second->entry)))
+						: std::string();
+			};
+			fprintf(stderr, "geo|%s|%s|%s|%s\n", id.c_str(), text(l[0]).c_str(),
+					text(l[1]).c_str(), geo_picker_caption(p->geo).c_str());
+		}
 	} else if (step.rfind("progstatus:", 0) == 0) {
 		/* "progstatus:ID" -> "progstatus:ID|on|STATUS[|warning]" */
 		for (auto &p : ui->programs)

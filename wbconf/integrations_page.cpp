@@ -1,3 +1,4 @@
+#include "geo_picker.hpp"
 #include "wbconf_ui.hpp"
 
 #include <sstream>
@@ -875,6 +876,33 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 			if (o.type != wb::OptionType::Switch)
 				gtk_widget_set_hexpand(f->widget, TRUE);
 			row->options[o.id] = std::move(f);
+		}
+		/* Location=: a map for its two options, above them; each the other's. */
+		if (in->location.size() == 2 && row->options.count(in->location[0]) &&
+				row->options.count(in->location[1])) {
+			OptionField *lat = row->options[in->location[0]].get();
+			OptionField *lon = row->options[in->location[1]].get();
+			if (lat->entry != nullptr && lon->entry != nullptr) {
+				row->geo = geo_picker_new([lat, lon]() -> std::optional<wb::geo::Point> {
+					auto a = wb::geo::parse_degrees(gtk_editable_get_text(GTK_EDITABLE(lat->entry)),
+							-90, 90);
+					auto o = wb::geo::parse_degrees(gtk_editable_get_text(GTK_EDITABLE(lon->entry)),
+							-180, 180);
+					if (!a || !o)
+						return std::nullopt;
+					return wb::geo::Point{*a, *o};
+				}, [lat, lon](wb::geo::Point at) {
+					gtk_editable_set_text(GTK_EDITABLE(lat->entry),
+							wb::geo::format_degrees(at.lat).c_str());
+					gtk_editable_set_text(GTK_EDITABLE(lon->entry),
+							wb::geo::format_degrees(at.lon).c_str());
+				});
+				for (OptionField *f : {lat, lon})
+					g_signal_connect_swapped(f->entry, "changed", G_CALLBACK(geo_picker_refresh),
+							row->geo);
+				gtk_widget_set_margin_bottom(row->geo, 6);
+				gtk_box_prepend(GTK_BOX(options_parent), row->geo);
+			}
 		}
 		if (expander != nullptr) {
 			if (GtkWidget *page = build_integration_page(ui, row.get()))

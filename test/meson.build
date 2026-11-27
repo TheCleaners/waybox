@@ -128,6 +128,14 @@ key_label_test = executable(
   include_directories: [inc_dir],
   )
 test('key_label', key_label_test)
+
+geo_test = executable(
+  'geo_test',
+  ['geo_test.cpp', 'wb_test_main.cpp', geo_src],
+  include_directories: [inc_dir],
+  cpp_args: ['-DWB_SOURCE_ROOT="' + meson.project_source_root() + '"'],
+  )
+test('geo', geo_test)
 binding_clash_test = executable(
   'binding_clash_test',
   ['binding_clash_test.cpp', 'wb_test_main.cpp', binding_clash_src, key_label_src],
@@ -969,6 +977,9 @@ if python.found() and not get_option('tests_only')
     integration_tests += [['wbconf_shortcut_clash', 'wbconf_shortcut_clash_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf',
          meson.project_source_root() / 'data' / 'rc.xml'], 60]]
+    integration_tests += [['wbconf_geo', 'wbconf_geo_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf',
+         meson.project_source_root()], 60]]
     integration_tests += [['wbconf_menu', 'wbconf_menu_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 90]]
     integration_tests += [['wbconf_rules', 'wbconf_rules_test.py',

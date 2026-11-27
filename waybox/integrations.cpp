@@ -91,7 +91,7 @@ namespace {
 
 const std::set<std::string> kIntegrationKeys = {"Name", "Category", "Comment", "Exec", "Binary",
 		"Version", "Configure", "Manages", "Page", "Kind", "Env", "Key", "FormatVersion",
-		"Files", "Runs", "Reload", "Provides"};
+		"Files", "Runs", "Reload", "Provides", "Location"};
 
 /* "a, b ,c" */
 std::vector<std::string> comma_list(const std::string &value) {
@@ -230,6 +230,7 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 			else if (key == "Files") in.files = comma_list(value);
 			else if (key == "Runs") in.runs = comma_list(value);
 			else if (key == "Provides") in.provides = comma_list(value);
+			else if (key == "Location") in.location = comma_list(value);
 			else if (key == "Reload") {
 				/* command PROGRAM ARGS, signal USR2, restart, none */
 				std::vector<std::string> words;
