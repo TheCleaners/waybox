@@ -100,6 +100,7 @@ def main():
                 WBCONF_SCHEMA_DIR=schema, WAYBOX_PID=str(proc.pid),
                 WBCONF_TEST_SET="waybox.xwayland.enabled=no;"
                                 "desktops.number=6;"
+                                "desktops.perMonitor=yes;"
                                 "mouse.libinput.naturalScroll=;"
                                 "bind.bemoji=W-period;"
                                 "inputmethod=fcitx5",
@@ -121,6 +122,8 @@ def main():
             failures.append("a changed setting wasn't written")
         if "<number>6</number>" not in out:
             failures.append("a new setting wasn't written")
+        if "<perMonitor>yes</perMonitor>" not in out:
+            failures.append("desktops per monitor wasn't written")
         if "naturalScroll" in out or "<mouse>" in out:
             failures.append("a reset setting (or the element it left empty) is still there")
         if not re.search(r'<keybind key="W-period">\s*<action name="Execute">\s*'
