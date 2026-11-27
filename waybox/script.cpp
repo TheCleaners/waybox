@@ -101,15 +101,13 @@ constexpr size_t kReadPerTurn = 64 * 1024;
  * running programs counts these, not only the current script's. */
 std::vector<pid_t> unreaped;
 
-/* An old script's programs still running when it was closed (a reload):
- * their process groups sent SIGTERM, then SIGKILL 2 s later; each leader
- * kept unreaped till then, so that its group's id is still its own. */
+/* Programs being stopped (Waybox exiting): their process groups sent
+ * SIGTERM, then SIGKILL; each leader kept unreaped till then, so that its
+ * group's id is still its own. */
 struct Stopping {
 	pid_t pid;
-	bool killed = false;
 };
 std::vector<Stopping> stopping;
-struct wl_event_source *stop_timer = nullptr;
 
 struct Binding {
 	uint32_t sym = 0, modifiers = 0;
@@ -1199,39 +1197,10 @@ void reap_leader(pid_t pid) {
 	unreaped.erase(std::remove(unreaped.begin(), unreaped.end(), pid), unreaped.end());
 }
 
-int stop_due(void *) {
-	bool again = false;
-	for (auto it = stopping.begin(); it != stopping.end();) {
-		if (!it->killed) {
-			if (kill(-it->pid, SIGKILL) != 0)
-				kill(it->pid, SIGKILL);
-			it->killed = true;
-		}
-		if (leader_exited(it->pid)) {
-			reap_leader(it->pid);
-			it = stopping.erase(it);
-		} else {
-			again = true;  /* killed, not exited yet */
-			++it;
-		}
-	}
-	if (again) {
-		wl_event_source_timer_update(stop_timer, 200);
-	} else {
-		wl_event_source_remove(stop_timer);
-		stop_timer = nullptr;
-	}
-	return 0;
-}
-
 void stop_spawned(pid_t pid) {
 	if (kill(-pid, SIGTERM) != 0)
 		kill(pid, SIGTERM);
 	stopping.push_back({pid});
-	if (stop_timer == nullptr && g != nullptr) {
-		stop_timer = wl_event_loop_add_timer(g->server->wl_event_loop, stop_due, g->server);
-		wl_event_source_timer_update(stop_timer, 2000);
-	}
 }
 
 void close_state() {
@@ -1240,11 +1209,9 @@ void close_state() {
 	for (auto &t : g->timers)
 		wl_event_source_remove(t->source);
 	g->timers.clear();
-	/* Its programs still running go with it (the script, loaded again,
-	 * starts what it wants again). */
-	for (auto &sp : g->spawns)
-		if (!sp->exited)
-			stop_spawned(sp->pid);
+	/* Its programs outlive it (a reload: the scratchpad's terminal stays),
+	 * still counted against the limit until they exit; only Waybox
+	 * exiting stops them (finish_scripts). */
 	while (!g->spawns.empty())
 		spawn_drop(g->spawns.front().get());
 	if (g->idle != nullptr)
@@ -1344,6 +1311,11 @@ void init_scripts(struct wb_server *server) {
 }
 
 void finish_scripts(struct wb_server *) {
+	/* Exiting: what scripts started, still running, ends with Waybox. */
+	for (pid_t pid : unreaped)
+		if (std::none_of(stopping.begin(), stopping.end(),
+				[pid](const Stopping &st) { return st.pid == pid; }))
+			stop_spawned(pid);
 	close_state();
 	/* Exiting: no timer runs now. Up to 0.5 s for what was sent SIGTERM,
 	 * then SIGKILL to what's left (each leader still unreaped, its group's
@@ -1365,10 +1337,6 @@ void finish_scripts(struct wb_server *) {
 		}), stopping.end());
 		if (!stopping.empty())
 			usleep(20 * 1000);
-	}
-	if (stop_timer != nullptr) {
-		wl_event_source_remove(stop_timer);
-		stop_timer = nullptr;
 	}
 }
 
