@@ -182,7 +182,7 @@ Available available(const std::string &family) {
 		return a;
 	PangoFontMap *map = pango_cairo_font_map_get_default();
 	PangoFontFamily *fam = pango_font_map_get_family(map, family.c_str());
-	if (fam == nullptr || pango_font_family_is_variable(fam))
+	if (fam == nullptr)
 		return a;
 	PangoFontFace **faces = nullptr;
 	int n = 0;
@@ -199,6 +199,18 @@ Available available(const std::string &family) {
 		pango_font_description_free(d);
 	}
 	g_free(faces);
+	/* A variable font: any weight (width) between its named styles' (Cascadia
+	 * Code: ExtraLight to Bold, one width: it has no width axis). */
+	if (pango_font_family_is_variable(fam)) {
+		auto between = [](std::set<int> &have, const std::vector<font::Named> &names) {
+			int lo = *have.begin(), hi = *have.rbegin();
+			for (const font::Named &nm : names)
+				if (nm.value >= lo && nm.value <= hi)
+					have.insert(nm.value);
+		};
+		between(a.weights, font::weights());
+		between(a.widths, font::widths());
+	}
 	if (*a.weights.begin() <= 500)
 		a.weights.insert(700);
 	return a;
@@ -630,7 +642,18 @@ bool font_control_test(FontControl *c, const std::string &action) {
 	if (colon == std::string::npos)
 		return false;
 	std::string what = action.substr(0, colon), arg = action.substr(colon + 1);
-	if (what == "family") {
+	if (what == "offered") {
+		/* "font-offered:KEY|weights=0,200,...|widths=0,100|width=on|off" */
+		auto list = [](const std::vector<int> &v) {
+			std::string out;
+			for (int x : v)
+				out += (out.empty() ? "" : ",") + std::to_string(x);
+			return out;
+		};
+		fprintf(stderr, "font-offered:%s|weights=%s|widths=%s|width=%s\n", arg.c_str(),
+				list(c->weight_values).c_str(), list(c->width_values).c_str(),
+				gtk_widget_get_sensitive(GTK_WIDGET(c->width)) ? "on" : "off");
+	} else if (what == "family") {
 		choose_family(c, arg);
 		on_widget(c);
 	} else if (what == "family-search") {
