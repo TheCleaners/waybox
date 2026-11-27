@@ -369,6 +369,8 @@ bool wb_start_server(struct wb_server* server) {
 	 * its children, so adding/raising a window never lifts it above the panel
 	 * layers. */
 	server->toplevel_tree = wlr_scene_tree_create(&server->scene->tree);
+	for (struct wlr_scene_tree *&layer : server->toplevel_layers)
+		layer = wlr_scene_tree_create(server->toplevel_tree);
 	server->unmanaged_tree = wlr_scene_tree_create(&server->scene->tree);
 	server->drag_icon_tree = wlr_scene_tree_create(&server->scene->tree);
 

@@ -232,6 +232,7 @@ void wb_show_client_menu(struct wb_server *server) {
 				wb::desktop_name(server->config->desktops, i));
 	state.desktop = t->desktop;
 	state.omnipresent = t->omnipresent;
+	state.layer = t->layer;
 	state.maximized = t->max_horz && t->max_vert;
 	state.shaded = t->shaded;
 	state.decorated = t->frame != nullptr;
@@ -545,6 +546,22 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 				server->current_desktop, server->last_desktop,
 				desktop_count(server), action.wrap))
 			wb_send_to_desktop(toplevel, *target, action.follow);
+		break;
+	}
+	case wb::ActionType::SendToLayer:
+	case wb::ActionType::ToggleAlwaysOnTop:
+	case wb::ActionType::ToggleAlwaysOnBottom: {
+		struct wb_toplevel *toplevel = action_target(server);
+		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled)
+			break;
+		int layer = 0;
+		if (action.type == wb::ActionType::ToggleAlwaysOnTop)
+			layer = toplevel->layer == 1 ? 0 : 1;
+		else if (action.type == wb::ActionType::ToggleAlwaysOnBottom)
+			layer = toplevel->layer == -1 ? 0 : -1;
+		else
+			layer = action.direction == "top" ? 1 : action.direction == "bottom" ? -1 : 0;
+		set_toplevel_layer(toplevel, layer);
 		break;
 	}
 	case wb::ActionType::ToggleOmnipresent: {

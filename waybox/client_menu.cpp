@@ -4,6 +4,8 @@
  */
 #include "waybox/client_menu.hpp"
 
+#include <tuple>
+
 #include <optional>
 
 namespace wb {
@@ -50,6 +52,17 @@ MenuFile build_client_menu(const ClientMenuState &s) {
 	desktops.items.push_back(entry(marked("All desktops", s.omnipresent), "",
 			ActionType::ToggleOmnipresent));
 
+	/* Openbox's Layer submenu. */
+	Menu layers;
+	layers.id = std::string(kClientMenuLayerId);
+	layers.label = "Layer";
+	for (const auto &[label, value, dir] : {std::tuple{"Always on top", 1, "top"},
+			std::tuple{"Normal", 0, "normal"}, std::tuple{"Always on bottom", -1, "bottom"}}) {
+		MenuItem item = entry(marked(label, s.layer == value), "", ActionType::SendToLayer);
+		item.actions.back().direction = dir;
+		layers.items.push_back(std::move(item));
+	}
+
 	Menu menu;
 	menu.id = std::string(kClientMenuId);
 	menu.label = "Window";
@@ -60,6 +73,13 @@ MenuFile build_client_menu(const ClientMenuState &s) {
 		sub.submenu_id = desktops.id;
 		menu.items.push_back(std::move(sub));
 		menu.items.push_back(separator());
+	}
+	{
+		MenuItem sub;
+		sub.kind = MenuItem::Kind::Submenu;
+		sub.label = "Layer";
+		sub.submenu_id = layers.id;
+		menu.items.push_back(std::move(sub));
 	}
 	menu.items.push_back(entry("Iconify", "window-minimize", ActionType::Iconify));
 	menu.items.push_back(entry(s.maximized ? "Restore" : "Maximize",
@@ -77,6 +97,7 @@ MenuFile build_client_menu(const ClientMenuState &s) {
 
 	file.menus.push_back(std::move(menu));
 	file.menus.push_back(std::move(desktops));
+	file.menus.push_back(std::move(layers));
 	return file;
 }
 

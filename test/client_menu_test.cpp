@@ -70,3 +70,25 @@ WB_TEST(single_desktop_has_no_submenu) {
 	const wb::Menu *m = f.find(wb::kClientMenuId);
 	WB_CHECK(m && !find_label(*m, "Send to desktop"));
 }
+
+/* Openbox's Layer submenu: the window's layer marked; each sends it there. */
+WB_TEST(layer_submenu) {
+	ClientMenuState s;
+	s.desktop_names = {"Desktop 1"};
+	s.layer = 1;
+	wb::MenuFile f = wb::build_client_menu(s);
+	const wb::Menu *m = f.find(wb::kClientMenuId);
+	const wb::Menu *l = f.find(wb::kClientMenuLayerId);
+	WB_CHECK(m != nullptr && l != nullptr);
+	if (m == nullptr || l == nullptr)
+		return;
+	const MenuItem *sub = find_label(*m, "Layer");
+	WB_CHECK(sub && sub->kind == MenuItem::Kind::Submenu &&
+			sub->submenu_id == wb::kClientMenuLayerId);
+	const MenuItem *top = find_label(*l, "\u2022 Always on top");
+	WB_CHECK(top && top->actions.at(0).type == ActionType::SendToLayer &&
+			top->actions.at(0).direction == "top");
+	const MenuItem *bottom = find_label(*l, "Always on bottom");
+	WB_CHECK(bottom && bottom->actions.at(0).direction == "bottom");
+	WB_CHECK(find_label(*l, "Normal") != nullptr);
+}

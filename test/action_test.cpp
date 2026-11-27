@@ -99,6 +99,11 @@ WB_TEST(openbox_action_names) {
 		{"ToggleMaximizeVert", ActionType::ToggleMaximize, "vertical"},
 		{"ToggleMaximizeHorizontal", ActionType::ToggleMaximize, "horizontal"},
 		{"ToggleMaximizeVertical", ActionType::ToggleMaximize, "vertical"},
+		{"SendToTopLayer", ActionType::SendToLayer, "top"},
+		{"SendToNormalLayer", ActionType::SendToLayer, "normal"},
+		{"SendToBottomLayer", ActionType::SendToLayer, "bottom"},
+		{"ToggleAlwaysOnTop", ActionType::ToggleAlwaysOnTop, ""},
+		{"ToggleAlwaysOnBottom", ActionType::ToggleAlwaysOnBottom, ""},
 	};
 	for (const Case &c : cases) {
 		auto a = make_action(c.name, "");

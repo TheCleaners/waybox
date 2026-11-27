@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "script.h"
 #include "bell.h"
 #include "toplevel_drag.h"
@@ -295,6 +296,33 @@ static struct wb_toplevel *family_root(struct wb_toplevel *t) {
  * focused (one that just opened, one picked with Alt+Tab), the fullscreen
  * one is stacked with ordinary windows, so the focused window is seen;
  * focused again, it is back on top. */
+struct wlr_scene_tree *toplevel_layer_tree(struct wb_server *server, int layer) {
+	return server->toplevel_layers[std::clamp(layer, -1, 1) + 1];
+}
+
+static void update_fullscreen_layers(struct wb_server *server);
+
+void set_toplevel_layer(struct wb_toplevel *toplevel, int layer) {
+	layer = std::clamp(layer, -1, 1);
+	if (toplevel == nullptr || toplevel->scene_tree == nullptr || toplevel->layer == layer)
+		return;
+	toplevel->layer = layer;
+	struct wb_server *server = toplevel->server;
+	/* Out of the fullscreen layer it stays put: update_fullscreen_layers
+	 * puts it in its own layer when it's no longer the active fullscreen. */
+	bool in_fullscreen = false;
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link)
+		if (toplevel->scene_tree->node.parent == o->layers.shell_fullscreen)
+			in_fullscreen = true;
+	if (!in_fullscreen) {
+		wlr_scene_node_reparent(&toplevel->scene_tree->node, toplevel_layer_tree(server, layer));
+		wlr_scene_node_raise_to_top(&toplevel->scene_tree->node);
+	}
+	update_fullscreen_layers(server);
+	ipc_window_event(toplevel, "state");
+}
+
 static void update_fullscreen_layers(struct wb_server *server) {
 	struct wb_toplevel *root = family_root(first_toplevel(server));
 	bool moved = false;
@@ -303,7 +331,7 @@ static void update_fullscreen_layers(struct wb_server *server) {
 		if (!t->mapped || t->scene_tree == nullptr)
 			continue;
 		struct wb_toplevel *r = family_root(t);
-		struct wlr_scene_tree *target = server->toplevel_tree;
+		struct wlr_scene_tree *target = toplevel_layer_tree(server, t->layer);
 		if (r != nullptr && r == root && r->fullscreen) {
 			struct wlr_output *wo = get_active_output(r);
 			if (wo != nullptr && wo->data != nullptr)
@@ -1026,6 +1054,8 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 			apply_toplevel_decoration(toplevel);   /* wlr protocol mode */
 			update_toplevel_decoration(toplevel);  /* build/destroy our frame */
 		}
+		if (rule->layer.has_value())
+			set_toplevel_layer(toplevel, *rule->layer);
 		if (rule->maximized.value_or(false))
 			set_toplevel_maximized(toplevel, true, true);
 		if (rule->fullscreen.value_or(false))
@@ -1757,7 +1787,7 @@ void register_toplevel(struct wb_toplevel *toplevel) {
 			server->foreign_toplevel_list, &toplevel->foreign_toplevel_state);
 	/* The frame container: holds the client surface tree and, with
 	 * server-side decorations, the frame nodes. */
-	toplevel->scene_tree = wlr_scene_tree_create(server->toplevel_tree);
+	toplevel->scene_tree = wlr_scene_tree_create(toplevel_layer_tree(server, 0));
 	assign_scene_descriptor(&toplevel->scene_tree->node,
 			WB_SCENE_DESC_TOPLEVEL, toplevel);
 	toplevel->desktop = server->current_desktop;
