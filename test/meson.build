@@ -122,6 +122,13 @@ edge_tiling_test = executable(
   )
 test('edge_tiling', edge_tiling_test)
 
+key_label_test = executable(
+  'key_label_test',
+  ['key_label_test.cpp', 'wb_test_main.cpp', key_label_src],
+  include_directories: [inc_dir],
+  )
+test('key_label', key_label_test)
+
 action_catalog_test = executable(
   'action_catalog_test',
   ['action_catalog_test.cpp', 'wb_test_main.cpp', action_catalog_src, action_src],
@@ -941,6 +948,8 @@ if python.found() and not get_option('tests_only')
           [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', wbconf_lua_exe], 90]]
     endif
     integration_tests += [['wbconf_provides', 'wbconf_provides_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_shortcuts', 'wbconf_shortcuts_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_problems', 'wbconf_problems_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]

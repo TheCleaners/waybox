@@ -161,6 +161,8 @@ std::string describe_action(const BoundAction &a) {
 	const std::string &n = info->name;
 	if (n == "Execute") {
 		std::string c = option(a, "command");
+		if (c.empty())
+			c = option(a, "execute");  /* Openbox's older spelling */
 		return c.empty() ? info->label : "Run " + c;
 	}
 	if (n == "ShowMenu") {
