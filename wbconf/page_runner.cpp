@@ -1152,14 +1152,21 @@ bool open_page(const json::Value &msg) {
 	}
 	R.api_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
-	std::ifstream f(script, std::ios::binary);
-	if (!f) {
-		emit_error("the page's script can't be read: " + script);
-		return false;
+	/* The source wbconf read once, and showed and hashed for the approval
+	 * ("source"); else (an older wbconf) the file. */
+	std::string code;
+	if (const json::Value *src = msg.get("source"); src != nullptr && src->string() != nullptr) {
+		code = *src->string();
+	} else {
+		std::ifstream f(script, std::ios::binary);
+		if (!f) {
+			emit_error("the page's script can't be read: " + script);
+			return false;
+		}
+		std::stringstream text;
+		text << f.rdbuf();
+		code = text.str();
 	}
-	std::stringstream text;
-	text << f.rdbuf();
-	std::string code = text.str();
 	/* Source only: compiled Lua (bytecode, which every Lua's and LuaJIT's
 	 * starts with ESC) is refused before anything loads it. */
 	if (!code.empty() && code[0] == '\x1b') {

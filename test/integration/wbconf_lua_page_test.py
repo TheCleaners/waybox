@@ -3,6 +3,9 @@
 
 Integration files with Page=NAME.lua, two as a package installs them
 (trusted), one in the user's own folder:
+- (Trusted means owned by root, the folders above it too, and no one
+  else able to write it: the test stands its own user in for root;
+  another owner, and demo is asked about like any other page.)
 - demo: its page reads ~/.config/demo/config (Files=); may run touch
   (Runs=). wbconf (driven by WBCONF_TEST_TOC) shows its values from the
   file; a timeout under a second shows a problem (on_change), and the
@@ -13,7 +16,7 @@ Integration files with Page=NAME.lua, two as a package installs them
   and wbconf goes on.
 - mine (the user's folder): its page waits, its runner not started,
   until allowed; then it runs, and is remembered; changed, it's asked
-  about again.
+  about again; replaced while asked about, what runs is what was shown.
 Then a runner gone wrong (a fake one): wbconf refuses its write outside
 Files= and its run outside Runs=; one that never answers: wbconf says
 so after 3 s and goes on; one whose page can't be drawn: said so.
@@ -129,6 +132,9 @@ for line in sys.stdin:
 
 
 def main():
+    # As a package installs files: no one but their owner may write them (a
+    # group-writable folder would make the "packaged" pages untrusted).
+    os.umask(0o022)
     if len(sys.argv) != 5:
         print(__doc__)
         sys.exit(2)
@@ -201,6 +207,8 @@ def main():
                 DBUS_SESSION_BUS_ADDRESS="disabled:", GSETTINGS_BACKEND="memory",
                 GIO_USE_VFS="local", NO_AT_BRIDGE="1", WBCONF_SCHEMA_DIR=schema,
                 WAYBOX_PID=str(proc.pid), WBCONF_LUA=runner,
+                # The tests' stand-in for root: the packaged pages are ours.
+                WBCONF_TEST_TRUSTED_OWNER=str(os.getuid()),
                 WBCONF_TEST_TOC=";".join(steps))
     failures = []
     app = subprocess.Popen([wbconf], env=wenv, stdout=subprocess.DEVNULL,
@@ -257,6 +265,20 @@ def main():
         _, e = a.communicate()
         return [l.split("|")[1:] for l in e.splitlines() if l.startswith("luapage-dump:mine")]
 
+    # Not the system's (the "packaged" files someone else's, as far as
+    # wbconf knows): even unwritable, demo is asked about.
+    other = dict(wenv, WBCONF_TEST_TRUSTED_OWNER=str(os.getuid() + 4242),
+                 WBCONF_TEST_TOC="luapage:demo")
+    a = subprocess.Popen([wbconf], env=other, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.PIPE, text=True)
+    wbtest.reap_on_exit(a)
+    time.sleep(0.8 * 3 + 1.5)
+    a.kill()
+    _, e = a.communicate()
+    demo_d = [l for l in e.splitlines() if l.startswith("luapage-dump:demo")]
+    if not demo_d or "approval:waiting" not in demo_d[0]:
+        failures.append(f"a page not owned by the system ran unasked: {demo_d}")
+
     # Saved while still asking: said for a program in use (Local, started),
     # not for one that isn't (Risky).
     e_all = dict(wenv, WBCONF_TEST_TOC="luapage:local;luapage:risky;set:program.local=on;"
@@ -311,6 +333,28 @@ def main():
     d = mine_dumps(["luapage:mine"])
     if d != [["approval:changed"]]:
         failures.append(f"changed, not asked again: {d}")
+
+    # Replaced while it's asked about: what's allowed (the script shown) is
+    # what runs, not what's on disk by the time Allow is clicked.
+    with open(os.path.join(integ, "mine.lua"), "w") as f:
+        f.write(MINE_LUA)
+    if os.path.exists(approvals):
+        os.remove(approvals)
+    steps4 = ["luapage:mine", "status", "status", "luaset:mine.approve=1", "luapage:mine"]
+    a = subprocess.Popen([wbconf], env=dict(wenv, WBCONF_TEST_TOC=";".join(steps4)),
+                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    wbtest.reap_on_exit(a)
+    time.sleep(0.8 * 2 + 0.4)  # the card up, Allow not clicked yet
+    with open(os.path.join(integ, "mine.lua"), "w") as f:
+        f.write('page { switch { "evil", label = "Evil", value = true } }\n')
+    time.sleep(0.8 * (len(steps4) - 2) + 2)
+    a.kill()
+    _, e = a.communicate()
+    d = [l.split("|")[1:] for l in e.splitlines() if l.startswith("luapage-dump:mine")]
+    if len(d) != 2 or d[1] != ["on=on"]:
+        failures.append(f"replaced while asked about, the other script ran: {d}")
+    with open(os.path.join(integ, "mine.lua"), "w") as f:
+        f.write(MINE_LUA)
 
     # A runner gone wrong: wbconf refuses what isn't allowed. One that never
     # answers: wbconf gives up on it after 3 s and goes on.
