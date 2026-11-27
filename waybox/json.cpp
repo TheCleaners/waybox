@@ -6,8 +6,94 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <locale.h>
+#include <string_view>
 
 namespace wb::json {
+
+namespace {
+
+/* Numbers read and written as JSON has them ('.' for the decimals),
+ * whatever the program's locale (Waybox and wbconf set LC_ALL from the
+ * environment, where a German one would make strtod stop at "1.5"'s
+ * point and printf write "1,5"): the "C" numeric locale for this thread
+ * while one is converted. */
+class CNumbers {
+public:
+	CNumbers() {
+		static locale_t c = newlocale(LC_NUMERIC_MASK, "C", static_cast<locale_t>(0));
+		if (c != static_cast<locale_t>(0))
+			old_ = uselocale(c);
+	}
+	~CNumbers() {
+		if (old_ != static_cast<locale_t>(0))
+			uselocale(old_);
+	}
+	CNumbers(const CNumbers &) = delete;
+	CNumbers &operator=(const CNumbers &) = delete;
+
+private:
+	locale_t old_ = static_cast<locale_t>(0);
+};
+
+/* JSON's number grammar: -?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?
+ * ("01", ".5", "1.", "-", "1e" aren't numbers; strtod takes them). */
+bool json_number(std::string_view n) {
+	size_t i = 0;
+	auto digits = [&]() {
+		size_t from = i;
+		while (i < n.size() && n[i] >= '0' && n[i] <= '9')
+			++i;
+		return i - from;
+	};
+	if (i < n.size() && n[i] == '-')
+		++i;
+	if (i < n.size() && n[i] == '0')
+		++i;
+	else if (digits() == 0)
+		return false;
+	if (i < n.size() && n[i] == '.') {
+		++i;
+		if (digits() == 0)
+			return false;
+	}
+	if (i < n.size() && (n[i] == 'e' || n[i] == 'E')) {
+		++i;
+		if (i < n.size() && (n[i] == '+' || n[i] == '-'))
+			++i;
+		if (digits() == 0)
+			return false;
+	}
+	return i == n.size();
+}
+
+/* Length of the valid UTF-8 sequence at s[i], or 0 if it isn't one
+ * (overlong forms, surrogates and values past U+10FFFF included). */
+size_t utf8_len(std::string_view s, size_t i) {
+	unsigned char c = static_cast<unsigned char>(s[i]);
+	size_t len;
+	unsigned cp;
+	if (c < 0x80) return 1;
+	if ((c & 0xe0) == 0xc0) { len = 2; cp = c & 0x1f; }
+	else if ((c & 0xf0) == 0xe0) { len = 3; cp = c & 0x0f; }
+	else if ((c & 0xf8) == 0xf0) { len = 4; cp = c & 0x07; }
+	else return 0;
+	if (i + len > s.size())
+		return 0;
+	for (size_t k = 1; k < len; ++k) {
+		unsigned char cc = static_cast<unsigned char>(s[i + k]);
+		if ((cc & 0xc0) != 0x80)
+			return 0;
+		cp = (cp << 6) | (cc & 0x3f);
+	}
+	static const unsigned min[] = {0, 0, 0x80, 0x800, 0x10000};
+	if (cp < min[len] || cp > 0x10ffff || (cp >= 0xd800 && cp < 0xe000))
+		return 0;
+	return len;
+}
+
+}  // namespace
+
 
 const Value *Value::get(const std::string &key) const {
 	const Object *o = object();
@@ -24,6 +110,7 @@ std::string Value::str(const std::string &key, const std::string &fallback) cons
 	if (const std::string *s = m->string())
 		return *s;
 	if (const double *d = m->number()) {
+		CNumbers c_numbers;
 		char buf[32];
 		snprintf(buf, sizeof(buf), "%.15g", *d);
 		return buf;
@@ -39,6 +126,8 @@ struct Parser {
 	std::string_view s;
 	size_t i = 0;
 	int depth = 0;
+	/* Containers inside containers: 64 deep at most (an empty one counts). */
+	static constexpr int kMaxDepth = 64;
 
 	void ws() {
 		while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r'))
@@ -92,6 +181,15 @@ struct Parser {
 				return out;
 			if (static_cast<unsigned char>(c) < 0x20)
 				return std::nullopt;
+			if (static_cast<unsigned char>(c) >= 0x80) {
+				/* Raw UTF-8: a whole, valid sequence, or the text isn't JSON. */
+				size_t n = utf8_len(s, i - 1);
+				if (n == 0)
+					return std::nullopt;
+				out.append(s.substr(i - 1, n));
+				i += n - 1;
+				continue;
+			}
 			if (c != '\\') {
 				out += c;
 				continue;
@@ -131,7 +229,7 @@ struct Parser {
 	}
 	std::optional<Value> value() {
 		ws();
-		if (i >= s.size() || depth > 64)
+		if (i >= s.size())
 			return std::nullopt;
 		char c = s[i];
 		if (c == 'n') return lit("null") ? std::optional<Value>(Value()) : std::nullopt;
@@ -145,7 +243,8 @@ struct Parser {
 		}
 		if (c == '[') {
 			++i;
-			++depth;
+			if (++depth > kMaxDepth)
+				return std::nullopt;
 			Array a;
 			ws();
 			if (i < s.size() && s[i] == ']') {
@@ -166,7 +265,8 @@ struct Parser {
 		}
 		if (c == '{') {
 			++i;
-			++depth;
+			if (++depth > kMaxDepth)
+				return std::nullopt;
 			Object o;
 			ws();
 			if (i < s.size() && s[i] == '}') {
@@ -202,6 +302,9 @@ struct Parser {
 		if (i == start)
 			return std::nullopt;
 		std::string num(s.substr(start, i - start));
+		if (!json_number(num))
+			return std::nullopt;
+		CNumbers c_numbers;
 		char *end = nullptr;
 		double d = strtod(num.c_str(), &end);
 		if (end == nullptr || *end != '\0' || !std::isfinite(d))
@@ -209,31 +312,6 @@ struct Parser {
 		return Value(d);
 	}
 };
-
-/* Length of the valid UTF-8 sequence at s[i], or 0 if it isn't one
- * (overlong forms, surrogates and values past U+10FFFF included). */
-size_t utf8_len(const std::string &s, size_t i) {
-	unsigned char c = static_cast<unsigned char>(s[i]);
-	size_t len;
-	unsigned cp;
-	if (c < 0x80) return 1;
-	if ((c & 0xe0) == 0xc0) { len = 2; cp = c & 0x1f; }
-	else if ((c & 0xf0) == 0xe0) { len = 3; cp = c & 0x0f; }
-	else if ((c & 0xf8) == 0xf0) { len = 4; cp = c & 0x07; }
-	else return 0;
-	if (i + len > s.size())
-		return 0;
-	for (size_t k = 1; k < len; ++k) {
-		unsigned char cc = static_cast<unsigned char>(s[i + k]);
-		if ((cc & 0xc0) != 0x80)
-			return 0;
-		cp = (cp << 6) | (cc & 0x3f);
-	}
-	static const unsigned min[] = {0, 0, 0x80, 0x800, 0x10000};
-	if (cp < min[len] || cp > 0x10ffff || (cp >= 0xd800 && cp < 0xe000))
-		return 0;
-	return len;
-}
 
 void dump_string(std::string &out, const std::string &raw) {
 	/* Strings from clients (window titles: X11 ones are often Latin-1)
@@ -276,11 +354,22 @@ void dump_to(std::string &out, const Value &v) {
 	} else if (const bool *b = v.boolean()) {
 		out += *b ? "true" : "false";
 	} else if (const double *d = v.number()) {
+		/* Not a number JSON can say: null. */
+		if (!std::isfinite(*d)) {
+			out += "null";
+			return;
+		}
+		CNumbers c_numbers;
 		char buf[32];
-		if (*d == std::floor(*d) && std::fabs(*d) < 1e15)
+		if (*d == std::floor(*d) && std::fabs(*d) < 1e15) {
 			snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(*d));
-		else
+		} else {
+			/* As short as reads back the same (0.1, not 0.1000000000000000055);
+			 * 17 digits when 15 don't. */
 			snprintf(buf, sizeof(buf), "%.15g", *d);
+			if (strtod(buf, nullptr) != *d)
+				snprintf(buf, sizeof(buf), "%.17g", *d);
+		}
 		out += buf;
 	} else if (const std::string *s = v.string()) {
 		dump_string(out, *s);
