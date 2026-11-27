@@ -109,6 +109,48 @@ struct Stopping {
 };
 std::vector<Stopping> stopping;
 
+/* An old script's programs' output, after a reload: still read (and
+ * dropped) till they close it, so one that prints isn't killed by a
+ * broken pipe (a scratchpad's terminal logging to its stdout). */
+struct Drain {
+	int fd = -1;
+	struct wl_event_source *source = nullptr;
+};
+std::list<Drain> drains;
+
+int drain_readable(int fd, uint32_t mask, void *) {
+	char buf[8192];
+	for (size_t turn = 0;;) {
+		if (turn >= kReadPerTurn)
+			return 0;  /* more next turn */
+		ssize_t n = read(fd, buf, sizeof buf);
+		if (n > 0) {
+			turn += static_cast<size_t>(n);
+			continue;
+		}
+		if (n < 0 && (errno == EAGAIN || errno == EINTR) && !(mask & WL_EVENT_HANGUP))
+			return 0;
+		break;  /* closed (or an error) */
+	}
+	for (auto it = drains.begin(); it != drains.end(); ++it) {
+		if (it->fd == fd) {
+			wl_event_source_remove(it->source);
+			close(it->fd);
+			drains.erase(it);
+			break;
+		}
+	}
+	return 0;
+}
+
+void close_drains() {
+	for (Drain &d : drains) {
+		wl_event_source_remove(d.source);
+		close(d.fd);
+	}
+	drains.clear();
+}
+
 struct Binding {
 	uint32_t sym = 0, modifiers = 0;
 	int ref = LUA_NOREF;
@@ -1211,7 +1253,22 @@ void close_state() {
 	g->timers.clear();
 	/* Its programs outlive it (a reload: the scratchpad's terminal stays),
 	 * still counted against the limit until they exit; only Waybox
-	 * exiting stops them (finish_scripts). */
+	 * exiting stops them (finish_scripts). Their output still read. */
+	for (auto &sp : g->spawns) {
+		if (sp->fd < 0 || sp->source == nullptr)
+			continue;
+		wl_event_source_remove(sp->source);
+		sp->source = nullptr;
+		Drain d;
+		d.fd = sp->fd;
+		d.source = wl_event_loop_add_fd(g->server->wl_event_loop, d.fd, WL_EVENT_READABLE,
+				drain_readable, nullptr);
+		sp->fd = -1;
+		if (d.source != nullptr)
+			drains.push_back(d);
+		else
+			close(d.fd);
+	}
 	while (!g->spawns.empty())
 		spawn_drop(g->spawns.front().get());
 	if (g->idle != nullptr)
@@ -1338,6 +1395,7 @@ void finish_scripts(struct wb_server *) {
 		if (!stopping.empty())
 			usleep(20 * 1000);
 	}
+	close_drains();  /* last: close_state passes the running ones' output here */
 }
 
 void scripts_reload(struct wb_server *server) {
