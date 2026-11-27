@@ -11,8 +11,9 @@
 
 Skips (exit 77) without foot, or a headless display.
 
-5. A request sent just before closing the connection still runs; actions
-   are refused while the screen is locked; and turning the socket off with
+5. A request sent just before closing the connection still runs; actions,
+   bell previews' commands and restart_program are refused while the
+   screen is locked; and turning the socket off with
    a Reconfigure sent through the socket itself doesn't crash Waybox.
 
 6. Limits and framing: a request's "id" comes back in its reply (errors
@@ -363,6 +364,16 @@ def main():
         rc, out, err = run_msg(cenv2, "action", "NextWindow")
         if rc == 0 or "locked" not in err:
             failures.append(f"an action ran while the screen was locked: {rc} {err}")
+        # A bell preview's command and restart_program too.
+        marker = os.path.join(workdir, "bell-ran")
+        rc, out, err = run_msg(cenv2, "raw", json.dumps(
+            {"request": "bell", "command": f"touch {marker}"}))
+        time.sleep(0.4)
+        if os.path.exists(marker) or "locked" not in (out + err):
+            failures.append(f"a bell preview's command ran while locked: {out} {err}")
+        rc, out, err = run_msg(cenv2, "restart_program", "mako")
+        if "locked" not in (out + err):
+            failures.append(f"restart_program wasn't refused while locked: {out} {err}")
         locker.stdin.write("unlock\n")
         locker.stdin.flush()
         time.sleep(0.5)
