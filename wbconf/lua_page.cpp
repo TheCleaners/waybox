@@ -49,6 +49,21 @@ std::string user_integrations_dir() {
 	return config_dir() + "/waybox/integrations";
 }
 
+/* wbconf's own view settings ("pages-open=1"): not Waybox's, not rc.xml. */
+std::string view_path() {
+	return config_dir() + "/waybox/wbconf-view";
+}
+
+bool pages_open_pref() {
+	gchar *text = nullptr;
+	bool open = false;
+	if (g_file_get_contents(view_path().c_str(), &text, nullptr, nullptr)) {
+		open = strstr(text, "pages-open=1") != nullptr;
+		g_free(text);
+	}
+	return open;
+}
+
 std::string approvals_path() {
 	return config_dir() + "/waybox/approved-pages";
 }
@@ -161,6 +176,8 @@ struct LuaPage {
 	std::map<std::string, Field> fields;
 	GtkWidget *box = nullptr;
 	GtkLabel *error = nullptr;
+	GtkWidget *expander = nullptr;  /* "Waybar Settings": the page, folded or not */
+	GtkWidget *content = nullptr;   /* its controls */
 	GtkWidget *approval = nullptr;  /* the card asking first, while shown */
 	bool approval_changed = false;  /* asking again: it changed since allowed */
 	bool approval_full = false;     /* what it may touch is full access */
@@ -234,12 +251,8 @@ struct LuaPage {
 		fields.clear();
 		model = page::Page{};
 		saved.clear();
-		for (GtkWidget *c = gtk_widget_get_first_child(box); c != nullptr;) {
-			GtkWidget *next = gtk_widget_get_next_sibling(c);
-			if (c != GTK_WIDGET(error))
-				gtk_box_remove(GTK_BOX(box), c);
-			c = next;
-		}
+		while (GtkWidget *c = gtk_widget_get_first_child(content))
+			gtk_box_remove(GTK_BOX(content), c);
 		gtk_widget_set_visible(GTK_WIDGET(error), FALSE);
 		start();
 	}
@@ -652,7 +665,8 @@ struct LuaPage {
 					replies.push_back(json::Object{{"error", json::Object{{"line", 0},
 							{"message", "the page can't be drawn: " + why}}}});
 			}
-		build(box, model.controls);
+		build(content, model.controls);
+		gtk_widget_set_visible(expander, TRUE);
 		for (const auto &[k, v] : page::page_values(model))
 			saved[k] = v;
 		handle(replies);
@@ -735,6 +749,7 @@ void on_allow(GtkButton *, gpointer data) {
 	if (p->approval != nullptr) {
 		gtk_box_remove(GTK_BOX(p->box), p->approval);
 		p->approval = nullptr;
+		gtk_expander_set_expanded(GTK_EXPANDER(p->expander), TRUE);  /* just asked for */
 	}
 	p->start();
 }
@@ -946,6 +961,17 @@ GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in_ptr,
 	gtk_widget_add_css_class(GTK_WIDGET(p->error), "error");
 	gtk_widget_set_visible(GTK_WIDGET(p->error), FALSE);
 	gtk_box_append(GTK_BOX(p->box), GTK_WIDGET(p->error));
+	/* The page under "NAME Settings", folded unless the menu's "Keep Program
+	 * Settings Open" is on; shown once it runs. */
+	std::string title = in_ptr->name + " " + _("Settings");
+	p->expander = gtk_expander_new(title.c_str());
+	gtk_widget_add_css_class(p->expander, "wb-page-expander");
+	p->content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+	gtk_widget_set_margin_top(p->content, 6);
+	gtk_expander_set_child(GTK_EXPANDER(p->expander), p->content);
+	gtk_expander_set_expanded(GTK_EXPANDER(p->expander), pages_open_pref());
+	gtk_widget_set_visible(p->expander, FALSE);
+	gtk_box_append(GTK_BOX(p->box), p->expander);
 	GtkWidget *box = p->box;
 	*holder = p;
 	ui->lua_pages.push_back(p);
@@ -1002,6 +1028,30 @@ void lua_page_changes(Ui *ui, const std::string &id, const std::string &where,
 			}
 		}
 	}
+}
+
+std::string lua_page_fold(Ui *ui, const std::string &id) {
+	for (LuaPage *p : live_pages(ui))
+		if (p->in != nullptr && p->in->id == id && p->expander != nullptr)
+			return !gtk_widget_get_visible(p->expander) ? "hidden"
+					: gtk_expander_get_expanded(GTK_EXPANDER(p->expander)) ? "open" : "folded";
+	return "no page";
+}
+
+bool lua_pages_open() {
+	return pages_open_pref();
+}
+
+void set_lua_pages_open(Ui *ui, bool open) {
+	std::string path = view_path();
+	gchar *dir = g_path_get_dirname(path.c_str());
+	g_mkdir_with_parents(dir, 0700);
+	g_free(dir);
+	std::string text = std::string("pages-open=") + (open ? "1" : "0") + "\n";
+	g_file_set_contents(path.c_str(), text.c_str(), -1, nullptr);
+	for (LuaPage *p : live_pages(ui))
+		if (p->expander != nullptr)
+			gtk_expander_set_expanded(GTK_EXPANDER(p->expander), open);
 }
 
 bool save_lua_pages(Ui *ui, std::string *error) {

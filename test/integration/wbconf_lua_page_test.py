@@ -272,6 +272,26 @@ def main():
             "Risky" in status[-1]:
         failures.append(f"saving while asking not said (or said for an unused one): {status}")
 
+    # Folded: hidden while asking, open once allowed (just asked for).
+    def folds(steps3):
+        e3 = dict(wenv, WBCONF_TEST_TOC=";".join(steps3))
+        a = subprocess.Popen([wbconf], env=e3, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.PIPE, text=True)
+        wbtest.reap_on_exit(a)
+        time.sleep(0.8 * (len(steps3) + 2) + 1.5)
+        a.kill()
+        _, e = a.communicate()
+        return [l.split("|")[1] for l in e.splitlines() if l.startswith("pagefold:")]
+    f = folds(["pagefold:mine", "luaset:mine.approve=1", "pagefold:mine"])
+    if f != ["hidden", "open"]:
+        failures.append(f"asking, then allowed: {f}")
+    os.remove(approvals)
+    # Folded by default; the menu's "Keep Program Settings Open" opens them,
+    # and is remembered.
+    f = folds(["pagefold:demo", "pages-open", "pagefold:demo"])
+    f += folds(["pagefold:demo", "pages-folded", "pagefold:demo"])
+    if f != ["folded", "open", "open", "folded"]:
+        failures.append(f"folding the pages, and remembering it: {f}")
     d = mine_dumps(["luapage:mine", "luaset:mine.approve=1", "luapage:mine"])
     if len(d) != 2 or d[0] != ["approval:waiting"] or d[1] != ["on=on"]:
         failures.append(f"approval: {d}")

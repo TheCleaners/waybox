@@ -567,6 +567,12 @@ GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row);
 /* A key-bound program's page (owned by `holder`). */
 /* A page's command line changed: it opens again for it (if nothing's unsaved). */
 void lua_page_command_changed(const std::shared_ptr<void> &page);
+/* Pages folded or kept open (the menu's "Keep Program Settings Open"),
+ * remembered in $XDG_CONFIG_HOME/waybox/wbconf-view; setting it opens or
+ * folds those shown. */
+bool lua_pages_open();
+std::string lua_page_fold(Ui *ui, const std::string &id);  /* tests: open|folded|hidden */
+void set_lua_pages_open(Ui *ui, bool open);
 /* `command`: the program's command line as its row has it now (its options
  * given to the page, wb.option), if it has one. */
 GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in, std::shared_ptr<void> *holder,
