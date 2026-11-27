@@ -100,3 +100,16 @@ WB_TEST(read_regular_file_bounds) {
 	WB_CHECK(!wb::read_regular_file(d + "/missing", 1024));
 	WB_CHECK(!wb::read_regular_file(d, 1024));  /* a directory */
 }
+
+/* A mode given (the session store's private 0600) wins over the file's. */
+WB_TEST(atomic_write_fixed_mode) {
+	std::string p = dir() + "/private.json";
+	{
+		std::ofstream(p) << "{}";
+	}
+	chmod(p.c_str(), 0644);
+	std::string err;
+	WB_CHECK(wb::write_file_atomic(p, "{\"a\":1}", &err, 0600));
+	struct stat st;
+	WB_CHECK(stat(p.c_str(), &st) == 0 && (st.st_mode & 0777) == 0600);
+}

@@ -1,6 +1,12 @@
 #include "wb_test.hpp"
 
 #include "waybox/menu_doc.hpp"
+#include <sstream>
+#include <cstdlib>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <fstream>
+#include <filesystem>
 
 using wb::MenuDocument;
 using wb::MenuEntry;
@@ -155,4 +161,41 @@ WB_TEST(menu_insert_move_remove) {
 	WB_CHECK(d->to_string().find("<!-- my menu -->") != std::string::npos);
 	/* Still a menu Waybox reads. */
 	WB_CHECK(MenuDocument::from_string(d->to_string()).has_value());
+}
+
+/* A link and a FIFO planted at the old temporary name (menu.xml.new):
+ * the save writes a file of its own, the link's target untouched, the
+ * FIFO not opened. */
+WB_TEST(menu_save_ignores_planted_temporary_names) {
+	namespace fs = std::filesystem;
+	char tmpl[] = "/tmp/wb-menudoc-XXXXXX";
+	WB_CHECK(mkdtemp(tmpl) != nullptr);
+	fs::path dir = tmpl;
+	auto read = [](const fs::path &p) {
+		std::ifstream f(p);
+		std::stringstream ss;
+		ss << f.rdbuf();
+		return ss.str();
+	};
+	for (bool fifo : {false, true}) {
+		fs::path menu = dir / (fifo ? "f" : "l") / "menu.xml";
+		fs::create_directories(menu.parent_path());
+		fs::path victim = dir / "victim";
+		{
+			std::ofstream(victim) << "keep";
+		}
+		if (fifo)
+			WB_CHECK(::mkfifo((menu.string() + ".new").c_str(), 0600) == 0);
+		else
+			fs::create_symlink(victim, menu.string() + ".new");
+		auto d = MenuDocument::from_string(kMenu);
+		WB_CHECK(d.has_value());
+		if (!d)
+			continue;
+		std::string err;
+		WB_CHECK(d->save_file(menu.string(), &err));
+		WB_CHECK(read(menu) == d->to_string());
+		WB_CHECK(read(victim) == "keep");
+	}
+	fs::remove_all(dir);
 }

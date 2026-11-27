@@ -1,3 +1,4 @@
+#include "waybox/atomic_file.hpp"
 #include "waybox/app_menu.hpp"
 
 #include <algorithm>
@@ -150,15 +151,12 @@ bool program_found(const std::string &name) {
 }
 
 bool read_small_file(const std::string &path, std::string &out) {
-	std::ifstream f(path, std::ios::binary);
-	if (!f)
+	/* Opened without blocking and read only if a regular file: one swapped
+	 * for a FIFO after the scan's stat can't stall the menu. */
+	std::optional<std::string> text = read_regular_file(path, kMaxFileBytes);
+	if (!text)
 		return false;
-	out.assign(kMaxFileBytes + 1, '\0');
-	f.read(out.data(), static_cast<std::streamsize>(out.size()));
-	size_t n = static_cast<size_t>(f.gcount());
-	if (n > kMaxFileBytes)
-		return false;
-	out.resize(n);
+	out = std::move(*text);
 	return true;
 }
 

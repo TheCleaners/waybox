@@ -2,6 +2,7 @@
 #define WB_ATOMIC_FILE_HPP
 
 #include <optional>
+#include <sys/types.h>
 #include <string>
 
 namespace wb {
@@ -16,7 +17,8 @@ namespace wb {
  * that temporary file is removed, `path` left as it was, and `*error` says
  * why. False on failure.
  */
-bool write_file_atomic(const std::string &path, const std::string &text, std::string *error);
+bool write_file_atomic(const std::string &path, const std::string &text, std::string *error,
+		std::optional<mode_t> mode = std::nullopt);
 
 /* A regular file's contents, at most `max_bytes` (a longer one isn't
  * read at all); nullopt for anything else (missing, a FIFO or device,
