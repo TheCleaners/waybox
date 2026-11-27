@@ -724,6 +724,14 @@ void wb_toggle_omnipresent(struct wb_toplevel *toplevel) {
 			toplevel->omnipresent ? "on" : "off");
 }
 
+/* rc.xml's number when the count was first changed at runtime, and the
+ * count now (see wb_reconfigure). */
+static void remember_runtime_desktops(struct wb_server *server, int count) {
+	if (server->runtime_desktops == 0)
+		server->runtime_desktops_from = server->config->desktops.number;
+	server->runtime_desktops = count;
+}
+
 void add_desktop(struct wb_server *server, bool after_current) {
 	if (server->config == nullptr || server->config->desktops.number >= wb::kMaxDesktops)
 		return;
@@ -734,6 +742,7 @@ void add_desktop(struct wb_server *server, bool after_current) {
 			++t->desktop;
 	if (server->last_desktop >= at)
 		++server->last_desktop;
+	remember_runtime_desktops(server, server->config->desktops.number + 1);
 	++server->config->desktops.number;
 	wlr_log(WLR_INFO, "wb-desktop add %d (of %d)", at + 1, server->config->desktops.number);
 	desktops_reconfigured(server);
@@ -762,6 +771,7 @@ void remove_desktop(struct wb_server *server, bool current) {
 		--shown;
 	else if (shown == gone)
 		shown = to;
+	remember_runtime_desktops(server, server->config->desktops.number - 1);
 	--server->config->desktops.number;
 	wlr_log(WLR_INFO, "wb-desktop remove %d (of %d)", gone + 1,
 			server->config->desktops.number + 1);

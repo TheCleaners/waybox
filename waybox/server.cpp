@@ -96,6 +96,15 @@ void wb_reconfigure(struct wb_server *server) {
 	}
 
 	deinit_config(server->config);
+	/* Desktops added or removed at runtime (AddDesktop, RemoveDesktop)
+	 * stay across a reload, unless rc.xml's number changed since: then
+	 * that is the user's new choice. */
+	if (server->runtime_desktops > 0) {
+		if (fresh->desktops.number == server->runtime_desktops_from)
+			fresh->desktops.number = server->runtime_desktops;
+		else
+			server->runtime_desktops = 0;
+	}
 	server->config = fresh;
 	seat_reconfigure_input(server);  /* keymap, <libinput> */
 	wb_cursor_apply_theme(server);   /* <cursor> */
