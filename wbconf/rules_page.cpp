@@ -14,8 +14,10 @@
 
 #include <algorithm>
 #include <map>
+#include <string_view>
 
 #include "waybox/applications.hpp"
+#include "waybox/binding_clash.hpp"
 
 namespace wbconf {
 
@@ -37,6 +39,11 @@ struct RuleEdit {
 	std::map<std::string, GtkWidget *> tri;  /* maximized, fullscreen, ... */
 	std::vector<std::string> desktop_values;
 	GtkWidget *earlier = nullptr, *later = nullptr;
+	/* Pick a Window, and the open windows the rule catches. */
+	std::weak_ptr<RuleEdit> self;
+	GtkWidget *pick = nullptr, *use_title = nullptr, *matches = nullptr;
+	std::string picked_title;
+	bool picking = false;
 	bool updating = false;
 };
 
@@ -151,6 +158,90 @@ int desktop_count(Ui *ui) {
 }
 
 void refresh_numbers(Ui *ui);
+
+/* ---- The open windows (Waybox's get_windows), for live matches ---- */
+
+struct OpenWindow {
+	std::string app_id, title, tag;
+};
+
+/* Waybox's windows, asked for at most every two seconds; nullopt when
+ * Waybox can't be asked (not running, its socket off). */
+const std::optional<std::vector<OpenWindow>> &open_windows() {
+	static std::optional<std::vector<OpenWindow>> cached;
+	static gint64 at = 0;
+	gint64 now = g_get_monotonic_time();
+	if (at != 0 && now - at < 2 * G_USEC_PER_SEC)
+		return cached;
+	at = now;
+	cached.reset();
+	JsonObject *o = waybox_request("{\"request\":\"get_windows\"}");
+	if (o == nullptr)
+		return cached;
+	if (json_object_has_member(o, "windows")) {
+		std::vector<OpenWindow> list;
+		JsonArray *a = json_object_get_array_member(o, "windows");
+		for (guint i = 0; a != nullptr && i < json_array_get_length(a); ++i) {
+			JsonObject *w = json_array_get_object_element(a, i);
+			list.push_back({json_object_get_string_member_with_default(w, "app_id", ""),
+					json_object_get_string_member_with_default(w, "title", ""),
+					json_object_get_string_member_with_default(w, "tag", "")});
+		}
+		cached = std::move(list);
+	}
+	json_object_unref(o);
+	return cached;
+}
+
+/* "Matches now: foot (~/src), ...": the open windows this rule is the one
+ * for; those an earlier rule takes first said so. */
+void refresh_matches(RuleEdit *e) {
+	if (e->matches == nullptr || !e->now)
+		return;
+	const auto &wins = open_windows();
+	if (!wins) {
+		gtk_widget_set_visible(gtk_widget_get_parent(e->matches), FALSE);
+		return;
+	}
+	gtk_widget_set_visible(gtk_widget_get_parent(e->matches), TRUE);
+	/* The rules as they'll be, in order, this one as it is now. */
+	std::vector<wb::AppRule> rules;
+	std::vector<RuleEdit *> owner;
+	for (auto &p : e->ui->rule_edits)
+		if (p->now && !(p.get() != e && !p->orig && *p->now == wb::AppRule{})) {
+			rules.push_back(*p->now);
+			owner.push_back(p.get());
+		}
+	std::vector<std::string> mine, taken;
+	for (const OpenWindow &w : *wins) {
+		std::vector<wb::AppRule> just = {*e->now};
+		if (wb::match_app_rule(just, w.app_id, w.title, w.tag) == nullptr)
+			continue;
+		const wb::AppRule *first = wb::match_app_rule(rules, w.app_id, w.title, w.tag);
+		size_t i = first != nullptr ? static_cast<size_t>(first - rules.data()) : rules.size();
+		std::string name = w.app_id.empty() ? std::string(_("(no app id)")) : w.app_id;
+		if (!w.title.empty())
+			name += " (" + w.title + ")";
+		if (i < owner.size() && owner[i] == e) {
+			mine.push_back(name);
+		} else {
+			int n = 0;
+			for (auto &p : e->ui->rule_edits) {
+				if (p->now)
+					++n;
+				if (i < owner.size() && p.get() == owner[i])
+					break;
+			}
+			char *t = g_strdup_printf(_("%s, but rule %d is used first"), name.c_str(), n);
+			taken.push_back(t);
+			g_free(t);
+		}
+	}
+	std::vector<std::string> all = mine;
+	all.insert(all.end(), taken.begin(), taken.end());
+	std::string text = all.empty() ? std::string(_("No open window.")) : join(all, "; ");
+	gtk_label_set_text(GTK_LABEL(e->matches), text.c_str());
+}
 
 /* The row's line: what it matches and does, as now (or as it was, struck
  * out). */
@@ -268,6 +359,7 @@ void read_fields(RuleEdit *e) {
 	else
 		r.layer.reset();
 	refresh_hint(e);
+	refresh_matches(e);
 	refresh_head(e);
 	refresh_save_state(e->ui);
 }
@@ -353,6 +445,8 @@ GtkWidget *choices(RuleEdit *e, std::initializer_list<const char *> labels) {
 void set_open(RuleEdit *e, bool open) {
 	gtk_revealer_set_reveal_child(GTK_REVEALER(e->revealer), open);
 	if (open)
+		refresh_matches(e);
+	if (open)
 		gtk_widget_add_css_class(e->outer, "wb-shortcut-open");
 	else
 		gtk_widget_remove_css_class(e->outer, "wb-shortcut-open");
@@ -419,6 +513,66 @@ void move(RuleEdit *e, int by) {
 	refresh_save_state(ui);
 }
 
+/* A title as a pattern that matches it exactly: regex metacharacters
+ * escaped; a glob can't escape * or ?, so they stay (and match more). */
+std::string literal(const std::string &text, wb::AppRule::Patterns kind) {
+	if (kind == wb::AppRule::Patterns::Glob)
+		return text;
+	std::string out = "^";
+	for (char c : text) {
+		if (std::string_view(".[]{}()\\*+?^$|").find(c) != std::string_view::npos)
+			out += '\\';
+		out += c;
+	}
+	return out + "$";
+}
+
+void refresh_pick(RuleEdit *e) {
+	gtk_button_set_label(GTK_BUTTON(e->pick), e->picking ? _("Click a window\u2026")
+			: _("Pick a Window"));
+	gtk_widget_set_sensitive(e->pick, !e->picking);
+}
+
+/* Pick a Window: Waybox's next click names a window; its app id (and tag)
+ * fill the rule in, and its title is offered. */
+void on_pick(GtkButton *, gpointer data) {
+	auto *e = static_cast<RuleEdit *>(data);
+	if (e->picking)
+		return;
+	e->picking = true;
+	refresh_pick(e);
+	GTask *task = g_task_new(nullptr, nullptr, [](GObject *, GAsyncResult *res, gpointer d) {
+		auto *weak = static_cast<std::weak_ptr<RuleEdit> *>(d);
+		auto *o = static_cast<JsonObject *>(g_task_propagate_pointer(G_TASK(res), nullptr));
+		if (std::shared_ptr<RuleEdit> e = weak->lock(); e && e->now) {
+			e->picking = false;
+			refresh_pick(e.get());
+			JsonObject *w = o != nullptr && json_object_has_member(o, "window")
+					? json_object_get_object_member(o, "window") : nullptr;
+			if (w != nullptr) {
+				std::string app = json_object_get_string_member_with_default(w, "app_id", "");
+				std::string tag = json_object_get_string_member_with_default(w, "tag", "");
+				e->picked_title = json_object_get_string_member_with_default(w, "title", "");
+				gtk_editable_set_text(GTK_EDITABLE(e->program),
+						literal(app, e->now->patterns).c_str());
+				if (!tag.empty())
+					gtk_editable_set_text(GTK_EDITABLE(e->tag), literal(tag, e->now->patterns).c_str());
+				gtk_widget_set_visible(e->use_title, !e->picked_title.empty());
+				gtk_widget_set_tooltip_text(e->use_title, e->picked_title.c_str());
+			}
+		}
+		delete weak;
+		if (o != nullptr)
+			json_object_unref(o);
+	}, new std::weak_ptr<RuleEdit>(e->self));
+	g_task_run_in_thread(task, [](GTask *task, gpointer, gpointer, GCancellable *) {
+		/* Waybox gives up after 30 s: wait a little longer. */
+		g_task_return_pointer(task, waybox_request("{\"request\":\"pick_window\"}", 35),
+				[](gpointer o) { json_object_unref(static_cast<JsonObject *>(o)); });
+	});
+	g_object_unref(task);
+}
+
 GtkWidget *build_editor(RuleEdit *e) {
 	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
 	gtk_widget_add_css_class(box, "wb-shortcut-editor");
@@ -429,9 +583,28 @@ GtkWidget *build_editor(RuleEdit *e) {
 	e->program = entry(e, 24, _("Any program"), true);
 	gtk_widget_set_tooltip_text(e->program, _("The program's app id (foot, firefox, "
 			"org.gnome.Nautilus)"));
-	gtk_box_append(GTK_BOX(box), field(labels, _("Program"), e->program));
+	GtkWidget *prog = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+	gtk_box_append(GTK_BOX(prog), e->program);
+	e->pick = gtk_button_new_with_label(_("Pick a Window"));
+	gtk_widget_set_tooltip_text(e->pick, _("Click a window to fill in its program (Esc or a "
+			"right click cancels)"));
+	g_signal_connect(e->pick, "clicked", G_CALLBACK(on_pick), e);
+	gtk_box_append(GTK_BOX(prog), e->pick);
+	gtk_box_append(GTK_BOX(box), field(labels, _("Program"), prog));
 	e->title = entry(e, 24, _("Any title"), true);
-	gtk_box_append(GTK_BOX(box), field(labels, _("Title"), e->title));
+	GtkWidget *titles = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+	gtk_box_append(GTK_BOX(titles), e->title);
+	e->use_title = gtk_button_new_with_label(_("Use Its Title"));
+	gtk_widget_add_css_class(e->use_title, "flat");
+	gtk_widget_set_visible(e->use_title, FALSE);
+	g_signal_connect(e->use_title, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
+		auto *x = static_cast<RuleEdit *>(d);
+		if (x->now)
+			gtk_editable_set_text(GTK_EDITABLE(x->title),
+					literal(x->picked_title, x->now->patterns).c_str());
+	}), e);
+	gtk_box_append(GTK_BOX(titles), e->use_title);
+	gtk_box_append(GTK_BOX(box), field(labels, _("Title"), titles));
 	e->tag = entry(e, 24, _("Any tag"), true);
 	gtk_widget_set_tooltip_text(e->tag, _("A tag some programs give their windows "
 			"(xdg-toplevel-tag)"));
@@ -450,6 +623,13 @@ GtkWidget *build_editor(RuleEdit *e) {
 	gtk_label_set_xalign(GTK_LABEL(e->editor_error), 0);
 	gtk_widget_add_css_class(e->editor_error, "wb-rule-error");
 	gtk_box_append(GTK_BOX(box), field(labels, "", e->editor_error));
+	e->matches = gtk_label_new("");
+	gtk_label_set_xalign(GTK_LABEL(e->matches), 0);
+	gtk_label_set_wrap(GTK_LABEL(e->matches), TRUE);
+	gtk_label_set_max_width_chars(GTK_LABEL(e->matches), 70);
+	gtk_label_set_width_chars(GTK_LABEL(e->matches), 50);
+	gtk_widget_add_css_class(e->matches, "wb-rule-matches");
+	gtk_box_append(GTK_BOX(box), field(labels, _("Matches now"), e->matches));
 
 	GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
 	gtk_widget_set_margin_top(sep, 4);
@@ -551,6 +731,7 @@ GtkWidget *build_editor(RuleEdit *e) {
 
 RuleEdit *add_row(Ui *ui, std::shared_ptr<RuleEdit> e) {
 	e->ui = ui;
+	e->self = e;
 	if (e->now)
 		e->program_is_name = e->now->class_pattern.empty() && !e->now->name_pattern.empty();
 	e->outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -691,6 +872,7 @@ void populate_rules(Ui *ui, const wb::RcDocument *doc) {
 		return;
 	clear(ui->rules_box);
 	ui->rule_edits.clear();
+	ui->rules_script_note.clear();
 	if (ui->rules_column != nullptr)
 		g_object_unref(ui->rules_column);
 	ui->rules_column = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
@@ -702,6 +884,23 @@ void populate_rules(Ui *ui, const wb::RcDocument *doc) {
 	gtk_label_set_xalign(GTK_LABEL(ui->rules_empty), 0);
 	gtk_widget_add_css_class(ui->rules_empty, "wb-rules-empty");
 	gtk_box_append(GTK_BOX(ui->rules_box), ui->rules_empty);
+
+	/* A script's rules policy (wb.policy "rules") goes over these, setting
+	 * by setting: said first. */
+	for (const auto &[name, text] : script_sources(doc))
+		for (const wb::ScriptKey &c : wb::script_calls(text, name, "wb.policy"))
+			if (c.key == "rules") {
+				char *t = g_strdup_printf(_("%s (line %d) sets a rules policy: what it sets for "
+						"a window wins over these rules, setting by setting."), c.file.c_str(),
+						c.line);
+				GtkWidget *note = gtk_label_new(t);
+				g_free(t);
+				gtk_label_set_xalign(GTK_LABEL(note), 0);
+				gtk_label_set_wrap(GTK_LABEL(note), TRUE);
+				gtk_widget_add_css_class(note, "wb-rules-script");
+				gtk_box_prepend(GTK_BOX(ui->rules_box), note);
+				ui->rules_script_note = std::string(c.file) + ":" + std::to_string(c.line);
+			}
 
 	ui->rules_foot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
 	gtk_widget_set_margin_top(ui->rules_foot, 8);
@@ -802,7 +1001,7 @@ void rule_changes(Ui *ui, const std::string &where, GtkWidget *target,
 }
 
 void rule_dump(Ui *ui) {
-	fprintf(stderr, "rule-dump:\n");
+	fprintf(stderr, "rule-dump:%s\n", ui->rules_script_note.c_str());
 	for (auto &e : ui->rule_edits) {
 		const wb::AppRule &r = shown(e.get());
 		std::string kept = join(e->kept, ",") + (e->position_kept ? "|position" : "") +
@@ -841,6 +1040,13 @@ void rule_test_step(Ui *ui, const std::string &step) {
 	}
 	if (verb == "rule-open") {
 		set_open(e, true);
+	} else if (verb == "rule-matches") {
+		if (e->matches != nullptr) {
+			refresh_matches(e);
+			fprintf(stderr, "rule-matches:%s\n", gtk_label_get_text(GTK_LABEL(e->matches)));
+		}
+	} else if (verb == "rule-pick") {
+		on_pick(nullptr, e);
 	} else if (verb == "rule-remove") {
 		on_remove(nullptr, e);
 	} else if (verb == "rule-undo") {

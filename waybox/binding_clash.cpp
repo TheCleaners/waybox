@@ -36,7 +36,13 @@ bool ident_char(char c) {
 }  // namespace
 
 std::vector<ScriptKey> script_keys(std::string_view lua, const std::string &file) {
+	return script_calls(lua, file, "wb.bind");
+}
+
+std::vector<ScriptKey> script_calls(std::string_view lua, const std::string &file,
+		std::string_view name) {
 	std::vector<ScriptKey> out;
+	const size_t n = name.size();
 	int line = 1;
 	size_t at = 0;
 	auto count_lines = [&](size_t from, size_t to) {
@@ -81,9 +87,9 @@ std::vector<ScriptKey> script_keys(std::string_view lua, const std::string &file
 			at = skip_quoted(at);
 		} else if (int level = long_bracket(lua, at); level >= 0) {
 			at = skip_long(at, level);  /* a long string */
-		} else if (lua.compare(at, 7, "wb.bind") == 0 && (at == 0 || !ident_char(lua[at - 1])) &&
-				(at + 7 >= lua.size() || !ident_char(lua[at + 7]))) {
-			size_t p = at + 7;
+		} else if (lua.compare(at, n, name) == 0 && (at == 0 || !ident_char(lua[at - 1])) &&
+				(at + n >= lua.size() || !ident_char(lua[at + n]))) {
+			size_t p = at + n;
 			while (p < lua.size() && (lua[p] == ' ' || lua[p] == '\t'))
 				++p;
 			if (p < lua.size() && lua[p] == '(')
@@ -96,7 +102,7 @@ std::vector<ScriptKey> script_keys(std::string_view lua, const std::string &file
 					out.push_back({std::string(lua.substr(p + 1, end - p - 2)), file, line});
 				at = end;
 			} else {
-				at += 7;
+				at += n;
 			}
 		} else if (ident_char(c)) {
 			/* A whole name: "mywb.bind" isn't wb.bind. */

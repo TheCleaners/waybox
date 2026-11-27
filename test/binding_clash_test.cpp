@@ -96,3 +96,18 @@ WB_TEST(chains_under_differently_spelled_starts) {
 	c = wb::key_clashes({{"W-S-a", "x"}, {"W-S-a", "y"}}, {});
 	WB_CHECK(!c[0] && !c[1]);
 }
+
+WB_TEST(script_calls_any_name) {
+	std::string lua =
+		"-- wb.policy(\"rules\", f)\n"
+		"wb.policy('place', f)\n"
+		"wb.policy( \"rules\" , function(w) end)\n"
+		"mywb.policy(\"rules\", f)\n";
+	auto calls = wb::script_calls(lua, "init.lua", "wb.policy");
+	WB_CHECK(calls.size() == 2);
+	if (calls.size() == 2) {
+		WB_CHECK(calls[0].key == "place" && calls[0].line == 2);
+		WB_CHECK(calls[1].key == "rules" && calls[1].line == 3);
+	}
+	WB_CHECK(wb::script_keys(lua, "init.lua").empty());
+}

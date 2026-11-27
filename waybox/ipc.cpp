@@ -329,6 +329,28 @@ Value handle(Client *c, const Value &req) {
 		c->picking = true;
 		return Value(Object{{kLater, true}});
 	}
+	/* A window, clicked (wbconf's Pick a Window): its details, as
+	 * get_windows gives them ({"ok": true, "window": {...}}), or an error
+	 * (no window there, cancelled, timed out). */
+	if (cmd == "pick_window") {
+		struct wb_ipc_state *st = c->st;
+		bool started = window_pick_start(server, [c, st](struct wb_toplevel *t,
+				const std::string &why) {
+			if (c->closing || !c->picking)
+				return;
+			c->picking = false;
+			if (t != nullptr)
+				reply(c, Object{{"ok", true}, {"window", window_json(t)}});
+			else
+				reply(c, error(why));
+			if (!flush(c))
+				drop(st, c);
+		});
+		if (!started)
+			return error("a pick is already on");
+		c->picking = true;
+		return Value(Object{{kLater, true}});
+	}
 	/* Each monitor's name, large, on it (wbconf's Identify). */
 	if (cmd == "identify") {
 		const Value *ms = req.get("ms");

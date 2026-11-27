@@ -29,6 +29,10 @@ struct ScriptKey {
 /* The literal wb.bind("...") calls in a Lua script's text (comments
  * skipped); keys built at run time can't be seen. */
 std::vector<ScriptKey> script_keys(std::string_view lua, const std::string &file);
+/* The same for any call: `name`("first argument", ...) ("wb.policy" ->
+ * "rules", "place"...), its first argument as `key`. */
+std::vector<ScriptKey> script_calls(std::string_view lua, const std::string &file,
+		std::string_view name);
 
 /* Why a binding never runs: the binding (index into what was given) or
  * script that takes its keys first, and the keys taken ("W-a", or the
