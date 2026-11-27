@@ -46,6 +46,11 @@ install_data(
   install_mode: 'rw-r--r--',
   )
 
+# wbconf's own symbolic icons (the sidebar's Expand All, Collapse All).
+install_subdir('icons' / 'hicolor',
+  install_dir: get_option('prefix') / get_option('datadir') / 'icons',
+)
+
 install_data(
   'waybox.desktop',
   install_dir: get_option('prefix') / get_option('datadir') + '/wayland-sessions',

@@ -12,6 +12,9 @@ one selected):
 4. A search: only the categories (and sections) with a match, open.
 5. The search cleared, scrolled to the end: the last category open and
    its last section selected.
+6. With "Open at the Last Page" and "Remember Expanded Sections" on (the
+   sidebar's ⋯ menu): Monitors opened, Edge Tiling read; wbconf opened
+   again starts there, Monitors still open. Then Expand All, Collapse All.
 Skips (exit 77) without a headless display.
 
 Usage: wbconf_toc_test.py <waybox> <wbconf> <schema-dir>
@@ -108,6 +111,33 @@ def main():
             failures.append(f"scrolled to the end: {end}")
         elif "Windows" in opened(end):
             failures.append(f"a category opened for being read stayed open: {end}")
+    # 6. Kept across runs, as the ⋯ menu says.
+    with open(os.path.join(cfg, "waybox", "wbconf-view"), "w") as f:
+        f.write("reopen-last=1\nremember-tree=1\n")
+
+    def run(steps2):
+        e2 = dict(wenv, WBCONF_TEST_TOC=";".join(steps2))
+        a = subprocess.Popen([wbconf], env=e2, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.PIPE, text=True)
+        wbtest.reap_on_exit(a)
+        time.sleep(0.8 * (len(steps2) + 2) + 1.5)
+        a.kill()
+        _, e = a.communicate()
+        return [l.split("|")[1:] for l in e.splitlines() if l.startswith("toc-dump:")]
+    run(["click:Monitors", "click:Edge Tiling"])
+    d = run(["dump", "expand-all", "dump", "collapse-all", "dump"])
+    if len(d) != 3:
+        failures.append(f"again: {len(d)} dumps, not 3")
+    else:
+        def opened2(x):
+            return {c[1:].rstrip("*") for c in x if c[0] == "v"}
+        sel = [c[1:].rstrip("*") for c in d[0] if c.endswith("*")]
+        if sel != ["Edge Tiling"] or not {"Monitors", "Windows"} <= opened2(d[0]):
+            failures.append(f"opened again, not where it was left: {d[0]}")
+        if opened2(d[1]) != {c[1:].rstrip("*") for c in d[1] if c[0] in "v>"}:
+            failures.append(f"Expand All: {d[1]}")
+        if opened2(d[2]):
+            failures.append(f"Collapse All: {d[2]}")
     proc.send_signal(signal.SIGTERM)
     try:
         proc.wait(timeout=10)

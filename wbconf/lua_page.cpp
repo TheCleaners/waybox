@@ -11,6 +11,8 @@
  */
 #include "wbconf_ui.hpp"
 
+#include <sstream>
+
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
@@ -55,13 +57,7 @@ std::string view_path() {
 }
 
 bool pages_open_pref() {
-	gchar *text = nullptr;
-	bool open = false;
-	if (g_file_get_contents(view_path().c_str(), &text, nullptr, nullptr)) {
-		open = strstr(text, "pages-open=1") != nullptr;
-		g_free(text);
-	}
-	return open;
+	return view_get("pages-open") == "1";
 }
 
 std::string approvals_path() {
@@ -1038,17 +1034,44 @@ std::string lua_page_fold(Ui *ui, const std::string &id) {
 	return "no page";
 }
 
+/* wbconf's view settings: one KEY=VALUE a line. */
+std::string view_get(const std::string &key) {
+	gchar *text = nullptr;
+	std::string out;
+	if (g_file_get_contents(view_path().c_str(), &text, nullptr, nullptr)) {
+		std::istringstream in(text);
+		for (std::string line; std::getline(in, line);)
+			if (line.rfind(key + "=", 0) == 0)
+				out = line.substr(key.size() + 1);
+		g_free(text);
+	}
+	return out;
+}
+
+void view_set(const std::string &key, const std::string &value) {
+	std::string path = view_path();
+	gchar *text = nullptr;
+	std::string out;
+	if (g_file_get_contents(path.c_str(), &text, nullptr, nullptr)) {
+		std::istringstream in(text);
+		for (std::string line; std::getline(in, line);)
+			if (!line.empty() && line.rfind(key + "=", 0) != 0)
+				out += line + "\n";
+		g_free(text);
+	}
+	out += key + "=" + value + "\n";
+	gchar *dir = g_path_get_dirname(path.c_str());
+	g_mkdir_with_parents(dir, 0700);
+	g_free(dir);
+	g_file_set_contents(path.c_str(), out.c_str(), -1, nullptr);
+}
+
 bool lua_pages_open() {
 	return pages_open_pref();
 }
 
 void set_lua_pages_open(Ui *ui, bool open) {
-	std::string path = view_path();
-	gchar *dir = g_path_get_dirname(path.c_str());
-	g_mkdir_with_parents(dir, 0700);
-	g_free(dir);
-	std::string text = std::string("pages-open=") + (open ? "1" : "0") + "\n";
-	g_file_set_contents(path.c_str(), text.c_str(), -1, nullptr);
+	view_set("pages-open", open ? "1" : "0");
 	for (LuaPage *p : live_pages(ui))
 		if (p->expander != nullptr)
 			gtk_expander_set_expanded(GTK_EXPANDER(p->expander), open);

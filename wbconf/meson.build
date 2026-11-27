@@ -8,6 +8,7 @@ wbconf_args = [
   '-DUSE_NLS=1',
   '-DWB_SCHEMA_DIR="' + get_option('prefix') / get_option('datadir') / 'waybox' / 'wbconf' + '"',
   '-DWB_INTEGRATIONS_DIR="' + get_option('prefix') / get_option('datadir') / 'waybox' / 'integrations' + '"',
+  '-DWB_ICONS_DIR="' + get_option('prefix') / get_option('datadir') / 'icons' + '"',
 ]
 
 wbconf_version_h = vcs_tag(
