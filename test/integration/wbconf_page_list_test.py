@@ -105,6 +105,27 @@ def unique_family(monospace):
     return None
 
 
+def variable_one_width():
+    """A variable font with a weight axis and no width axis (fc-list gives its
+    width as one number, its weight as a range): Cascadia Code, Inter
+    Variable. None without one."""
+    try:
+        out = subprocess.run(["fc-list", ":variable=True", "family", "weight", "width"],
+                             capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for line in sorted(out.splitlines()):
+        parts = dict(p.split("=", 1) for p in line.split(":")[1:] if "=" in p)
+        family = line.split(":")[0].split(",")[0].strip()
+        if parts.get("weight", "").startswith("[") and "[" not in parts.get("width", "[") \
+                and family.isascii() and ";" not in family:
+            return family
+    return None
+
+
+WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900]
+
+
 def main():
     if len(sys.argv) != 5:
         print(__doc__)
@@ -167,6 +188,12 @@ def main():
              "luaset:lists.ui=@size-update:",
              "luaset:keyed.word=hello", "luapage:keyed",
              "luapage:lists", "changes", "save", "luapage:lists"]
+    # A variable font with no width axis: its weights in between, one width.
+    variable = variable_one_width()
+    if variable:
+        steps += [f"luaset:lists.ui=@family:{variable}", "luaset:lists.ui=@offered:ui"]
+    else:
+        print("note: no variable font without a width axis: not tried", file=sys.stderr)
     mono_family, prop_family = unique_family(True), unique_family(False)
     term_final = ""
     if mono_family and prop_family:
@@ -229,6 +256,15 @@ def main():
     changes = [l for l in lines if l.startswith("changes-dump:")]
     if not changes or "Items" not in changes[0]:
         failures.append(f"the change not listed: {changes}")
+    if variable:
+        offered = [l for l in lines if l.startswith("font-offered:ui|")]
+        got = dict(p.split("=", 1) for p in offered[0].split("|")[1:]) if offered else {}
+        weights = [int(w) for w in got.get("weights", "").split(",") if w and w != "0"]
+        lo = WEIGHTS.index(min(weights)) if weights else 0
+        if got.get("widths") != "0,100" or got.get("width") != "off":
+            failures.append(f"{variable}: widths it lacks offered: {offered}")
+        elif len(weights) < 3 or weights != WEIGHTS[lo:lo + len(weights)]:
+            failures.append(f"{variable}: its weights not all those in between: {offered}")
     keyed = [l for l in lines if l.startswith("luapage-dump:keyed")]
     if keyed != ["luapage-dump:keyed|word=hello"]:
         failures.append(f"the key-bound program's page: {keyed}")
