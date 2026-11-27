@@ -45,6 +45,7 @@
 #include "waybox/menu_widget.hpp"
 #include "waybox/style.hpp"
 #include "waybox/session_lock.h"
+#include "waybox/proc_group.hpp"
 #include "waybox/stall.hpp"
 #include "waybox/xdg_shell.h"
 
@@ -91,10 +92,24 @@ struct Spawn {
 
 constexpr int kMaxSpawns = 16;
 constexpr size_t kMaxOutput = 1 << 20;
+/* Read per turn of the event loop: a program writing nonstop doesn't keep
+ * the compositor from the rest (the next turn reads on). */
+constexpr size_t kReadPerTurn = 64 * 1024;
 
 /* Programs started and not yet reaped, whatever became of the script that
- * started them (a reload): reaped on SIGCHLD all the same. */
+ * started them (a reload): reaped on SIGCHLD all the same. The limit on
+ * running programs counts these, not only the current script's. */
 std::vector<pid_t> unreaped;
+
+/* An old script's programs still running when it was closed (a reload):
+ * their process groups sent SIGTERM, then SIGKILL 2 s later; each leader
+ * kept unreaped till then, so that its group's id is still its own. */
+struct Stopping {
+	pid_t pid;
+	bool killed = false;
+};
+std::vector<Stopping> stopping;
+struct wl_event_source *stop_timer = nullptr;
 
 struct Binding {
 	uint32_t sym = 0, modifiers = 0;
@@ -714,11 +729,15 @@ void spawn_finish(Spawn *s) {
 }
 
 int spawn_readable(int fd, uint32_t mask, void *data) {
+	wb::StallScope timing("spawn-read");
 	auto *s = static_cast<Spawn *>(data);
 	char buf[8192];
-	for (;;) {
+	for (size_t turn = 0;;) {
+		if (turn >= kReadPerTurn)
+			return 0;  /* more next turn (still readable: called again) */
 		ssize_t n = read(fd, buf, sizeof buf);
 		if (n > 0) {
+			turn += static_cast<size_t>(n);
 			size_t room = kMaxOutput - std::min(kMaxOutput, s->out.size());
 			s->out.append(buf, std::min(room, static_cast<size_t>(n)));
 			if (static_cast<size_t>(n) > room)
@@ -746,7 +765,7 @@ int wb_spawn(lua_State *L) {
 		return luaL_error(L, "wb.spawn: a command string or a list of arguments");
 	if (lua_gettop(L) >= 2 && !lua_isnil(L, 2))
 		luaL_checktype(L, 2, LUA_TFUNCTION);
-	if (static_cast<int>(g->spawns.size()) >= kMaxSpawns) {
+	if (static_cast<int>(unreaped.size()) >= kMaxSpawns) {
 		lua_pushnil(L);
 		lua_pushstring(L, "too many programs still running");
 		return 2;
@@ -775,6 +794,8 @@ int wb_spawn(lua_State *L) {
 		return luaL_error(L, "wb.spawn: %s", strerror(errno));
 	}
 	if (pid == 0) {
+		/* Its own process group: stopped with what it started. */
+		setpgid(0, 0);
 		sigset_t none;
 		sigemptyset(&none);
 		sigprocmask(SIG_SETMASK, &none, nullptr);
@@ -790,6 +811,7 @@ int wb_spawn(lua_State *L) {
 		_exit(127);
 	}
 	close(fds[1]);
+	setpgid(pid, pid);  /* also on this side: a stop before it ran reaches it */
 	fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL) | O_NONBLOCK);
 	unreaped.push_back(pid);
 	auto s = std::make_unique<Spawn>();
@@ -1163,12 +1185,66 @@ void open_state(struct wb_server *server) {
 	wlr_log(WLR_INFO, "wb-scripts loaded: %zu file(s)", paths.size());
 }
 
+/* A leader (not reaped) that has exited: looked at, left unreaped. */
+bool leader_exited(pid_t pid) {
+	siginfo_t si;
+	memset(&si, 0, sizeof si);
+	return waitid(P_PID, static_cast<id_t>(pid), &si, WEXITED | WNOHANG | WNOWAIT) == 0 &&
+			si.si_pid == pid;
+}
+
+void reap_leader(pid_t pid) {
+	while (waitpid(pid, nullptr, 0) < 0 && errno == EINTR) {
+	}
+	unreaped.erase(std::remove(unreaped.begin(), unreaped.end(), pid), unreaped.end());
+}
+
+int stop_due(void *) {
+	bool again = false;
+	for (auto it = stopping.begin(); it != stopping.end();) {
+		if (!it->killed) {
+			if (kill(-it->pid, SIGKILL) != 0)
+				kill(it->pid, SIGKILL);
+			it->killed = true;
+		}
+		if (leader_exited(it->pid)) {
+			reap_leader(it->pid);
+			it = stopping.erase(it);
+		} else {
+			again = true;  /* killed, not exited yet */
+			++it;
+		}
+	}
+	if (again) {
+		wl_event_source_timer_update(stop_timer, 200);
+	} else {
+		wl_event_source_remove(stop_timer);
+		stop_timer = nullptr;
+	}
+	return 0;
+}
+
+void stop_spawned(pid_t pid) {
+	if (kill(-pid, SIGTERM) != 0)
+		kill(pid, SIGTERM);
+	stopping.push_back({pid});
+	if (stop_timer == nullptr && g != nullptr) {
+		stop_timer = wl_event_loop_add_timer(g->server->wl_event_loop, stop_due, g->server);
+		wl_event_source_timer_update(stop_timer, 2000);
+	}
+}
+
 void close_state() {
 	if (g == nullptr)
 		return;
 	for (auto &t : g->timers)
 		wl_event_source_remove(t->source);
 	g->timers.clear();
+	/* Its programs still running go with it (the script, loaded again,
+	 * starts what it wants again). */
+	for (auto &sp : g->spawns)
+		if (!sp->exited)
+			stop_spawned(sp->pid);
 	while (!g->spawns.empty())
 		spawn_drop(g->spawns.front().get());
 	if (g->idle != nullptr)
@@ -1269,6 +1345,31 @@ void init_scripts(struct wb_server *server) {
 
 void finish_scripts(struct wb_server *) {
 	close_state();
+	/* Exiting: no timer runs now. Up to 0.5 s for what was sent SIGTERM,
+	 * then SIGKILL to what's left (each leader still unreaped, its group's
+	 * id its own), reaped once it has exited. */
+	for (int i = 0; i < 25 && !stopping.empty(); ++i) {
+		scripts_reap(nullptr);
+		if (!stopping.empty())
+			usleep(20 * 1000);
+	}
+	for (Stopping &st : stopping)
+		if (kill(-st.pid, SIGKILL) != 0)
+			kill(st.pid, SIGKILL);
+	for (int i = 0; i < 25 && !stopping.empty(); ++i) {
+		stopping.erase(std::remove_if(stopping.begin(), stopping.end(), [](const Stopping &st) {
+			if (!leader_exited(st.pid))
+				return false;
+			reap_leader(st.pid);
+			return true;
+		}), stopping.end());
+		if (!stopping.empty())
+			usleep(20 * 1000);
+	}
+	if (stop_timer != nullptr) {
+		wl_event_source_remove(stop_timer);
+		stop_timer = nullptr;
+	}
 }
 
 void scripts_reload(struct wb_server *server) {
@@ -1579,7 +1680,22 @@ void script_request_layout(struct wb_server *server) {
 }
 
 void scripts_reap(struct wb_server *) {
+	/* A stopped program's leader: reaped once its group has ended, else
+	 * held for the SIGKILL. */
+	for (auto it = stopping.begin(); it != stopping.end();) {
+		if (leader_exited(it->pid) && !wb::group_has_others(it->pid, it->pid)) {
+			reap_leader(it->pid);
+			it = stopping.erase(it);
+		} else {
+			++it;
+		}
+	}
 	for (auto it = unreaped.begin(); it != unreaped.end();) {
+		if (std::any_of(stopping.begin(), stopping.end(),
+				[&](const Stopping &st) { return st.pid == *it; })) {
+			++it;
+			continue;
+		}
 		int status = 0;
 		if (waitpid(*it, &status, WNOHANG) != *it) {
 			++it;

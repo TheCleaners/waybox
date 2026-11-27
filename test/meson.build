@@ -904,6 +904,7 @@ if python.found() and not get_option('tests_only')
     ['keymap_reconfigure', 'keymap_reconfigure_test.py', [], 60],
     ['lua', 'lua_test.py', [touch_client, meson.project_source_root() / 'data' / 'scripts'], 60],
     ['lua_policy', 'lua_policy_test.py', [touch_client, meson.project_source_root() / 'data' / 'scripts'], 60],
+    ['lua_spawn', 'lua_spawn_test.py', [], 60],
     ['lua_menu', 'lua_menu_test.py', [touch_client, meson.project_source_root() / 'data' / 'scripts'], 60],
     ['menu', 'menu_test.py', [], 60],
     ['menu_hover_delay', 'menu_hover_delay_test.py', [], 60],
