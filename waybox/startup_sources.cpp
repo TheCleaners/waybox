@@ -666,45 +666,98 @@ bool parse_autostart(std::string_view text, const std::vector<std::string> &desk
 	return true;
 }
 
-std::string autostart_set_enabled(std::string_view text, bool on) {
+namespace {
+
+/* "A;B;" -> {A, B}; and back, each followed by ';'. */
+std::vector<std::string> desktop_list(std::string_view v) {
+	std::vector<std::string> out;
+	std::string cur;
+	for (char c : v) {
+		if (c == ';') {
+			if (!cur.empty())
+				out.push_back(cur);
+			cur.clear();
+		} else {
+			cur += c;
+		}
+	}
+	if (!trim(cur).empty())
+		out.push_back(std::string(trim(cur)));
+	return out;
+}
+
+std::string list_text(const std::vector<std::string> &l) {
+	std::string s;
+	for (const std::string &d : l)
+		s += d + ";";
+	return s;
+}
+
+}  // namespace
+
+std::string autostart_set_enabled(std::string_view text, bool on, const std::string &desktop) {
+	/* Only for `desktop` (Waybox): off adds it to NotShowIn (and takes it
+	 * out of OnlyShowIn); on takes it out of NotShowIn, adds it to an
+	 * OnlyShowIn that leaves it out, and drops Hidden and
+	 * X-GNOME-Autostart-enabled=false (which turn it off everywhere). Other
+	 * desktops' starting of it is left as it was. */
 	std::vector<std::string> lines = split_lines(text);
 	std::vector<std::string> out;
-	bool in_entry = false, set = false;
-	size_t header = std::string::npos;
+	bool in_entry = false, had_entry = false, wrote_not = false;
+	size_t entry_end = std::string::npos;  /* where to add NotShowIn */
+	auto edit_list = [&](const std::string &key, std::string_view value) {
+		std::vector<std::string> l = desktop_list(value);
+		auto it = std::find(l.begin(), l.end(), desktop);
+		if (key == "NotShowIn") {
+			if (on && it != l.end())
+				l.erase(it);
+			if (!on && it == l.end())
+				l.push_back(desktop);
+			wrote_not = true;
+		} else {  /* OnlyShowIn */
+			if (on && it == l.end())
+				l.push_back(desktop);
+			if (!on && it != l.end())
+				l.erase(it);
+		}
+		return l;
+	};
 	for (const std::string &raw : lines) {
 		std::string_view l = trim(raw);
 		if (!l.empty() && l[0] == '[') {
-			if (in_entry && !on && !set) {
-				out.push_back("Hidden=true");
-				set = true;
-			}
-			in_entry = l == "[Desktop Entry]";
 			if (in_entry)
-				header = out.size();
+				entry_end = out.size();
+			in_entry = l == "[Desktop Entry]";
+			had_entry = had_entry || in_entry;
 			out.push_back(raw);
 			continue;
 		}
 		if (in_entry) {
 			size_t eq = l.find('=');
-			std::string_view key = eq == std::string_view::npos ? l : trim(l.substr(0, eq));
-			if (key == "Hidden") {
-				if (!on && !set) {
-					out.push_back("Hidden=true");
-					set = true;
-				}
-				continue;  /* on: dropped */
-			}
-			if (key == "X-GNOME-Autostart-enabled" && on)
+			std::string key(eq == std::string_view::npos ? l : trim(l.substr(0, eq)));
+			std::string_view value = eq == std::string_view::npos ? std::string_view()
+					: trim(l.substr(eq + 1));
+			if (on && (key == "Hidden" || (key == "X-GNOME-Autostart-enabled" &&
+					value == "false")))
 				continue;
+			if (key == "NotShowIn" || key == "OnlyShowIn") {
+				std::vector<std::string> list = edit_list(key, value);
+				if (key == "NotShowIn" && list.empty())
+					continue;  /* nothing left to say */
+				out.push_back(key + "=" + list_text(list));
+				continue;
+			}
 		}
 		out.push_back(raw);
 	}
-	if (!on && !set) {
-		if (header == std::string::npos) {
+	if (in_entry)
+		entry_end = out.size();
+	if (!on && !wrote_not) {
+		if (!had_entry) {
 			out.push_back("[Desktop Entry]");
+			entry_end = out.size();
 		}
-		/* At the end of the group (it was the last one). */
-		out.push_back("Hidden=true");
+		out.insert(out.begin() + static_cast<long>(entry_end), "NotShowIn=" + desktop + ";");
 	}
 	std::string s;
 	for (size_t i = 0; i < out.size(); ++i)
