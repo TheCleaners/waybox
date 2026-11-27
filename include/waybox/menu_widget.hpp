@@ -49,6 +49,13 @@ public:
 	/* Open `root_id` with its top-left near (lx, ly) in layout coordinates.
 	 * Returns false (and opens nothing) if the menu id is unknown/empty. */
 	bool open(std::string_view root_id, int lx, int ly);
+	/* Open `root_id` placed by ShowMenu's <position> in `area` (layout
+	 * coordinates); at (lx, ly), as above, if the position isn't one. */
+	struct Placement {
+		std::string x, y;
+		int area_x = 0, area_y = 0, area_w = 0, area_h = 0;
+	};
+	bool open(std::string_view root_id, int lx, int ly, const Placement &placement);
 
 	/* Input while grabbed. on_button returns true if the event dismissed the
 	 * menu (so the caller can drop it). on_key handles Escape. When a dismiss

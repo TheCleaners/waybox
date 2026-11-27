@@ -14,6 +14,7 @@
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 
+#include "waybox/app_rule_xml.hpp"
 #include "waybox/font_spec.hpp"
 #include "waybox/stall.hpp"
 #include "config.h"
@@ -194,25 +195,46 @@ void wb_parse_key_combo(const char *spec, uint32_t *sym, uint32_t *modifiers) {
 	free(buf);
 }
 
+/* The space-separated words of an attribute ("W-a W-b", "Left Middle",
+ * "Frame Client"): Openbox reads each as an alternative. */
+static std::vector<std::string> attr_words(xmlNode *node, const char *name) {
+	std::vector<std::string> out;
+	const char *v = (const char *) get_attribute(node, name);
+	std::istringstream in(v != nullptr ? v : "");
+	for (std::string w; in >> w;)
+		out.push_back(w);
+	return out;
+}
+
 /* Recursively parse a <keybind>: its chord, its direct <action> children, and
  * any nested <keybind> children (a key chain). Nested keybinds are NOT walked
- * for actions of their own here -- those belong to the child node. */
-static wb::KeyBinding parse_keybind(xmlNode *node) {
+ * for actions of their own here -- those belong to the child node. Several
+ * keys in key="W-a W-b" (as Openbox): one binding each, the same actions
+ * and chain under each. */
+static std::vector<wb::KeyBinding> parse_keybind(xmlNode *node) {
 	wb::KeyBinding binding;
-	wb_parse_key_combo((const char *) get_attribute(node, "key"),
-			&binding.sym, &binding.modifiers);
+	if (const char *r = (const char *) get_attribute(node, "repeat"))
+		binding.repeat = strcasecmp(r, "yes") == 0 || strcasecmp(r, "true") == 0 ||
+				strcasecmp(r, "on") == 0 || strcmp(r, "1") == 0;
 
 	for (xmlNode *child = node->children; child; child = child->next) {
 		if (child->type != XML_ELEMENT_NODE)
 			continue;
 		if (strcmp((char *) child->name, "keybind") == 0) {
-			binding.children.push_back(parse_keybind(child));
+			for (wb::KeyBinding &k : parse_keybind(child))
+				binding.children.push_back(std::move(k));
 		} else if (strcmp((char *) child->name, "action") == 0) {
 			if (auto action = wb::parse_action_xml(child))
 				binding.actions.push_back(std::move(*action));
 		}
 	}
-	return binding;
+	std::vector<wb::KeyBinding> out;
+	for (const std::string &key : attr_words(node, "key")) {
+		wb::KeyBinding k = binding;
+		wb_parse_key_combo(key.c_str(), &k.sym, &k.modifiers);
+		out.push_back(std::move(k));
+	}
+	return out;
 }
 
 static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt) {
@@ -232,7 +254,8 @@ static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt
 	for (int i = 0; i < object->nodesetval->nodeNr; i++) {
 		xmlNode *node = object->nodesetval->nodeTab[i];
 		if (node != NULL)
-			config->key_bindings.push_back(parse_keybind(node));
+			for (wb::KeyBinding &k : parse_keybind(node))
+				config->key_bindings.push_back(std::move(k));
 	}
 	xmlXPathFreeObject(object);
 	return true;
@@ -250,31 +273,38 @@ static void parse_mouse_bindings(struct wb_config *config, xmlXPathContextPtr ct
 			xmlNode *ctx_node = object->nodesetval->nodeTab[i];
 			if (ctx_node == NULL)
 				continue;
-			std::optional<wb::MouseContext> context = wb::mouse_context_from_name(
-					(const char *) get_attribute(ctx_node, "name"));
-			if (!context)
-				continue;
-
-			for (xmlNode *mb = ctx_node->children; mb; mb = mb->next) {
-				if (mb->type != XML_ELEMENT_NODE ||
-						strcmp((char *) mb->name, "mousebind") != 0)
+			/* name="Frame Client", button="Left Middle": each an
+			 * alternative (as Openbox); an unknown one skipped, the rest
+			 * kept. */
+			for (const std::string &name : attr_words(ctx_node, "name")) {
+				std::optional<wb::MouseContext> context = wb::mouse_context_from_name(name);
+				if (!context)
 					continue;
-
-				std::optional<wb::MouseButtonSpec> button = wb::parse_mouse_button(
-						(const char *) get_attribute(mb, "button"));
-				std::optional<wb::MouseEvent> event = wb::mouse_event_from_name(
-						(const char *) get_attribute(mb, "action"));
-				if (!button || !event)
-					continue;
-
-				wb::MouseBinding binding;
-				binding.context = *context;
-				binding.event = *event;
-				binding.button = button->button;
-				binding.modifiers = button->modifiers;
-				wb::collect_actions_xml(mb->children, binding.actions, true);
-				if (!binding.actions.empty())
-					config->mouse_bindings.push_back(std::move(binding));
+				for (xmlNode *mb = ctx_node->children; mb; mb = mb->next) {
+					if (mb->type != XML_ELEMENT_NODE ||
+							strcmp((char *) mb->name, "mousebind") != 0)
+						continue;
+					std::optional<wb::MouseEvent> event = wb::mouse_event_from_name(
+							(const char *) get_attribute(mb, "action"));
+					if (!event)
+						continue;
+					std::vector<wb::Action> actions;
+					wb::collect_actions_xml(mb->children, actions, true);
+					if (actions.empty())
+						continue;
+					for (const std::string &b : attr_words(mb, "button")) {
+						std::optional<wb::MouseButtonSpec> button = wb::parse_mouse_button(b.c_str());
+						if (!button)
+							continue;
+						wb::MouseBinding binding;
+						binding.context = *context;
+						binding.event = *event;
+						binding.button = button->button;
+						binding.modifiers = button->modifiers;
+						binding.actions = actions;
+						config->mouse_bindings.push_back(std::move(binding));
+					}
+				}
 			}
 		}
 	}
@@ -326,48 +356,12 @@ static void parse_app_rules(struct wb_config *config, xmlXPathContextPtr ctxt) {
 			if (app == NULL)
 				continue;
 
-			wb::AppRule rule;
-			rule.class_pattern = (const char *) get_attribute(app, "class");
-			rule.name_pattern = (const char *) get_attribute(app, "name");
-			rule.title_pattern = (const char *) get_attribute(app, "title");
-			rule.tag_pattern = (const char *) get_attribute(app, "tag");
-			rule.maximized = parse_bool(child_text(app, "maximized"));
-			rule.fullscreen = parse_bool(child_text(app, "fullscreen"));
-			rule.iconic = parse_bool(child_text(app, "iconic"));
-			rule.focus = parse_bool(child_text(app, "focus"));
-			rule.decor = parse_bool(child_text(app, "decor"));
-			if (const char *l = child_text(app, "layer")) {
-				std::string v = l;
-				if (v == "above" || v == "top")
-					rule.layer = 1;
-				else if (v == "below" || v == "bottom")
-					rule.layer = -1;
-				else if (v == "normal")
-					rule.layer = 0;
-			}
-			/* <desktop>N</desktop> (1-based) or "all"; anything else
-			 * (including Openbox's "current") leaves the default. */
-			if (const char *d = child_text(app, "desktop")) {
-				std::string v = d;
-				if (v == "all")
-					rule.desktop = wb::AppRule::kAllDesktops;
-				else if (int n = atoi(d); n >= 1)
-					rule.desktop = n - 1;
-			}
-
-			if (xmlNode *pos = child_node(app, "position")) {
-				if (const char *x = child_text(pos, "x"))
-					rule.x = atoi(x);
-				if (const char *y = child_text(pos, "y"))
-					rule.y = atoi(y);
-			}
-			if (xmlNode *size = child_node(app, "size")) {
-				/* A size below 1 means nothing: ignored. */
-				if (const char *w = child_text(size, "width"); w && atoi(w) >= 1)
-					rule.width = atoi(w);
-				if (const char *h = child_text(size, "height"); h && atoi(h) >= 1)
-					rule.height = atoi(h);
-			}
+			/* The reader wbconf's editor shares: one meaning for both. */
+			wb::AppRule rule = wb::read_app_rule(app).rule;
+			if (std::string err = wb::app_rule_pattern_error(rule); !err.empty())
+				wlr_log(WLR_ERROR, "rc.xml: window rule %zu: a pattern isn't a regular "
+						"expression (%s): the rule never matches",
+						config->app_rules.size() + 1, err.c_str());
 			config->app_rules.push_back(std::move(rule));
 		}
 	}
@@ -652,6 +646,27 @@ static void parse_input_method(struct wb_config *config, xmlXPathContextPtr ctxt
 			else
 				wlr_log(WLR_ERROR, "%s \"%s\"", _("Ignoring the input method variable"),
 						name.c_str());
+		}
+	}
+	xmlXPathFreeObject(object);
+}
+
+/* Parse <waybox><activation focus="smart|always|never"/>. */
+static void parse_activation(struct wb_config *config, xmlXPathContextPtr ctxt) {
+	xmlXPathObjectPtr object = xmlXPathEvalExpression(
+			(const xmlChar *) "//ob:waybox/ob:activation", ctxt);
+	if (object == NULL)
+		return;
+	if (object->nodesetval && object->nodesetval->nodeNr > 0) {
+		const char *v = (const char *) get_attribute(object->nodesetval->nodeTab[0], "focus");
+		if (v != nullptr) {
+			std::string f = v;
+			if (f == "always")
+				config->activation = wb_config::Activation::Always;
+			else if (f == "never")
+				config->activation = wb_config::Activation::Never;
+			else
+				config->activation = wb_config::Activation::Smart;
 		}
 	}
 	xmlXPathFreeObject(object);
@@ -1049,6 +1064,7 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	parse_cursor(config, ctxt);
 	parse_scripts(config, ctxt);
 	parse_ipc(config, ctxt);
+	parse_activation(config, ctxt);
 	parse_input_method(config, ctxt);
 
 	xmlXPathFreeContext(ctxt);

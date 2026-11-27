@@ -25,8 +25,12 @@ MenuSource menu_source_from_config(std::string_view source) {
 }
 
 static int item_row_height(const MenuItem &item, const MenuMetrics &m) {
-	return item.kind == MenuItem::Kind::Separator ? m.separator_height
-			: m.item_height;
+	return item.kind == MenuItem::Kind::Separator && item.label.empty()
+			? m.separator_height : m.item_height;
+}
+
+static bool choosable(const MenuItem &item) {
+	return item.kind != MenuItem::Kind::Separator && item.kind != MenuItem::Kind::Text;
 }
 
 MenuLayout layout_menu(const Menu &menu, const MenuMetrics &m,
@@ -58,7 +62,7 @@ MenuLayout layout_menu(const Menu &menu, const MenuMetrics &m,
 int menu_item_at(const Menu &menu, const MenuLayout &layout, int x, int y) {
 	const size_t n = std::min(menu.items.size(), layout.item_rects.size());
 	for (size_t i = 0; i < n; ++i) {
-		if (menu.items[i].kind == MenuItem::Kind::Separator)
+		if (!choosable(menu.items[i]))
 			continue;
 		const Rect &r = layout.item_rects[i];
 		if (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)
@@ -72,8 +76,7 @@ int menu_step_selection(const Menu &menu, int current, int dir, bool wrap) {
 	if (n == 0 || dir == 0)
 		return -1;
 	auto selectable = [&](int i) {
-		return i >= 0 && i < n &&
-				menu.items[i].kind != MenuItem::Kind::Separator;
+		return i >= 0 && i < n && choosable(menu.items[i]);
 	};
 
 	/* A -1 start sits just outside the appropriate end so the first step lands

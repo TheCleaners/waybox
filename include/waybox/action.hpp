@@ -1,6 +1,7 @@
 #ifndef WB_ACTION_HPP
 #define WB_ACTION_HPP
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -53,6 +54,38 @@ enum class ActionType {
 	SendToLayer,
 	ToggleAlwaysOnTop,
 	ToggleAlwaysOnBottom,
+	ShowAbout,  /* Waybox's: the About card */
+	/* Openbox's geometry actions (geometry_actions.hpp): their options in
+	 * `args` (<x>, <y>, <width>, <height>, <left>, ...), the edge ones'
+	 * <direction> (or the name's). */
+	MoveResizeTo,
+	MoveRelative,
+	ResizeRelative,
+	MoveToCenter,
+	MoveToEdge,
+	GrowToEdge,
+	ShrinkToEdge,
+	GrowToFill,
+	/* Openbox's directional focus: DirectionalTargetWindow and
+	 * DirectionalCycleWindows (focused at once: no popup yet), with
+	 * <direction> or 3.4's names (DirectionalFocusNorth, ...). */
+	DirectionalFocus,
+	ToggleShowDesktop,
+	/* <where>last</where> (the default) or current. */
+	AddDesktop,
+	RemoveDesktop,
+	/* Openbox's: SIGTERM to the window's process, SIGKILL if asked again
+	 * within 3 s; frame on or off; raise-or-lower; shade-or-lower,
+	 * unshade-or-raise; to the end of the focus order; no focus. */
+	Kill,
+	Decorate,
+	Undecorate,
+	RaiseLower,
+	ShadeLower,
+	UnshadeRaise,
+	FocusToBottom,
+	Unfocus,
+	FocusFallback,  /* the last focused window shown on this desktop */
 	SnapToEdge,
 	Move,
 	Resize,
@@ -75,6 +108,8 @@ struct Action {
 	bool wrap = true;
 	bool follow = true;
 	std::string direction{};  /* SnapToEdge: left, right, up, down, up-left, ... */
+	/* Other options by name, as given (the geometry actions'). */
+	std::map<std::string, std::string> args{};
 	int script_callback = 0;  /* ScriptCall */
 	/* If and ForEach: the conditions and the actions of each branch. */
 	std::shared_ptr<const Conditional> conditional{};

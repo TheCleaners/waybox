@@ -66,18 +66,42 @@ WB_TEST(autostart_entries_follow_the_spec) {
 	WB_CHECK(!wb::parse_autostart("[Desktop Entry]\nName=No exec\n", {}, n));
 }
 
-WB_TEST(switching_autostart_writes_hidden) {
+/* Switched for Waybox only: ~/.config/autostart is every desktop's. */
+WB_TEST(switching_autostart_is_for_waybox_only) {
 	std::string text = "[Desktop Entry]\nName=Foo\nExec=foo\n[Desktop Action x]\nExec=y\n";
 	std::string off = wb::autostart_set_enabled(text, false);
-	WB_CHECK(off == "[Desktop Entry]\nName=Foo\nExec=foo\nHidden=true\n[Desktop Action x]\nExec=y\n");
-	wb::AutostartEntry e;
-	WB_CHECK(wb::parse_autostart(off, {}, e) && !e.enabled);
+	WB_CHECK(off == "[Desktop Entry]\nName=Foo\nExec=foo\nNotShowIn=Waybox;\n"
+			"[Desktop Action x]\nExec=y\n");
+	wb::AutostartEntry e, g;
+	WB_CHECK(wb::parse_autostart(off, {"Waybox"}, e) && e.enabled && !e.for_here);
+	WB_CHECK(wb::parse_autostart(off, {"GNOME"}, g) && g.enabled && g.for_here);
 	WB_CHECK(wb::autostart_set_enabled(off, true) == text);
-	std::string gnome = "[Desktop Entry]\nExec=foo\nX-GNOME-Autostart-enabled=false\n";
-	wb::AutostartEntry g;
-	WB_CHECK(wb::parse_autostart(wb::autostart_set_enabled(gnome, true), {}, g) && g.enabled);
-	WB_CHECK(wb::autostart_set_enabled("[Desktop Entry]\nExec=foo\nHidden=false\n", false) ==
-			"[Desktop Entry]\nExec=foo\nHidden=true\n");
+	/* Others in NotShowIn kept; Waybox added once, taken out alone. */
+	std::string nm = "[Desktop Entry]\nExec=nm-applet\nNotShowIn=KDE;GNOME;\n";
+	std::string nm_off = wb::autostart_set_enabled(nm, false);
+	WB_CHECK(nm_off == "[Desktop Entry]\nExec=nm-applet\nNotShowIn=KDE;GNOME;Waybox;\n");
+	WB_CHECK(wb::autostart_set_enabled(nm_off, false) == nm_off);
+	WB_CHECK(wb::autostart_set_enabled(nm_off, true) == nm);
+	/* OnlyShowIn: off takes Waybox out; on puts it in. */
+	WB_CHECK(wb::autostart_set_enabled("[Desktop Entry]\nExec=a\nOnlyShowIn=XFCE;\n", true) ==
+			"[Desktop Entry]\nExec=a\nOnlyShowIn=XFCE;Waybox;\n");
+	/* On drops what turns it off everywhere (an older wbconf's Hidden). */
+	std::string gnome = "[Desktop Entry]\nExec=foo\nX-GNOME-Autostart-enabled=false\nHidden=true\n";
+	wb::AutostartEntry h;
+	WB_CHECK(wb::parse_autostart(wb::autostart_set_enabled(gnome, true), {"Waybox"}, h) &&
+			h.enabled && h.for_here);
+	/* ... and only for Waybox: GNOME, which had it off, still has it off. */
+	WB_CHECK(wb::autostart_set_enabled(gnome, true) ==
+			"[Desktop Entry]\nExec=foo\nOnlyShowIn=Waybox;\n");
+	wb::AutostartEntry gn;
+	WB_CHECK(wb::parse_autostart(wb::autostart_set_enabled(gnome, true), {"GNOME"}, gn) &&
+			!gn.for_here);
+	/* An OnlyShowIn that had others, all off: now Waybox's alone. */
+	WB_CHECK(wb::autostart_set_enabled("[Desktop Entry]\nExec=a\nOnlyShowIn=XFCE;\nHidden=true\n",
+			true) == "[Desktop Entry]\nExec=a\nOnlyShowIn=Waybox;\n");
+	/* Another desktop's name, given. */
+	WB_CHECK(wb::autostart_set_enabled("[Desktop Entry]\nExec=b\n", false, "sway") ==
+			"[Desktop Entry]\nExec=b\nNotShowIn=sway;\n");
 }
 
 WB_TEST(script_starters_direct_function_and_elsewhere) {
@@ -169,6 +193,32 @@ wlsunset &
 	WB_CHECK(wb::script_set_enabled(script, 2, false) == script);
 	WB_CHECK(wb::script_set_enabled(script, 8, false) == script);
 	WB_CHECK(wb::script_set_enabled(script, 10, false) == script);
+}
+
+/* "(waybar || yambar) &": a start line for waybar, yambar its fallback;
+ * found for either (so taking either over offers to switch it off). */
+WB_TEST(script_entries_alternatives) {
+	const char *script = R"SH(#!/bin/sh
+(waybar || yambar) &
+mako -c x || dunst &
+(swaybg -i a.png; waybar) &
+(foo || bar && baz) &
+)SH";
+	std::vector<wb::ScriptEntry> entries = wb::script_entries(script);
+	WB_CHECK(entries.size() == 2);
+	if (entries.size() == 2) {
+		WB_CHECK(entries[0].program == "waybar" && entries[0].line == 1 &&
+				(entries[0].alternatives == std::vector<std::string>{"yambar"}));
+		WB_CHECK(entries[1].program == "mako" &&
+				(entries[1].alternatives == std::vector<std::string>{"dunst"}));
+	}
+	for (const char *p : {"waybar", "yambar"}) {
+		wb::ScriptStarters s = wb::script_starters(script, p);
+		WB_CHECK(s.lines.size() == 1 && s.lines[0].line == 1);
+	}
+	/* Switched off as a whole line. */
+	std::string off = wb::script_set_enabled(script, 1, false);
+	WB_CHECK(off.find("#(waybar || yambar) &") != std::string::npos);
 }
 
 WB_TEST(script_starters_mentions_are_runs) {

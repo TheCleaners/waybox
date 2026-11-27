@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <unistd.h>
 #include "script.h"
 #include "bell.h"
 #include "toplevel_drag.h"
@@ -360,6 +361,111 @@ void lower_toplevel(struct wb_toplevel *toplevel) {
 
 static void switch_desktop(struct wb_server *server, int index, bool refocus);
 
+void toggle_show_desktop(struct wb_server *server) {
+	server->show_desktop_busy = true;
+	struct wb_toplevel *t;
+	if (!server->showing_desktop) {
+		/* Collected first: minimizing moves a window in the list. */
+		std::vector<struct wb_toplevel *> shown;
+		wl_list_for_each(t, &server->toplevels, link)
+			if (t->mapped && !t->minimized && toplevel_on_current_desktop(t))
+				shown.push_back(t);
+		for (struct wb_toplevel *w : shown) {
+			w->hidden_by_show_desktop = true;
+			set_toplevel_minimized(w, true);
+		}
+		server->showing_desktop = true;
+		wlr_log(WLR_INFO, "wb-showdesktop on %zu", shown.size());
+	} else {
+		std::vector<struct wb_toplevel *> back;
+		wl_list_for_each(t, &server->toplevels, link)
+			if (t->hidden_by_show_desktop)
+				back.push_back(t);
+		/* Bottom to top, so they stack as they were. */
+		for (auto it = back.rbegin(); it != back.rend(); ++it) {
+			(*it)->hidden_by_show_desktop = false;
+			if ((*it)->mapped && (*it)->minimized)
+				set_toplevel_minimized(*it, false);
+		}
+		server->showing_desktop = false;
+		wlr_log(WLR_INFO, "wb-showdesktop off %zu", back.size());
+	}
+	server->show_desktop_busy = false;
+}
+
+/* A window focused while the desktop is shown: that ends it, the others
+ * left minimized. */
+static void end_show_desktop(struct wb_server *server) {
+	if (!server->showing_desktop || server->show_desktop_busy)
+		return;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link)
+		t->hidden_by_show_desktop = false;
+	server->showing_desktop = false;
+	wlr_log(WLR_INFO, "%s", "wb-showdesktop ended");
+}
+
+pid_t view_pid(struct wb_toplevel *t, uid_t *uid) {
+	*uid = static_cast<uid_t>(-1);
+#if WLR_HAS_XWAYLAND
+	if (t->kind == wb_view_kind::Xwayland)
+		return -1;  /* only the program's own say: not to be trusted */
+#endif
+	struct wlr_surface *s = view_surface(t);
+	if (s == nullptr || s->resource == nullptr)
+		return -1;
+	pid_t pid = -1;
+	gid_t gid;
+	wl_client_get_credentials(wl_resource_get_client(s->resource), &pid, uid, &gid);
+	return pid;
+}
+
+void unfocus_toplevel(struct wb_toplevel *toplevel) {
+	struct wb_server *server = toplevel->server;
+	struct wlr_surface *s = view_surface(toplevel);
+	if (s == nullptr || server->seat->seat->keyboard_state.focused_surface != s)
+		return;
+	seat_focus_surface(server->seat.get(), nullptr);
+	sync_frame_active(server);
+	wlr_log(WLR_INFO, "wb-focus none (unfocused %s)", view_app_id(toplevel));
+}
+
+void focus_order_to_bottom(struct wb_toplevel *toplevel) {
+	wl_list_remove(&toplevel->focus_link);
+	wl_list_insert(toplevel->server->focus_order.prev, &toplevel->focus_link);
+}
+
+void set_toplevel_urgent(struct wb_toplevel *toplevel, bool urgent) {
+	if (toplevel == nullptr || toplevel->urgent == urgent)
+		return;
+	toplevel->urgent = urgent;
+	wlr_log(WLR_INFO, "wb-urgent %s %s", urgent ? "on" : "off",
+			view_app_id(toplevel) ? view_app_id(toplevel) : "");
+	ipc_window_event(toplevel, "state");
+	workspace_schedule_sync(toplevel->server);
+}
+
+void toplevel_request_activation(struct wb_toplevel *toplevel, bool from_user) {
+	if (toplevel == nullptr || !toplevel->mapped)
+		return;
+	struct wb_server *server = toplevel->server;
+	using A = wb_config::Activation;
+	A mode = server->config != nullptr ? server->config->activation : A::Smart;
+	bool focus = from_user && (mode == A::Always ||
+			(mode == A::Smart && toplevel_on_current_desktop(toplevel) && !toplevel->minimized));
+	struct wlr_surface *s = view_surface(toplevel);
+	if (focus) {
+		focus_toplevel(toplevel);
+		/* Focused, unless something keeps the keyboard (a launcher's layer
+		 * surface): then marked, not lost. */
+		if (s == nullptr || server->seat->seat->keyboard_state.focused_surface == s)
+			return;
+	}
+	if (s != nullptr && server->seat->seat->keyboard_state.focused_surface == s)
+		return;  /* it has focus already */
+	set_toplevel_urgent(toplevel, true);
+}
+
 void focus_toplevel(struct wb_toplevel *toplevel) {
 	/* Note: this function only deals with keyboard focus (plus the stacking
 	 * raise that conventionally accompanies it). */
@@ -442,6 +548,8 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	 */
 	seat_focus_surface(server->seat.get(), surface);
 	sync_frame_active(server);
+	set_toplevel_urgent(toplevel, false);  /* attention given */
+	end_show_desktop(server);
 	if (toplevel->mapped)
 		ipc_window_event(toplevel, "focus");
 }
@@ -619,6 +727,76 @@ void wb_toggle_omnipresent(struct wb_toplevel *toplevel) {
 			toplevel->omnipresent ? "on" : "off");
 }
 
+/* rc.xml's number when the count was first changed at runtime, and the
+ * count now (see wb_reconfigure). */
+static void remember_runtime_desktops(struct wb_server *server, int count) {
+	if (server->runtime_desktops == 0)
+		server->runtime_desktops_from = server->config->desktops.number;
+	server->runtime_desktops = count;
+}
+
+void add_desktop(struct wb_server *server, bool after_current) {
+	if (server->config == nullptr || server->config->desktops.number >= wb::kMaxDesktops)
+		return;
+	int at = after_current ? server->current_desktop + 1 : server->config->desktops.number;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link)
+		if (t->desktop >= at)
+			++t->desktop;
+	if (server->last_desktop >= at)
+		++server->last_desktop;
+	/* The names move with their desktops: the new one has none. */
+	auto &names = server->config->desktops.names;
+	if (static_cast<int>(names.size()) > at)
+		names.insert(names.begin() + at, std::string());
+	remember_runtime_desktops(server, server->config->desktops.number + 1);
+	++server->config->desktops.number;
+	wlr_log(WLR_INFO, "wb-desktop add %d (of %d)", at + 1, server->config->desktops.number);
+	desktops_reconfigured(server);
+	workspace_schedule_sync(server);
+	ipc_desktop_event(server);
+}
+
+void remove_desktop(struct wb_server *server, bool current) {
+	if (server->config == nullptr || server->config->desktops.number <= 1)
+		return;
+	int gone = current ? server->current_desktop : server->config->desktops.number - 1;
+	/* Its windows to the one before it (the first's to the next, which
+	 * then becomes the first). */
+	int to = gone > 0 ? gone - 1 : 0;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link) {
+		if (t->desktop == gone)
+			t->desktop = to;
+		else if (t->desktop > gone)
+			--t->desktop;
+	}
+	if (server->last_desktop > gone)
+		--server->last_desktop;
+	/* Its name goes with it; the others stay with their desktops. */
+	auto &names = server->config->desktops.names;
+	if (static_cast<int>(names.size()) > gone)
+		names.erase(names.begin() + gone);
+	int shown = server->current_desktop;
+	if (shown > gone)
+		--shown;
+	else if (shown == gone)
+		shown = to;
+	remember_runtime_desktops(server, server->config->desktops.number - 1);
+	--server->config->desktops.number;
+	wlr_log(WLR_INFO, "wb-desktop remove %d (of %d)", gone + 1,
+			server->config->desktops.number + 1);
+	if (shown != server->current_desktop) {
+		switch_desktop(server, shown, true);
+	} else {
+		wl_list_for_each(t, &server->toplevels, link)
+			update_desktop_visibility(t);
+	}
+	desktops_reconfigured(server);
+	workspace_schedule_sync(server);
+	ipc_desktop_event(server);
+}
+
 void desktops_reconfigured(struct wb_server *server) {
 	int count = desktop_count(server);
 	struct wb_toplevel *toplevel;
@@ -644,6 +822,37 @@ struct wlr_output *get_active_output(struct wb_toplevel *toplevel) {
 			toplevel->geometry.y + toplevel->geometry.height / 2,
 			&closest_x, &closest_y);
 	return wlr_output_layout_output_at(toplevel->server->output_layout, closest_x, closest_y);
+}
+
+/* A window rule's <monitor>: a number (1, the leftmost), a name, "mouse"
+ * (the pointer's), "active" (the focused window's), "primary" (the first);
+ * nullptr when there's no such one. */
+struct wlr_output *rule_output(struct wb_server *server, const std::string &spec) {
+	if (spec == "mouse")
+		return wlr_output_layout_output_at(server->output_layout, server->cursor->cursor->x,
+				server->cursor->cursor->y);
+	if (spec == "active") {
+		struct wlr_surface *s = server->seat->seat->keyboard_state.focused_surface;
+		struct wb_toplevel *t = s != nullptr ? toplevel_from_surface(server, s) : nullptr;
+		if (t != nullptr)
+			return get_active_output(t);
+		return wlr_output_layout_output_at(server->output_layout, server->cursor->cursor->x,
+				server->cursor->cursor->y);
+	}
+	/* A name, or a number counted by where they are (not the order they
+	 * came in: that changes with a replug). */
+	std::vector<wb::MonitorPlace> places;
+	std::vector<struct wlr_output *> outs;
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link)
+		if (o->wlr_output->enabled) {
+			struct wlr_box b;
+			wlr_output_layout_get_box(server->output_layout, o->wlr_output, &b);
+			places.push_back({o->wlr_output->name, b.x, b.y});
+			outs.push_back(o->wlr_output);
+		}
+	std::optional<size_t> i = wb::rule_monitor(places, spec);
+	return i ? outs[*i] : nullptr;
 }
 
 /* Focus the most-recently-focused mapped toplevel other than `except`, e.g.
@@ -894,6 +1103,19 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 		rule = &merged;
 	}
 
+	/* A rule's monitor: placed in its usable area (the one with the pointer
+	 * otherwise, as above). */
+	if (rule != nullptr && !rule->monitor.empty()) {
+		if (struct wlr_output *out = rule_output(toplevel->server, rule->monitor)) {
+			struct wlr_box u = output_usable_area(toplevel->server, out);
+			area = wb::Rect{u.x, u.y, u.width, u.height};
+			if (config)
+				area = wb::apply_strut(area, wb::Strut{config->margins.left,
+						config->margins.top, config->margins.right,
+						config->margins.bottom});
+		}
+	}
+
 	/* New windows open on the desktop being shown, unless a rule says
 	 * otherwise. */
 	struct wb_server *server = toplevel->server;
@@ -947,7 +1169,8 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 			config ? config->placement_policy : wb::PlacementPolicy::Smart;
 	wb::Rect placed;
 	std::optional<wb::Rect> restored;
-	if (restore && !(rule != nullptr && (rule->x || rule->y)))
+	if (restore && !(rule != nullptr && (rule->x || rule->y || !rule->x_spec.empty() ||
+			!rule->y_spec.empty() || !rule->monitor.empty())))
 		restored = wb::restored_rect(*restore, xdg_session_outputs(server));
 	if (restored) {
 		placed = {restored->x, restored->y, width, height};
@@ -970,12 +1193,17 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 		break;
 	}
 
-	/* Position overrides are relative to the placement area. */
+	/* Position overrides are relative to the placement area; Openbox's
+	 * other forms ("center", "50%", "-10") resolved in it. */
 	if (rule != nullptr) {
 		if (rule->x)
 			placed.x = area.x + *rule->x;
+		else if (auto x = wb::resolve_position(rule->x_spec, area.x, area.width, placed.width))
+			placed.x = *x;
 		if (rule->y)
 			placed.y = area.y + *rule->y;
+		else if (auto y = wb::resolve_position(rule->y_spec, area.y, area.height, placed.height))
+			placed.y = *y;
 	}
 	/* A script's placement (wb.policy "place") has the last word. */
 	if (auto p = script_place(toplevel->server, info, area, placed))
@@ -1379,6 +1607,40 @@ void tile_toplevel(struct wb_toplevel *toplevel, wb::TileZone zone,
 			toplevel->geometry.x, toplevel->geometry.y);
 }
 
+wb::Rect toplevel_frame(struct wb_toplevel *toplevel) {
+	wb::FrameInsets in = toplevel_insets(toplevel);
+	return {toplevel->geometry.x - in.left, toplevel->geometry.y - in.top,
+			toplevel->geometry.width + in.left + in.right,
+			toplevel->geometry.height + in.top + in.bottom};
+}
+
+void set_toplevel_frame(struct wb_toplevel *toplevel, wb::Rect frame) {
+	if (!view_ready(toplevel) || toplevel->fullscreen)
+		return;
+	if (toplevel->max_horz || toplevel->max_vert)
+		set_toplevel_maximized(toplevel, false, false);
+	if (toplevel->tiled) {
+		toplevel->tiled = false;
+		toplevel->tile_zone = wb::TileZone::None;
+	}
+	wb::FrameInsets in = toplevel_insets(toplevel);
+	int w = frame.width - in.left - in.right, h = frame.height - in.top - in.bottom;
+	int min_w = 0, min_h = 0, max_w = 0, max_h = 0;
+	view_size_hints(toplevel, &min_w, &min_h, &max_w, &max_h);
+	w = std::max({w, min_w, 1});
+	h = std::max({h, min_h, 1});
+	if (max_w > 0)
+		w = std::min(w, max_w);
+	if (max_h > 0)
+		h = std::min(h, max_h);
+	toplevel->geometry = {frame.x + in.left, frame.y + in.top, w, h};
+	view_set_size(toplevel, w, h);
+	position_toplevel(toplevel);
+	update_toplevel_decoration(toplevel);
+	wlr_log(WLR_INFO, "wb-geom frame %dx%d+%d+%d", frame.width, frame.height, frame.x,
+			frame.y);
+}
+
 void untile_toplevel(struct wb_toplevel *toplevel, bool restore_position) {
 	if (!toplevel->tiled)
 		return;
@@ -1646,10 +1908,17 @@ static bool popup_keep_on_screen(struct wb_popup *popup) {
 	struct wb_toplevel *toplevel = popup_root_toplevel(popup->xdg_popup);
 	if (toplevel == NULL)
 		return false;
+	/* Its place is relative to its parent: for a submenu, the menu it
+	 * opened from, itself somewhere in the window. */
+	int px = 0, py = 0;
+	struct wlr_xdg_popup *parent = popup->xdg_popup->parent != NULL
+			? wlr_xdg_popup_try_from_wlr_surface(popup->xdg_popup->parent) : NULL;
+	if (parent != NULL)
+		wlr_xdg_popup_get_toplevel_coords(parent, 0, 0, &px, &py);
 	struct wlr_output *wlr_output = wlr_output_layout_output_at(
 			toplevel->server->output_layout,
-			toplevel->geometry.x + popup->xdg_popup->scheduled.geometry.x,
-			toplevel->geometry.y + popup->xdg_popup->scheduled.geometry.y);
+			toplevel->geometry.x + px + popup->xdg_popup->scheduled.geometry.x,
+			toplevel->geometry.y + py + popup->xdg_popup->scheduled.geometry.y);
 	if (wlr_output == NULL)  /* its corner off every output: the window's */
 		wlr_output = wlr_output_layout_output_at(toplevel->server->output_layout,
 				toplevel->geometry.x, toplevel->geometry.y);

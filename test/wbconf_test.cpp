@@ -1,5 +1,7 @@
 #include "wb_test.hpp"
 
+#include <algorithm>
+
 #include <string>
 
 #include "waybox/wbconf.hpp"
@@ -859,5 +861,356 @@ WB_TEST(output_rules_random_edits) {
 			fprintf(stderr, "round %d:\n%s\n->\n%s\n", round, xml.c_str(), out.c_str());
 			break;
 		}
+	}
+}
+
+/* Bindings: read (chains flattened), edited in place (comments kept),
+ * added (a chain's keys reused), removed (an emptied chain key too);
+ * advanced ones (If) left to rc.xml. */
+WB_TEST(bindings_read_and_edit) {
+	const char *xml = R"(<?xml version="1.0"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <keyboard>
+    <!-- keep me -->
+    <keybind key="W-e"><action name="Execute"><command>foot</command></action></keybind>
+    <keybind key="C-a">
+      <keybind key="x"><action name="Close"/></keybind>
+    </keybind>
+    <keybind key="W-i"><action name="If"><then><action name="Raise"/></then></action></keybind>
+  </keyboard>
+  <mouse>
+    <context name="Root">
+      <mousebind button="Right" action="Press"><action name="ShowMenu"><menu>root-menu</menu></action></mousebind>
+    </context>
+  </mouse>
+</openbox_config>
+)";
+	auto doc = wb::RcDocument::from_string(xml);
+	WB_CHECK(doc.has_value());
+	if (!doc)
+		return;
+	auto keys = doc->keybindings();
+	WB_CHECK(keys.size() == 3);
+	WB_CHECK((keys[0].chain == std::vector<std::string>{"W-e"}));
+	WB_CHECK(keys[0].actions.size() == 1 && keys[0].actions[0].name == "Execute" &&
+			keys[0].actions[0].options[0] == std::pair<std::string, std::string>("command", "foot"));
+	WB_CHECK((keys[1].chain == std::vector<std::string>{"C-a", "x"}));
+	WB_CHECK(keys[2].actions.size() == 1 && keys[2].actions[0].advanced);
+	auto mouse = doc->mousebindings();
+	WB_CHECK(mouse.size() == 1 && mouse[0].context == "Root" && mouse[0].button == "Right" &&
+			mouse[0].event == "Press" && mouse[0].actions[0].name == "ShowMenu");
+
+	/* In place: W-e now runs alacritty; the comment stays. */
+	wb::KeyBinding e = keys[0];
+	e.actions[0].options = {{"command", "alacritty"}};
+	WB_CHECK(doc->set_keybinding({"W-e"}, e));
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("keep me") != std::string::npos);
+	WB_CHECK(out.find("alacritty") != std::string::npos && out.find(">foot<") == std::string::npos);
+	/* Repeat while held: written as repeat="yes", read back; off, taken
+	 * away (an explicit "no" of the user's kept). */
+	WB_CHECK(!keys[0].repeat);
+	e.repeat = true;
+	WB_CHECK(doc->set_keybinding({"W-e"}, e));
+	WB_CHECK(doc->to_string().find("key=\"W-e\" repeat=\"yes\"") != std::string::npos);
+	WB_CHECK(doc->keybindings()[0].repeat);
+	e.repeat = false;
+	WB_CHECK(doc->set_keybinding({"W-e"}, e));
+	WB_CHECK(doc->to_string().find("repeat=") == std::string::npos);
+	{
+		auto no = wb::RcDocument::from_string(R"(<openbox_config><keyboard>
+<keybind key="F7" repeat="no"><action name="Close"/></keybind></keyboard></openbox_config>)");
+		WB_CHECK(no.has_value() && !no->keybindings()[0].repeat);
+		wb::KeyBinding f7 = no->keybindings()[0];
+		f7.actions = {{"Iconify", {}}};
+		WB_CHECK(no->set_keybinding({"F7"}, f7));
+		WB_CHECK(no->to_string().find("repeat=\"no\"") != std::string::npos);
+		/* A new one, repeating: on its own <keybind>. */
+		WB_CHECK(no->set_keybinding({}, wb::KeyBinding{{"XF86AudioRaiseVolume"},
+				{{"Execute", {{"command", "wpctl set-volume @DEFAULT_SINK@ 5%+"}}}}, true}));
+		WB_CHECK(no->to_string().find("key=\"XF86AudioRaiseVolume\" repeat=\"yes\"") !=
+				std::string::npos);
+	}
+	/* Several keys, buttons or places in one (Openbox's alternatives):
+	 * listed as written, left to rc.xml (wbconf's editor has one each). */
+	{
+		auto g = wb::RcDocument::from_string(R"(<openbox_config><keyboard>
+<keybind key="F5 F6"><action name="Close"/></keybind></keyboard><mouse>
+<context name="Frame Client"><mousebind button="Left Middle" action="Press"><action name="Focus"/></mousebind></context>
+</mouse></openbox_config>)");
+		WB_CHECK(g.has_value());
+		std::string before = g->to_string();
+		auto gk = g->keybindings();
+		WB_CHECK(gk.size() == 1 && gk[0].chain == std::vector<std::string>{"F5 F6"});
+		wb::KeyBinding changed = gk[0];
+		changed.actions = {{"Iconify", {}}};
+		WB_CHECK(!g->set_keybinding({"F5 F6"}, changed));
+		WB_CHECK(!g->set_keybinding({"F5 F6"}, std::nullopt));
+		auto gm = g->mousebindings();
+		WB_CHECK(gm.size() == 1 && gm[0].context == "Frame Client" && gm[0].button == "Left Middle");
+		wb::MouseBinding mm = gm[0];
+		mm.actions = {{"Raise", {}}};
+		WB_CHECK(!g->set_mousebinding(gm[0], mm));
+		WB_CHECK(!g->set_mousebinding(gm[0], std::nullopt));
+		WB_CHECK(g->to_string() == before);
+	}
+	/* Added under the existing C-a. */
+	WB_CHECK(doc->set_keybinding({}, wb::KeyBinding{{"C-a", "y"}, {{"Iconify", {}}}}));
+	keys = doc->keybindings();
+	WB_CHECK(keys.size() == 4 && (keys[2].chain == std::vector<std::string>{"C-a", "y"}));
+	/* Removed: C-a x, then C-a y; C-a itself goes with the last. */
+	/* Added on keys another binding has: both kept, side by side (the
+	 * other's actions not overwritten). */
+	WB_CHECK(doc->set_keybinding({}, wb::KeyBinding{{"W-e"}, {{"Close", {}}}}));
+	keys = doc->keybindings();
+	WB_CHECK(std::count_if(keys.begin(), keys.end(), [](const wb::KeyBinding &k) {
+		return k.chain == std::vector<std::string>{"W-e"};
+	}) == 2);
+	WB_CHECK(doc->to_string().find("alacritty") != std::string::npos);
+	/* Which of the two: told by what it ran. */
+	std::vector<wb::BoundAction> ran_alacritty = keys[0].actions;
+	WB_CHECK(doc->set_keybinding({"W-e"}, std::nullopt, &ran_alacritty));
+	keys = doc->keybindings();
+	WB_CHECK(std::any_of(keys.begin(), keys.end(), [](const wb::KeyBinding &k) {
+		return k.chain == std::vector<std::string>{"W-e"} && k.actions[0].name == "Close";
+	}));
+	WB_CHECK(doc->set_keybinding({"C-a", "x"}, std::nullopt));
+	WB_CHECK(doc->set_keybinding({"C-a", "y"}, std::nullopt));
+	WB_CHECK(doc->to_string().find("C-a") == std::string::npos);
+	/* Advanced: refused, left as it is. */
+	WB_CHECK(!doc->set_keybinding({"W-i"}, std::nullopt));
+	WB_CHECK(doc->to_string().find("<then>") != std::string::npos);
+	/* Mouse: moved to another button (removed, added), then removed. */
+	wb::MouseBinding m = mouse[0];
+	wb::MouseBinding moved = m;
+	moved.button = "Middle";
+	WB_CHECK(doc->set_mousebinding(m, moved));
+	mouse = doc->mousebindings();
+	WB_CHECK(mouse.size() == 1 && mouse[0].button == "Middle");
+	WB_CHECK(doc->set_mousebinding(moved, std::nullopt));
+	WB_CHECK(doc->mousebindings().empty());
+	/* A new context made for one. */
+	WB_CHECK(doc->set_mousebinding(std::nullopt,
+			wb::MouseBinding{"Titlebar", "Left", "DoubleClick", {{"ToggleMaximize", {}}}}));
+	WB_CHECK(doc->mousebindings().size() == 1);
+}
+
+/* Adding never merges into another binding, and finding one never takes a
+ * chain's start for it (review of #236). */
+WB_TEST(bindings_kept_apart) {
+	auto chains = [](const wb::RcDocument &d) {
+		std::vector<std::string> out;
+		for (const wb::KeyBinding &k : d.keybindings()) {
+			std::string c;
+			for (const std::string &s : k.chain)
+				c += (c.empty() ? "" : " ") + s;
+			out.push_back(c + "=" + (k.actions.empty() ? "" : k.actions[0].name));
+		}
+		return out;
+	};
+	using V = std::vector<std::string>;
+	/* A single key, then a chain starting with it: the leaf stays one. */
+	auto doc = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><keyboard>"
+			"<keybind key=\"C-a\"><action name=\"Close\"/></keybind>"
+			"</keyboard></openbox_config>");
+	WB_CHECK(doc.has_value());
+	if (!doc)
+		return;
+	WB_CHECK(doc->set_keybinding({}, wb::KeyBinding{{"C-a", "x"}, {{"Iconify", {}}}}));
+	WB_CHECK(chains(*doc) == (V{"C-a=Close", "C-a x=Iconify"}));
+	/* A chain, then the single key: its own <keybind>, listed. */
+	doc = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><keyboard>"
+			"<keybind key=\"C-a\"><keybind key=\"x\"><action name=\"Close\"/></keybind></keybind>"
+			"</keyboard></openbox_config>");
+	WB_CHECK(doc.has_value());
+	if (!doc)
+		return;
+	WB_CHECK(doc->set_keybinding({}, wb::KeyBinding{{"C-a"}, {{"Iconify", {}}}}));
+	WB_CHECK(chains(*doc) == (V{"C-a x=Close", "C-a=Iconify"}));
+	/* A second chain under the same start: shares it. */
+	WB_CHECK(doc->set_keybinding({}, wb::KeyBinding{{"C-a", "y"}, {{"Raise", {}}}}));
+	WB_CHECK(doc->to_string().find("key=\"C-a\"") != std::string::npos);
+	size_t first = doc->to_string().find("key=\"C-a\"");
+	WB_CHECK(doc->to_string().find("key=\"y\"") > first);
+	/* Removing the single key leaves the chain. */
+	std::vector<wb::BoundAction> iconify = {{"Iconify", {}}};
+	WB_CHECK(doc->set_keybinding({"C-a"}, std::nullopt, &iconify));
+	WB_CHECK(chains(*doc) == (V{"C-a x=Close", "C-a y=Raise"}));
+
+	/* An empty single key beside a chain: removing it can't take the
+	 * chain's start for it. */
+	doc = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><keyboard>"
+			"<keybind key=\"C-a\"><keybind key=\"x\"><action name=\"Close\"/></keybind></keybind>"
+			"<keybind key=\"C-a\"/>"
+			"</keyboard></openbox_config>");
+	WB_CHECK(doc.has_value());
+	if (!doc)
+		return;
+	std::vector<wb::BoundAction> none;
+	WB_CHECK(doc->set_keybinding({"C-a"}, std::nullopt, &none));
+	WB_CHECK(chains(*doc) == (V{"C-a x=Close"}));
+	WB_CHECK(doc->set_keybinding({"C-a"}, std::nullopt) == false ||
+			chains(*doc) == (V{"C-a x=Close"}));
+
+	/* Two mouse bindings on the same place: the one meant is removed. */
+	doc = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><mouse><context name=\"Root\">"
+			"<mousebind button=\"Right\" action=\"Press\"><action name=\"ShowMenu\"/></mousebind>"
+			"<mousebind button=\"Right\" action=\"Press\"><action name=\"Close\"/></mousebind>"
+			"</context></mouse></openbox_config>");
+	WB_CHECK(doc.has_value());
+	if (!doc)
+		return;
+	auto mouse = doc->mousebindings();
+	WB_CHECK(mouse.size() == 2);
+	WB_CHECK(doc->set_mousebinding(mouse[1], std::nullopt));
+	mouse = doc->mousebindings();
+	WB_CHECK(mouse.size() == 1 && mouse[0].actions[0].name == "ShowMenu");
+}
+
+/* Window rules (#237): read as Waybox reads them; edited, added, moved and
+ * removed in place, what Waybox doesn't read kept as written. */
+WB_TEST(app_rules_read_and_edit) {
+	auto doc = wb::RcDocument::from_string(R"(<?xml version="1.0"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <applications>
+    <!-- videos -->
+    <application class="mpv">
+      <fullscreen>yes</fullscreen>
+    </application>
+    <application class="foot" title="*scratch*" role="scratch">
+      <position><x>200</x><y>120</y></position>
+      <size><width>900</width><height>600</height></size>
+      <decor>no</decor>
+      <shade>yes</shade>
+    </application>
+    <application class="gimp">
+      <position force="yes"><x>center</x><y>left</y></position>
+      <desktop>2</desktop>
+    </application>
+  </applications>
+</openbox_config>
+)");
+	WB_CHECK(doc.has_value());
+	if (!doc)
+		return;
+	auto rules = doc->app_rules();
+	WB_CHECK(rules.size() == 3);
+	if (rules.size() != 3)
+		return;
+	WB_CHECK(rules[0].rule.class_pattern == "mpv" && rules[0].rule.fullscreen == true);
+	WB_CHECK(rules[1].rule.title_pattern == "*scratch*" && rules[1].rule.x == 200 &&
+			rules[1].rule.height == 600 && rules[1].rule.decor == false);
+	WB_CHECK((rules[1].kept == std::vector<std::string>{"role", "shade"}));
+	WB_CHECK(!rules[1].position_kept);
+	/* "center" read (Openbox's form); "left" isn't one: the position kept. */
+	WB_CHECK(rules[2].position_kept && rules[2].rule.desktop == 1 &&
+			rules[2].rule.x_spec == "center");
+
+	/* Edited in place: what it sets written, the rest kept. */
+	wb::AppRule foot = rules[1].rule;
+	foot.decor = true;
+	foot.desktop = wb::AppRule::kAllDesktops;
+	foot.x.reset();
+	foot.width.reset();
+	foot.height.reset();
+	WB_CHECK(doc->set_app_rule(1, foot));
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("<!-- videos -->") != std::string::npos);
+	WB_CHECK(out.find("role=\"scratch\"") != std::string::npos);
+	WB_CHECK(out.find("<shade>yes</shade>") != std::string::npos);
+	WB_CHECK(out.find("<decor>yes</decor>") != std::string::npos);
+	WB_CHECK(out.find("<desktop>all</desktop>") != std::string::npos);
+	WB_CHECK(out.find("<x>200</x>") == std::string::npos && out.find("<y>120</y>") != std::string::npos);
+	WB_CHECK(out.find("<size>") == std::string::npos);
+	/* A position Waybox reads only in part: never rewritten. */
+	wb::AppRule gimp = rules[2].rule;
+	gimp.desktop.reset();
+	WB_CHECK(doc->set_app_rule(2, gimp));
+	WB_CHECK(doc->to_string().find("<x>center</x>") != std::string::npos);
+	WB_CHECK(doc->to_string().find("<desktop>2</desktop>") == std::string::npos);
+	/* Read back as written. */
+	rules = doc->app_rules();
+	WB_CHECK(rules.size() == 3 && rules[1].rule == foot);
+
+	/* Added at the end, on lines of its own. */
+	wb::AppRule fresh;
+	fresh.class_pattern = "firefox";
+	fresh.maximized = true;
+	WB_CHECK(doc->set_app_rule(std::nullopt, fresh));
+	rules = doc->app_rules();
+	WB_CHECK(rules.size() == 4 && rules[3].rule == fresh);
+	WB_CHECK(doc->to_string().find("\n    <application class=\"firefox\">\n      <maximized>yes"
+			"</maximized>\n    </application>") != std::string::npos);
+
+	/* Moved: firefox first, then back to the end. */
+	WB_CHECK(doc->move_app_rule(3, 0));
+	rules = doc->app_rules();
+	WB_CHECK(rules[0].rule.class_pattern == "firefox" && rules[1].rule.class_pattern == "mpv");
+	WB_CHECK(doc->move_app_rule(0, 3));
+	rules = doc->app_rules();
+	WB_CHECK(rules[3].rule.class_pattern == "firefox" && rules[0].rule.class_pattern == "mpv");
+	WB_CHECK(!doc->move_app_rule(0, 9));
+
+	/* Removed. */
+	WB_CHECK(doc->set_app_rule(0, std::nullopt));
+	rules = doc->app_rules();
+	WB_CHECK(rules.size() == 3 && rules[0].rule.class_pattern == "foot");
+	WB_CHECK(!doc->set_app_rule(7, std::nullopt));
+
+	/* Regex patterns: read, written, not counted as kept. */
+	auto rx = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><applications>"
+			"<application match=\"iregex\" class=\"^foot$\"><decor>no</decor></application>"
+			"</applications></openbox_config>");
+	WB_CHECK(rx.has_value());
+	if (rx) {
+		auto r = rx->app_rules();
+		WB_CHECK(r.size() == 1 && r[0].rule.patterns == wb::AppRule::Patterns::IRegex &&
+				r[0].kept.empty());
+		wb::AppRule glob = r[0].rule;
+		glob.patterns = wb::AppRule::Patterns::Glob;
+		WB_CHECK(rx->set_app_rule(0, glob));
+		WB_CHECK(rx->to_string().find("match=") == std::string::npos);
+		glob.patterns = wb::AppRule::Patterns::Regex;
+		WB_CHECK(rx->set_app_rule(0, glob));
+		WB_CHECK(rx->to_string().find("match=\"regex\"") != std::string::npos);
+	}
+
+	/* Openbox's positions and a monitor: read, and written back. */
+	auto pos = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><applications>"
+			"<application class=\"mpv\"><position force=\"yes\"><x>center</x><y>-10%</y>"
+			"<monitor>2</monitor></position></application>"
+			"</applications></openbox_config>");
+	WB_CHECK(pos.has_value());
+	if (pos) {
+		auto r = pos->app_rules();
+		/* (A minus: from the far edge, as Openbox reads it.) */
+		WB_CHECK(r.size() == 1 && !r[0].position_kept && r[0].rule.x_spec == "center" &&
+				r[0].rule.y_spec == "-10%" && r[0].rule.monitor == "2" && !r[0].rule.x);
+		wb::AppRule m = r[0].rule;
+		m.x_spec.clear();
+		m.x = 30;
+		m.monitor = "mouse";
+		WB_CHECK(pos->set_app_rule(0, m));
+		std::string out = pos->to_string();
+		WB_CHECK(out.find("<x>30</x>") != std::string::npos &&
+				out.find("<y>-10%</y>") != std::string::npos &&
+				out.find("<monitor>mouse</monitor>") != std::string::npos);
+		WB_CHECK(pos->app_rules()[0].rule == m);
+	}
+
+	/* A file with none: <applications> made for the first. */
+	auto empty = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"></openbox_config>");
+	WB_CHECK(empty.has_value());
+	if (empty) {
+		WB_CHECK(empty->app_rules().empty());
+		WB_CHECK(empty->set_app_rule(std::nullopt, fresh));
+		WB_CHECK(empty->app_rules().size() == 1);
 	}
 }

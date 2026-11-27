@@ -3,6 +3,9 @@
 
 #include <map>
 #include <optional>
+
+#include "waybox/applications.hpp"
+#include "waybox/action_catalog.hpp"
 #include <string>
 #include <vector>
 
@@ -168,6 +171,32 @@ struct LoadError {
  * the rest of the user's configuration (keybindings, application rules, …) and
  * its comments intact. Backed by libxml2; movable, non-copyable.
  */
+/* A key binding: its chain of keys ("C-a", then "x"; one key for most),
+ * and what it does, in order. */
+struct KeyBinding {
+	std::vector<std::string> chain;
+	std::vector<BoundAction> actions;
+	bool repeat = false;  /* repeat="yes": runs again while held */
+	bool operator==(const KeyBinding &) const = default;
+};
+
+/* A mouse binding: where (<context name>), which button (with modifiers:
+ * "A-Left"), on what (Press, Click, DoubleClick, Release, Drag), and what
+ * it does. */
+struct MouseBinding {
+	std::string context, button, event;
+	std::vector<BoundAction> actions;
+	bool operator==(const MouseBinding &) const = default;
+};
+
+/* A window rule as the editor has it: the rule, and what of it Waybox
+ * doesn't read (kept as written). */
+struct AppRuleEntry {
+	AppRule rule;
+	std::vector<std::string> kept;
+	bool position_kept = false;
+};
+
 class RcDocument {
 public:
 	RcDocument(RcDocument &&) noexcept;
@@ -206,6 +235,28 @@ public:
 	std::vector<std::pair<std::string, std::string>> execute_keybinds() const;
 	/* Every key with a <keybind>, whatever it does. */
 	std::vector<std::string> keybind_keys() const;
+
+	/* Every key binding (chains flattened) and mouse binding, in file
+	 * order. Actions the editor doesn't model (If, ForEach, nested
+	 * elements) come back as `advanced`, their XML left as it is. */
+	std::vector<KeyBinding> keybindings() const;
+	std::vector<MouseBinding> mousebindings() const;
+	/* Edited one at a time, in place: `was` (the chain, or the context,
+	 * button and event, as read) replaced by `now`, or added when `was` is
+	 * empty; removed with nullopt. One with advanced actions is refused
+	 * (false): only rc.xml edits those. A chain's keys left empty go too. */
+	bool set_keybinding(const std::vector<std::string> &was, const std::optional<KeyBinding> &now,
+			const std::vector<BoundAction> *was_actions = nullptr);
+	/* <applications>' rules, in order (the first that matches a window
+	 * wins). set_app_rule: the rule at `index` changed in place (comments
+	 * and what Waybox doesn't read kept), or removed with nullopt; a new
+	 * one added at the end with no index. move_app_rule: the rule at
+	 * `from` put at `to`. False when there's no such rule. */
+	std::vector<AppRuleEntry> app_rules() const;
+	bool set_app_rule(std::optional<size_t> index, const std::optional<AppRule> &now);
+	bool move_app_rule(size_t from, size_t to);
+	bool set_mousebinding(const std::optional<MouseBinding> &was,
+			const std::optional<MouseBinding> &now);
 	/* Bind `key` to run `command` (an Execute keybind, replacing what the
 	 * key had), or with nullopt remove `key`'s binding if it's an Execute
 	 * one. Other bindings and their comments stay as they are. */

@@ -4,6 +4,7 @@
 #include <vector>
 #include "waybox/wlroots.hpp"
 
+#include "waybox/action.hpp"
 #include "waybox/listener.hpp"
 
 struct wb_server;
@@ -48,8 +49,18 @@ struct wb_keyboard {
 	wb::Listener modifiers;
 	wb::Listener key;
 
+	/* A held key whose binding says repeat="yes": its actions run again
+	 * after the keyboard's repeat delay, then at its rate, until any key
+	 * event from this keyboard (its release, another key, a modifier). */
+	struct wl_event_source *repeat_timer = nullptr;
+	std::vector<wb::Action> repeat_actions;
+	uint32_t repeat_modifiers = 0;
+
 	void on_modifiers(void *data);
 	void on_key(void *data);
+	void start_repeat(std::vector<wb::Action> actions, uint32_t modifiers);
+	void stop_repeat();
+	~wb_keyboard() { stop_repeat(); }
 };
 
 struct wb_seat *wb_seat_create(struct wb_server *server);

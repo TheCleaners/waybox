@@ -1,0 +1,9 @@
+wbconf's location picker data, made by tools/geo/make_geo.py from Natural
+Earth release v5.1.2 (https://www.naturalearthdata.com/), which is in the
+public domain:
+
+  countries.bin  Admin 0 countries at 1:110m: the outlines, packed.
+  cities.tsv     Populated places (simple) at 1:10m: name, country,
+                 latitude, longitude, population.
+
+Made with Natural Earth. Free vector and raster map data @ naturalearthdata.com.

@@ -33,6 +33,16 @@ struct ClientMenuState {
 
 MenuFile build_client_menu(const ClientMenuState &state);
 
+/* The About card's lines: what's running. */
+struct AboutInfo {
+	std::string version;     /* git describe, or the release */
+	std::string wlroots;     /* the wlroots it was built with */
+	std::string renderer;    /* "GPU (Vulkan)", "GPU (OpenGL ES)", "software" */
+	bool xwayland = false;
+	int monitors = 0;
+};
+constexpr std::string_view kProjectUrl = "https://github.com/TheCleaners/waybox";
+
 }  // namespace wb
 
 #endif /* WB_CLIENT_MENU_HPP */

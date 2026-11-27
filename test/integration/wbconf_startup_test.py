@@ -7,8 +7,9 @@ system one. Switched as in the window (WBCONF_TEST_SET) and saved with
 Ctrl+S:
 - the script's start line is commented out and the example back in,
   nothing else changes, it stays executable, and a backup is kept;
-- the system entry is switched off by a Hidden=true copy in the user's
-  autostart folder (the system file untouched), the user's entry in place.
+- the system entry is switched off by a copy in the user's autostart
+  folder saying NotShowIn=Waybox (the folder is every desktop's: the others
+  still start it; the system file untouched), the user's entry in place.
 
 Skips (exit 77) without wtype, or a headless display.
 
@@ -126,12 +127,13 @@ def main():
             failures.append("the system entry wasn't switched off in the user's folder")
         else:
             text = open(bar_user).read()
-            if "Hidden=true" not in text or "Exec=bar --tray" not in text:
+            if "NotShowIn=Waybox;" not in text or "Hidden" in text or \
+                    "Exec=bar --tray" not in text:
                 failures.append(f"the user's copy of the system entry is wrong:\n{text}")
         if open(os.path.join(sysxdg, "autostart", "bar.desktop")).read() != SYSTEM_BAR:
             failures.append("the system's autostart file was changed")
         foo = open(os.path.join(cfg, "autostart", "foo.desktop")).read()
-        if "Hidden=true" not in foo:
+        if "NotShowIn=Waybox;" not in foo or "Hidden" in foo:
             failures.append(f"the user's entry wasn't switched off:\n{foo}")
     except RuntimeError as e:
         failures.append(str(e))

@@ -128,6 +128,9 @@ struct Integration {
 	/* Provides=wallpaper, notifications: what it occupies, that only one
 	 * program can (two that provide the same thing compete). */
 	std::vector<std::string> provides;
+	/* Location=latitude, longitude: the two options that are a place on
+	 * Earth (wlsunset's -l and -L): wbconf shows a map to pick it on. */
+	std::vector<std::string> location;
 	IntegrationReload reload;
 	/* The directory the file was read from (load_integrations): where a
 	 * Lua page is looked for. */

@@ -5,6 +5,8 @@
  * plain WayboxSettings struct; this file is the XML glue and is unit-tested via
  * in-memory round-trips (test/wbconf_test.cpp).
  */
+#include "waybox/xml_edit.hpp"
+#include "waybox/app_rule_xml.hpp"
 #include "waybox/font_spec.hpp"
 #include "waybox/wbconf.hpp"
 #include "waybox/startup.hpp"
@@ -1258,6 +1260,339 @@ void RcDocument::set_keybind(const std::string &key, const std::optional<std::st
 	xmlNode *cmd = xmlNewNode(action->ns, xc("command"));
 	xmlNodeAddContent(cmd, xc(command->c_str()));
 	xmlAddChild(action, cmd);
+}
+
+namespace {
+
+/* <action>s read and written as the editors have them (xml_edit, shared
+ * with menu.xml's editor). */
+std::vector<BoundAction> read_actions(xmlNode *parent) {
+	return xml_edit::read_actions(parent);
+}
+
+bool any_advanced(const std::vector<BoundAction> &actions) {
+	for (const BoundAction &a : actions)
+		if (a.advanced)
+			return true;
+	return false;
+}
+
+void write_actions(xmlNode *parent, const std::vector<BoundAction> &actions) {
+	xml_edit::write_actions(parent, actions);
+}
+
+/* A keybind's repeat="…" said yes (as Waybox reads it). */
+bool repeat_on(xmlNode *keybind) {
+	std::string r = attr_value(keybind, "repeat").value_or("");
+	std::transform(r.begin(), r.end(), r.begin(), [](unsigned char ch) { return std::tolower(ch); });
+	return r == "yes" || r == "true" || r == "on" || r == "1";
+}
+
+/* repeat="yes" written, or (off) a yes taken away; an explicit "no" kept. */
+void write_repeat(xmlNode *keybind, bool repeat) {
+	if (repeat)
+		xmlSetProp(keybind, xc("repeat"), xc("yes"));
+	else if (repeat_on(keybind))
+		xmlUnsetProp(keybind, xc("repeat"));
+}
+
+void collect_keys(xmlNode *parent, std::vector<std::string> &chain, std::vector<KeyBinding> &out) {
+	for (xmlNode *c = parent->children; c != nullptr; c = c->next) {
+		if (!is_element(c, "keybind"))
+			continue;
+		chain.push_back(attr_value(c, "key").value_or(""));
+		bool nested = false;
+		for (xmlNode *g = c->children; g != nullptr; g = g->next)
+			if (is_element(g, "keybind"))
+				nested = true;
+		if (nested)
+			collect_keys(c, chain, out);
+		else
+			out.push_back({chain, read_actions(c), repeat_on(c)});
+		chain.pop_back();
+	}
+}
+
+/* The <keybind> at the end of `chain` under `kb`, or nullptr. */
+bool has_child(xmlNode *n, const char *name) {
+	for (xmlNode *c = n->children; c != nullptr; c = c->next)
+		if (is_element(c, name))
+			return true;
+	return false;
+}
+
+/* Every binding at the end of `chain`, in document order (two bindings
+ * can have the same keys): a <keybind> there that isn't a chain's start,
+ * as keybindings() lists them. */
+void chain_ends(xmlNode *at, const std::vector<std::string> &chain, size_t i,
+		std::vector<xmlNode *> &out) {
+	for (xmlNode *c = at->children; c != nullptr; c = c->next) {
+		if (!is_element(c, "keybind") || attr_value(c, "key").value_or("") != chain[i])
+			continue;
+		if (i + 1 == chain.size()) {
+			if (!has_child(c, "keybind"))
+				out.push_back(c);
+		} else {
+			chain_ends(c, chain, i + 1, out);
+		}
+	}
+}
+
+/* The binding on `chain`: the one running `actions` when given and two
+ * share the keys, else the first. */
+xmlNode *find_chain(xmlNode *kb, const std::vector<std::string> &chain,
+		const std::vector<BoundAction> *actions = nullptr) {
+	if (kb == nullptr || chain.empty())
+		return nullptr;
+	std::vector<xmlNode *> ends;
+	chain_ends(kb, chain, 0, ends);
+	if (actions != nullptr)
+		for (xmlNode *n : ends)
+			if (read_actions(n) == *actions)
+				return n;
+	return ends.empty() ? nullptr : ends.front();
+}
+
+/* Remove `node`, then any chain keys left with nothing in them. */
+void remove_with_empty_parents(xmlNode *node) {
+	xmlNode *parent = node->parent;
+	unlink_element(node);
+	while (parent != nullptr && is_element(parent, "keybind")) {
+		bool empty = true;
+		for (xmlNode *c = parent->children; c != nullptr; c = c->next)
+			if (c->type == XML_ELEMENT_NODE)
+				empty = false;
+		if (!empty)
+			break;
+		xmlNode *up = parent->parent;
+		unlink_element(parent);
+		parent = up;
+	}
+}
+
+/* The <mousebind> for `m`: should two share its place, button and event,
+ * the one running m's actions; else the first. */
+xmlNode *find_mousebind(xmlNode *root, const MouseBinding &m) {
+	xmlNode *mouse = find_path(root, {"mouse"});
+	xmlNode *first = nullptr;
+	for (xmlNode *ctx = mouse ? mouse->children : nullptr; ctx != nullptr; ctx = ctx->next) {
+		if (!is_element(ctx, "context") || attr_value(ctx, "name").value_or("") != m.context)
+			continue;
+		for (xmlNode *b = ctx->children; b != nullptr; b = b->next)
+			if (is_element(b, "mousebind") &&
+					attr_value(b, "button").value_or("") == m.button &&
+					attr_value(b, "action").value_or("") == m.event) {
+				if (read_actions(b) == m.actions)
+					return b;
+				if (first == nullptr)
+					first = b;
+			}
+	}
+	return first;
+}
+
+}  // namespace
+
+std::vector<KeyBinding> RcDocument::keybindings() const {
+	std::vector<KeyBinding> out;
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	xmlNode *kb = root ? find_path(root, {"keyboard"}) : nullptr;
+	if (kb != nullptr) {
+		std::vector<std::string> chain;
+		collect_keys(kb, chain, out);
+	}
+	return out;
+}
+
+std::vector<MouseBinding> RcDocument::mousebindings() const {
+	std::vector<MouseBinding> out;
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	xmlNode *mouse = root ? find_path(root, {"mouse"}) : nullptr;
+	for (xmlNode *ctx = mouse ? mouse->children : nullptr; ctx != nullptr; ctx = ctx->next) {
+		if (!is_element(ctx, "context"))
+			continue;
+		std::string name = attr_value(ctx, "name").value_or("");
+		for (xmlNode *b = ctx->children; b != nullptr; b = b->next)
+			if (is_element(b, "mousebind"))
+				out.push_back({name, attr_value(b, "button").value_or(""),
+						attr_value(b, "action").value_or(""), read_actions(b)});
+	}
+	return out;
+}
+
+bool RcDocument::set_keybinding(const std::vector<std::string> &was,
+		const std::optional<KeyBinding> &now, const std::vector<BoundAction> *was_actions) {
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	if (root == nullptr || (now && (now->chain.empty() || any_advanced(now->actions))))
+		return false;
+	xmlNode *kb = find_path(root, {"keyboard"});
+	xmlNode *old = was.empty() || kb == nullptr ? nullptr : find_chain(kb, was, was_actions);
+	if (old != nullptr && any_advanced(read_actions(old)))
+		return false;  /* only rc.xml edits those */
+	/* key="W-a W-b" (Openbox's alternatives): rc.xml's too. */
+	if (std::any_of(was.begin(), was.end(), [](const std::string &k) {
+			return k.find(' ') != std::string::npos; }))
+		return false;
+	if (!was.empty() && old == nullptr)
+		return false;
+	/* The same keys: actions replaced where it stands (comments kept). */
+	if (old != nullptr && now && now->chain == was) {
+		write_actions(old, now->actions);
+		write_repeat(old, now->repeat);
+		return true;
+	}
+	if (old != nullptr)
+		remove_with_empty_parents(old);
+	if (!now)
+		return true;
+	/* Added, never merged into another binding: down the chain, a key
+	 * reused only where it's a chain's start and nothing else (the first
+	 * such, the one Waybox goes into); the last key always its own
+	 * <keybind>. Another binding on the same keys is kept beside it
+	 * (Waybox runs the first; wbconf says which). */
+	xmlNode *at = ensure_path(root, {"keyboard"});
+	for (size_t i = 0; i < now->chain.size(); ++i) {
+		const std::string &key = now->chain[i];
+		bool last = i + 1 == now->chain.size();
+		xmlNode *next = nullptr;
+		for (xmlNode *c = at->children; c != nullptr && !last && next == nullptr; c = c->next)
+			if (is_element(c, "keybind") && attr_value(c, "key").value_or("") == key &&
+					!has_child(c, "action"))
+				next = c;
+		if (next == nullptr) {
+			next = new_child(at, "keybind");
+			xmlSetProp(next, xc("key"), xc(key.c_str()));
+		}
+		at = next;
+	}
+	write_actions(at, now->actions);
+	write_repeat(at, now->repeat);
+	return true;
+}
+
+namespace {
+
+/* The <application> elements under <applications>, in order. */
+std::vector<xmlNode *> app_nodes(xmlNode *root) {
+	std::vector<xmlNode *> out;
+	xmlNode *apps = root != nullptr ? find_path(root, {"applications"}) : nullptr;
+	for (xmlNode *c = apps != nullptr ? apps->children : nullptr; c != nullptr; c = c->next)
+		if (is_element(c, "application"))
+			out.push_back(c);
+	return out;
+}
+
+}  // namespace
+
+std::vector<AppRuleEntry> RcDocument::app_rules() const {
+	std::vector<AppRuleEntry> out;
+	for (xmlNode *n : app_nodes(xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_)))) {
+		AppRuleXml r = read_app_rule(n);
+		out.push_back({std::move(r.rule), std::move(r.kept), r.position_kept});
+	}
+	return out;
+}
+
+bool RcDocument::set_app_rule(std::optional<size_t> index, const std::optional<AppRule> &now) {
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	if (root == nullptr)
+		return false;
+	std::vector<xmlNode *> nodes = app_nodes(root);
+	if (index) {
+		if (*index >= nodes.size())
+			return false;
+		xmlNode *n = nodes[*index];
+		if (!now) {
+			unlink_element(n);
+			return true;
+		}
+		write_app_rule(n, *now, read_app_rule(n).position_kept);
+		return true;
+	}
+	if (!now)
+		return false;
+	xmlNode *n = new_child(ensure_path(root, {"applications"}), "application");
+	if (n == nullptr)
+		return false;
+	write_app_rule(n, *now, false);
+	return true;
+}
+
+bool RcDocument::move_app_rule(size_t from, size_t to) {
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	std::vector<xmlNode *> nodes = app_nodes(root);
+	if (from >= nodes.size() || to >= nodes.size())
+		return false;
+	if (from == to)
+		return true;
+	xmlNode *n = nodes[from];
+	/* With the whitespace before it, so the indentation moves along. */
+	xmlNode *space = n->prev != nullptr && xmlIsBlankNode(n->prev) ? n->prev : nullptr;
+	xmlNode *anchor = nodes[to];
+	xmlUnlinkNode(n);
+	if (space != nullptr)
+		xmlUnlinkNode(space);
+	if (to < from) {
+		/* Before the rule now at `to` (and before its indentation). */
+		xmlNode *before = anchor->prev != nullptr && xmlIsBlankNode(anchor->prev) ? anchor->prev
+				: anchor;
+		if (space != nullptr)
+			xmlAddPrevSibling(before, space);
+		xmlAddPrevSibling(before, n);
+	} else {
+		xmlAddNextSibling(anchor, n);
+		if (space != nullptr)
+			xmlAddPrevSibling(n, space);
+	}
+	return true;
+}
+
+bool RcDocument::set_mousebinding(const std::optional<MouseBinding> &was,
+		const std::optional<MouseBinding> &now) {
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	if (root == nullptr || (now && any_advanced(now->actions)))
+		return false;
+	xmlNode *old = was ? find_mousebind(root, *was) : nullptr;
+	if (was && old == nullptr)
+		return false;
+	if (old != nullptr && any_advanced(read_actions(old)))
+		return false;
+	/* Several buttons or places in one (Openbox's alternatives): rc.xml's. */
+	if (was && (was->context.find(' ') != std::string::npos ||
+			was->button.find(' ') != std::string::npos))
+		return false;
+	bool same_place = was && now && was->context == now->context &&
+			was->button == now->button && was->event == now->event;
+	if (old != nullptr && same_place) {
+		write_actions(old, now->actions);
+		return true;
+	}
+	if (old != nullptr) {
+		xmlNode *ctx = old->parent;
+		unlink_element(old);
+		bool empty = true;
+		for (xmlNode *c = ctx->children; c != nullptr; c = c->next)
+			if (c->type == XML_ELEMENT_NODE)
+				empty = false;
+		if (empty)
+			unlink_element(ctx);
+	}
+	if (!now)
+		return true;
+	xmlNode *mouse = ensure_path(root, {"mouse"});
+	xmlNode *ctx = nullptr;
+	for (xmlNode *c = mouse->children; c != nullptr; c = c->next)
+		if (is_element(c, "context") && attr_value(c, "name").value_or("") == now->context)
+			ctx = c;
+	if (ctx == nullptr) {
+		ctx = new_child(mouse, "context");
+		xmlSetProp(ctx, xc("name"), xc(now->context.c_str()));
+	}
+	xmlNode *b = new_child(ctx, "mousebind");
+	xmlSetProp(b, xc("button"), xc(now->button.c_str()));
+	xmlSetProp(b, xc("action"), xc(now->event.c_str()));
+	write_actions(b, now->actions);
+	return true;
 }
 
 }  // namespace wb

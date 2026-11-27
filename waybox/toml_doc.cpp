@@ -756,7 +756,14 @@ bool Document::set(const Path &path, const Value &value) {
 			if (!e.inline_member && e.section == best && path_prefix(first, e.path))
 				dotted_here = true;
 	}
-	if (rest > 1 && !dotted_here) {
+	/* Inside an element of an array of tables ([[bind]] 0): a [header]
+	 * can't name it (one at the end would be the last element's), so a
+	 * dotted key in the element itself. */
+	bool through_array = false;
+	for (size_t i = 0; i < s.path.size(); ++i)
+		if (!std::holds_alternative<std::string>(path[i]))
+			through_array = true;
+	if (rest > 1 && !dotted_here && !through_array) {
 		std::string header = "[" + dotted(Path(path.begin(), path.end() - 1), 0) + "]";
 		std::string add;
 		if (!text_.empty() && text_.back() != '\n')

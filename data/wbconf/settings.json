@@ -67,7 +67,14 @@
           "choices": [ { "value": "Smart", "label": "Where there's most room" },
                        { "value": "Center", "label": "Centered" },
                        { "value": "UnderMouse", "label": "Under the pointer" } ] },
-        { "id": "waybox.sessionRestore.enabled", "section": "Placement", "title": "Reopen windows where they were",
+        { "id": "waybox.activation.focus", "section": "Placement", "title": "When a window asks to be shown",
+          "description": "A program bringing its window forward, as a browser does for a link opened elsewhere. A window that isn't shown is marked: its desktop lights up in the panel.",
+          "keywords": "activation urgent attention focus stealing link browser",
+          "type": "enum", "default": "smart", "rc": { "path": "waybox/activation", "attr": "focus" },
+          "choices": [ { "value": "smart", "label": "Show it if it's on this desktop, else mark it" },
+                       { "value": "always", "label": "Always show it, switching desktops" },
+                       { "value": "never", "label": "Only mark it" } ] },
+        { "id": "waybox.sessionRestore.enabled", "section": "Placement", "title": "Reopen windows where they were", "type": "bool",
           "description": "For programs that ask: their windows come back at the size and place they had, on their desktop when recovering from a crash. Per-application rules still win.",
           "keywords": "session restore remember position size",
           "default": "yes", "rc": { "path": "waybox/sessionRestore", "attr": "enabled" } },
@@ -76,7 +83,10 @@
           "default": "yes", "rc": { "path": "waybox/edgeTiling", "attr": "enabled" } },
         { "id": "waybox.edgeTiling.range", "section": "Edge Tiling", "title": "Distance from the edge", "type": "int",
           "description": "How close to the edge the pointer must be.", "min": 1, "max": 100, "unit": "px",
-          "default": "10", "rc": { "path": "waybox/edgeTiling", "attr": "range" } }
+          "default": "10", "rc": { "path": "waybox/edgeTiling", "attr": "range" } },
+        { "id": "waybox.applications", "section": "Window Rules", "title": "Window Rules", "type": "custom",
+          "widget": "apprules",
+          "keywords": "rule rules application applications per-app app id class title tag window open desktop position size decor" }
       ]
     },
     {
@@ -115,18 +125,22 @@
       "id": "menu",
       "title": "Menu",
       "settings": [
-        { "id": "waybox.menu.source", "title": "Menu", "type": "string",
+        { "id": "waybox.menu.tree", "section": "Root Menu", "title": "Root Menu", "type": "custom",
+          "widget": "menutree",
+          "description": "What a right click on the desktop shows. Click an entry to change it.",
+          "keywords": "menu menu.xml root entries items right click desktop submenu separator applications pipe icon" },
+        { "id": "waybox.menu.source", "section": "Behavior", "title": "Menu", "type": "string",
           "description": "\"builtin\" for Waybox's own menu (menu.xml), or a command to run instead, such as a launcher.",
           "default": "builtin", "rc": { "path": "waybox/menu", "attr": "source" } },
-        { "id": "waybox.menu.submenuOpen", "title": "Open submenus on", "type": "enum", "default": "hover",
+        { "id": "waybox.menu.submenuOpen", "section": "Behavior", "title": "Open submenus on", "type": "enum", "default": "hover",
           "rc": { "path": "waybox/menu", "attr": "submenuOpen" },
           "choices": [ { "value": "hover", "label": "Hover" }, { "value": "click", "label": "Click" } ] },
-        { "id": "waybox.menu.hoverDelay", "title": "Submenu hover delay", "type": "int", "min": 0, "max": 2000,
+        { "id": "waybox.menu.hoverDelay", "section": "Behavior", "title": "Submenu hover delay", "type": "int", "min": 0, "max": 2000,
           "unit": "ms", "default": "100", "rc": { "path": "waybox/menu", "attr": "hoverDelay" } },
-        { "id": "waybox.menu.wrap", "title": "Wrap the selection", "type": "bool",
+        { "id": "waybox.menu.wrap", "section": "Behavior", "title": "Wrap the selection", "type": "bool",
           "description": "Moving past the last item selects the first.",
           "default": "yes", "rc": { "path": "waybox/menu", "attr": "wrap" } },
-        { "id": "waybox.menu.icons", "title": "Show icons", "type": "bool", "default": "yes",
+        { "id": "waybox.menu.icons", "section": "Behavior", "title": "Show icons", "type": "bool", "default": "yes",
           "rc": { "path": "waybox/menu", "attr": "icons" } }
       ]
     },
@@ -221,6 +235,18 @@
           "rc": { "path": "mouse/libinput/clickMethod" },
           "choices": [ { "value": "", "label": "Default" }, { "value": "buttonAreas", "label": "Button areas" },
                        { "value": "clickfinger", "label": "Number of fingers" }, { "value": "none", "label": "None" } ] }
+      ]
+    },
+    {
+      "id": "shortcuts",
+      "title": "Shortcuts",
+      "settings": [
+        { "id": "waybox.keybindings", "title": "Keyboard", "type": "custom",
+          "widget": "keybindings",
+          "keywords": "keybind keybinding shortcut hotkey key binding chain super alt ctrl" },
+        { "id": "waybox.mousebindings", "title": "Mouse", "type": "custom",
+          "widget": "mousebindings",
+          "keywords": "mousebind mouse binding click double drag titlebar desktop button" }
       ]
     },
     {

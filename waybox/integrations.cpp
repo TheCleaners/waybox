@@ -91,7 +91,7 @@ namespace {
 
 const std::set<std::string> kIntegrationKeys = {"Name", "Category", "Comment", "Exec", "Binary",
 		"Version", "Configure", "Manages", "Page", "Kind", "Env", "Key", "FormatVersion",
-		"Files", "Runs", "Reload", "Provides"};
+		"Files", "Runs", "Reload", "Provides", "Location"};
 
 /* "a, b ,c" */
 std::vector<std::string> comma_list(const std::string &value) {
@@ -230,6 +230,7 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 			else if (key == "Files") in.files = comma_list(value);
 			else if (key == "Runs") in.runs = comma_list(value);
 			else if (key == "Provides") in.provides = comma_list(value);
+			else if (key == "Location") in.location = comma_list(value);
 			else if (key == "Reload") {
 				/* command PROGRAM ARGS, signal USR2, restart, none */
 				std::vector<std::string> words;
@@ -457,7 +458,25 @@ std::string full_access_run(const std::string &program) {
 }
 
 std::string full_access_file(const std::string &path, const std::string &home) {
-	std::string p = path;
+	/* The path as plainly written: "//", "/./" and ".." steps resolved, so
+	 * no other spelling of ~/.bashrc passes for an ordinary file. */
+	std::string p;
+	{
+		std::string raw = path;
+		std::string prefix;
+		if (raw.rfind("~/", 0) == 0) {
+			prefix = "~";
+			raw = raw.substr(1);
+		}
+		std::string collapsed;
+		for (char c : raw)
+			if (!(c == '/' && !collapsed.empty() && collapsed.back() == '/'))
+				collapsed += c;
+		std::string norm = std::filesystem::path(collapsed).lexically_normal().string();
+		if (norm.size() > 1 && norm.back() == '/')
+			norm.pop_back();
+		p = prefix + norm;
+	}
 	if (!home.empty() && p.compare(0, home.size(), home) == 0 &&
 			(p.size() == home.size() || p[home.size()] == '/'))
 		p = "~" + p.substr(home.size());

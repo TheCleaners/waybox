@@ -23,6 +23,8 @@ struct ScriptEntry {
 	int line = 0;         /* 0-based */
 	bool enabled = true;
 	bool function = false;  /* runs a function the script defines */
+	/* "(waybar || yambar) &": the ones run if the first can't be. */
+	std::vector<std::string> alternatives;
 };
 std::vector<ScriptEntry> script_entries(std::string_view script);
 
@@ -70,10 +72,14 @@ std::string script_start_command(std::string_view line);
 bool parse_autostart(std::string_view text, const std::vector<std::string> &desktops,
 		AutostartEntry &e);
 
-/* The .desktop text switched on or off, the way desktops do it: off sets
- * Hidden=true; on removes Hidden and an X-GNOME-Autostart-enabled=false.
- * Only the [Desktop Entry] group is touched. */
-std::string autostart_set_enabled(std::string_view text, bool on);
+/* The .desktop text switched on or off for `desktop` only (Waybox's
+ * $XDG_CURRENT_DESKTOP): off adds it to NotShowIn (out of OnlyShowIn); on
+ * takes it out of NotShowIn, into an OnlyShowIn that leaves it out, and
+ * drops Hidden and X-GNOME-Autostart-enabled=false. Other desktops keep
+ * starting it as before (~/.config/autostart is shared by them all). Only
+ * the [Desktop Entry] group is touched. */
+std::string autostart_set_enabled(std::string_view text, bool on,
+		const std::string &desktop = "Waybox");
 
 }  // namespace wb
 

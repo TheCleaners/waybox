@@ -9,6 +9,8 @@
 #include "waybox/cursor.h"
 #include "waybox/mousebind.hpp"
 #include "waybox/server.h"
+#include "waybox/session_lock.h"
+#include "waybox/xdg_shell.h"
 
 namespace {
 
@@ -17,12 +19,17 @@ constexpr int kTimeoutMs = 30000;
 struct Pick {
 	struct wb_server *server = nullptr;
 	ColorPicked done;
+	WindowPicked window_done;  /* set: a window pick */
 	struct wl_event_source *timer = nullptr;
 };
 
 Pick *pick = nullptr;
+/* The button whose press ended a pick: its release is the pick's too,
+ * not a stray release for whatever is under the pointer. */
+uint32_t ended_by = 0;
 
-void end(bool ok, const wb::Color &c, const std::string &error) {
+void end(bool ok, const wb::Color &c, const std::string &error,
+		struct wb_toplevel *window = nullptr) {
 	if (pick == nullptr)
 		return;
 	Pick *p = pick;
@@ -31,12 +38,16 @@ void end(bool ok, const wb::Color &c, const std::string &error) {
 		wl_event_source_remove(p->timer);
 	struct wb_server *server = p->server;
 	ColorPicked done = std::move(p->done);
+	WindowPicked window_done = std::move(p->window_done);
 	delete p;
 	server->cursor->show_xcursor("default");
 	wlr_log(WLR_INFO, "wb-pick %s", ok ? "picked" : error.c_str());
-	if (done)
+	if (window_done)
+		window_done(ok ? window : nullptr, ok ? "" : error);
+	else if (done)
 		done(ok, c, error);
 }
+
 
 /* The pixel at layout x, y, as shown: that output's frame rendered now,
  * without the cursor, read, and dropped. */
@@ -101,10 +112,21 @@ bool color_pick_active(struct wb_server *) {
 	return pick != nullptr;
 }
 
+static bool start(struct wb_server *server, ColorPicked done, WindowPicked window_done);
+
 bool color_pick_start(struct wb_server *server, ColorPicked done) {
-	if (pick != nullptr)
+	return start(server, std::move(done), nullptr);
+}
+
+bool window_pick_start(struct wb_server *server, WindowPicked done) {
+	return start(server, nullptr, std::move(done));
+}
+
+static bool start(struct wb_server *server, ColorPicked done, WindowPicked window_done) {
+	if (pick != nullptr || session_locked(server))
 		return false;
-	pick = new Pick{server, std::move(done)};
+	ended_by = 0;
+	pick = new Pick{server, std::move(done), std::move(window_done)};
 	pick->timer = wl_event_loop_add_timer(server->wl_event_loop, [](void *) {
 		end(false, {}, "timed out");
 		return 0;
@@ -131,11 +153,26 @@ bool color_pick_motion(struct wb_server *server) {
 }
 
 bool color_pick_button(struct wb_server *server, uint32_t button, bool pressed) {
-	if (pick == nullptr)
+	if (pick == nullptr) {
+		if (!pressed && ended_by != 0 && button == ended_by) {
+			ended_by = 0;
+			return true;
+		}
 		return false;
+	}
 	if (!pressed)
 		return true;  /* (the press was the pick's: so is its release) */
-	if (button == wb::MOUSE_BUTTON_LEFT) {
+	ended_by = button;
+	if (button == wb::MOUSE_BUTTON_LEFT && pick->window_done) {
+		struct wlr_surface *surface = nullptr;
+		double sx = 0, sy = 0;
+		struct wb_toplevel *t = get_toplevel_at(server, server->cursor->cursor->x,
+				server->cursor->cursor->y, &surface, &sx, &sy);
+		if (t != nullptr)
+			end(true, {}, "", t);
+		else
+			end(false, {}, "no window there");
+	} else if (button == wb::MOUSE_BUTTON_LEFT) {
 		wb::Color c;
 		std::string error;
 		if (read_pixel(server, server->cursor->cursor->x, server->cursor->cursor->y, &c, &error))

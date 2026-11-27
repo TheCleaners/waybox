@@ -12,6 +12,13 @@ the right (desktop_client background halves).
 4. The output turned 90 degrees, at scale 2: still red on the left and
    blue on the right (the point is turned into the buffer's).
 5. The asking client goes mid-pick: the pick ends, and another can start.
+6. A window pick (IPC pick_window, wbconf's Pick a Window): a click on a
+   foot window gives its details (app id); on the bare desktop, "no
+   window there"; one pick at a time, of either kind. (Skipped without
+   foot.)
+7. A menu preview (IPC preview_menu, wbconf's menu editor): a menu from
+   text not saved anywhere opens at the pointer, as Waybox draws it; its
+   first entry, Exit, clicked: nothing runs (Waybox still there).
 Skips (77) without wlrctl, wtype or wlr-randr, or a headless display.
 
 Usage: color_pick_test.py <waybox> <waybox-msg> <desktop_client>
@@ -165,6 +172,93 @@ def main():
         got = answer(p)
         if "cancelled" not in got:
             failures.append(f"a right click: {got!r}")
+        # 6. A window pick.
+        if shutil.which("foot") is not None:
+            foot = subprocess.Popen(["foot", "--app-id", "pickme"], env=cenv,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            wbtest.reap_on_exit(foot)
+            time.sleep(2.0)
+            wins = json.loads(subprocess.run([msg, "get_windows"], env=cenv, capture_output=True,
+                                             text=True).stdout)["windows"]
+            win = next((x for x in wins if x.get("app_id") == "pickme"), None)
+            if win is None:
+                failures.append(f"window pick: foot didn't open: {wins}")
+            else:
+                def window_pick_at(x, y):
+                    move(x, y)
+                    p = subprocess.Popen([msg, "pick_window"], env=cenv, stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE, text=True)
+                    wbtest.reap_on_exit(p)
+                    time.sleep(0.4)
+                    subprocess.run(["wlrctl", "pointer", "click", "left"], env=cenv,
+                                   capture_output=True)
+                    try:
+                        out, err = p.communicate(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        p.kill()
+                        return "(no answer)"
+                    try:
+                        r = json.loads(out)
+                        return r["window"]["app_id"] if r.get("ok") else r.get("error", out)
+                    except ValueError:
+                        return (out + err).strip()
+                got = window_pick_at(win["x"] + win["width"] // 2, win["y"] + win["height"] // 2)
+                if got != "pickme":
+                    failures.append(f"window pick on foot: {got!r}")
+                # The bare desktop: the far corner from the window.
+                cx = w - 5 if win["x"] < w // 2 else 5
+                cy = h - 5 if win["y"] < h // 2 else 5
+                got = window_pick_at(cx, cy)
+                if "no window there" not in got:
+                    failures.append(f"window pick on the desktop: {got!r}")
+                p = start_pick()
+                q = subprocess.run([msg, "pick_window"], env=cenv, capture_output=True,
+                                   text=True, timeout=5)
+                if "already" not in q.stdout + q.stderr:
+                    failures.append(f"two picks at once: {q.stdout!r}")
+                subprocess.run(["wtype", "-k", "Escape"], env=cenv, capture_output=True)
+                answer(p)
+            foot.kill()
+            foot.wait()
+            time.sleep(0.4)
+        # 7. A menu preview: its Exit does nothing.
+        preview = ('<openbox_menu xmlns="http://openbox.org/3.4/menu">'
+                   '<menu id="root-menu" label="Preview">'
+                   '<item label="Exit"><action name="Exit"/></item>'
+                   '<item label="Other"><action name="Exit"/></item>'
+                   '</menu></openbox_menu>')
+        move(w // 3, h // 3)
+        r = subprocess.run([msg, "raw", json.dumps({"request": "preview_menu", "menu": preview})],
+                           env=cenv, capture_output=True, text=True, timeout=5)
+        time.sleep(0.5)
+        log.flush()
+        if '"ok":true' not in r.stdout.replace(" ", "") or \
+                "wb-menu open root-menu" not in open(log_path).read():
+            failures.append(f"preview_menu: {r.stdout!r} {r.stderr!r}")
+        # Below the title row: an entry (both are Exit).
+        subprocess.run(["wlrctl", "pointer", "move", "40", "44"], env=cenv, capture_output=True)
+        time.sleep(0.2)
+        subprocess.run(["wlrctl", "pointer", "click", "left"], env=cenv, capture_output=True)
+        time.sleep(0.8)
+        log.flush()
+        if proc.poll() is not None:
+            failures.append("choosing Exit in a menu preview ended Waybox")
+        else:
+            # The menu closed on that click: the next click on the desktop
+            # reaches its binding (an open menu would only close).
+            if os.path.exists(marker):
+                os.remove(marker)
+            move(w - 20, h - 20)
+            subprocess.run(["wlrctl", "pointer", "click", "left"], env=cenv,
+                           capture_output=True)
+            time.sleep(0.5)
+            if not os.path.exists(marker):
+                failures.append("the preview's entry, clicked, didn't close it")
+        bad = subprocess.run([msg, "raw", json.dumps({"request": "preview_menu",
+                              "menu": preview, "id": "nope"})], env=cenv,
+                             capture_output=True, text=True, timeout=5)
+        if "no menu nope" not in bad.stdout + bad.stderr:
+            failures.append(f"preview of a menu that isn't there: {bad.stdout!r}")
         # 4. Turned and scaled.
         subprocess.run(["wlr-randr", "--output", "HEADLESS-1", "--transform", "90",
                         "--scale", "2"], env=cenv, capture_output=True)

@@ -32,6 +32,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include "waybox/binding_clash.hpp"
 #include "waybox/font_spec.hpp"
 #include "waybox/name_list.hpp"
 #include "waybox/page_protocol.hpp"
@@ -201,6 +202,10 @@ std::string option_field_value(const OptionField &f);
 /* Show `value` (from the command), without calling on_change. */
 void set_option_field_value(OptionField &f, const std::string &value);
 
+struct ShortcutEdit;  /* shortcuts_page.cpp */
+struct RuleEdit;      /* rules_page.cpp */
+struct MenuState;     /* menu_page.cpp */
+
 struct Ui {
 	/* Built and shown: a switch changing now is the user's (or a test's). */
 	bool ready = false;
@@ -337,6 +342,7 @@ struct Ui {
 		GtkEntry *command = nullptr;
 		GtkEntry *name_entry = nullptr;       /* custom programs */
 		std::map<std::string, std::unique_ptr<OptionField>> options;
+		GtkWidget *geo = nullptr;  /* Location=: the map, above its two options */
 		GtkWidget *box = nullptr;
 		GtkWidget *details = nullptr;  /* options and command: shown when on */
 		GtkLabel *status = nullptr;
@@ -349,6 +355,9 @@ struct Ui {
 		 * not as "Keep Program Settings Open" says (a Lua page folds its
 		 * own). */
 		GtkWidget *settings = nullptr;
+		/* Its settings unfolded the first time it's turned on (here, this
+		 * run), to show what can be set; folded or not after as kept. */
+		bool unfolded_once = false;
 		bool syncing = false;
 		bool removed = false;
 		/* Turned on while the autostart script starts it too: asked
@@ -383,6 +392,29 @@ struct Ui {
 	std::vector<std::unique_ptr<BindingRow>> bindings;
 	/* Every Lua page shown (its row owns it): saved, listed, tested. */
 	std::vector<std::weak_ptr<void>> lua_pages;
+	/* The Shortcuts page's two lists. */
+	GtkWidget *shortcut_keys = nullptr;
+	GtkWidget *shortcut_mouse = nullptr;
+	GtkWidget *shortcut_add = nullptr;
+	GtkWidget *shortcut_mouse_add = nullptr;
+	GtkWidget *shortcut_suggest = nullptr;  /* "Add a shortcut for ..." */
+	GtkSizeGroup *shortcut_column = nullptr;  /* the keys' column */
+	GtkSizeGroup *shortcut_mouse_column = nullptr;
+	/* Each key binding as saved and as it is now (shared_ptr: the type is
+	 * the page's own). */
+	std::vector<std::shared_ptr<ShortcutEdit>> shortcut_edits;
+	ShortcutEdit *capturing = nullptr;  /* whose keys are being pressed */
+	/* The window rules list: each rule as saved and as it is now, in the
+	 * list's order (shared_ptr: the type is the page's own). */
+	GtkWidget *rules_box = nullptr, *rules_empty = nullptr, *rules_foot = nullptr;
+	GtkSizeGroup *rules_column = nullptr;
+	std::vector<std::shared_ptr<RuleEdit>> rule_edits;
+	std::string rules_script_note;
+	/* The Menu page's tree: menu.xml, and the changes made to it. */
+	std::shared_ptr<MenuState> menu;  /* "init.lua:3": a script's rules policy (tests) */
+	/* Keys scripts bind (init.lua and rc.xml's <scripts>), read at load. */
+	std::vector<wb::ScriptKey> script_keys;
+	GtkEventController *capture_keys = nullptr;
 	std::vector<std::string> bound_keys;  /* every key rc.xml binds */
 
 	/* The input method: None, an installed framework (from the integration
@@ -581,6 +613,8 @@ std::string view_get(const std::string &key);
 void view_set(const std::string &key, const std::string &value);
 std::string lua_page_fold(Ui *ui, const std::string &id);  /* tests: open|folded|hidden */
 void set_lua_pages_open(Ui *ui, bool open);
+/* A program just turned on: its settings (typed, or its page) unfolded. */
+void unfold_program_settings(Ui *ui, Ui::ProgramRow *row);
 /* `command`: the program's command line as its row has it now (its options
  * given to the page, wb.option), if it has one. */
 GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in, std::shared_ptr<void> *holder,
@@ -638,6 +672,41 @@ std::optional<wb::InputMethodSetting> collect_input_method(Ui *ui);
 /* Choose by integration id ("" none, "custom"), as the dropdown would. */
 void choose_input_method(Ui *ui, const std::string &id);
 void populate_bindings(Ui *ui, const wb::RcDocument *doc);
+/* The Shortcuts page (shortcuts_page.cpp). */
+GtkWidget *build_keybindings_block(Ui *ui);
+GtkWidget *build_mousebindings_block(Ui *ui);
+void populate_shortcuts(Ui *ui, const wb::RcDocument *doc);
+/* The Menu page's tree (menu_page.cpp): built, filled from menu.xml, its
+ * changes written at Save & Apply (false with why), listed, and test
+ * hooks. */
+GtkWidget *build_menu_block(Ui *ui);
+void populate_menu(Ui *ui);
+bool apply_menu(Ui *ui, std::string *error);
+void menu_dump(Ui *ui);
+void menu_test_step(Ui *ui, const std::string &step);
+/* The scripts Waybox runs (init.lua, rc.xml's <scripts>): each its file's
+ * name and text. */
+std::vector<std::pair<std::string, std::string>> script_sources(const wb::RcDocument *doc);
+/* Window rules (rules_page.cpp). */
+GtkWidget *build_rules_block(Ui *ui);
+void populate_rules(Ui *ui, const wb::RcDocument *doc);
+/* The rules changed (and their order), into rc.xml at Save & Apply. */
+void apply_rules(Ui *ui, wb::RcDocument &doc);
+/* Test hooks: the rules to stderr; a step ("rule-set:2=desktop=all"). */
+void rule_dump(Ui *ui);
+void rule_test_step(Ui *ui, const std::string &step);
+/* The bindings changed, into rc.xml (at Save & Apply). */
+void apply_shortcuts(Ui *ui, wb::RcDocument &doc);
+/* Search: the "keybindings"/"mousebindings" list's rows matching `q`
+ * shown (all when `whole`, the setting itself matching); whether
+ * anything is. */
+bool shortcuts_filter(Ui *ui, const std::string &widget, const std::string &q, bool setting_hit);
+/* For search's @modified and @problems: unsaved rows; rows that never run. */
+bool shortcuts_dirty(Ui *ui, const std::string &widget);
+bool shortcuts_problem(Ui *ui, const std::string &widget);
+/* Test hooks: the rows to stderr; a step ("shortcut-add:W-x=Close"). */
+void shortcut_dump(Ui *ui);
+void shortcut_test_step(Ui *ui, const std::string &step);
 /* The binding rows' changes into `doc`; then what's saved is what's shown. */
 void apply_bindings(Ui *ui, wb::RcDocument &doc);
 void bindings_saved(Ui *ui);
@@ -698,6 +767,12 @@ void gtk_changes(Ui *ui, const std::string &where, GtkWidget *target,
 		std::vector<UnsavedChange> &out);
 void sources_changes(Ui *ui, bool script, const std::string &where, GtkWidget *target,
 		std::vector<UnsavedChange> &out);
+void rule_changes(Ui *ui, const std::string &where, GtkWidget *target,
+		std::vector<UnsavedChange> &out);
+void menu_changes(Ui *ui, const std::string &where, GtkWidget *target,
+		std::vector<UnsavedChange> &out);
+void shortcut_changes(Ui *ui, const std::string &widget, const std::string &where,
+		GtkWidget *target, std::vector<UnsavedChange> &out);
 void binding_changes(Ui *ui, const std::string &id, const std::string &where,
 		GtkWidget *target, std::vector<UnsavedChange> &out);
 /* The list button beside the status line, and bringing it up to date. */

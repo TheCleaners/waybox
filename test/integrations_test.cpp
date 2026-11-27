@@ -460,6 +460,12 @@ WB_TEST(full_access) {
 	/* Absolute, under the home folder. */
 	WB_CHECK(wb::full_access_file("/home/u/.profile", "/home/u") == "it runs at your next login");
 	WB_CHECK(wb::full_access_file("/home/user/.profile", "/home/u").empty());
+	/* Other spellings of the same files: still said. */
+	WB_CHECK(wb::full_access_file("//home/u/.bashrc", "/home/u") == "it runs at your next login");
+	WB_CHECK(wb::full_access_file("~/.config//waybox/autostart") == "Waybox runs what it says");
+	WB_CHECK(wb::full_access_file("~/.config/./autostart/x.desktop") ==
+			"it runs at your next login");
+	WB_CHECK(wb::full_access_file("~/.cache/../.profile") == "it runs at your next login");
 	/* A program's own config: fine. */
 	for (const char *f : {"~/.config/mako/config", "~/.config/waybar/config.jsonc",
 			"~/.config/foot/foot.ini", "~/.bashrc.d", "/etc/x"})

@@ -1,10 +1,16 @@
 #include <libevdev/libevdev.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <csignal>
+#include <ctime>
 #include <optional>
 #include <vector>
 
 #include "script.h"
+#include "about.h"
+#include "waybox/about_card.hpp"
+#include "waybox/geometry_actions.hpp"
 #include "color_pick.h"
 #include "waybox/stall.hpp"
 #include "idle.h"
@@ -257,11 +263,18 @@ void wb_show_client_menu(struct wb_server *server) {
 	}
 	if (widget->open(wb::kClientMenuId, x, y)) {
 		server->menu = std::move(widget);
+		server->preview_menu.reset();  /* (the old widget, gone, may have shown it) */
 		server->menu_target = t;
 	}
 }
 
 void wb_run_menu_actions(struct wb_server *server, std::vector<wb::Action> actions) {
+	/* The menu that closed was a preview: what was chosen isn't run. */
+	if (server->preview_menu != nullptr) {
+		server->preview_menu.reset();
+		server->menu_target = nullptr;
+		return;
+	}
 	struct wb_toplevel *target = server->menu_target;
 	server->menu_target = nullptr;
 	if (target != nullptr) {
@@ -306,7 +319,7 @@ wb::WindowFacts window_facts(struct wb_server *server, struct wb_toplevel *t) {
 	struct wlr_surface *s = view_surface(t);
 	f.focused = s != nullptr && server->seat->seat->keyboard_state.focused_surface == s;
 	f.focusable = t->mapped;
-	f.urgent = false;  /* (Waybox keeps no urgency) */
+	f.urgent = t->urgent;
 	f.decorated = t->frame != nullptr;
 	f.omnipresent = t->omnipresent;
 	f.desktop = t->desktop;
@@ -399,6 +412,140 @@ static void run_conditional(const wb::Action &action, struct wb_server *server) 
  * "live" half of the action framework (the registry/parsing half lives in
  * action.cpp). Adding a new action means adding a case here plus a row in the
  * action.cpp registry. */
+/* Openbox's geometry actions on window `t`, in the usable area of its
+ * monitor (or <monitor>N</monitor>'s, for MoveResizeTo); the edge ones stop
+ * at the other windows shown on this desktop. */
+static void run_geometry_action(const wb::Action &action, struct wb_server *server,
+		struct wb_toplevel *t) {
+	using T = wb::ActionType;
+	struct wlr_output *output = get_active_output(t);
+	if (action.type == T::MoveResizeTo) {
+		auto m = action.args.find("monitor");
+		if (m != action.args.end() && m->second != "current") {
+			int want = std::atoi(m->second.c_str()), i = 0;
+			struct wb_output *o;
+			wl_list_for_each_reverse(o, &server->outputs, link)
+				if (++i == want)
+					output = o->wlr_output;
+		}
+	}
+	if (output == nullptr)
+		return;
+	struct wlr_box ua = output_usable_area(server, output);
+	wb::Rect area{ua.x, ua.y, ua.width, ua.height};
+	wb::Rect frame = toplevel_frame(t);
+	std::vector<wb::Rect> others;
+	struct wb_toplevel *o;
+	wl_list_for_each(o, &server->toplevels, link)
+		if (o != t && o->mapped && !o->minimized && o->scene_tree != nullptr &&
+				o->scene_tree->node.enabled && toplevel_on_current_desktop(o))
+			others.push_back(toplevel_frame(o));
+	auto dir = wb::edge_dir_from_name(action.direction);
+	wb::Rect r = frame;
+	switch (action.type) {
+	case T::MoveResizeTo:
+		r = wb::move_resize_to(frame, area, action.args);
+		break;
+	case T::MoveRelative:
+		r = wb::move_relative(frame, action.args);
+		break;
+	case T::ResizeRelative:
+		r = wb::resize_relative(frame, action.args);
+		break;
+	case T::MoveToCenter:
+		r = wb::move_to_center(frame, area);
+		break;
+	case T::MoveToEdge:
+		if (dir)
+			r = wb::move_to_edge(frame, area, others, *dir);
+		break;
+	case T::GrowToEdge:
+		if (dir)
+			r = wb::grow_to_edge(frame, area, others, *dir);
+		break;
+	case T::ShrinkToEdge:
+		if (dir)
+			r = wb::shrink_to_edge(frame, others, *dir);
+		break;
+	case T::GrowToFill:
+		r = wb::grow_to_fill(frame, area, others);
+		break;
+	default:
+		break;
+	}
+	if (r.x != frame.x || r.y != frame.y || r.width != frame.width || r.height != frame.height)
+		set_toplevel_frame(t, r);
+}
+
+/* Openbox's smaller window actions. */
+static void run_window_action(wb::ActionType type, struct wb_server *server,
+		struct wb_toplevel *t) {
+	using T = wb::ActionType;
+	switch (type) {
+	case T::Kill: {
+		/* X11: the process ID is the program's own say (_NET_WM_PID), so
+		 * a wrong one could name another of the user's programs: asked to
+		 * close instead, no signal. */
+		if (t->kind == wb_view_kind::Xwayland) {
+			wlr_log(WLR_INFO, "%s", "wb-kill x11: asked to close");
+			view_close(t);
+			break;
+		}
+		/* Wayland: the connection's own credentials. Only a process of the
+		 * user's, never Waybox or init. */
+		uid_t uid;
+		pid_t pid = view_pid(t, &uid);
+		if (pid <= 1 || pid == getpid() || uid != getuid())
+			break;
+		timespec ts;
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		int64_t now = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+		bool again = server->kill_pid == pid && now - server->kill_ms < 3000;
+		kill(pid, again ? SIGKILL : SIGTERM);
+		wlr_log(WLR_INFO, "wb-kill %d %s", pid, again ? "KILL" : "TERM");
+		server->kill_pid = again ? -1 : pid;
+		server->kill_ms = now;
+		break;
+	}
+	case T::Decorate:
+	case T::Undecorate:
+		t->decorations = type == T::Decorate ? wb::DecorMode::Full : wb::DecorMode::None;
+		apply_toplevel_decoration(t);
+		update_toplevel_decoration(t);
+		break;
+	case T::RaiseLower: {
+		/* On top of its layer already: lowered; else raised. */
+		struct wlr_scene_node *n = &t->scene_tree->node;
+		bool on_top = n->parent != nullptr && n->link.next == &n->parent->children;
+		if (on_top)
+			lower_toplevel(t);
+		else
+			raise_toplevel(t);
+		break;
+	}
+	case T::ShadeLower:
+		if (!t->shaded)
+			set_toplevel_shaded(t, true);
+		else
+			lower_toplevel(t);
+		break;
+	case T::UnshadeRaise:
+		if (t->shaded)
+			set_toplevel_shaded(t, false);
+		else
+			raise_toplevel(t);
+		break;
+	case T::FocusToBottom:
+		focus_order_to_bottom(t);
+		break;
+	case T::Unfocus:
+		unfocus_toplevel(t);
+		break;
+	default:
+		break;
+	}
+}
+
 void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	switch (action.type) {
 	case wb::ActionType::Execute:
@@ -516,8 +663,28 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 				server->config->menu_behavior);
 		int x = static_cast<int>(server->cursor->cursor->x);
 		int y = static_cast<int>(server->cursor->cursor->y);
-		if (widget->open(action.command, x, y)) {
+		/* <position>: x and y both (as Openbox), on <monitor> (the
+		 * primary if none; "all": the whole layout); else at the pointer. */
+		wb::MenuWidget::Placement placement;
+		auto px = action.args.find("position.x"), py = action.args.find("position.y");
+		if (px != action.args.end() && py != action.args.end()) {
+			auto pm = action.args.find("position.monitor");
+			std::string monitor = pm != action.args.end() ? pm->second : "primary";
+			struct wlr_box area = {};
+			if (monitor == "all") {
+				wlr_output_layout_get_box(server->output_layout, nullptr, &area);
+			} else {
+				struct wlr_output *out = rule_output(server, monitor);
+				if (out == nullptr)
+					out = rule_output(server, "primary");
+				if (out != nullptr)
+					wlr_output_layout_get_box(server->output_layout, out, &area);
+			}
+			placement = {px->second, py->second, area.x, area.y, area.width, area.height};
+		}
+		if (widget->open(action.command, x, y, placement)) {
 			server->menu = std::move(widget);
+		server->preview_menu.reset();  /* (the old widget, gone, may have shown it) */
 			server->menu_target = nullptr;
 		}
 		break;
@@ -539,8 +706,10 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		break;
 	}
 	case wb::ActionType::SendToDesktop: {
+		/* Any mapped window, minimized or on another desktop too (as in
+		 * Openbox): only where it lives changes. */
 		struct wb_toplevel *toplevel = action_target(server);
-		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled)
+		if (toplevel == nullptr || !toplevel->mapped)
 			break;
 		if (auto target = wb::desktop_target(action.to,
 				server->current_desktop, server->last_desktop,
@@ -552,7 +721,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	case wb::ActionType::ToggleAlwaysOnTop:
 	case wb::ActionType::ToggleAlwaysOnBottom: {
 		struct wb_toplevel *toplevel = action_target(server);
-		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled)
+		if (toplevel == nullptr || !toplevel->mapped)
 			break;
 		int layer = 0;
 		if (action.type == wb::ActionType::ToggleAlwaysOnTop)
@@ -564,9 +733,89 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		set_toplevel_layer(toplevel, layer);
 		break;
 	}
+	case wb::ActionType::MoveResizeTo:
+	case wb::ActionType::MoveRelative:
+	case wb::ActionType::ResizeRelative:
+	case wb::ActionType::MoveToCenter:
+	case wb::ActionType::MoveToEdge:
+	case wb::ActionType::GrowToEdge:
+	case wb::ActionType::ShrinkToEdge:
+	case wb::ActionType::GrowToFill: {
+		struct wb_toplevel *t = action_target(server);
+		if (t == nullptr || !t->mapped || !t->scene_tree->node.enabled)
+			break;
+		run_geometry_action(action, server, t);
+		break;
+	}
+	case wb::ActionType::DirectionalFocus: {
+		/* From the focused window (else the pointer) to the nearest window
+		 * that way, among those shown on this desktop. */
+		auto dir = wb::dir8_from_name(action.direction);
+		if (!dir)
+			break;
+		struct wb_toplevel *from = action_target(server);
+		wb::Rect origin = from != nullptr && from->mapped
+				? toplevel_frame(from)
+				: wb::Rect{static_cast<int>(server->cursor->cursor->x),
+						static_cast<int>(server->cursor->cursor->y), 1, 1};
+		std::vector<struct wb_toplevel *> wins;
+		std::vector<wb::Rect> rects;
+		struct wb_toplevel *o;
+		wl_list_for_each(o, &server->toplevels, link)
+			if (o != from && o->mapped && !o->minimized && o->scene_tree != nullptr &&
+					o->scene_tree->node.enabled && toplevel_on_current_desktop(o)) {
+				wins.push_back(o);
+				rects.push_back(toplevel_frame(o));
+			}
+		if (auto i = wb::directional_target(origin, rects, *dir)) {
+			focus_toplevel(wins[*i]);
+			raise_toplevel(wins[*i]);
+		}
+		break;
+	}
+	case wb::ActionType::Kill:
+	case wb::ActionType::Decorate:
+	case wb::ActionType::Undecorate:
+	case wb::ActionType::RaiseLower:
+	case wb::ActionType::ShadeLower:
+	case wb::ActionType::UnshadeRaise:
+	case wb::ActionType::FocusToBottom:
+	case wb::ActionType::Unfocus: {
+		struct wb_toplevel *t = action_target(server);
+		if (t == nullptr || !t->mapped)
+			break;
+		run_window_action(action.type, server, t);
+		break;
+	}
+	case wb::ActionType::AddDesktop:
+		add_desktop(server, action.direction == "current");
+		break;
+	case wb::ActionType::RemoveDesktop:
+		remove_desktop(server, action.direction == "current");
+		break;
+	case wb::ActionType::FocusFallback: {
+		struct wb_toplevel *t;
+		wl_list_for_each(t, &server->focus_order, focus_link)
+			if (t->mapped && !t->minimized && toplevel_on_current_desktop(t)) {
+				focus_toplevel(t);
+				break;
+			}
+		break;
+	}
+	case wb::ActionType::ToggleShowDesktop:
+		toggle_show_desktop(server);
+		break;
+	case wb::ActionType::ShowAbout:
+		/* Nothing drawn over the lock screen. */
+		if (session_locked(server))
+			break;
+		server->menu.reset();
+		server->about_card = std::make_unique<wb::AboutCard>(server, wb_osd_style(server),
+				about_info(server));
+		break;
 	case wb::ActionType::ToggleOmnipresent: {
 		struct wb_toplevel *toplevel = action_target(server);
-		if (toplevel && toplevel->scene_tree->node.enabled)
+		if (toplevel && toplevel->mapped)
 			wb_toggle_omnipresent(toplevel);
 		break;
 	}
@@ -633,7 +882,8 @@ static bool is_modifier_keysym(xkb_keysym_t sym) {
 	}
 }
 
-static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32_t modifiers) {
+static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32_t modifiers,
+		std::vector<wb::Action> *repeat_actions) {
 	/*
 	 * Here we handle compositor keybindings. This is when the compositor is
 	 * processing keys, rather than passing them on to the client for its own
@@ -689,6 +939,8 @@ static bool handle_keybinding(struct wb_server *server, xkb_keysym_t sym, uint32
 		/* Copy the actions before running them: a Reconfigure action rebuilds
 		 * the binding tree and would free step.node mid-iteration. */
 		std::vector<wb::Action> actions = step.node->actions;
+		if (step.node->repeat && repeat_actions != nullptr)
+			*repeat_actions = actions;
 		server->active_keychain = nullptr;
 		/* Expose the triggering modifiers so NextWindow/PreviousWindow can tell
 		 * an Alt-held interactive cycle from a modifier-less instant switch. */
@@ -765,6 +1017,9 @@ void wb_keyboard::on_key(void *data) {
 
 	if (wb_input_blocked(server, &keyboard->base))
 		return;
+	/* Any key event ends a binding's repeat: its key let go, another
+	 * pressed, a modifier changed. */
+	stop_repeat();
 
 	/* Translate libinput keycode -> xkbcommon */
 	uint32_t keycode = event->keycode + 8;
@@ -833,6 +1088,13 @@ void wb_keyboard::on_key(void *data) {
 			return;
 		}
 
+		/* The About card: any key closes it, and goes no further. */
+		if (server->about_card != nullptr) {
+			server->about_card.reset();
+			idle_activity(server, seat);
+			return;
+		}
+
 		/* An open menu grabs the keyboard: feed it Escape and swallow keys so
 		 * they neither trigger bindings nor reach clients. */
 		if (server->menu != nullptr) {
@@ -875,8 +1137,11 @@ void wb_keyboard::on_key(void *data) {
 			/* The first binding that runs ends it: a binding can free the
 			 * keymap `syms` points into (Reconfigure), and a later keysym
 			 * mustn't undo `handled`. */
+			std::vector<wb::Action> repeat;
 			for (int i = 0; i < nsyms && !handled; i++)
-				handled = handle_keybinding(server, syms[i], modifiers);
+				handled = handle_keybinding(server, syms[i], modifiers, &repeat);
+			if (handled && !repeat.empty())
+				start_repeat(std::move(repeat), modifiers);
 		}
 	} else if (server->menu != nullptr || server->switcher != nullptr) {
 		/* Swallow key releases too while a menu or the switcher OSD is up.
@@ -900,6 +1165,50 @@ void wb_keyboard::on_key(void *data) {
 	}
 
 	idle_activity(server, seat);
+}
+
+void wb_keyboard::stop_repeat() {
+	if (repeat_timer != nullptr)
+		wl_event_source_remove(repeat_timer);
+	repeat_timer = nullptr;
+	repeat_actions.clear();
+}
+
+/* The keyboard's repeat delay and rate (a virtual keyboard may have none
+ * set: the usual 600 ms, 25 a second). */
+static void repeat_timing(struct wlr_keyboard *kb, int *delay_ms, int *interval_ms) {
+	int rate = kb->repeat_info.rate > 0 ? kb->repeat_info.rate : 25;
+	*delay_ms = kb->repeat_info.delay > 0 ? kb->repeat_info.delay : 600;
+	*interval_ms = std::max(1, 1000 / rate);
+}
+
+void wb_keyboard::start_repeat(std::vector<wb::Action> actions, uint32_t mods) {
+	stop_repeat();
+	repeat_actions = std::move(actions);
+	repeat_modifiers = mods;
+	repeat_timer = wl_event_loop_add_timer(server->wl_event_loop, [](void *data) {
+		auto *kb = static_cast<wb_keyboard *>(data);
+		struct wb_server *server = kb->server;
+		/* Not while something else has the keyboard, nor locked. */
+		if (session_locked(server) || server->menu != nullptr || server->switcher != nullptr ||
+				server->about_card != nullptr ||
+				wlr_keyboard_get_modifiers(kb->keyboard) != kb->repeat_modifiers) {
+			kb->stop_repeat();
+			return 0;
+		}
+		int delay = 0, interval = 0;
+		repeat_timing(kb->keyboard, &delay, &interval);
+		wl_event_source_timer_update(kb->repeat_timer, interval);
+		/* A copy: an action may end the repeat (or free this keyboard's
+		 * state by reconfiguring). */
+		std::vector<wb::Action> actions = kb->repeat_actions;
+		server->last_key_modifiers = kb->repeat_modifiers;
+		wb::run_actions(actions, server);
+		return 0;
+	}, this);
+	int delay = 0, interval = 0;
+	repeat_timing(keyboard, &delay, &interval);
+	wl_event_source_timer_update(repeat_timer, delay);
 }
 
 /* Give a keyboard the keymap from rc.xml's <keyboard><xkb> (or xkbcommon's

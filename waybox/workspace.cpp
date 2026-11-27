@@ -291,6 +291,13 @@ void sync_client(WsClient *c) {
 		}
 		uint32_t st = h->index == server->current_desktop
 				? EXT_WORKSPACE_HANDLE_V1_STATE_ACTIVE : 0;
+		/* A window on it asking for attention (Waybar shows it red). */
+		struct wb_toplevel *t;
+		wl_list_for_each(t, &server->toplevels, link)
+			/* One on every desktop: on the one shown, not all of them. */
+			if (t->urgent && t->mapped && (t->omnipresent ? h->index == server->current_desktop
+					: t->desktop == h->index))
+				st |= EXT_WORKSPACE_HANDLE_V1_STATE_URGENT;
 		if (!h->sent_state || st != h->state) {
 			h->state = st;
 			h->sent_state = true;

@@ -9,6 +9,19 @@
 #
 name: build
 on: [push, pull_request]
+
+# Compiles are cached with ccache (named in CC and CXX: meson adds it on its
+# own only when it picks the compiler itself). The
+# cache lives in the workspace (.ccache), so a container, or a VM job that
+# copies the workspace in and back (FreeBSD through vmactions/freebsd-vm with
+# copyback), carries it the same way; each job and matrix combination has
+# its own (the key is the job's name and every matrix value), so a new axis
+# gets its own cache with nothing to change here. Each run saves its own;
+# the next restores the latest of its kind (this branch's, else master's).
+env:
+    CCACHE_MAXSIZE: 400M
+    CCACHE_COMPRESS: "true"
+
 jobs:
     # gcc (release) and clang (debug) side by side: two jobs at once rather
     # than one after the other. Neither cancels the other on failure.
@@ -31,14 +44,23 @@ jobs:
         steps:
             - name: packages
               run: |
-                apk add clang g++ gcc luajit-dev cairo-dev pango-dev font-dejavu fontconfig libevdev-dev libinput-dev libxkbcommon-dev libxml2-dev meson musl-dev wayland-dev wayland-protocols wlroots wlroots-dev xwayland foot wtype wlrctl python3 grim imagemagick xvfb py3-xlib wlr-randr scdoc texinfo
+                apk add tar zstd ccache clang g++ gcc luajit-dev cairo-dev pango-dev font-dejavu fontconfig libevdev-dev libinput-dev libxkbcommon-dev libxml2-dev meson musl-dev wayland-dev wayland-protocols wlroots wlroots-dev xwayland foot wtype wlrctl python3 grim imagemagick xvfb py3-xlib wlr-randr scdoc texinfo
                 fc-cache -f || true
             # actions/checkout@v7 clones the repository
             - uses: actions/checkout@v7
+            - name: ccache
+              uses: actions/cache@v6
+              with:
+                  path: .ccache
+                  key: ccache-${{ github.job }}-${{ join(matrix.*, '-') }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  restore-keys: ccache-${{ github.job }}-${{ join(matrix.*, '-') }}-
             - name: build-and-test
               run: |
-                CC=${{ matrix.cc }} CXX=${{ matrix.cxx }} meson setup build -Dsanitize=disabled --buildtype=${{ matrix.buildtype }}
+                export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache"
+                ccache -z
+                CC="ccache ${{ matrix.cc }}" CXX="ccache ${{ matrix.cxx }}" meson setup build -Dsanitize=disabled --buildtype=${{ matrix.buildtype }}
                 ninja -C build
+                ccache -s
                 meson test -C build --print-errorlogs
 
     # Run the dependency-free unit tests under AddressSanitizer +
@@ -51,11 +73,21 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v7
+            - name: ccache
+              uses: actions/cache@v6
+              with:
+                  path: .ccache
+                  key: ccache-${{ github.job }}-${{ join(matrix.*, '-') }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  restore-keys: ccache-${{ github.job }}-${{ join(matrix.*, '-') }}-
             - name: packages
               run: |
                 sudo apt-get update
-                sudo apt-get install -y meson ninja-build g++ python3
+                sudo apt-get install -y ccache meson ninja-build g++ python3
             - name: build-and-test
               run: |
-                CC=gcc CXX=g++ meson setup build-asan -Dtests_only=true -Dsanitize=enabled
+                export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache"
+                ccache -z
+                CC="ccache gcc" CXX="ccache g++" meson setup build-asan -Dtests_only=true -Dsanitize=enabled
+                ninja -C build-asan
+                ccache -s
                 meson test -C build-asan --print-errorlogs

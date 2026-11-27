@@ -95,6 +95,7 @@ struct wb_toplevel {
 	wb::Listener request_configure;
 	wb::Listener request_activate;
 	wb::Listener set_decorations;
+	wb::Listener set_hints;      /* WM_HINTS: urgency */
 	wb::Listener set_override_redirect;
 	wb::Listener surface_tree_destroy;
 
@@ -128,6 +129,11 @@ struct wb_toplevel {
 	/* Openbox's layer: -1 always below, 0 normal, 1 always on top. Raising
 	 * and lowering stay within it. */
 	int layer = 0;
+	/* Asked for attention (activation it didn't get, an X11 urgency hint):
+	 * until it's focused. Its desktop shows as urgent (ext-workspace). */
+	bool urgent = false;
+	/* Minimized by ToggleShowDesktop: shown again when it's toggled off. */
+	bool hidden_by_show_desktop = false;
 
 	struct wl_list link;       /* server::toplevels — stacking (z-)order */
 	struct wl_list focus_link; /* server::focus_order — MRU focus order */
@@ -238,6 +244,10 @@ struct wlr_output *get_active_output(struct wb_toplevel *toplevel);
 void tile_toplevel(struct wb_toplevel *toplevel, wb::TileZone zone,
 		struct wlr_output *output);
 void untile_toplevel(struct wb_toplevel *toplevel, bool restore_position);
+/* A window's frame (its outer rectangle, decorations included), and moving
+ * it to another (out of maximized or tiled first; within its size limits). */
+wb::Rect toplevel_frame(struct wb_toplevel *toplevel);
+void set_toplevel_frame(struct wb_toplevel *toplevel, wb::Rect frame);
 /* The frame rectangle `zone` covers on `output`, for the drag preview. */
 wb::Rect tile_preview_rect(struct wb_server *server, struct wlr_output *output,
 		wb::TileZone zone);
@@ -246,12 +256,38 @@ wb::Rect tile_preview_rect(struct wb_server *server, struct wlr_output *output,
 int desktop_count(struct wb_server *server);
 bool toplevel_on_desktop(struct wb_toplevel *toplevel, int desktop);
 bool toplevel_on_current_desktop(struct wb_toplevel *toplevel);
+/* A window asks to be shown (xdg-activation, X11 _NET_ACTIVE_WINDOW):
+ * focused, or marked urgent, as <activation> says; `from_user`: made from
+ * input (a click, a key), not by the program on its own. */
+void toplevel_request_activation(struct wb_toplevel *toplevel, bool from_user);
+void set_toplevel_urgent(struct wb_toplevel *toplevel, bool urgent);
+/* ToggleShowDesktop: the current desktop's windows minimized, or (on again)
+ * those brought back. Focusing a window ends it, the others left minimized
+ * (as in Openbox). */
+void toggle_show_desktop(struct wb_server *server);
+/* AddDesktop, RemoveDesktop: one more after the current or the last; the
+ * current or the last taken away, its windows to the one before. Until the
+ * next Reconfigure (rc.xml keeps its number). */
+void add_desktop(struct wb_server *server, bool after_current);
+void remove_desktop(struct wb_server *server, bool current);
+/* The process behind a Wayland window (its connection's credentials, which
+ * a program can't fake), or -1 (an X11 window's _NET_WM_PID is only its own
+ * say); `uid` its owner's. */
+pid_t view_pid(struct wb_toplevel *toplevel, uid_t *uid);
+/* Keyboard focus taken from the window, if it has it (Unfocus). */
+void unfocus_toplevel(struct wb_toplevel *toplevel);
+/* To the end of the focus order (FocusToBottom). */
+void focus_order_to_bottom(struct wb_toplevel *toplevel);
 /* Show desktop `index` (0-based): hide the other desktops' windows and focus
  * the most recently used window here (or nothing). */
 void wb_go_to_desktop(struct wb_server *server, int index);
 /* An output's usable area (less panels' reservations), in layout
  * coordinates; empty for nullptr. */
 struct wlr_box output_usable_area(struct wb_server *server, struct wlr_output *output);
+/* A <monitor> as window rules and ShowMenu's <position> say one: a number
+ * (1, the leftmost), a name, "mouse", "active", "primary"; nullptr for
+ * none such. */
+struct wlr_output *rule_output(struct wb_server *server, const std::string &spec);
 /* Show `text` for a moment, centred, in the on-screen display style (the
  * desktop popup's; showing again replaces it). */
 void wb_show_popup(struct wb_server *server, const std::string &text, int duration_ms);

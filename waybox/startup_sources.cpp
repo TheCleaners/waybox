@@ -119,6 +119,42 @@ std::string basename_of(const std::string &w) {
 }
 
 /* The program a simple start line runs ("" if it isn't one). */
+std::string simple_start(const std::vector<std::string> &words);
+
+/* "(waybar || yambar) &", "waybar || yambar &": the first that runs; each a
+ * plain command. The first program, the others in `others`; "" if not. */
+std::string alternatives_start(const std::vector<std::string> &words,
+		std::vector<std::string> &others) {
+	if (words.size() < 4 || words.back() != "&")
+		return "";
+	size_t b = 0, e = words.size() - 1;  /* [b, e): before the & */
+	if (words[b] == "(" && words[e - 1] == ")") {
+		++b;
+		--e;
+	}
+	std::vector<std::vector<std::string>> parts(1);
+	for (size_t i = b; i < e; ++i) {
+		if (words[i] == "||")
+			parts.emplace_back();
+		else
+			parts.back().push_back(words[i]);
+	}
+	if (parts.size() < 2)
+		return "";
+	std::string first;
+	for (std::vector<std::string> &p : parts) {
+		p.push_back("&");  /* each as a start of its own */
+		std::string prog = simple_start(p);
+		if (prog.empty())
+			return "";
+		if (first.empty())
+			first = prog;
+		else
+			others.push_back(prog);
+	}
+	return first;
+}
+
 std::string simple_start(const std::vector<std::string> &words) {
 	if (words.size() < 2 || words.back() != "&")
 		return "";
@@ -334,10 +370,14 @@ std::vector<ScriptEntry> script_entries(std::string_view script) {
 				: std::string_view(lines[n]), words))
 			continue;
 		if (depth == 0 && kinds[n] == LineKind::Code) {
+			std::vector<std::string> others;
 			std::string prog = simple_start(words);
+			if (prog.empty())
+				prog = alternatives_start(words, others);
 			if (!prog.empty()) {
 				ScriptEntry e;
 				e.program = prog;
+				e.alternatives = std::move(others);
 				e.command = std::string(is_comment ? std::string_view(commented)
 						: trim(lines[n]));
 				e.line = static_cast<int>(n);
@@ -469,7 +509,9 @@ ScriptStarters script_starters(std::string_view script, const std::string &progr
 	for (const ScriptEntry &e : script_entries(script)) {
 		if (!e.enabled)
 			continue;
-		bool direct = !e.function && e.program == program;
+		bool direct = !e.function && (e.program == program ||
+				std::find(e.alternatives.begin(), e.alternatives.end(), program) !=
+						e.alternatives.end());
 		bool via = e.function && runs.count(e.program) && runs[e.program];
 		if (direct || via) {
 			out.lines.push_back(e);
@@ -624,45 +666,124 @@ bool parse_autostart(std::string_view text, const std::vector<std::string> &desk
 	return true;
 }
 
-std::string autostart_set_enabled(std::string_view text, bool on) {
+namespace {
+
+/* "A;B;" -> {A, B}; and back, each followed by ';'. */
+std::vector<std::string> desktop_list(std::string_view v) {
+	std::vector<std::string> out;
+	std::string cur;
+	for (char c : v) {
+		if (c == ';') {
+			if (!cur.empty())
+				out.push_back(cur);
+			cur.clear();
+		} else {
+			cur += c;
+		}
+	}
+	if (!trim(cur).empty())
+		out.push_back(std::string(trim(cur)));
+	return out;
+}
+
+std::string list_text(const std::vector<std::string> &l) {
+	std::string s;
+	for (const std::string &d : l)
+		s += d + ";";
+	return s;
+}
+
+}  // namespace
+
+std::string autostart_set_enabled(std::string_view text, bool on, const std::string &desktop) {
+	/* Only for `desktop` (Waybox): off adds it to NotShowIn (and takes it
+	 * out of OnlyShowIn); on takes it out of NotShowIn, adds it to an
+	 * OnlyShowIn that leaves it out, and drops Hidden and
+	 * X-GNOME-Autostart-enabled=false (which turn it off everywhere). Other
+	 * desktops' starting of it is left as it was: so when those keys go,
+	 * OnlyShowIn says only `desktop`, as they had it off. */
 	std::vector<std::string> lines = split_lines(text);
 	std::vector<std::string> out;
-	bool in_entry = false, set = false;
-	size_t header = std::string::npos;
+	bool in_entry = false, had_entry = false, wrote_not = false, wrote_only = false;
+	bool off_everywhere = false;
+	{
+		bool in = false;
+		for (const std::string &raw : lines) {
+			std::string_view l = trim(raw);
+			if (!l.empty() && l[0] == '[') {
+				in = l == "[Desktop Entry]";
+				continue;
+			}
+			size_t eq = l.find('=');
+			if (!in || eq == std::string_view::npos)
+				continue;
+			std::string_view k = trim(l.substr(0, eq)), v = trim(l.substr(eq + 1));
+			if ((k == "Hidden" && v == "true") || (k == "X-GNOME-Autostart-enabled" && v == "false"))
+				off_everywhere = true;
+		}
+	}
+	bool only_here = on && off_everywhere;
+	size_t entry_end = std::string::npos;  /* where to add NotShowIn */
+	auto edit_list = [&](const std::string &key, std::string_view value) {
+		std::vector<std::string> l = desktop_list(value);
+		auto it = std::find(l.begin(), l.end(), desktop);
+		if (key == "NotShowIn") {
+			if (on && it != l.end())
+				l.erase(it);
+			if (!on && it == l.end())
+				l.push_back(desktop);
+			wrote_not = true;
+		} else {  /* OnlyShowIn */
+			if (on && it == l.end())
+				l.push_back(desktop);
+			if (!on && it != l.end())
+				l.erase(it);
+		}
+		return l;
+	};
 	for (const std::string &raw : lines) {
 		std::string_view l = trim(raw);
 		if (!l.empty() && l[0] == '[') {
-			if (in_entry && !on && !set) {
-				out.push_back("Hidden=true");
-				set = true;
-			}
-			in_entry = l == "[Desktop Entry]";
 			if (in_entry)
-				header = out.size();
+				entry_end = out.size();
+			in_entry = l == "[Desktop Entry]";
+			had_entry = had_entry || in_entry;
 			out.push_back(raw);
 			continue;
 		}
 		if (in_entry) {
 			size_t eq = l.find('=');
-			std::string_view key = eq == std::string_view::npos ? l : trim(l.substr(0, eq));
-			if (key == "Hidden") {
-				if (!on && !set) {
-					out.push_back("Hidden=true");
-					set = true;
-				}
-				continue;  /* on: dropped */
-			}
-			if (key == "X-GNOME-Autostart-enabled" && on)
+			std::string key(eq == std::string_view::npos ? l : trim(l.substr(0, eq)));
+			std::string_view value = eq == std::string_view::npos ? std::string_view()
+					: trim(l.substr(eq + 1));
+			if (on && (key == "Hidden" || (key == "X-GNOME-Autostart-enabled" &&
+					value == "false")))
 				continue;
+			if (key == "OnlyShowIn" && only_here) {
+				out.push_back("OnlyShowIn=" + desktop + ";");
+				wrote_only = true;
+				continue;
+			}
+			if (key == "NotShowIn" || key == "OnlyShowIn") {
+				std::vector<std::string> list = edit_list(key, value);
+				if (key == "NotShowIn" && list.empty())
+					continue;  /* nothing left to say */
+				out.push_back(key + "=" + list_text(list));
+				continue;
+			}
 		}
 		out.push_back(raw);
 	}
-	if (!on && !set) {
-		if (header == std::string::npos) {
+	if (in_entry)
+		entry_end = out.size();
+	if (only_here && !wrote_only && entry_end != std::string::npos)
+		out.insert(out.begin() + static_cast<long>(entry_end), "OnlyShowIn=" + desktop + ";");
+	if (!on && !wrote_not) {
+		if (!had_entry) {
 			out.push_back("[Desktop Entry]");
+			entry_end = out.size();
 		}
-		/* At the end of the group (it was the last one). */
-		out.push_back("Hidden=true");
+		out.insert(out.begin() + static_cast<long>(entry_end), "NotShowIn=" + desktop + ";");
 	}
 	std::string s;
 	for (size_t i = 0; i < out.size(); ++i)

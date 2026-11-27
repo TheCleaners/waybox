@@ -33,6 +33,9 @@
 #include "waybox/output.h"
 #include "waybox/desktop_popup.hpp"
 #include "waybox/xdg_shell.h"
+#include "waybox/menu.hpp"
+#include "waybox/menu_widget.hpp"
+#include "waybox/style.hpp"
 
 using wb::json::Array;
 using wb::json::Object;
@@ -151,6 +154,7 @@ Value window_json(struct wb_toplevel *t) {
 	w["tag"] = t->tag;
 	w["desktop"] = t->desktop + 1;
 	w["omnipresent"] = t->omnipresent;
+	w["urgent"] = t->urgent;
 	w["layer"] = t->layer > 0 ? "above" : t->layer < 0 ? "below" : "normal";
 	w["focused"] = focused(t);
 	w["minimized"] = t->minimized;
@@ -328,6 +332,53 @@ Value handle(Client *c, const Value &req) {
 		c->picking = true;
 		return Value(Object{{kLater, true}});
 	}
+	/* A window, clicked (wbconf's Pick a Window): its details, as
+	 * get_windows gives them ({"ok": true, "window": {...}}), or an error
+	 * (no window there, cancelled, timed out). */
+	if (cmd == "pick_window") {
+		struct wb_ipc_state *st = c->st;
+		bool started = window_pick_start(server, [c, st](struct wb_toplevel *t,
+				const std::string &why) {
+			if (c->closing || !c->picking)
+				return;
+			c->picking = false;
+			if (t != nullptr)
+				reply(c, Object{{"ok", true}, {"window", window_json(t)}});
+			else
+				reply(c, error(why));
+			if (!flush(c))
+				drop(st, c);
+		});
+		if (!started)
+			return error("a pick is already on");
+		c->picking = true;
+		return Value(Object{{kLater, true}});
+	}
+	/* A menu, from menu.xml text not saved yet (wbconf's menu editor), shown
+	 * at the pointer as Waybox draws it; an entry chosen closes it, its
+	 * actions dropped (wb_run_menu_actions: a preview's Exit mustn't end
+	 * the session). */
+	if (cmd == "preview_menu") {
+		if (session_locked(server))
+			return error("the screen is locked");
+		std::string id = req.str("id");
+		if (id.empty())
+			id = "root-menu";
+		auto file = std::make_unique<wb::MenuFile>(wb::parse_menu_xml(req.str("menu")));
+		if (file->find(id) == nullptr)
+			return error("no menu " + id);
+		/* The open one first: it may be showing the last preview. */
+		server->menu.reset();
+		auto widget = std::make_unique<wb::MenuWidget>(server, *file,
+				wb::menu_style_from_theme(server->config->theme), server->config->menu_behavior);
+		if (!widget->open(id, static_cast<int>(server->cursor->cursor->x),
+				static_cast<int>(server->cursor->cursor->y)))
+			return error("couldn't open " + id);
+		server->preview_menu = std::move(file);
+		server->menu = std::move(widget);
+		server->menu_target = nullptr;
+		return Object{{"ok", true}};
+	}
 	/* Each monitor's name, large, on it (wbconf's Identify). */
 	if (cmd == "identify") {
 		const Value *ms = req.get("ms");
@@ -382,10 +433,21 @@ Value handle(Client *c, const Value &req) {
 			action->to = req.str("to");
 		if (req.get("direction"))
 			action->direction = req.str("direction");
+		if (req.get("where"))
+			action->direction = req.str("where");
 		if (const Value *w = req.get("wrap"); w && w->boolean())
 			action->wrap = *w->boolean();
 		if (const Value *f = req.get("follow"); f && f->boolean())
 			action->follow = *f->boolean();
+		for (const char *k : {"x", "y", "width", "height", "monitor", "left", "right", "top",
+				"bottom"})
+			if (const Value *v = req.get(k)) {
+				if (v->string() != nullptr)
+					action->args[k] = v->string()->substr(0, 64);
+				else if (v->number() != nullptr)
+					action->args[k] = std::to_string(static_cast<long>(
+							std::clamp(*v->number(), -1e6, 1e6)));
+			}
 		struct wb_toplevel *target = nullptr;
 		if (req.get("window")) {
 			target = find_window(server, req.str("window"));

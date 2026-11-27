@@ -72,3 +72,108 @@ WB_TEST(rules_match_window_tags) {
 	WB_CHECK(match_app_rule(rules, "firefox", "x") == &rules[1]);
 	WB_CHECK(match_app_rule(rules, "firefox", "x", "") == &rules[1]);
 }
+
+WB_TEST(app_rule_in_words) {
+	using V = std::vector<std::string>;
+	AppRule r;
+	WB_CHECK(app_rule_effects(r).empty());
+	r.fullscreen = true;
+	r.desktop = AppRule::kAllDesktops;
+	r.x = 200;
+	r.y = 120;
+	r.width = 900;
+	r.height = 600;
+	r.decor = false;
+	WB_CHECK(app_rule_effects(r) == (V{"On every desktop", "Full screen", "At 200, 120",
+			"900 × 600", "No title bar"}));
+	AppRule s;
+	s.desktop = 1;
+	s.iconic = true;
+	s.layer = 1;
+	s.focus = false;
+	s.width = 400;
+	WB_CHECK(app_rule_effects(s) == (V{"On desktop 2", "Starts minimized", "400 × auto",
+			"Always on top", "Not focused when it opens"}));
+}
+
+WB_TEST(regex_patterns) {
+	using P = AppRule::Patterns;
+	auto rule = [](P kind, std::string cls, std::string title = "") {
+		AppRule r;
+		r.patterns = kind;
+		r.class_pattern = std::move(cls);
+		r.title_pattern = std::move(title);
+		return r;
+	};
+	/* As egrep: anywhere in the text, unless anchored. */
+	std::vector<AppRule> rules = {rule(P::Regex, "^(foot|alacritty)$")};
+	WB_CHECK(wb::match_app_rule(rules, "foot", "") == &rules[0]);
+	WB_CHECK(wb::match_app_rule(rules, "alacritty", "") == &rules[0]);
+	WB_CHECK(wb::match_app_rule(rules, "footclient", "") == nullptr);
+	rules = {rule(P::Regex, "", "scratch|notes")};
+	WB_CHECK(wb::match_app_rule(rules, "foot", "my notes") == &rules[0]);
+	WB_CHECK(wb::match_app_rule(rules, "foot", "Notes") == nullptr);  /* case matters */
+	rules = {rule(P::IRegex, "", "notes")};
+	WB_CHECK(wb::match_app_rule(rules, "foot", "Notes") == &rules[0]);
+	/* A glob's "*" is a regex's "any run of the char before": not the same. */
+	rules = {rule(P::Glob, "foo*")};
+	WB_CHECK(wb::match_app_rule(rules, "football", "") == &rules[0]);
+	WB_CHECK(wb::app_rule_pattern_error(rules[0]).empty());
+	/* Doesn't compile: never matches, and says why. */
+	AppRule bad = rule(P::Regex, "foot", "(unclosed");
+	rules = {bad};
+	WB_CHECK(wb::match_app_rule(rules, "foot", "(unclosed") == nullptr);
+	WB_CHECK(wb::app_rule_pattern_error(bad).rfind("title: ", 0) == 0);
+	WB_CHECK(wb::app_rule_pattern_error(rule(P::Regex, "a+b")).empty());
+}
+
+WB_TEST(openbox_positions) {
+	/* An area from 100, 1000 long; a window 200 long. */
+	WB_CHECK(wb::resolve_position("50", 100, 1000, 200) == 150);
+	WB_CHECK(wb::resolve_position("-50", 100, 1000, 200) == 850);   /* far edge 50 from the end */
+	WB_CHECK(wb::resolve_position("center", 100, 1000, 200) == 500);
+	WB_CHECK(wb::resolve_position("25%", 100, 1000, 200) == 350);
+	WB_CHECK(wb::resolve_position("-10%", 100, 1000, 200) == 800);
+	WB_CHECK(wb::resolve_position("0", 100, 1000, 200) == 100);
+	WB_CHECK(!wb::resolve_position("left", 100, 1000, 200));
+	WB_CHECK(!wb::resolve_position("", 100, 1000, 200));
+	WB_CHECK(!wb::resolve_position("5px", 100, 1000, 200));
+	WB_CHECK(wb::position_spec_ok("-3%") && !wb::position_spec_ok("%"));
+	AppRule r;
+	r.x_spec = "center";
+	r.y = 40;
+	r.monitor = "2";
+	WB_CHECK(wb::app_rule_effects(r) == (std::vector<std::string>{"At center, 40", "On monitor 2"}));
+}
+
+WB_TEST(menu_placed_in_area) {
+	/* A monitor at 1920, 0, 1920 × 1080; a menu 200 × 300. */
+	auto at = [](const char *x, const char *y) {
+		return wb::place_in_area(x, y, 200, 300, 1920, 0, 1920, 1080);
+	};
+	WB_CHECK(at("center", "center") && at("center", "center")->x == 1920 + 860 &&
+			at("center", "center")->y == 390);
+	WB_CHECK(at("10", "-10") && at("10", "-10")->x == 1930 && at("10", "-10")->y == 770);
+	WB_CHECK(at("50%", "0")->x == 1920 + 960 && at("50%", "0")->y == 0);
+	/* Past the edge: kept inside. */
+	WB_CHECK(at("1900", "2000")->x == 1920 + 1720 && at("1900", "2000")->y == 780);
+	/* Bigger than the area: its top-left at the area's. */
+	auto big = wb::place_in_area("center", "center", 3000, 2000, 0, 0, 1920, 1080);
+	WB_CHECK(big && big->x == 0 && big->y == 0);
+	WB_CHECK(!at("left", "0") && !at("0", "") && !at("default", "0"));
+}
+
+WB_TEST(rule_monitor_by_place_or_name) {
+	/* Plugged in as DP-2 (right), HDMI-A-1 (left), DP-1 (below the left). */
+	std::vector<wb::MonitorPlace> m = {{"DP-2", 1920, 0}, {"HDMI-A-1", 0, 0}, {"DP-1", 0, 1080}};
+	WB_CHECK(wb::rule_monitor(m, "1") == size_t{1});   /* leftmost, top */
+	WB_CHECK(wb::rule_monitor(m, "2") == size_t{2});   /* left, below */
+	WB_CHECK(wb::rule_monitor(m, "3") == size_t{0});   /* right */
+	WB_CHECK(wb::rule_monitor(m, "primary") == size_t{1});
+	WB_CHECK(wb::rule_monitor(m, "DP-1") == size_t{2});
+	WB_CHECK(!wb::rule_monitor(m, "4") && !wb::rule_monitor(m, "0") && !wb::rule_monitor(m, "VGA-1"));
+	WB_CHECK(!wb::rule_monitor(m, "mouse"));
+	AppRule r;
+	r.monitor = "DP-1";
+	WB_CHECK(wb::app_rule_effects(r) == (std::vector<std::string>{"On DP-1"}));
+}

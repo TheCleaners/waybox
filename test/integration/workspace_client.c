@@ -3,7 +3,7 @@
  * ext/workspaces) for the workspace integration test.
  *
  * After every manager "done" it prints one line:
- *   done outputs=<n> <id>:<name>:<active|->[:removed] ...
+ *   done outputs=<n> <id>:<name>:<active|->[:urgent] ...
  * in the order the workspaces were announced. Commands on stdin:
  *   activate <id>   activate that workspace and commit
  *   stop            send stop (expects "finished")
@@ -116,8 +116,9 @@ static void mgr_done(void *data, struct ext_workspace_manager_v1 *m) {
 		struct ws *w = &workspaces[i];
 		if (w->removed)
 			continue;
-		printf(" %s:%s:%s", w->id, w->name,
-				(w->state & EXT_WORKSPACE_HANDLE_V1_STATE_ACTIVE) ? "active" : "-");
+		printf(" %s:%s:%s%s", w->id, w->name,
+				(w->state & EXT_WORKSPACE_HANDLE_V1_STATE_ACTIVE) ? "active" : "-",
+				(w->state & EXT_WORKSPACE_HANDLE_V1_STATE_URGENT) ? ":urgent" : "");
 	}
 	printf("\n");
 	fflush(stdout);

@@ -259,6 +259,7 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
   <switcher order="mru" osd="yes" wrap="yes" icons="yes"/>
   <edgeTiling enabled="yes" range="10"/>
   <sessionRestore enabled="yes"/>
+  <activation focus="smart"/>
   <titlebar paddingY="2" buttonSize="0" resizeGrab="8"/>
   <virtualInput allow="unlocked"/>
   <xwayland enabled="yes"/>
@@ -296,6 +297,17 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 	where it will go. Dragging a tiled window away restores its size.
 	*range* is how close to the edge the pointer must be, in pixels. Only
 	outer edges count, not the edges between two monitors.
+
+*<activation focus="smart|always|never"/>*
+	A window asking to be shown (xdg-activation; X11's \_NET\_ACTIVE\_WINDOW),
+	as a browser does for a link opened in another program. *smart* (the
+	default): shown if it's on the current desktop and the request came
+	from your input (a click, a key; X11 requests count as yours);
+	otherwise marked urgent. *always*: shown, switching desktops (still
+	only for requests from your input). *never*: only marked. An urgent
+	window's desktop is urgent to panels (ext-workspace: Waybar colors
+	it) until the window is focused; *<If><urgent>* matches it, and
+	*get_windows* says so. An X11 window's urgency hint marks it too.
 
 *<sessionRestore>*
 	Programs that ask (xdg-session-management) get their windows back at
@@ -489,6 +501,88 @@ act on a window use the focused one.
 *ToggleOmnipresent*
 	Show the window on all desktops, or only the current one.
 
+*MoveResizeTo*
+	Move and size the window, within the monitor's usable area (panels
+	left out): *<x>*, *<y>* (pixels from the area's left or top; negative:
+	from its right or bottom; *center*; _N_*%*; *current*), *<width>*,
+	*<height>* (pixels, _N_*%* of the area, *current*), *<monitor>* (a
+	number, or *current*). Sizes are measured with the window's frame.
+
+*MoveRelative*, *ResizeRelative*
+	Move the window by *<x>* and *<y>* pixels; move its edges out by
+	*<left>*, *<right>*, *<top>* and *<bottom>* pixels (negative: in;
+	Openbox's older *<x>* and *<y>* are the right and bottom).
+
+*MoveToCenter*
+	Center the window on its monitor.
+
+*MoveToEdge*, *GrowToEdge*, *ShrinkToEdge*
+	With *<direction>north|south|east|west</direction>*: move the window
+	that way until one of its edges meets the next edge (another window's
+	alongside it, or the area's); move that side out to the next edge; or
+	in to the nearest edge of a window it overlaps. Openbox 3.4's names
+	(*MoveToEdgeNorth*, *GrowToEdgeEast*, ...) work too.
+
+*GrowToFill*
+	Grow every side out to the next edge, without overlapping.
+
+*Kill*
+	End the window's program: SIGTERM, then SIGKILL if asked again within
+	3 seconds. Only for a Wayland window (its process known from its
+	connection) of a program of yours; an X11 window says its own process
+	ID, which could name another program, so it's only asked to close.
+
+*Decorate*, *Undecorate*
+	Give the window Waybox's frame, or take it away (*ToggleDecorations*
+	switches). A program that draws its own decorations keeps them.
+
+*RaiseLower*
+	Lower the window if it's on top of its layer, else raise it.
+
+*ShadeLower*, *UnshadeRaise*
+	Roll the window up (or lower it, if it is); roll it down (or raise it,
+	if it isn't).
+
+*FocusToBottom*, *Unfocus*
+	Move the window to the end of the focus order (last in Alt+Tab's
+	list); take the keyboard focus from it.
+
+*FocusFallback*
+	Focus the last focused window that's shown on this desktop.
+
+*Restart*
+	Reconfigure (a Wayland compositor can't keep its windows across a
+	restart).
+
+*AddDesktop*, *RemoveDesktop*
+	One more desktop, after the last or (*<where>current</where>*) after
+	the current one; or the last (or current) desktop taken away, its
+	windows moved to the one before it. rc.xml isn't changed; the count
+	stays across a Reconfigure (and wbconf's Save & Apply) until rc.xml's
+	*<number>* is changed, which then wins. Openbox 3.4's *AddDesktopLast*,
+	*RemoveDesktopCurrent* and the like work too.
+
+*ToggleShowDesktop*
+	Minimize the current desktop's windows to show the desktop; again,
+	bring them back. Focusing a window (a click in a taskbar, Alt+Tab)
+	ends it: that window is shown, the others stay minimized.
+
+*DirectionalTargetWindow*, *DirectionalCycleWindows*
+	Focus (and raise) the nearest window that way from the focused one (or
+	the pointer), among those shown on this desktop: *<direction>* is
+	*north*, *northeast*, *east*, *southeast*, *south*, *southwest*,
+	*west* or *northwest*. A window straight ahead wins over a nearer one
+	off to the side. *DirectionalCycleWindows* focuses at once (Openbox's
+	popup isn't shown). Openbox 3.4's *DirectionalFocusNorth* and the like
+	work too.
+
+*ShowAbout*
+	Waybox's own: a card in the middle of the monitor with Waybox's
+	version and what's running (wlroots, the renderer, Xwayland, the
+	monitors). A click or a key closes it, and goes no further; a click
+	on the project's address opens it. The default menu's Waybox submenu
+	has it as *About Waybox*.
+
 *SendToTopLayer*, *SendToNormalLayer*, *SendToBottomLayer*
 	Put the window in a layer: always on top, with the others, or always on
 	bottom. Raising and lowering stay within a window's layer; panels stay
@@ -525,7 +619,7 @@ act on a window use the focused one.
 
 A *<menu>* has an *id* and a *label*. It contains *<item>* elements (each
 with a *label*, an optional *icon* and actions), *<separator>* elements (with
-an optional *label*), and nested *<menu>* elements, which are submenus. A
+an optional *label*, which makes it a title, as in Openbox), and nested *<menu>* elements, which are submenus. A
 *<menu>* with only an *id* refers to a menu defined elsewhere in the file.
 
 A *<menu>* with *type="applications"* lists the installed programs, by

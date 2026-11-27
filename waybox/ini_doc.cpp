@@ -95,7 +95,14 @@ size_t Document::insert_at(std::string_view section) const {
 	return std::string::npos;
 }
 
-void Document::set(std::string_view section, std::string_view key, std::string_view value) {
+void Document::set(std::string_view section, std::string_view key, std::string_view value_in) {
+	/* One line: a newline in the value would add lines of its own (new
+	 * keys, a [section]) the user never wrote. */
+	std::string one_line(value_in);
+	for (char &c : one_line)
+		if (c == '\n' || c == '\r')
+			c = ' ';
+	std::string_view value = one_line;
 	int i = last_entry(section, key);
 	if (i >= 0) {
 		Line &l = lines_[static_cast<size_t>(i)];

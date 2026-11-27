@@ -31,7 +31,7 @@
 #include "waybox/xdg_shell.h"
 #include "waybox/seat.h"
 
-namespace wb { class MenuWidget; class SwitcherWidget; class DesktopPopup; }
+namespace wb { class MenuWidget; class SwitcherWidget; class DesktopPopup; class AboutCard; }
 struct wb_session_lock_state;
 struct wb_startup_state;
 struct wb_shortcuts_inhibit_state;
@@ -158,6 +158,10 @@ struct wb_server {
 	 * (nullptr = at the root, awaiting the first chord). */
 	const wb::KeyBinding *active_keychain = nullptr;
 
+	/* A menu shown as a preview (IPC preview_menu, wbconf's menu editor):
+	 * its own copy, its entries' actions left out. Before `menu`, which
+	 * may refer to it, so it goes after it. */
+	std::unique_ptr<wb::MenuFile> preview_menu;
 	/* The open root/context menu (a compositor-drawn input grab), or null. */
 	std::unique_ptr<wb::MenuWidget> menu;
 	/* The window menu's contents (built each time it opens; the widget
@@ -179,6 +183,19 @@ struct wb_server {
 	 * whose release commits the selection. `last_key_modifiers` carries the
 	 * modifiers of the key event currently firing an action into run_action. */
 	std::unique_ptr<wb::SwitcherWidget> switcher;
+	/* The About card (ShowAbout), until a click or a key. */
+	std::unique_ptr<wb::AboutCard> about_card;
+	/* ToggleShowDesktop is on (its windows: hidden_by_show_desktop). */
+	bool showing_desktop = false;
+	bool show_desktop_busy = false;  /* while it minimizes and restores */
+	/* Kill: the process last sent SIGTERM, and when (ms): asked again for
+	 * it within 3 s, SIGKILL. */
+	pid_t kill_pid = -1;
+	int64_t kill_ms = 0;
+	/* The desktop count AddDesktop/RemoveDesktop left (0: none), and
+	 * rc.xml's number then: kept across reloads while that's unchanged. */
+	int runtime_desktops = 0;
+	int runtime_desktops_from = 0;
 	/* The desktop name shown after switching (<desktops><popupTime>). */
 	std::unique_ptr<wb::DesktopPopup> desktop_popup;
 	/* wbconf's Test for the on-screen display: settings not saved yet. */

@@ -5,6 +5,7 @@
  * title, description, control, a bar marking it as set in rc.xml (or not
  * saved yet) and a menu to reset it or copy it.
  */
+#include "geo_picker.hpp"
 #include "wbconf_ui.hpp"
 
 #include "waybox/monitor_layout.hpp"
@@ -14,6 +15,9 @@ namespace wbconf {
 namespace {
 
 const char *kCss = R"(
+.wb-geo-zoom { min-width: 28px; min-height: 28px; padding: 0; background-color: @theme_base_color;
+  box-shadow: 0 1px 2px alpha(black, 0.15); }
+.wb-geo-zoom:hover { background-color: mix(@theme_base_color, currentColor, 0.08); }
 .wb-setting { padding: 3px 8px 5px 0; border-radius: 6px; }
 .wb-setting:hover { background: alpha(currentColor, 0.04); }
 .wb-setting .wb-gear { opacity: 0; }
@@ -27,6 +31,43 @@ const char *kCss = R"(
 .wb-toc row label { font-size: 0.95em; }
 .wb-toc .wb-toc-arrow { opacity: 0.6; -gtk-icon-size: 12px; }
 .wb-toc .wb-toc-section { margin-left: 18px; }
+.wb-keycap { padding: 0 7px; min-height: 22px; border-radius: 5px; font-size: 0.92em;
+  border: 1px solid alpha(currentColor, 0.22); border-bottom-width: 2px;
+  background-color: alpha(currentColor, 0.05); }
+.wb-shortcut-row { padding: 4px 6px; margin: 0; min-height: 0; border-radius: 6px; font-weight: normal; }
+.wb-shortcut-static { padding: 4px 6px; }
+.wb-shortcut-open > box > .wb-shortcut-row { background-color: alpha(currentColor, 0.06); }
+.wb-shortcut-unsaved > box > .wb-shortcut-row { background-color: alpha(@theme_selected_bg_color, 0.14); }
+.wb-removed label { text-decoration-line: line-through; opacity: 0.55; }
+.wb-shortcut-editor { margin: 2px 0 10px 6px; padding: 12px 14px; border-radius: 8px;
+  background-color: alpha(currentColor, 0.035); border: 1px solid alpha(currentColor, 0.10); }
+.wb-keys-button { padding: 4px 8px; min-height: 30px; }
+.wb-rule-row { padding: 6px 6px; }
+.wb-rule-order { min-width: 20px; min-height: 20px; border-radius: 10px; font-size: 0.85em;
+  background-color: alpha(currentColor, 0.08); }
+.wb-rule-pattern { font-family: monospace; border-bottom-width: 1px; background-color: transparent; }
+.wb-rule-every { font-style: italic; }
+.wb-rule-kept { font-size: 0.92em; }
+.wb-rules-script { padding: 6px 10px; margin-bottom: 6px; border-radius: 6px;
+  background-color: alpha(@theme_selected_bg_color, 0.12); }
+.wb-menu-row { padding: 3px 6px; }
+.wb-menu-title { font-size: 0.85em; font-weight: bold; opacity: 0.75; }
+.wb-menu-editor { margin-top: 2px; }
+.wb-drop-before { box-shadow: inset 0 2px 0 @theme_selected_bg_color; }
+.wb-drop-after { box-shadow: inset 0 -2px 0 @theme_selected_bg_color; }
+.wb-drop-into { background-color: alpha(@theme_selected_bg_color, 0.18); }
+.wb-rule-matches { font-size: 0.95em; }
+.wb-rule-kind { font-size: 0.9em; font-style: italic; }
+.wb-rule-error { color: mix(@error_color, @theme_fg_color, 0.3); }
+.wb-shortcut-warn { margin: 0 6px 6px 6px; padding: 6px 10px; border-radius: 6px;
+  background-color: alpha(@warning_color, 0.12); }
+.wb-shortcut-warn image { color: @warning_color; }
+.wb-remove { color: mix(@error_color, @theme_fg_color, 0.3); }
+.wb-mod-toggle { padding: 2px 10px; min-height: 26px; font-size: 0.95em; }
+.wb-keys-button.wb-capturing { outline: 2px solid @theme_selected_bg_color; outline-offset: 1px;
+  background-color: alpha(@theme_selected_bg_color, 0.16); }
+.wb-shortcut-group { font-weight: bold; margin-top: 10px; margin-bottom: 2px; }
+.wb-shortcut-place { font-weight: bold; }
 .wb-toc-toolbar button { min-width: 22px; min-height: 22px; padding: 0; margin: 0;
   border-radius: 5px; opacity: 0.55; -gtk-icon-size: 14px; }
 .wb-toc-toolbar button:hover, .wb-toc-toolbar button:checked { opacity: 1; }
@@ -483,6 +524,14 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 			return build_theme_block(ui);
 		if (d.widget == "monitors")
 			return build_monitors_block(ui);
+		if (d.widget == "keybindings")
+			return build_keybindings_block(ui);
+		if (d.widget == "apprules")
+			return build_rules_block(ui);
+		if (d.widget == "menutree")
+			return build_menu_block(ui);
+		if (d.widget == "mousebindings")
+			return build_mousebindings_block(ui);
 		if (d.widget.rfind("program:", 0) == 0)
 			return build_program_block(ui, d.widget.substr(8));
 		if (d.widget == "programs-other")
@@ -581,6 +630,9 @@ GtkWidget *add_row(Ui *ui, const wb::SettingDef &d, const std::string &category,
 		gtk_widget_set_visible(r->problem_icon, FALSE);
 		gtk_box_append(GTK_BOX(title_line), r->problem_icon);
 		gtk_box_append(GTK_BOX(title_line), title);
+		/* A title that only repeats its section's heading: not said twice. */
+		if (!d.section.empty() && d.title == d.section)
+			gtk_widget_set_visible(title, FALSE);
 		gtk_box_append(GTK_BOX(body), title_line);
 		if (!d.description.empty())
 			gtk_box_append(GTK_BOX(body), wrapped_label(d.description, true));
@@ -701,6 +753,10 @@ void scroll_to(Ui *ui, GtkWidget *heading) {
 	gtk_adjustment_set_value(adj, y_in_list(ui, heading) - 8);
 	ui->scrolling_to = false;
 	bool first = ui->scroll_target == nullptr;
+	/* Held while it waits: the list may be rebuilt meanwhile. */
+	g_object_ref(heading);
+	if (ui->scroll_target != nullptr)
+		g_object_unref(ui->scroll_target);
 	ui->scroll_target = heading;
 	ui->scroll_set = gtk_adjustment_get_value(adj);
 	if (!first)
@@ -710,11 +766,16 @@ void scroll_to(Ui *ui, GtkWidget *heading) {
 		GtkAdjustment *adj = gtk_scrolled_window_get_vadjustment(ui->scroller);
 		GtkWidget *target = ui->scroll_target;
 		ui->scroll_target = nullptr;
-		if (target == nullptr || std::abs(gtk_adjustment_get_value(adj) - ui->scroll_set) > 1)
-			return;  /* the user scrolled since */
-		ui->scrolling_to = true;
-		gtk_adjustment_set_value(adj, y_in_list(ui, target) - 8);
-		ui->scrolling_to = false;
+		if (target == nullptr)
+			return;
+		/* Still in the window, and the user hasn't scrolled since. */
+		if (gtk_widget_get_root(target) != nullptr &&
+				std::abs(gtk_adjustment_get_value(adj) - ui->scroll_set) <= 1) {
+			ui->scrolling_to = true;
+			gtk_adjustment_set_value(adj, y_in_list(ui, target) - 8);
+			ui->scrolling_to = false;
+		}
+		g_object_unref(target);
 	}, ui);
 }
 
@@ -910,8 +971,17 @@ void on_search(GtkSearchEntry *entry, gpointer data) {
 					bool modified = r->def->type == wb::SettingType::Custom
 							? custom_set(r->def->widget) : r->value.has_value();
 					std::string cat = r->category + " " + r->def->group;
-					show = show || wb::setting_matches(*r->def, cat, q, modified,
+					bool hit = wb::setting_matches(*r->def, cat, q, modified,
 							r->problem.has_value());
+					/* The Shortcuts lists: filtered row by row. */
+					if (r->def->widget == "keybindings" || r->def->widget == "mousebindings") {
+						const std::string &w = r->def->widget;
+						bool setting_hit = wb::setting_matches(*r->def, cat, q,
+								shortcuts_dirty(ui, w),
+								r->problem.has_value() || shortcuts_problem(ui, w));
+						hit = shortcuts_filter(ui, w, q, setting_hit);
+					}
+					show = show || hit;
 				}
 				gtk_widget_set_visible(w, show);
 				sec_any = sec_any || show;
@@ -1217,6 +1287,72 @@ gboolean toc_step(gpointer data) {
 		/* "luapage-dump:ID|KEY=VALUE[!PROBLEM][(hidden)]...|error:..." */
 		std::string id = step.substr(8);
 		fprintf(stderr, "luapage-dump:%s%s\n", id.c_str(), lua_page_dump(ui, id).c_str());
+	} else if (step == "menu") {
+		menu_dump(ui);
+	} else if (step.rfind("menu-", 0) == 0) {
+		menu_test_step(ui, step);
+	} else if (step == "rules") {
+		rule_dump(ui);
+	} else if (step.rfind("rule-", 0) == 0) {
+		rule_test_step(ui, step);
+	} else if (step == "shortcuts") {
+		shortcut_dump(ui);
+	} else if (step.rfind("shortcut-", 0) == 0) {
+		shortcut_test_step(ui, step);
+	} else if (step.rfind("geo:", 0) == 0) {
+		/* "geo:ID=find:CITY" / "geo:ID=click:FX,FY" / "geo:ID=show": then
+		 * "geo|ID|LAT-FIELD|LON-FIELD|CAPTION". */
+		std::string rest = step.substr(4);
+		size_t eq = rest.find('=');
+		std::string id = rest.substr(0, eq), what = eq == std::string::npos ? "" : rest.substr(eq + 1);
+		for (auto &p : ui->programs) {
+			if (p->in == nullptr || p->in->id != id || p->geo == nullptr)
+				continue;
+			if (what.rfind("find:", 0) == 0)
+				geo_picker_find(p->geo, what.substr(5));
+			else if (what == "zone")
+				geo_picker_use_zone(p->geo);
+			else if (what.rfind("zoom:", 0) == 0) {
+				/* "zoom:STEPS" (the buttons: around the middle) or
+				 * "zoom:STEPS@FX,FY" (the wheel: around the pointer). */
+				std::string z = what.substr(5);
+				size_t at = z.find('@'), c = z.find(',');
+				double fx = 0.5, fy = 0.5;
+				if (at != std::string::npos && c != std::string::npos) {
+					fx = g_ascii_strtod(z.substr(at + 1, c - at - 1).c_str(), nullptr);
+					fy = g_ascii_strtod(z.substr(c + 1).c_str(), nullptr);
+				}
+				geo_picker_zoom(p->geo, g_ascii_strtod(z.substr(0, at).c_str(), nullptr), fx, fy);
+			} else if (what.rfind("pan:", 0) == 0) {
+				std::string xy = what.substr(4);
+				size_t c = xy.find(',');
+				geo_picker_pan(p->geo, g_ascii_strtod(xy.substr(0, c).c_str(), nullptr),
+						g_ascii_strtod(xy.substr(c + 1).c_str(), nullptr));
+			} else if (what == "locate")
+				fprintf(stderr, "geo-locate:%s\n", geo_picker_locate(p->geo) ? "asked" : "no portal");
+			else if (what.rfind("type:", 0) == 0) {
+				/* Typed in the latitude field, as a person would. */
+				auto it = p->options.find(p->in->location[0]);
+				if (it != p->options.end() && it->second->entry != nullptr)
+					gtk_editable_set_text(GTK_EDITABLE(it->second->entry), what.substr(5).c_str());
+			}
+			else if (what.rfind("click:", 0) == 0) {
+				std::string xy = what.substr(6);
+				size_t c = xy.find(',');
+				geo_picker_click(p->geo, g_ascii_strtod(xy.substr(0, c).c_str(), nullptr),
+						g_ascii_strtod(xy.substr(c + 1).c_str(), nullptr));
+			}
+			const auto &l = p->in->location;
+			auto text = [&p](const std::string &o) {
+				auto it = p->options.find(o);
+				return it != p->options.end() && it->second->entry != nullptr
+						? std::string(gtk_editable_get_text(GTK_EDITABLE(it->second->entry)))
+						: std::string();
+			};
+			fprintf(stderr, "geo|%s|%s|%s|%s|%s\n", id.c_str(), text(l[0]).c_str(),
+					text(l[1]).c_str(), geo_picker_caption(p->geo).c_str(),
+					geo_picker_view(p->geo).c_str());
+		}
 	} else if (step.rfind("progstatus:", 0) == 0) {
 		/* "progstatus:ID" -> "progstatus:ID|on|STATUS[|warning]" */
 		for (auto &p : ui->programs)

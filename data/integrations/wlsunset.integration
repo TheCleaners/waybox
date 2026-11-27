@@ -5,6 +5,7 @@ Provides=night-light
 Comment=Warmer screen colors after sunset
 Exec=wlsunset -l 51.5 -L -0.1
 Version=wlsunset -v
+Location=latitude,longitude
 
 [Option latitude]
 Label=Latitude

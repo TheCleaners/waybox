@@ -33,6 +33,7 @@
 #include "waybox/frame_view.hpp"
 #include "waybox/menu_widget.hpp"
 #include "waybox/switcher_widget.hpp"
+#include "waybox/about_card.hpp"
 #include "waybox/xdg_shell.h"
 #include "waybox/xdg_session.h"
 
@@ -82,6 +83,7 @@ void wb_reconfigure(struct wb_server *server) {
 	 * tree, switcher list) before it is freed. */
 	server->menu.reset();
 	server->switcher.reset();
+	server->about_card.reset();
 	server->desktop_popup.reset();  /* restyled from the new theme */
 	server->osd_preview.reset();
 	server->switcher_windows.clear();
@@ -94,6 +96,15 @@ void wb_reconfigure(struct wb_server *server) {
 	}
 
 	deinit_config(server->config);
+	/* Desktops added or removed at runtime (AddDesktop, RemoveDesktop)
+	 * stay across a reload, unless rc.xml's number changed since: then
+	 * that is the user's new choice. */
+	if (server->runtime_desktops > 0) {
+		if (fresh->desktops.number == server->runtime_desktops_from)
+			fresh->desktops.number = server->runtime_desktops;
+		else
+			server->runtime_desktops = 0;
+	}
 	server->config = fresh;
 	seat_reconfigure_input(server);  /* keymap, <libinput> */
 	wb_cursor_apply_theme(server);   /* <cursor> */
@@ -415,14 +426,11 @@ bool wb_start_server(struct wb_server* server) {
 			[](void *data) {
 		auto *event =
 			static_cast<struct wlr_xdg_activation_v1_request_activate_event *>(data);
-		/* Only on behalf of the user: a token made from an input event (it
-		 * has a seat, and wlroots checked its serial), as when you click a
-		 * link or launch something. A program can't take the keyboard
-		 * (and switch desktops) on its own. */
-		if (event->token == nullptr || event->token->seat == nullptr) {
-			wlr_log(WLR_INFO, "%s", _("Ignoring an activation request not made from user input"));
-			return;
-		}
+		/* On behalf of the user: a token made from an input event (it has
+		 * a seat, and wlroots checked its serial), as when you click a link
+		 * or launch something. A program on its own can't take the
+		 * keyboard (or switch desktops): its window is marked urgent. */
+		bool from_user = event->token != nullptr && event->token->seat != nullptr;
 		struct wlr_xdg_surface *xdg_surface =
 			wlr_xdg_surface_try_from_wlr_surface(event->surface);
 		if (xdg_surface == NULL ||
@@ -433,7 +441,7 @@ bool wb_start_server(struct wb_server* server) {
 		struct wb_toplevel *toplevel =
 			toplevel_from_node(tree ? &tree->node : NULL);
 		if (toplevel != NULL)
-			focus_toplevel(toplevel);
+			toplevel_request_activation(toplevel, from_user);
 	});
 
 	server->gamma_control_manager =
@@ -557,6 +565,7 @@ bool wb_terminate(struct wb_server* server) {
 
 	wlr_backend_destroy(server->backend);
 	server->menu.reset();  /* tear down any open menu before its scene tree */
+	server->about_card.reset();
 	server->seat.reset();
 	wl_display_destroy(server->wl_display);
 	wlr_scene_node_destroy(&server->scene->tree.node);
