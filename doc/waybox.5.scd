@@ -557,8 +557,9 @@ act on a window use the focused one.
 *AddDesktop*, *RemoveDesktop*
 	One more desktop, after the last or (*<where>current</where>*) after
 	the current one; or the last (or current) desktop taken away, its
-	windows moved to the one before it. Until the next Reconfigure, which
-	goes back to rc.xml's *<number>*. Openbox 3.4's *AddDesktopLast*,
+	windows moved to the one before it. rc.xml isn't changed; the count
+	stays across a Reconfigure (and wbconf's Save & Apply) until rc.xml's
+	*<number>* is changed, which then wins. Openbox 3.4's *AddDesktopLast*,
 	*RemoveDesktopCurrent* and the like work too.
 
 *ToggleShowDesktop*

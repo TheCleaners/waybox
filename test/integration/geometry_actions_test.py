@@ -14,6 +14,7 @@ Two undecorated windows (a rule), so a window's frame is its geometry.
 7. Desktops: AddDesktop adds one at the end; b sent to desktop 2, shown,
    RemoveDesktopCurrent: one fewer, desktop 1 shown, b moved to it; a on
    desktop 2, AddDesktop <where>current</where> from desktop 1: a now on 3.
+   Reconfigure keeps the count; rc.xml's number changed, then it wins.
 8. b minimized, sent to desktop 2: moved, still minimized. Unfocus leaves
    nothing focused; FocusFallback focuses a again. Kill on b ends its process (SIGTERM).
    (Decorate and the shading ones: window_layers_test, with foot's frame.)
@@ -193,6 +194,17 @@ def main():
         do(action="SendToDesktop", to="2", follow=False, window="app_id:a")
         do(action="AddDesktop", where="current")
         expect((desktops(), on("a")), ((n0 + 1, 1), 3), "AddDesktop after the current")
+        # Kept across a reload (wbconf's Save & Apply), until rc.xml's
+        # number changes.
+        do(action="Reconfigure")
+        time.sleep(0.4)
+        expect(desktops()[0], n0 + 1, "added desktops after a Reconfigure")
+        with open(os.path.join(cfg, "waybox", "rc.xml"), "w") as f:
+            f.write(RC.replace("<applications>",
+                               "<desktops><number>2</number></desktops><applications>"))
+        do(action="Reconfigure")
+        time.sleep(0.4)
+        expect(desktops()[0], 2, "rc.xml's new number after a Reconfigure")
         do(action="SendToDesktop", to="1", follow=False, window="app_id:a")
 
         # A minimized window is sent too, and stays minimized.

@@ -188,6 +188,10 @@ struct wb_server {
 	 * it within 3 s, SIGKILL. */
 	pid_t kill_pid = -1;
 	int64_t kill_ms = 0;
+	/* The desktop count AddDesktop/RemoveDesktop left (0: none), and
+	 * rc.xml's number then: kept across reloads while that's unchanged. */
+	int runtime_desktops = 0;
+	int runtime_desktops_from = 0;
 	/* The desktop name shown after switching (<desktops><popupTime>). */
 	std::unique_ptr<wb::DesktopPopup> desktop_popup;
 	/* wbconf's Test for the on-screen display: settings not saved yet. */
