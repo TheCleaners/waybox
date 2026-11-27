@@ -377,6 +377,10 @@ bool wb_start_server(struct wb_server* server) {
 	 * and the display: freeing them here too was a double free. */
 	if (!socket)
 		return false;
+	/* The scripting socket with it, named after it: whatever sees the
+	 * display (a test, the autostart script) can reach it too. */
+	setenv("WAYLAND_DISPLAY", socket, true);
+	ipc_reconfigured(server);
 
 	if (!wlr_backend_start(server->backend)) {
 		wlr_log(WLR_ERROR, "%s", _("Failed to start backend"));

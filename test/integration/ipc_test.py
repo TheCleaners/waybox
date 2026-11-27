@@ -64,8 +64,11 @@ def main():
             env.pop(v, None)
         lp = os.path.join(workdir, f"waybox-{tag}.log")
         log = open(lp, "w")
-        proc = subprocess.Popen([waybox, "--debug"], env=env, stdout=log,
-                                stderr=subprocess.STDOUT)
+        # The autostart script (-s) gets WAYBOX_SOCK: the socket opens first.
+        autostart = os.path.join(workdir, f"autostart-{tag}")
+        proc = subprocess.Popen([waybox, "--debug", "-s",
+                                 f"sh -c 'echo \"$WAYBOX_SOCK\" > {autostart}'"],
+                                env=env, stdout=log, stderr=subprocess.STDOUT)
         wbtest.reap_on_exit(proc)
         sock = None
         for _ in range(50):
@@ -248,6 +251,10 @@ def main():
         if os.path.exists(path):
             failures.append("the socket is still there after turning it off")
     session("on", True, with_ipc)
+    got = open(os.path.join(workdir, "autostart-on")).read().strip() \
+        if os.path.exists(os.path.join(workdir, "autostart-on")) else None
+    if not got or not got.endswith(".sock"):
+        failures.append(f"the autostart script didn't get WAYBOX_SOCK: {got!r}")
 
     def without(cenv, runtime, sock, proc, children):
         if os.path.exists(os.path.join(runtime, f"waybox-{sock}.sock")):
