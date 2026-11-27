@@ -897,9 +897,10 @@ GtkWidget *build_binding_block(Ui *ui, const std::string &id) {
 	/* Its settings page, if it has one: shown while it's bound. */
 	if (!wb::lua_page_path(*in).empty()) {
 		GtkEntry *cmd = b->command;
+		GtkSwitch *on = b->on;
 		GtkWidget *page = build_lua_page_for(ui, in, &b->page, [cmd] {
 			return std::string(gtk_editable_get_text(GTK_EDITABLE(cmd)));
-		});
+		}, [on] { return on != nullptr && gtk_switch_get_active(on); });
 		g_signal_connect(b->command, "changed", G_CALLBACK(+[](GtkEditable *, gpointer d) {
 			lua_page_command_changed(static_cast<Ui::BindingRow *>(d)->page);
 		}), b.get());

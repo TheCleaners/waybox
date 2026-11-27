@@ -251,11 +251,14 @@ def main():
         _, e = a.communicate()
         return [l.split("|")[1:] for l in e.splitlines() if l.startswith("luapage-dump:mine")]
 
-    e_all = dict(wenv, WBCONF_TEST_TOC="luapage:local;luapage:risky")
+    # Saved while still asking: said for a program in use (Local, started),
+    # not for one that isn't (Risky).
+    e_all = dict(wenv, WBCONF_TEST_TOC="luapage:local;luapage:risky;set:program.local=on;"
+                 "save;status")
     a = subprocess.Popen([wbconf], env=e_all, stdout=subprocess.DEVNULL,
                          stderr=subprocess.PIPE, text=True)
     wbtest.reap_on_exit(a)
-    time.sleep(0.8 * 4 + 1.5)
+    time.sleep(0.8 * 7 + 1.5)
     a.kill()
     _, e = a.communicate()
     local_d = [l for l in e.splitlines() if l.startswith("luapage-dump:local")]
@@ -264,6 +267,10 @@ def main():
         failures.append(f"a page in a folder the user can write ran unasked: {local_d}")
     if risky_d != ["luapage-dump:risky|approval:waiting:full"]:
         failures.append(f"full access not said: {risky_d}")
+    status = [l for l in e.splitlines() if l.startswith("status-dump:")]
+    if not status or "Local's settings page isn't allowed yet" not in status[-1] or \
+            "Risky" in status[-1]:
+        failures.append(f"saving while asking not said (or said for an unused one): {status}")
 
     d = mine_dumps(["luapage:mine", "luaset:mine.approve=1", "luapage:mine"])
     if len(d) != 2 or d[0] != ["approval:waiting"] or d[1] != ["on=on"]:

@@ -570,7 +570,7 @@ void lua_page_command_changed(const std::shared_ptr<void> &page);
 /* `command`: the program's command line as its row has it now (its options
  * given to the page, wb.option), if it has one. */
 GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in, std::shared_ptr<void> *holder,
-		std::function<std::string()> command = {});
+		std::function<std::string()> command = {}, std::function<bool()> in_use = {});
 struct UnsavedChange;
 void lua_page_changes(Ui *ui, const std::string &id, const std::string &where,
 		GtkWidget *target, std::vector<UnsavedChange> &out);
