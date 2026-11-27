@@ -8,7 +8,8 @@ Two made-up wallpaper programs, in a home with a folder of wallpapers:
 - fakerand (an image or a folder): "a random one from the folder", and
   "change every 15 minutes": the command has the folder and -e 15.
 Saved with Ctrl+S; rc.xml checked. A thumbnail that isn't in the grid
-can't be chosen: a file that isn't an image isn't offered.
+can't be chosen: a file that isn't an image isn't offered. While wbconf is
+open, an image added in a subfolder and one removed: the grid follows.
 Skips (exit 77) without wtype, or a headless display.
 
 Usage: wbconf_wallpaper_test.py <waybox> <wbconf> <schema-dir>
@@ -151,14 +152,26 @@ def main():
                                 "wallpaper.fakebg.mode=fit;"
                                 "wallpaper.fakerand.random=on;"
                                 "wallpaper.fakerand.every=15",
+                WBCONF_TEST_TOC=";".join(["wallgrid:fakebg"] + ["x"] * 6 +
+                                         ["wallgrid:fakebg"]),
                 XDG_DATA_DIRS=os.path.join(workdir, "share"),
                 PATH=bindir + ":" + os.environ.get("PATH", ""))
     failures = []
     app = None
     try:
+        err_path = os.path.join(workdir, "wbconf.err")
+        err_file = open(err_path, "w")
         app = subprocess.Popen([wbconf], env=cenv, stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL)
+                               stderr=err_file)
         wbtest.reap_on_exit(app)
+        # The grid as opened; then the folder changed under it.
+        for _ in range(60):
+            time.sleep(0.1)
+            if "wallgrid:" in open(err_path).read():
+                break
+        os.makedirs(os.path.join(walls, "more"))
+        png(os.path.join(walls, "more", "c.png"), 64, 40, (90, 160, 90))
+        os.remove(os.path.join(walls, "a.png"))
         time.sleep(4)
         if app.poll() is not None:
             raise RuntimeError(f"wbconf exited ({app.returncode})")
@@ -177,6 +190,11 @@ def main():
         for name, w in want.items():
             if command(name) != w:
                 failures.append(f"{name}'s command: {command(name)!r}, not {w!r}")
+        time.sleep(2.5)
+        grids = [l.split("|", 1)[1] for l in open(err_path).read().splitlines()
+                 if l.startswith("wallgrid:fakebg|")]
+        if grids != ["a.png,b.png", "b.png,c.png"]:
+            failures.append(f"the grid as the folder changed: {grids}")
     except (RuntimeError, OSError) as e:
         failures.append(str(e))
     finally:

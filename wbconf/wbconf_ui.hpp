@@ -587,6 +587,7 @@ void lua_page_test(Ui *ui, const std::string &id, const std::string &what,
 std::string lua_page_dump(Ui *ui, const std::string &id);
 void wallpaper_refresh(void *page);
 bool wallpaper_test_choose(void *page, const std::string &what);
+std::string wallpaper_test_grid(void *page);  /* the grid's images, by name */
 std::string autostart_text();
 void program_status(Ui *ui, Ui::ProgramRow *row);
 void on_program_toggled(GObject *, GParamSpec *, gpointer data);

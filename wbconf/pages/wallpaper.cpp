@@ -180,6 +180,10 @@ struct Page {
 	GtkFlowBox *grid = nullptr;
 	GtkLabel *grid_note = nullptr;
 	GCancellable *loading = nullptr;    /* the grid's thumbnails */
+	/* The folder shown (and its subfolders): watched, the grid made again
+	 * when what's in them changes (a moment after the last change). */
+	std::vector<GFileMonitor *> watches;
+	guint rescan = 0;
 
 	GtkCheckButton *random = nullptr;
 	GtkCheckButton *every_on = nullptr;
@@ -187,7 +191,19 @@ struct Page {
 	GtkWidget *every_box = nullptr;
 	GtkDropDown *mode_drop = nullptr;
 
+	void unwatch() {
+		for (GFileMonitor *m : watches) {
+			g_signal_handlers_disconnect_by_data(m, this);
+			g_file_monitor_cancel(m);
+			g_object_unref(m);
+		}
+		watches.clear();
+	}
+
 	~Page() {
+		unwatch();
+		if (rescan != 0)
+			g_source_remove(rescan);
 		if (loading != nullptr) {
 			g_cancellable_cancel(loading);
 			g_object_unref(loading);
@@ -396,10 +412,66 @@ void select_current(Page *p) {
 	gtk_flow_box_unselect_all(p->grid);
 }
 
+void fill_grid(Page *p, const std::string &dir);
+
+/* What's in the folder changed: the grid and the preview again. */
+gboolean rescan_folder(gpointer data) {
+	auto *p = static_cast<Page *>(data);
+	p->rescan = 0;
+	std::string dir = p->folder;
+	p->folder.clear();
+	fill_grid(p, dir);
+	p->shown_path.clear();  /* the same file may be another image now */
+	load_preview(p, preview_path(p));
+	return G_SOURCE_REMOVE;
+}
+
+void folder_changed(GFileMonitor *, GFile *, GFile *, GFileMonitorEvent, gpointer data) {
+	auto *p = static_cast<Page *>(data);
+	if (p->rescan != 0)
+		g_source_remove(p->rescan);
+	p->rescan = g_timeout_add(400, rescan_folder, p);
+}
+
+/* Watch the folder and the folders under it that images_in looks in. */
+void watch_folder(Page *p, const std::string &dir) {
+	p->unwatch();
+	if (dir.empty())
+		return;
+	std::vector<std::string> dirs{dir};
+	std::error_code ec;
+	fs::recursive_directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec);
+	for (; !ec && it != fs::recursive_directory_iterator() && dirs.size() < 64;
+			it.increment(ec)) {
+		const fs::directory_entry &e = *it;
+		std::string name = e.path().filename().string();
+		bool hidden = !name.empty() && name[0] == '.';
+		if (!e.is_directory(ec))
+			continue;
+		if (hidden || it.depth() >= 3) {
+			it.disable_recursion_pending();
+			if (hidden)
+				continue;
+		}
+		dirs.push_back(e.path().string());
+	}
+	for (const std::string &d : dirs) {
+		GFile *f = g_file_new_for_path(d.c_str());
+		GFileMonitor *m = g_file_monitor_directory(f, G_FILE_MONITOR_WATCH_MOVES, nullptr,
+				nullptr);
+		g_object_unref(f);
+		if (m == nullptr)
+			continue;
+		g_signal_connect(m, "changed", G_CALLBACK(folder_changed), p);
+		p->watches.push_back(m);
+	}
+}
+
 void fill_grid(Page *p, const std::string &dir) {
 	if (dir == p->folder)
 		return;
 	p->folder = dir;
+	watch_folder(p, dir);
 	if (p->loading != nullptr) {
 		g_cancellable_cancel(p->loading);
 		g_object_unref(p->loading);
@@ -711,6 +783,17 @@ GtkWidget *build_wallpaper_page(Ui *, Ui::ProgramRow *row) {
 	gtk_widget_set_visible(GTK_WIDGET(p->grid_note), FALSE);
 	gtk_box_append(GTK_BOX(box), GTK_WIDGET(p->grid_note));
 	return box;
+}
+
+/* For tests: the grid's images, by name, comma-separated. */
+std::string wallpaper_test_grid(void *page) {
+	auto *p = static_cast<Page *>(page);
+	std::string out;
+	for (GtkWidget *c = gtk_widget_get_first_child(GTK_WIDGET(p->grid)); c != nullptr;
+			c = gtk_widget_get_next_sibling(c))
+		if (auto *path = static_cast<const char *>(g_object_get_data(G_OBJECT(c), "wb-path")))
+			out += (out.empty() ? "" : ",") + fs::path(path).filename().string();
+	return out;
 }
 
 /* "ID=PATH" for tests: choose that wallpaper in the grid, as a click. */
