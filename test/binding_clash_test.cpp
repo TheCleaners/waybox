@@ -61,3 +61,38 @@ WB_TEST(mouse_same_place) {
 	/* Modifiers as pressed; the button's name as written. */
 	WB_CHECK(!c[4]);
 }
+
+WB_TEST(modifiers_as_waybox_reads_them) {
+	WB_CHECK(wb::canonical_key("Ctrl-a") == wb::canonical_key("C-a"));
+	WB_CHECK(wb::canonical_key("Alt-Logo-x") == "W-A-x");
+	WB_CHECK(wb::canonical_key("Mod4-x") == "x");  /* Waybox ignores Mod4 */
+	WB_CHECK(wb::canonical_key("Mod2-W-d") == "W-Mod2-d");
+	auto c = wb::key_clashes({{"Ctrl-a"}, {"C-a"}}, {});
+	WB_CHECK(!c[0] && c[1] && c[1]->by == 0u);
+}
+
+WB_TEST(script_keys_read_as_lua) {
+	std::string lua =
+		"--[[\nwb.bind(\"W-a\", f)\n]]\n"            /* lines 1-3: a block comment */
+		"--[==[ wb.bind(\"W-b\", f) ]==]\n"          /* 4 */
+		"local s = \"-- wb.bind('W-c')\" wb.bind(\"W-d\", f)\n"  /* 5: in a string, then real */
+		"local t = [[\nwb.bind(\"W-e\", f)\n]]\n"     /* 6-8: a long string */
+		"mywb.bind(\"W-f\", f)\n"                     /* 9: another name */
+		"wb.bind('W-g', f)\n";                        /* 10 */
+	auto keys = wb::script_keys(lua, "init.lua");
+	WB_CHECK(keys.size() == 2);
+	if (keys.size() == 2) {
+		WB_CHECK(keys[0].key == "W-d" && keys[0].line == 5);
+		WB_CHECK(keys[1].key == "W-g" && keys[1].line == 10);
+	}
+}
+
+WB_TEST(chains_under_differently_spelled_starts) {
+	/* Two <keybind>s for the same key: Waybox only goes into the first. */
+	auto c = wb::key_clashes({{"S-W-a", "x"}, {"W-S-a", "y"}}, {});
+	WB_CHECK(!c[0] && c[1] && c[1]->by == 0u && c[1]->by_chain);
+	WB_CHECK((c[1]->keys == std::vector<std::string>{"W-S-a"}));
+	/* Spelled the same: one <keybind>, both chains under it. */
+	c = wb::key_clashes({{"W-S-a", "x"}, {"W-S-a", "y"}}, {});
+	WB_CHECK(!c[0] && !c[1]);
+}

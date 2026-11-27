@@ -27,6 +27,7 @@ std::string context_label(std::string_view context);
  * modifier on its own (Shift_L, Super_R, ...): not a key to bind yet. */
 struct HeldModifiers {
 	bool super = false, alt = false, ctrl = false, shift = false;
+	bool caps = false, mod2 = false, mod3 = false, mod5 = false;  /* rarer, as Waybox reads */
 };
 std::string rc_key(const HeldModifiers &held, std::string_view key_name);
 /* The other way: "W-S-Left" -> {super, shift} and "Left" (the rest). */

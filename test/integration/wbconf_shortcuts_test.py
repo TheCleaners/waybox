@@ -73,7 +73,7 @@ MOUSE_EDITS = ";".join([
     "shortcut-mod:Titlebar Left DoubleClick=A-",
     "shortcut-place:Titlebar A-Left DoubleClick=Client",
     "shortcut-button:Root Right Press=Up",
-    "shortcut-addmouse:Close Middle Click=Close",
+    "shortcut-addmouse:Icon Middle Click=Close",
     "search:maximize", "shortcut-visible",
     "shortcut-suggest:Maximize", "shortcut-keys:=W-m",
     "search:", "shortcut-visible", "changes", "save", "status"])
@@ -212,7 +212,7 @@ def main():
     lines = err.splitlines()
     visible = [l for l in lines if l.startswith("shortcut-visible:")]
     # The new mouse binding too: rows being set up stay in sight.
-    want_visible = ("shortcut-visible:W-n,Client A-Left DoubleClick,Close Middle Click"
+    want_visible = ("shortcut-visible:W-n,Client A-Left DoubleClick,Icon Middle Click"
                     "|suggest:Maximize,Unmaximize")
     if not visible or visible[0] != want_visible:
         failures.append(f"searching maximize: {visible[:1]}")
@@ -226,7 +226,7 @@ def main():
     want_mouse = {
         "Client A-Left DoubleClick": [("ToggleMaximize", {})],
         "Root Up Click": [("ShowMenu", {"menu": "root-menu"})],
-        "Close Middle Click": [("Close", {})],
+        "Icon Middle Click": [("Close", {})],
     }
     if got_mouse != want_mouse:
         failures.append(f"rc.xml mouse bindings: {got_mouse}")

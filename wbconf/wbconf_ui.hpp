@@ -665,7 +665,10 @@ void apply_shortcuts(Ui *ui, wb::RcDocument &doc);
 /* Search: the "keybindings"/"mousebindings" list's rows matching `q`
  * shown (all when `whole`, the setting itself matching); whether
  * anything is. */
-bool shortcuts_filter(Ui *ui, const std::string &widget, const std::string &q, bool whole);
+bool shortcuts_filter(Ui *ui, const std::string &widget, const std::string &q, bool setting_hit);
+/* For search's @modified and @problems: unsaved rows; rows that never run. */
+bool shortcuts_dirty(Ui *ui, const std::string &widget);
+bool shortcuts_problem(Ui *ui, const std::string &widget);
 /* Test hooks: the rows to stderr; a step ("shortcut-add:W-x=Close"). */
 void shortcut_dump(Ui *ui);
 void shortcut_test_step(Ui *ui, const std::string &step);

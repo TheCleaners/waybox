@@ -13,8 +13,13 @@ WB_TEST(key_caps_read_as_printed) {
 	WB_CHECK(wb::key_caps("W-period") == (V{"Super", "."}));
 	WB_CHECK(wb::key_caps("minus") == (V{"-"}));
 	WB_CHECK(wb::key_caps("W-F1") == (V{"Super", "F1"}));
-	/* Not a modifier: kept as written. */
-	WB_CHECK(wb::key_caps("X-y") == (V{"X-y"}));
+	/* Not a modifier Waybox knows: ignored, as Waybox does ("Mod4-x" is x). */
+	WB_CHECK(wb::key_caps("X-y") == (V{"Y"}));
+	WB_CHECK(wb::key_caps("Mod4-x") == (V{"X"}));
+	/* Waybox's longer spellings. */
+	WB_CHECK(wb::key_caps("Ctrl-Alt-Delete") == (V{"Ctrl", "Alt", "Delete"}));
+	WB_CHECK(wb::key_caps("Logo-d") == (V{"Super", "D"}));
+	WB_CHECK(wb::key_caps("S-exclam") == (V{"Shift", "!"}));
 }
 
 WB_TEST(buttons_events_contexts) {
@@ -23,8 +28,11 @@ WB_TEST(buttons_events_contexts) {
 	WB_CHECK(wb::event_label("DoubleClick") == "Double-click");
 	WB_CHECK(wb::context_label("Root") == "Desktop");
 	WB_CHECK(wb::context_label("Client") == "Window");
-	WB_CHECK(wb::context_label("Close") == "Close button");
-	WB_CHECK(wb::context_label("TLCorner") == "Top-left corner");
+	/* Places Waybox doesn't read: shown as written, and not offered. */
+	WB_CHECK(wb::context_label("Close") == "Close");
+	for (const auto &[name, label] : wb::mouse_contexts())
+		WB_CHECK(name != "Close" && name != "TLCorner" && name != "Maximize");
+	WB_CHECK(wb::context_label("Desktop") == "Desktop and its icons");
 	WB_CHECK(wb::context_label("Unknown") == "Unknown");
 	std::string rest;
 	wb::HeldModifiers h = wb::held_of("W-S-Left", rest);

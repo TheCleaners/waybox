@@ -947,3 +947,79 @@ WB_TEST(bindings_read_and_edit) {
 			wb::MouseBinding{"Titlebar", "Left", "DoubleClick", {{"ToggleMaximize", {}}}}));
 	WB_CHECK(doc->mousebindings().size() == 1);
 }
+
+/* Adding never merges into another binding, and finding one never takes a
+ * chain's start for it (review of #236). */
+WB_TEST(bindings_kept_apart) {
+	auto chains = [](const wb::RcDocument &d) {
+		std::vector<std::string> out;
+		for (const wb::KeyBinding &k : d.keybindings()) {
+			std::string c;
+			for (const std::string &s : k.chain)
+				c += (c.empty() ? "" : " ") + s;
+			out.push_back(c + "=" + (k.actions.empty() ? "" : k.actions[0].name));
+		}
+		return out;
+	};
+	using V = std::vector<std::string>;
+	/* A single key, then a chain starting with it: the leaf stays one. */
+	auto doc = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><keyboard>"
+			"<keybind key=\"C-a\"><action name=\"Close\"/></keybind>"
+			"</keyboard></openbox_config>");
+	WB_CHECK(doc.has_value());
+	if (!doc)
+		return;
+	WB_CHECK(doc->set_keybinding({}, wb::KeyBinding{{"C-a", "x"}, {{"Iconify", {}}}}));
+	WB_CHECK(chains(*doc) == (V{"C-a=Close", "C-a x=Iconify"}));
+	/* A chain, then the single key: its own <keybind>, listed. */
+	doc = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><keyboard>"
+			"<keybind key=\"C-a\"><keybind key=\"x\"><action name=\"Close\"/></keybind></keybind>"
+			"</keyboard></openbox_config>");
+	WB_CHECK(doc.has_value());
+	if (!doc)
+		return;
+	WB_CHECK(doc->set_keybinding({}, wb::KeyBinding{{"C-a"}, {{"Iconify", {}}}}));
+	WB_CHECK(chains(*doc) == (V{"C-a x=Close", "C-a=Iconify"}));
+	/* A second chain under the same start: shares it. */
+	WB_CHECK(doc->set_keybinding({}, wb::KeyBinding{{"C-a", "y"}, {{"Raise", {}}}}));
+	WB_CHECK(doc->to_string().find("key=\"C-a\"") != std::string::npos);
+	size_t first = doc->to_string().find("key=\"C-a\"");
+	WB_CHECK(doc->to_string().find("key=\"y\"") > first);
+	/* Removing the single key leaves the chain. */
+	std::vector<wb::BoundAction> iconify = {{"Iconify", {}}};
+	WB_CHECK(doc->set_keybinding({"C-a"}, std::nullopt, &iconify));
+	WB_CHECK(chains(*doc) == (V{"C-a x=Close", "C-a y=Raise"}));
+
+	/* An empty single key beside a chain: removing it can't take the
+	 * chain's start for it. */
+	doc = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><keyboard>"
+			"<keybind key=\"C-a\"><keybind key=\"x\"><action name=\"Close\"/></keybind></keybind>"
+			"<keybind key=\"C-a\"/>"
+			"</keyboard></openbox_config>");
+	WB_CHECK(doc.has_value());
+	if (!doc)
+		return;
+	std::vector<wb::BoundAction> none;
+	WB_CHECK(doc->set_keybinding({"C-a"}, std::nullopt, &none));
+	WB_CHECK(chains(*doc) == (V{"C-a x=Close"}));
+	WB_CHECK(doc->set_keybinding({"C-a"}, std::nullopt) == false ||
+			chains(*doc) == (V{"C-a x=Close"}));
+
+	/* Two mouse bindings on the same place: the one meant is removed. */
+	doc = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><mouse><context name=\"Root\">"
+			"<mousebind button=\"Right\" action=\"Press\"><action name=\"ShowMenu\"/></mousebind>"
+			"<mousebind button=\"Right\" action=\"Press\"><action name=\"Close\"/></mousebind>"
+			"</context></mouse></openbox_config>");
+	WB_CHECK(doc.has_value());
+	if (!doc)
+		return;
+	auto mouse = doc->mousebindings();
+	WB_CHECK(mouse.size() == 2);
+	WB_CHECK(doc->set_mousebinding(mouse[1], std::nullopt));
+	mouse = doc->mousebindings();
+	WB_CHECK(mouse.size() == 1 && mouse[0].actions[0].name == "ShowMenu");
+}
