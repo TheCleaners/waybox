@@ -1128,7 +1128,12 @@ bool init_config(struct wb_server *server) {
 	if (has_settings(rc_file)) {
 		config = load_config_file(rc_file, &problem);
 	} else {
+		/* Missing or empty: the defaults, as a Reconfigure makes them (no
+		 * config at all left the scripting socket off until one). */
+		static const std::string kNoSettings =
+				"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"/>";
 		wlr_log(WLR_INFO, "%s %s", _("No settings in"), rc_file.c_str());
+		config = load_config_file(rc_file, &problem, &kNoSettings);
 	}
 #ifdef WB_SYSCONFDIR
 	/* A broken user rc.xml: start with the system's instead, rather than
