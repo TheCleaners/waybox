@@ -53,6 +53,7 @@ enum class ActionType {
 	SendToLayer,
 	ToggleAlwaysOnTop,
 	ToggleAlwaysOnBottom,
+	ShowAbout,  /* Waybox's: the About card */
 	SnapToEdge,
 	Move,
 	Resize,

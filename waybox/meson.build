@@ -59,6 +59,8 @@ wb_src = [
     'pointer_constraints.cpp',
     'sandbox.cpp',
     'scene_buffer.cpp',
+    'about.cpp',
+    'about_card.cpp',
     'seat.cpp',
     'server.cpp',
     'session_lock.cpp',
@@ -98,6 +100,8 @@ waybox_exe = executable(
   [wb_src, wb_version_h],
   include_directories: [inc_dir],
   dependencies: [wb_dep, wlr_protos],
+  cpp_args: ['-DWB_ICON_PATH="' + get_option('prefix') / get_option('datadir') / 'icons' /
+             'waybox.svg' + '"'],
   install: true,
   install_dir: get_option('prefix') / get_option('libexecdir'),
   link_args: ['-Wl,-lm'],

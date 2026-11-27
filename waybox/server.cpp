@@ -33,6 +33,7 @@
 #include "waybox/frame_view.hpp"
 #include "waybox/menu_widget.hpp"
 #include "waybox/switcher_widget.hpp"
+#include "waybox/about_card.hpp"
 #include "waybox/xdg_shell.h"
 #include "waybox/xdg_session.h"
 
@@ -82,6 +83,7 @@ void wb_reconfigure(struct wb_server *server) {
 	 * tree, switcher list) before it is freed. */
 	server->menu.reset();
 	server->switcher.reset();
+	server->about_card.reset();
 	server->desktop_popup.reset();  /* restyled from the new theme */
 	server->osd_preview.reset();
 	server->switcher_windows.clear();
@@ -554,6 +556,7 @@ bool wb_terminate(struct wb_server* server) {
 
 	wlr_backend_destroy(server->backend);
 	server->menu.reset();  /* tear down any open menu before its scene tree */
+	server->about_card.reset();
 	server->seat.reset();
 	wl_display_destroy(server->wl_display);
 	wlr_scene_node_destroy(&server->scene->tree.node);

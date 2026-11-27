@@ -23,8 +23,9 @@ namespace wb {
 struct MenuItem {
 	enum class Kind {
 		Entry,      /* a label that runs actions */
-		Separator,  /* a divider (optionally labelled) */
+		Separator,  /* a divider; labelled, a title (as Openbox draws it) */
 		Submenu,    /* opens another menu (by id) */
+		Text,       /* a line to read, not to choose (the about menu's) */
 	};
 
 	Kind kind = Kind::Entry;

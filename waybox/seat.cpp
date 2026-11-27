@@ -5,6 +5,8 @@
 #include <vector>
 
 #include "script.h"
+#include "about.h"
+#include "waybox/about_card.hpp"
 #include "color_pick.h"
 #include "waybox/stall.hpp"
 #include "idle.h"
@@ -564,6 +566,11 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		set_toplevel_layer(toplevel, layer);
 		break;
 	}
+	case wb::ActionType::ShowAbout:
+		server->menu.reset();
+		server->about_card = std::make_unique<wb::AboutCard>(server, wb_osd_style(server),
+				about_info(server));
+		break;
 	case wb::ActionType::ToggleOmnipresent: {
 		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel && toplevel->scene_tree->node.enabled)
@@ -829,6 +836,13 @@ void wb_keyboard::on_key(void *data) {
 					server->switcher->select_next();
 				}
 			}
+			idle_activity(server, seat);
+			return;
+		}
+
+		/* The About card: any key closes it, and goes no further. */
+		if (server->about_card != nullptr) {
+			server->about_card.reset();
 			idle_activity(server, seat);
 			return;
 		}

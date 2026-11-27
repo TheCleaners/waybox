@@ -31,7 +31,7 @@
 #include "waybox/xdg_shell.h"
 #include "waybox/seat.h"
 
-namespace wb { class MenuWidget; class SwitcherWidget; class DesktopPopup; }
+namespace wb { class MenuWidget; class SwitcherWidget; class DesktopPopup; class AboutCard; }
 struct wb_session_lock_state;
 struct wb_startup_state;
 struct wb_shortcuts_inhibit_state;
@@ -179,6 +179,8 @@ struct wb_server {
 	 * whose release commits the selection. `last_key_modifiers` carries the
 	 * modifiers of the key event currently firing an action into run_action. */
 	std::unique_ptr<wb::SwitcherWidget> switcher;
+	/* The About card (ShowAbout), until a click or a key. */
+	std::unique_ptr<wb::AboutCard> about_card;
 	/* The desktop name shown after switching (<desktops><popupTime>). */
 	std::unique_ptr<wb::DesktopPopup> desktop_popup;
 	/* wbconf's Test for the on-screen display: settings not saved yet. */

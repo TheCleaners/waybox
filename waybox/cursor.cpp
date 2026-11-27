@@ -1,6 +1,8 @@
 #include <time.h>
 #include <cmath>
 #include <optional>
+
+#include "waybox/about_card.hpp"
 #include <vector>
 
 #include "toplevel_drag.h"
@@ -841,6 +843,20 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 		wlr_seat_pointer_notify_button(seat, event->time_msec, event->button,
 				event->state);
 	locked_done:
+		idle_activity(server, seat);
+		return;
+	}
+
+	/* The About card: a press anywhere closes it (on the project's address,
+	 * opening it first), and goes no further; releases are let be (the
+	 * click that opened it). */
+	if (server->about_card != nullptr) {
+		if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
+			release_owed();
+			if (server->about_card->on_link(cursor->x, cursor->y))
+				wb_spawn(("xdg-open " + std::string(wb::kProjectUrl)).c_str());
+			server->about_card.reset();
+		}
 		idle_activity(server, seat);
 		return;
 	}

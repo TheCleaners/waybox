@@ -501,6 +501,13 @@ act on a window use the focused one.
 *ToggleOmnipresent*
 	Show the window on all desktops, or only the current one.
 
+*ShowAbout*
+	Waybox's own: a card in the middle of the monitor with Waybox's
+	version and what's running (wlroots, the renderer, Xwayland, the
+	monitors). A click or a key closes it, and goes no further; a click
+	on the project's address opens it. The default menu's Waybox submenu
+	has it as *About Waybox*.
+
 *SendToTopLayer*, *SendToNormalLayer*, *SendToBottomLayer*
 	Put the window in a layer: always on top, with the others, or always on
 	bottom. Raising and lowering stay within a window's layer; panels stay
@@ -537,7 +544,7 @@ act on a window use the focused one.
 
 A *<menu>* has an *id* and a *label*. It contains *<item>* elements (each
 with a *label*, an optional *icon* and actions), *<separator>* elements (with
-an optional *label*), and nested *<menu>* elements, which are submenus. A
+an optional *label*, which makes it a title, as in Openbox), and nested *<menu>* elements, which are submenus. A
 *<menu>* with only an *id* refers to a menu defined elsewhere in the file.
 
 A *<menu>* with *type="applications"* lists the installed programs, by

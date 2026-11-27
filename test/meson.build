@@ -810,6 +810,7 @@ if python.found() and not get_option('tests_only')
     ['foreign_toplevel', 'foreign_toplevel_test.py', [default_rc], 60],
     ['fullscreen_panel', 'fullscreen_panel_test.py', [layer_client], 60],
     ['window_layers', 'window_layers_test.py', [], 60],
+    ['about_card', 'about_card_test.py', [], 60],
     ['ibus_real', 'ibus_real_test.py', [text_input_client], 60],
     ['idle_inhibit', 'idle_inhibit_test.py', [inhibit_client], 60],
     ['idle_screen_off', 'idle_screen_off_test.py', [inhibit_client], 60],
