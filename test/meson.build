@@ -122,6 +122,13 @@ edge_tiling_test = executable(
   )
 test('edge_tiling', edge_tiling_test)
 
+action_catalog_test = executable(
+  'action_catalog_test',
+  ['action_catalog_test.cpp', 'wb_test_main.cpp', action_catalog_src, action_src],
+  include_directories: [inc_dir],
+  )
+test('action_catalog', action_catalog_test)
+
 geometry_actions_test = executable(
   'geometry_actions_test',
   ['geometry_actions_test.cpp', 'wb_test_main.cpp', geometry_actions_src],
