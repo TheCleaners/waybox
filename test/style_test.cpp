@@ -153,6 +153,14 @@ WB_TEST(osd_keys_from_the_theme) {
 	WB_CHECK(s.panel.border.width == 0);
 	WB_CHECK(solid(s.item.hover.fill) && solid(s.item.hover.fill)->color.r == 0x44);
 	WB_CHECK(s.item.hover.fg.r == 0x77);
+	/* The desktop popup's squares: the shown one osd.hilight.bg's; the
+	 * others the panel's (no osd.unhilight.bg here), else that. */
+	WB_CHECK(solid(s.pager_on) && solid(s.pager_on)->color.r == 0x44);
+	WB_CHECK(solid(s.pager_off) && solid(s.pager_off)->color.g == 0xff);
+	wb::Theme u = wb::parse_themerc("osd.bg: flat solid\nosd.bg.color: #00ff00\n"
+			"osd.unhilight.bg: flat solid\nosd.unhilight.bg.color: #998877\n");
+	wb::SwitcherStyle su = wb::switcher_style_from_theme(u);
+	WB_CHECK(u.osd.unhilight_set && solid(su.pager_off) && solid(su.pager_off)->color.r == 0x99);
 	/* osd.inactive.label.text.color is the same key; the selected row's
 	 * text follows the label's when only that is set. */
 	wb::Theme t2 = wb::parse_themerc("osd.inactive.label.text.color: #abcdef\n");

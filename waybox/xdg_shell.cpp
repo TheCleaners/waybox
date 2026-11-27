@@ -835,7 +835,7 @@ static void show_desktop_popup(struct wb_server *server, int index, struct wb_ou
 		server->desktop_popup = std::make_unique<wb::DesktopPopup>(server,
 				wb_osd_style(server));
 	server->desktop_popup->show_on_each(outputs, wb::desktop_name(desktops, index),
-			desktops.popup_time_ms);
+			desktops.popup_time_ms, wb::DesktopPopup::Pager{index, desktop_count(server)});
 }
 
 static void switch_desktop_on(struct wb_server *server, struct wb_output *on, int index,
