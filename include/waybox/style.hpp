@@ -119,7 +119,12 @@ struct SwitcherBehavior {
 	bool include_minimized = true;
 	bool wrap = true;
 	bool show_icons = true;         /* each window's icon beside its title */
-	bool close = true;              /* close from it: the rows' x, Delete */
+	bool close = true;              /* close from it: the rows' x, the keys */
+	/* Its keys, as rc.xml writes keys, besides the switcher's own
+	 * modifier held ("none": no key): close the selected window (again
+	 * on one still there: end its program), and end its program. */
+	std::string close_key = "Delete";
+	std::string kill_key = "S-Delete";
 };
 
 /* ---- Adapters: raw Theme -> resolved style (pure) -------------------- */

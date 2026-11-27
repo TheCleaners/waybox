@@ -445,6 +445,10 @@ static void parse_switcher_behavior(struct wb_config *config,
 				config->switcher_behavior.show_icons = *i;
 			if (auto c = parse_bool((const char *) get_attribute(node, "close")))
 				config->switcher_behavior.close = *c;
+			if (const char *k = (const char *) get_attribute(node, "closeKey"))
+				config->switcher_behavior.close_key = k;
+			if (const char *k = (const char *) get_attribute(node, "killKey"))
+				config->switcher_behavior.kill_key = k;
 		}
 	}
 	xmlXPathFreeObject(object);

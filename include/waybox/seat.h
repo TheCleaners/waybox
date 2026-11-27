@@ -94,6 +94,8 @@ void wb_switcher_cancel(struct wb_server *server);
 void wb_switcher_forget(struct wb_server *server, struct wb_toplevel *toplevel);
 /* A pointer button at layout (x, y) while the switcher is up: true if it
  * was on its list (and so taken). */
+/* `toplevel` stopped responding: its switcher row says so. */
+void wb_switcher_note(struct wb_server *server, struct wb_toplevel *toplevel);
 bool wb_switcher_click(struct wb_server *server, double x, double y, uint32_t button,
 		bool pressed);
 /* Reconfigure: apply the keymap and pointer settings from the new rc.xml to

@@ -89,6 +89,7 @@ struct wb_toplevel {
 	wb::Listener request_resize;
 	wb::Listener set_app_id;
 	wb::Listener set_title;
+	wb::Listener ping_timeout;  /* xdg: a ping (to see if it answers) unanswered */
 	/* Xwayland only. */
 	wb::Listener associate;
 	wb::Listener dissociate;
@@ -144,6 +145,9 @@ struct wb_toplevel {
 	/* Asked for attention (activation it didn't get, an X11 urgency hint):
 	 * until it's focused. Its desktop shows as urgent (ext-workspace). */
 	bool urgent = false;
+	/* Pinged (asked to close from the switcher) and didn't answer: hung,
+	 * not merely asking to save. Cleared when pinged again. */
+	bool not_responding = false;
 	/* Minimized by ToggleShowDesktop: shown again when it's toggled off. */
 	bool hidden_by_show_desktop = false;
 
@@ -290,6 +294,9 @@ void desktop_action_state(struct wb_server *server, int *current, int *last);
  * input (a click, a key), not by the program on its own. */
 void toplevel_request_activation(struct wb_toplevel *toplevel, bool from_user);
 void set_toplevel_urgent(struct wb_toplevel *toplevel, bool urgent);
+/* Ask the window's program whether it's responding (xdg's ping; unanswered
+ * in 2.5 s: not_responding). X11 windows: nothing. */
+void toplevel_ping(struct wb_toplevel *toplevel);
 /* ToggleShowDesktop: the current desktop's windows minimized, or (on again)
  * those brought back. Focusing a window ends it, the others left minimized
  * (as in Openbox). */

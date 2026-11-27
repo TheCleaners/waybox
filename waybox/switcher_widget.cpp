@@ -104,8 +104,8 @@ void SwitcherWidget::open(std::vector<Entry> entries, int selected) {
 
 	int content_w = 0;
 	for (const Entry &e : entries_)
-		content_w = std::max(content_w,
-				icon_w + measure_text(e.label, style_.item_text.font).width);
+		content_w = std::max(content_w, icon_w + measure_text(e.label, style_.item_text.font).width +
+				(e.note.empty() ? 0 : measure_text("  " + e.note, style_.item_text.font).width));
 
 	struct wlr_box b = output_bounds();
 	/* Room for each row's close button (x) after its title. */
@@ -202,6 +202,19 @@ bool SwitcherWidget::on_motion(double lx, double ly) {
 	return canvas_ != nullptr && x >= 0 && y >= 0 && x < rect_.width && y < rect_.height;
 }
 
+void SwitcherWidget::set_note(int i, const std::string &note) {
+	if (i < 0 || i >= static_cast<int>(entries_.size()) || entries_[i].note == note)
+		return;
+	/* Laid out again: the row may need to be wider. */
+	std::vector<Entry> rest = std::move(entries_);
+	entries_.clear();
+	rest[i].note = note;
+	open(rest, selected_);
+	for (Entry &e : rest)
+		if (e.icon != nullptr)
+			cairo_surface_destroy(e.icon);
+}
+
 void SwitcherWidget::select(int i) {
 	if (i < 0 || i >= static_cast<int>(entries_.size()) || i == selected_)
 		return;
@@ -257,6 +270,13 @@ void SwitcherWidget::render() {
 		cairo_clip(cr);
 		paint_text(cr, pad_x + icon_w, text_y, entries_[i].label, st.fg,
 				style_.item_text.font);
+		if (!entries_[i].note.empty()) {
+			Color dim = st.fg;
+			dim.a = static_cast<uint8_t>(dim.a * 0.65);
+			int lw = measure_text(entries_[i].label, style_.item_text.font).width;
+			paint_text(cr, pad_x + icon_w + lw, text_y, "  " + entries_[i].note, dim,
+					style_.item_text.font);
+		}
 		cairo_restore(cr);
 		/* Its close button: on the selected row and the one under the
 		 * pointer. */

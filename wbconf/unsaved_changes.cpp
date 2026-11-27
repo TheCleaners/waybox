@@ -7,6 +7,7 @@
  * breaks can't stretch it across the screen.
  */
 #include "wbconf_ui.hpp"
+#include "waybox/key_label.hpp"
 
 namespace wbconf {
 
@@ -61,6 +62,14 @@ std::string shown_value(const wb::SettingDef &d, const std::optional<std::string
 				s = std::to_string(n / d.scale);
 		}
 		return d.unit.empty() ? s : s + " " + d.unit;
+	}
+	case wb::SettingType::Key: {
+		if (v->empty() || *v == "none")
+			return _("none");
+		std::string s;
+		for (const std::string &cap : wb::key_caps(*v))
+			s += (s.empty() ? "" : "+") + cap;
+		return s;
 	}
 	default:
 		return v->empty() ? _("(empty)") : *v;

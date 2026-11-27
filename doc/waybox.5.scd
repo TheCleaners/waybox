@@ -263,7 +263,8 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 ```
 <waybox>
   <menu source="builtin" submenuOpen="hover" hoverDelay="100" wrap="yes" icons="yes"/>
-  <switcher order="mru" osd="yes" wrap="yes" icons="yes" close="yes"/>
+  <switcher order="mru" osd="yes" wrap="yes" icons="yes" close="yes"
+            closeKey="Delete" killKey="S-Delete"/>
   <edgeTiling enabled="yes" range="10"/>
   <sessionRestore enabled="yes"/>
   <activation focus="smart"/>
@@ -300,10 +301,16 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 	(default *yes*). While the list is shown, the window it would pick is
 	outlined (white, black, white, 6 px around its frame, as Openbox's).
 	It's shown for a single window too. A click on a row picks that
-	window. With *close*: *Delete* asks the selected window to close and
-	*Shift+Delete* ends its program (*Kill*), the list staying without
-	it; and a click on a row's × (on the selected row and the one under
-	the pointer) closes it (Shift: ends its program).
+	window. With *close*: *closeKey* (default *Delete*) asks the selected
+	window to close, and *killKey* (default *S-Delete*) ends its program
+	(*Kill*): keys as *<keybind>* writes them, the switcher's own modifier
+	left out (held anyway), *none* for no key. The list stays, without a
+	window that went. A window asked to close is pinged too: one that
+	doesn't answer in 2.5 s is marked "not responding", and *closeKey*
+	pressed again on it ends its program; one that answers (asking to
+	save, say) is only asked again. A click on a row's × (on the selected
+	row and the one under the pointer) does as *closeKey*; Shift-click, as
+	*killKey*.
 
 *<edgeTiling>*
 	Dragging a window to a monitor edge tiles it: the left or right half,

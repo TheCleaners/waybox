@@ -955,6 +955,7 @@ if python.found() and not get_option('tests_only')
     ['wlr_data_control', 'wlr_data_control_test.py', [wlr_dc_client, lock_client], 60],
     ['workspace', 'workspace_test.py', [workspace_client], 60],
     ['urgency', 'urgency_test.py', [activate_client, workspace_client], 60],
+    ['switcher_keys', 'switcher_keys_test.py', [activate_client], 60],
     ['geometry_actions', 'geometry_actions_test.py', [activate_client], 60],
     ['xwayland', 'xwayland_test.py', [vpointer_client], 90],
   ]

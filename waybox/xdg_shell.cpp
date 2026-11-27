@@ -2010,6 +2010,21 @@ static void xdg_toplevel_request_maximize(struct wb_toplevel *toplevel, void *da
 	set_toplevel_maximized(toplevel, maximize, maximize);
 }
 
+/* A ping unanswered: its program is hung (one asking to save answers). */
+static void xdg_toplevel_ping_timeout(struct wb_toplevel *toplevel, void *) {
+	toplevel->not_responding = true;
+	wlr_log(WLR_INFO, "wb-not-responding %s",
+			view_app_id(toplevel) ? view_app_id(toplevel) : "");
+	wb_switcher_note(toplevel->server, toplevel);
+}
+
+void toplevel_ping(struct wb_toplevel *toplevel) {
+	if (toplevel == nullptr || toplevel->kind != wb_view_kind::Xdg)
+		return;
+	toplevel->not_responding = false;
+	wlr_xdg_surface_ping(toplevel->xdg_toplevel->base);
+}
+
 static void xdg_toplevel_request_minimize(struct wb_toplevel *toplevel, void *data) {
 	set_toplevel_minimized(toplevel, toplevel->xdg_toplevel->requested.minimized);
 }
@@ -2301,6 +2316,8 @@ static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 	bind(toplevel->request_resize, &xdg_toplevel->events.request_resize, xdg_toplevel_request_resize);
 	bind(toplevel->set_app_id, &xdg_toplevel->events.set_app_id, xdg_toplevel_set_app_id);
 	bind(toplevel->set_title, &xdg_toplevel->events.set_title, xdg_toplevel_set_title);
+	bind(toplevel->ping_timeout, &xdg_toplevel->base->events.ping_timeout,
+			xdg_toplevel_ping_timeout);
 }
 
 void register_toplevel(struct wb_toplevel *toplevel) {
@@ -2320,6 +2337,8 @@ void register_toplevel(struct wb_toplevel *toplevel) {
 void init_xdg_shell(struct wb_server *server) {
 	/* xdg-shell version 3 */
 	server->xdg_shell = wlr_xdg_shell_create(server->wl_display, 3);
+	/* A program that doesn't answer a ping in 2.5 s is taken as hung. */
+	server->xdg_shell->ping_timeout = 2500;
 	server->new_xdg_popup.connect(&server->xdg_shell->events.new_popup,
 			[server](void *data) { handle_new_xdg_popup(server, data); });
 	server->new_xdg_toplevel.connect(&server->xdg_shell->events.new_toplevel,

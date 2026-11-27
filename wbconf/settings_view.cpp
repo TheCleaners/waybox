@@ -8,6 +8,7 @@
 #include "geo_picker.hpp"
 #include "wbconf_ui.hpp"
 
+#include "waybox/key_label.hpp"
 #include "waybox/monitor_layout.hpp"
 
 namespace wbconf {
@@ -139,6 +140,79 @@ void update_status(Ui *ui) {
 	refresh_save_state(ui);
 }
 
+/* A key setting's button: the key as people read it ("Shift + Delete"),
+ * "None", or, capturing, what to do. */
+void key_show(Ui::SettingRow *r) {
+	if (r->key == nullptr)
+		return;
+	std::string label;
+	if (r->capturing) {
+		label = _("Press a key… (Escape: cancel, Backspace: none)");
+	} else if (r->key_value.empty() || r->key_value == "none") {
+		label = _("None");
+	} else {
+		for (const std::string &cap : wb::key_caps(r->key_value))
+			label += (label.empty() ? "" : " + ") + cap;
+	}
+	gtk_button_set_label(r->key, label.c_str());
+}
+
+void read_value(Ui *ui, Ui::SettingRow *r);
+
+GdkToplevel *key_toplevel(GtkWidget *w) {
+	GtkNative *n = gtk_widget_get_native(w);
+	GdkSurface *s = n != nullptr ? gtk_native_get_surface(n) : nullptr;
+	return s != nullptr && GDK_IS_TOPLEVEL(s) ? GDK_TOPLEVEL(s) : nullptr;
+}
+
+void key_end_capture(Ui::SettingRow *r) {
+	if (!r->capturing)
+		return;
+	r->capturing = false;
+	if (GdkToplevel *t = key_toplevel(GTK_WIDGET(r->key)))
+		gdk_toplevel_restore_system_shortcuts(t);
+	key_show(r);
+}
+
+/* The next key pressed on the button, as rc.xml writes it: the switcher's
+ * own modifier (Alt, Super) left out, as it's held anyway. */
+gboolean on_key_capture(GtkEventControllerKey *, guint keyval, guint, GdkModifierType state,
+		gpointer data) {
+	auto *r = static_cast<Ui::SettingRow *>(data);
+	if (!r->capturing)
+		return FALSE;
+	wb::HeldModifiers held;
+	held.ctrl = (state & GDK_CONTROL_MASK) != 0;
+	held.shift = (state & GDK_SHIFT_MASK) != 0;
+	const char *raw = gdk_keyval_name(gdk_keyval_to_lower(keyval));
+	std::string name = raw != nullptr ? raw : "";
+	if (name == "Escape" && !held.ctrl && !held.shift) {
+		key_end_capture(r);
+		return TRUE;
+	}
+	std::string key = name == "BackSpace" && !held.ctrl && !held.shift ? "none"
+			: wb::rc_key(held, name);
+	if (key.empty())
+		return TRUE;  /* a modifier on its own so far */
+	r->key_value = key;
+	key_end_capture(r);
+	read_value(static_cast<Ui *>(g_object_get_data(G_OBJECT(r->row), "wb-ui")), r);
+	return TRUE;
+}
+
+void on_key_clicked(GtkButton *, gpointer data) {
+	auto *r = static_cast<Ui::SettingRow *>(data);
+	if (r->capturing) {
+		key_end_capture(r);
+		return;
+	}
+	r->capturing = true;
+	/* Waybox's own shortcuts pass through to be pressed here. */
+	if (GdkToplevel *t = key_toplevel(GTK_WIDGET(r->key)))
+		gdk_toplevel_inhibit_system_shortcuts(t, nullptr);
+	key_show(r);
+}
+
 /* Put a row's value (or its default) into its control. */
 void show_value(Ui *ui, Ui::SettingRow *r) {
 	const wb::SettingDef &d = *r->def;
@@ -181,6 +255,10 @@ void show_value(Ui *ui, Ui::SettingRow *r) {
 	case wb::SettingType::Lines:
 		gtk_text_buffer_set_text(gtk_text_view_get_buffer(r->text),
 				r->value.value_or("").c_str(), -1);
+		break;
+	case wb::SettingType::Key:
+		r->key_value = v;
+		key_show(r);
 		break;
 	case wb::SettingType::Custom:
 		break;
@@ -245,6 +323,11 @@ void read_value(Ui *ui, Ui::SettingRow *r) {
 			v = t;
 		break;
 	}
+	case wb::SettingType::Key:
+		v = r->key_value;
+		if (*v == d.def && !r->saved)
+			v.reset();
+		break;
 	case wb::SettingType::Custom:
 		return;
 	}
@@ -518,6 +601,19 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 		g_signal_connect_swapped(gtk_text_view_get_buffer(GTK_TEXT_VIEW(tv)), "changed",
 				G_CALLBACK(on_changed), r);
 		return frame;
+	}
+	case wb::SettingType::Key: {
+		GtkWidget *b = gtk_button_new_with_label("");
+		gtk_widget_set_halign(b, GTK_ALIGN_START);
+		r->key = GTK_BUTTON(b);
+		g_signal_connect(b, "clicked", G_CALLBACK(on_key_clicked), r);
+		gtk_widget_set_tooltip_text(b, _("Click, then press the key (Escape: keep it; "
+				"Backspace: no key)"));
+		GtkEventController *k = gtk_event_controller_key_new();
+		gtk_event_controller_set_propagation_phase(k, GTK_PHASE_CAPTURE);
+		g_signal_connect(k, "key-pressed", G_CALLBACK(on_key_capture), r);
+		gtk_widget_add_controller(b, k);
+		return b;
 	}
 	case wb::SettingType::Custom:
 		if (d.widget == "theme")
