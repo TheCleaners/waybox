@@ -38,6 +38,8 @@ const char *kCss = R"(
 .wb-shortcut-editor { margin: 2px 0 10px 6px; padding: 12px 14px; border-radius: 8px;
   background-color: alpha(currentColor, 0.035); border: 1px solid alpha(currentColor, 0.10); }
 .wb-keys-button { padding: 4px 8px; min-height: 30px; }
+.wb-remove { color: mix(@error_color, @theme_fg_color, 0.3); }
+.wb-mod-toggle { padding: 2px 10px; min-height: 26px; font-size: 0.95em; }
 .wb-keys-button.wb-capturing { outline: 2px solid @theme_selected_bg_color; outline-offset: 1px;
   background-color: alpha(@theme_selected_bg_color, 0.16); }
 .wb-shortcut-group { font-weight: bold; margin-top: 10px; margin-bottom: 2px; }
@@ -929,8 +931,15 @@ void on_search(GtkSearchEntry *entry, gpointer data) {
 					bool modified = r->def->type == wb::SettingType::Custom
 							? custom_set(r->def->widget) : r->value.has_value();
 					std::string cat = r->category + " " + r->def->group;
-					show = show || wb::setting_matches(*r->def, cat, q, modified,
+					bool hit = wb::setting_matches(*r->def, cat, q, modified,
 							r->problem.has_value());
+					/* The Shortcuts lists: filtered row by row. */
+					if (r->def->widget == "keybindings" || r->def->widget == "mousebindings") {
+						bool whole = q.empty() ||
+								wb::setting_matches(*r->def, cat, q, false, false);
+						hit = shortcuts_filter(ui, r->def->widget, q, whole);
+					}
+					show = show || hit;
 				}
 				gtk_widget_set_visible(w, show);
 				sec_any = sec_any || show;

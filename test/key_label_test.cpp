@@ -23,7 +23,13 @@ WB_TEST(buttons_events_contexts) {
 	WB_CHECK(wb::event_label("DoubleClick") == "Double-click");
 	WB_CHECK(wb::context_label("Root") == "Desktop");
 	WB_CHECK(wb::context_label("Client") == "Window");
-	WB_CHECK(wb::context_label("Close") == "Close");
+	WB_CHECK(wb::context_label("Close") == "Close button");
+	WB_CHECK(wb::context_label("TLCorner") == "Top-left corner");
+	WB_CHECK(wb::context_label("Unknown") == "Unknown");
+	std::string rest;
+	wb::HeldModifiers h = wb::held_of("W-S-Left", rest);
+	WB_CHECK(h.super && h.shift && !h.alt && !h.ctrl && rest == "Left");
+	WB_CHECK(wb::rc_key(wb::held_of("A-Middle", rest), rest) == "A-Middle");
 }
 
 WB_TEST(rc_key_from_a_press) {
