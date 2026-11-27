@@ -51,4 +51,31 @@ const AppRule *match_app_rule(const std::vector<AppRule> &rules,
 	return nullptr;
 }
 
+std::vector<std::string> app_rule_effects(const AppRule &r) {
+	std::vector<std::string> out;
+	auto num = [](int n) { return std::to_string(n); };
+	if (r.desktop)
+		out.push_back(*r.desktop == AppRule::kAllDesktops ? "On every desktop"
+				: "On desktop " + num(*r.desktop + 1));
+	if (r.fullscreen)
+		out.push_back(*r.fullscreen ? "Full screen" : "Not full screen");
+	if (r.maximized)
+		out.push_back(*r.maximized ? "Maximized" : "Not maximized");
+	if (r.iconic)
+		out.push_back(*r.iconic ? "Starts minimized" : "Not minimized");
+	if (r.x || r.y)
+		out.push_back("At " + (r.x ? num(*r.x) : std::string("auto")) + ", " +
+				(r.y ? num(*r.y) : std::string("auto")));
+	if (r.width || r.height)
+		out.push_back((r.width ? num(*r.width) : std::string("auto")) + " \u00d7 " +
+				(r.height ? num(*r.height) : std::string("auto")));
+	if (r.decor)
+		out.push_back(*r.decor ? "With title bar" : "No title bar");
+	if (r.layer)
+		out.push_back(*r.layer > 0 ? "Always on top" : *r.layer < 0 ? "Always below" : "Normal layer");
+	if (r.focus)
+		out.push_back(*r.focus ? "Focused when it opens" : "Not focused when it opens");
+	return out;
+}
+
 }  // namespace wb

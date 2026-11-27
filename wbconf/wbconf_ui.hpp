@@ -398,6 +398,9 @@ struct Ui {
 	 * the page's own). */
 	std::vector<std::shared_ptr<ShortcutEdit>> shortcut_edits;
 	ShortcutEdit *capturing = nullptr;  /* whose keys are being pressed */
+	/* The window rules list, and its rows as text (tests). */
+	GtkWidget *rules_box = nullptr;
+	std::vector<std::string> rule_lines;
 	/* Keys scripts bind (init.lua and rc.xml's <scripts>), read at load. */
 	std::vector<wb::ScriptKey> script_keys;
 	GtkEventController *capture_keys = nullptr;
@@ -660,6 +663,9 @@ void populate_bindings(Ui *ui, const wb::RcDocument *doc);
 GtkWidget *build_keybindings_block(Ui *ui);
 GtkWidget *build_mousebindings_block(Ui *ui);
 void populate_shortcuts(Ui *ui, const wb::RcDocument *doc);
+/* Window rules (rules_page.cpp). */
+GtkWidget *build_rules_block(Ui *ui);
+void populate_rules(Ui *ui, const wb::RcDocument *doc);
 /* The bindings changed, into rc.xml (at Save & Apply). */
 void apply_shortcuts(Ui *ui, wb::RcDocument &doc);
 /* Search: the "keybindings"/"mousebindings" list's rows matching `q`
