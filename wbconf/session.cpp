@@ -31,6 +31,9 @@ std::string user_rc_path() {
 
 /* The system default, used to seed a brand-new user config. */
 std::string system_rc_path() {
+	/* Tests: the defaults from the source tree. */
+	if (const char *t = getenv("WBCONF_DEFAULT_RC"); t != nullptr && *t)
+		return t;
 #ifdef WB_SYSCONFDIR
 	return (fs::path(WB_SYSCONFDIR) / "xdg" / "waybox" / "rc.xml").string();
 #else

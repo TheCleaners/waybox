@@ -32,6 +32,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include "waybox/binding_clash.hpp"
 #include "waybox/font_spec.hpp"
 #include "waybox/name_list.hpp"
 #include "waybox/page_protocol.hpp"
@@ -397,6 +398,8 @@ struct Ui {
 	 * the page's own). */
 	std::vector<std::shared_ptr<ShortcutEdit>> shortcut_edits;
 	ShortcutEdit *capturing = nullptr;  /* whose keys are being pressed */
+	/* Keys scripts bind (init.lua and rc.xml's <scripts>), read at load. */
+	std::vector<wb::ScriptKey> script_keys;
 	GtkEventController *capture_keys = nullptr;
 	std::vector<std::string> bound_keys;  /* every key rc.xml binds */
 
