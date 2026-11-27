@@ -652,15 +652,20 @@ struct LuaPage {
 				{"script", wb::lua_page_path(*in)}, {"home", std::string(home ? home : "")},
 				{"files", std::move(files)}, {"runs", std::move(runs)},
 				{"options", std::move(opts)}}}});
+		/* Errors gathered aside, added after: added to `replies` while it's
+		 * read, it could grow and leave the loop on freed memory. */
+		std::vector<json::Value> undrawable;
 		for (const json::Value &r : replies)
 			if (const json::Value *p = r.get("page")) {
 				std::string why;
 				if (auto m = page::page_from_json(*p, &why))
 					model = std::move(*m);
 				else
-					replies.push_back(json::Object{{"error", json::Object{{"line", 0},
+					undrawable.push_back(json::Object{{"error", json::Object{{"line", 0},
 							{"message", "the page can't be drawn: " + why}}}});
 			}
+		for (json::Value &e : undrawable)
+			replies.push_back(std::move(e));
 		build(content, model.controls);
 		gtk_widget_set_visible(expander, TRUE);
 		for (const auto &[k, v] : page::page_values(model))

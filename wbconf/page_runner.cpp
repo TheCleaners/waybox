@@ -1160,7 +1160,18 @@ bool open_page(const json::Value &msg) {
 	std::stringstream text;
 	text << f.rdbuf();
 	std::string code = text.str();
-	if (luaL_loadbuffer(L, code.data(), code.size(), ("@" + R.script_name).c_str()) != 0) {
+	/* Source only: compiled Lua (bytecode, which every Lua's and LuaJIT's
+	 * starts with ESC) is refused before anything loads it. */
+	if (!code.empty() && code[0] == '\x1b') {
+		emit_error(R.script_name + ": compiled Lua isn't a page; it must be Lua source");
+		return false;
+	}
+#if LUA_VERSION_NUM >= 502
+	int loaded = luaL_loadbufferx(L, code.data(), code.size(), ("@" + R.script_name).c_str(), "t");
+#else
+	int loaded = luaL_loadbuffer(L, code.data(), code.size(), ("@" + R.script_name).c_str());
+#endif
+	if (loaded != 0) {
 		emit_error(lua_tostring(L, -1));
 		lua_pop(L, 1);
 		return false;
