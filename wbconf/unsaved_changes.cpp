@@ -149,6 +149,8 @@ std::vector<UnsavedChange> unsaved_changes(Ui *ui) {
 		} else if (w == "xdg-autostart" && !xdg) {
 			xdg = true;
 			sources_changes(ui, false, where, r.row, out);
+		} else if (w == "keybindings") {
+			shortcut_changes(ui, where, r.row, out);
 		} else if (w.rfind("binding:", 0) == 0) {
 			bindings_done.insert(w.substr(8));
 			binding_changes(ui, w.substr(8), where, r.row, out);

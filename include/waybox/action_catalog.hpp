@@ -44,6 +44,7 @@ struct BoundAction {
 	/* If/ForEach and anything else the editor doesn't model: kept as the
 	 * XML it was, not editable here. */
 	bool advanced = false;
+	bool operator==(const BoundAction &) const = default;
 };
 
 /* "Go to desktop 2", "Run foot", "Snap to the left half". */

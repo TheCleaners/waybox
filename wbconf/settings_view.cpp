@@ -30,7 +30,16 @@ const char *kCss = R"(
 .wb-keycap { padding: 0 7px; min-height: 22px; border-radius: 5px; font-size: 0.92em;
   border: 1px solid alpha(currentColor, 0.22); border-bottom-width: 2px;
   background-color: alpha(currentColor, 0.05); }
-.wb-shortcut-row { padding: 4px 0; }
+.wb-shortcut-row { padding: 4px 6px; margin: 0; min-height: 0; border-radius: 6px; font-weight: normal; }
+.wb-shortcut-static { padding: 4px 6px; }
+.wb-shortcut-open > box > .wb-shortcut-row { background-color: alpha(currentColor, 0.06); }
+.wb-shortcut-unsaved > box > .wb-shortcut-row { background-color: alpha(@theme_selected_bg_color, 0.14); }
+.wb-removed label { text-decoration-line: line-through; opacity: 0.55; }
+.wb-shortcut-editor { margin: 2px 0 10px 6px; padding: 12px 14px; border-radius: 8px;
+  background-color: alpha(currentColor, 0.035); border: 1px solid alpha(currentColor, 0.10); }
+.wb-keys-button { padding: 4px 8px; min-height: 30px; }
+.wb-keys-button.wb-capturing { outline: 2px solid @theme_selected_bg_color; outline-offset: 1px;
+  background-color: alpha(@theme_selected_bg_color, 0.16); }
 .wb-shortcut-group { font-weight: bold; margin-top: 10px; margin-bottom: 2px; }
 .wb-shortcut-place { font-weight: bold; }
 .wb-toc-toolbar button { min-width: 22px; min-height: 22px; padding: 0; margin: 0;
@@ -1228,8 +1237,9 @@ gboolean toc_step(gpointer data) {
 		std::string id = step.substr(8);
 		fprintf(stderr, "luapage-dump:%s%s\n", id.c_str(), lua_page_dump(ui, id).c_str());
 	} else if (step == "shortcuts") {
-		for (const std::string &l : ui->shortcut_lines)
-			fprintf(stderr, "shortcut:%s\n", l.c_str());
+		shortcut_dump(ui);
+	} else if (step.rfind("shortcut-", 0) == 0) {
+		shortcut_test_step(ui, step);
 	} else if (step.rfind("progstatus:", 0) == 0) {
 		/* "progstatus:ID" -> "progstatus:ID|on|STATUS[|warning]" */
 		for (auto &p : ui->programs)
