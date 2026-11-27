@@ -1545,6 +1545,32 @@ void apply_test_values(Ui *ui, const char *spec) {
 			if (auto doc = load_document(&problem))
 				populate(ui, doc->read(), &*doc);
 		}
+		/* "colorburst.ID=N": that color setting's button changed N times
+		 * in a row, as a drag in the color editor does; how long it took,
+		 * and the field's tint after (stderr). */
+		if (eq != std::string::npos && item.rfind("colorburst.", 0) == 0)
+			for (auto &r : ui->rows)
+				if (r->def->id == item.substr(11, eq - 11) && r->color != nullptr) {
+					int n = std::atoi(item.c_str() + eq + 1);
+					gint64 t0 = g_get_monotonic_time();
+					for (int i = 0; i < n; ++i) {
+						GdkRGBA c = {static_cast<float>(i % 256) / 255.0f, 0.5f,
+								static_cast<float>((i * 7) % 256) / 255.0f, 1.0f};
+						gtk_color_dialog_button_set_rgba(r->color->button, &c);
+					}
+					fprintf(stderr, "colorburst:%d:%lld\n", n,
+							static_cast<long long>((g_get_monotonic_time() - t0) / 1000));
+					/* The field once it has caught up (it takes the latest
+					 * color every 100 ms). */
+					ColorControl *cc = r->color.get();
+					g_timeout_add(600, [](gpointer d) -> gboolean {
+						auto *cc = static_cast<ColorControl *>(d);
+						fprintf(stderr, "colortint:%s|%s\n",
+								gtk_editable_get_text(GTK_EDITABLE(cc->entry)),
+								cc->tint_css.c_str());
+						return G_SOURCE_REMOVE;
+					}, cc);
+				}
 		/* "colorpick.ID=1": that color setting's eyedropper. */
 		if (eq != std::string::npos && item.rfind("colorpick.", 0) == 0)
 			for (auto &r : ui->rows)
