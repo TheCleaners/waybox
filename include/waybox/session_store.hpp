@@ -43,12 +43,23 @@ public:
 	static constexpr size_t kMaxWindows = 100;    /* per session */
 	static constexpr size_t kMaxNameBytes = 1024;  /* ids and names (the protocol allows 4K) */
 	static constexpr int64_t kMaxAgeSeconds = 90LL * 24 * 3600;
+	/* The file read at most (200 sessions of 100 windows fit well within). */
+	static constexpr size_t kMaxFileBytes = 8 * 1024 * 1024;
+	/* A timestamp beyond this (about year 33,000) isn't one: well inside
+	 * int64_t and a double's exact integers. */
+	static constexpr int64_t kMaxTimestamp = 1'000'000'000'000LL;
+	/* The format written; one without a version is this one too. */
+	static constexpr int kVersion = 1;
 
 	std::map<std::string, SavedSession> sessions;
 
 	std::string to_json() const;
-	/* Replaces what's here; false (and empty) if the text isn't a store. */
-	bool from_json(std::string_view text);
+	/* Replaces what's here, only if the text is a store (else false, and
+	 * what was here stays): of this version (or none), not longer than
+	 * kMaxFileBytes. `newer`: set when it's a later version's, which this
+	 * Waybox mustn't overwrite. A timestamp that isn't a whole number in
+	 * [0, kMaxTimestamp] counts as long unused (it expires). */
+	bool from_json(std::string_view text, bool *newer = nullptr);
 
 	/* Old sessions go: unused for kMaxAgeSeconds, then the least recently
 	 * used beyond kMaxSessions. */
