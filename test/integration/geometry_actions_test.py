@@ -9,6 +9,8 @@ Two undecorated windows (a rule), so a window's frame is its geometry.
    b's left edge; MoveToEdgeNorth (Openbox 3.4's name) at the top.
 5. Directional focus: from a, DirectionalTargetWindow east focuses b;
    DirectionalFocusWest (3.4's name) back to a; nothing north: unchanged.
+6. ToggleShowDesktop: both minimized; again, both back. On, then a
+   focused: the mode ends, a shown, b left minimized.
 Skips (exit 77) without a headless display.
 
 Usage: geometry_actions_test.py <waybox> <activate_client>
@@ -143,6 +145,23 @@ def main():
         ipc({"request": "action", "action": "DirectionalTargetWindow", "direction": "north"})
         time.sleep(0.4)
         expect(focused(), ["a"], "nothing north")
+
+        def minimized():
+            return sorted(w["app_id"] for w in ipc({"request": "get_windows"})["windows"]
+                          if w.get("minimized"))
+
+        def toggle():
+            ipc({"request": "action", "action": "ToggleShowDesktop"})
+            time.sleep(0.4)
+        toggle()
+        expect(minimized(), ["a", "b"], "ToggleShowDesktop on")
+        toggle()
+        expect(minimized(), [], "ToggleShowDesktop off")
+        toggle()
+        act("Focus", "a")
+        expect(minimized(), ["b"], "a focused while the desktop is shown")
+        toggle()  # a new show-desktop, not a restore
+        expect(minimized(), ["a", "b"], "ToggleShowDesktop after it ended")
     except (OSError, RuntimeError, ValueError, StopIteration, KeyError) as e:
         failures.append(f"{type(e).__name__}: {e}")
     finally:

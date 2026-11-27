@@ -181,6 +181,9 @@ struct wb_server {
 	std::unique_ptr<wb::SwitcherWidget> switcher;
 	/* The About card (ShowAbout), until a click or a key. */
 	std::unique_ptr<wb::AboutCard> about_card;
+	/* ToggleShowDesktop is on (its windows: hidden_by_show_desktop). */
+	bool showing_desktop = false;
+	bool show_desktop_busy = false;  /* while it minimizes and restores */
 	/* The desktop name shown after switching (<desktops><popupTime>). */
 	std::unique_ptr<wb::DesktopPopup> desktop_popup;
 	/* wbconf's Test for the on-screen display: settings not saved yet. */

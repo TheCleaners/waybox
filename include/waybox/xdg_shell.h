@@ -132,6 +132,8 @@ struct wb_toplevel {
 	/* Asked for attention (activation it didn't get, an X11 urgency hint):
 	 * until it's focused. Its desktop shows as urgent (ext-workspace). */
 	bool urgent = false;
+	/* Minimized by ToggleShowDesktop: shown again when it's toggled off. */
+	bool hidden_by_show_desktop = false;
 
 	struct wl_list link;       /* server::toplevels — stacking (z-)order */
 	struct wl_list focus_link; /* server::focus_order — MRU focus order */
@@ -259,6 +261,10 @@ bool toplevel_on_current_desktop(struct wb_toplevel *toplevel);
  * input (a click, a key), not by the program on its own. */
 void toplevel_request_activation(struct wb_toplevel *toplevel, bool from_user);
 void set_toplevel_urgent(struct wb_toplevel *toplevel, bool urgent);
+/* ToggleShowDesktop: the current desktop's windows minimized, or (on again)
+ * those brought back. Focusing a window ends it, the others left minimized
+ * (as in Openbox). */
+void toggle_show_desktop(struct wb_server *server);
 /* Show desktop `index` (0-based): hide the other desktops' windows and focus
  * the most recently used window here (or nothing). */
 void wb_go_to_desktop(struct wb_server *server, int index);
