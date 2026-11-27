@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <set>
 #include <sstream>
 
@@ -818,36 +819,125 @@ std::string version_from_output(std::string_view output) {
 	return "";
 }
 
+namespace {
+
+/* A shell line's words (split on shell punctuation too: "(waybar || yambar)
+ * &"), its comment left out; each by its base name. */
+std::vector<std::string> shell_words(std::string_view l) {
+	std::vector<std::string> out;
+	std::string word;
+	auto flush = [&] {
+		if (!word.empty())
+			out.push_back(word.substr(word.rfind('/') == std::string::npos
+					? 0 : word.rfind('/') + 1));
+		word.clear();
+	};
+	for (char c : l) {
+		if (c == '#' && word.empty())
+			break;  /* a comment after code */
+		if (std::string_view(" \t;&|()<>'\"`$").find(c) != std::string_view::npos)
+			flush();
+		else
+			word += c;
+	}
+	flush();
+	return out;
+}
+
+/* "name()", "name() {", "function name {": the function a line defines. */
+std::string defines_function(std::string_view l) {
+	if (l.rfind("function ", 0) == 0) {
+		l.remove_prefix(9);
+		size_t e = l.find_first_of(" \t({");
+		return std::string(l.substr(0, e));
+	}
+	size_t paren = l.find("()");
+	if (paren == std::string_view::npos || paren == 0)
+		return "";
+	std::string_view name = trim(l.substr(0, paren));
+	for (char c : name)
+		if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-' && c != '.')
+			return "";
+	std::string_view rest = trim(l.substr(paren + 2));
+	return rest.empty() || rest[0] == '{' || rest[0] == '(' ? std::string(name) : "";
+}
+
+}  // namespace
+
 std::vector<std::string> programs_in_script(std::string_view script,
 		const std::vector<std::string> &names) {
-	std::set<std::string> found;
+	/* Each line's words, at the top level or in a function's body: a
+	 * function's programs count only if it's called (from the top level,
+	 * or a function that is): "#load_wallpaper &" leaves swaybg in it out. */
+	std::vector<std::string> top;
+	std::map<std::string, std::vector<std::string>> bodies;
 	std::istringstream lines{std::string(script)};
-	std::string line;
+	std::string line, in_function;
+	int depth = 0;
+	bool opening = false;  /* "name()" seen; its "{" on a line after */
 	while (std::getline(lines, line)) {
 		std::string_view l = trim(line);
 		if (l.empty() || l[0] == '#')
 			continue;
-		/* Words, split on shell punctuation too: "(waybar || yambar) &". */
-		std::string word;
-		auto flush = [&] {
-			if (!word.empty()) {
-				std::string base = word.substr(word.rfind('/') == std::string::npos
-						? 0 : word.rfind('/') + 1);
-				if (std::find(names.begin(), names.end(), base) != names.end())
-					found.insert(base);
+		if (in_function.empty()) {
+			std::string f = defines_function(l);
+			if (!f.empty()) {
+				in_function = f;
+				bodies[f];
+				depth = 0;
+				opening = true;
+				/* What follows the name: "{ ...", or nothing ("{" below). */
+				size_t after = l.find("()");
+				after = after == std::string_view::npos ? l.find(f) + f.size() : after + 2;
+				l = l.substr(std::min(after, l.size()));
 			}
-			word.clear();
-		};
-		for (char c : l) {
-			if (c == '#' && word.empty())
-				break;  /* a comment after code */
-			if (std::string_view(" \t;&|()<>'\"`$").find(c) != std::string_view::npos)
-				flush();
-			else
-				word += c;
 		}
-		flush();
+		std::vector<std::string> words = shell_words(l);
+		if (in_function.empty()) {
+			top.insert(top.end(), words.begin(), words.end());
+			continue;
+		}
+		auto &body = bodies[in_function];
+		body.insert(body.end(), words.begin(), words.end());
+		/* Its end: braces balanced again (comments and quotes aside). */
+		char quote = 0;
+		for (char c : l) {
+			if (quote != 0) {
+				if (c == quote)
+					quote = 0;
+				continue;
+			}
+			if (c == '\'' || c == '"')
+				quote = c;
+			else if (c == '#')
+				break;
+			else if (c == '{' || c == '(')
+				++depth, opening = false;
+			else if (c == '}' || c == ')')
+				--depth;
+		}
+		if (!opening && depth <= 0)
+			in_function.clear();
 	}
+	/* The functions called, following calls from those called. */
+	std::set<std::string> called;
+	std::vector<const std::vector<std::string> *> todo{&top};
+	while (!todo.empty()) {
+		const std::vector<std::string> *words = todo.back();
+		todo.pop_back();
+		for (const std::string &w : *words)
+			if (bodies.count(w) && called.insert(w).second)
+				todo.push_back(&bodies[w]);
+	}
+	std::set<std::string> found;
+	auto look = [&](const std::vector<std::string> &words) {
+		for (const std::string &w : words)
+			if (std::find(names.begin(), names.end(), w) != names.end())
+				found.insert(w);
+	};
+	look(top);
+	for (const std::string &f : called)
+		look(bodies[f]);
 	return {found.begin(), found.end()};
 }
 
