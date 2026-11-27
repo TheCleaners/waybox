@@ -5,6 +5,7 @@
  * plain WayboxSettings struct; this file is the XML glue and is unit-tested via
  * in-memory round-trips (test/wbconf_test.cpp).
  */
+#include "waybox/xml_edit.hpp"
 #include "waybox/app_rule_xml.hpp"
 #include "waybox/font_spec.hpp"
 #include "waybox/wbconf.hpp"
@@ -1263,31 +1264,10 @@ void RcDocument::set_keybind(const std::string &key, const std::optional<std::st
 
 namespace {
 
-/* An <action> as the editor sees it: simple options (elements holding
- * only text); anything more (If, ForEach, nested elements) advanced. */
-BoundAction read_action(xmlNode *action) {
-	BoundAction a;
-	a.name = attr_value(action, "name").value_or("");
-	if (a.name == "If" || a.name == "ForEach")
-		a.advanced = true;
-	for (xmlNode *c = action->children; c != nullptr; c = c->next) {
-		if (c->type != XML_ELEMENT_NODE)
-			continue;
-		for (xmlNode *g = c->children; g != nullptr; g = g->next)
-			if (g->type == XML_ELEMENT_NODE)
-				a.advanced = true;
-		a.options.emplace_back(reinterpret_cast<const char *>(c->name),
-				trimmed(node_text(c).value_or("")));
-	}
-	return a;
-}
-
+/* <action>s read and written as the editors have them (xml_edit, shared
+ * with menu.xml's editor). */
 std::vector<BoundAction> read_actions(xmlNode *parent) {
-	std::vector<BoundAction> out;
-	for (xmlNode *c = parent->children; c != nullptr; c = c->next)
-		if (is_element(c, "action"))
-			out.push_back(read_action(c));
-	return out;
+	return xml_edit::read_actions(parent);
 }
 
 bool any_advanced(const std::vector<BoundAction> &actions) {
@@ -1297,23 +1277,8 @@ bool any_advanced(const std::vector<BoundAction> &actions) {
 	return false;
 }
 
-/* `parent`'s actions replaced by `actions` (its other children kept). */
 void write_actions(xmlNode *parent, const std::vector<BoundAction> &actions) {
-	for (xmlNode *c = parent->children; c != nullptr;) {
-		xmlNode *next = c->next;
-		if (is_element(c, "action"))
-			unlink_element(c);
-		c = next;
-	}
-	for (const BoundAction &a : actions) {
-		xmlNode *node = new_child(parent, "action");
-		xmlSetProp(node, xc("name"), xc(a.name.c_str()));
-		for (const auto &[k, v] : a.options) {
-			xmlNode *o = xmlNewNode(node->ns, xc(k.c_str()));
-			xmlNodeAddContent(o, xc(v.c_str()));
-			xmlAddChild(node, o);
-		}
-	}
+	xml_edit::write_actions(parent, actions);
 }
 
 void collect_keys(xmlNode *parent, std::vector<std::string> &chain, std::vector<KeyBinding> &out) {
