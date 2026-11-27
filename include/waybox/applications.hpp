@@ -47,8 +47,10 @@ struct AppRule {
 	 * "center", "N%" (of the monitor's width or height), "-N" (from the
 	 * right or bottom edge), "-N%"; resolved by resolve_position. */
 	std::string x_spec, y_spec;
-	/* Which monitor it opens on: a number (1, the first), "mouse" (the one
-	 * with the pointer), "active" (the focused window's), "primary". */
+	/* Which monitor it opens on: a number (1, the leftmost: counted left
+	 * to right, then top to bottom), a monitor's name ("DP-1"; Waybox's,
+	 * steady across replugs), "mouse" (the one with the pointer), "active"
+	 * (the focused window's), "primary" (the first). */
 	std::string monitor;
 	std::optional<int> width;
 	std::optional<int> height;
@@ -67,6 +69,19 @@ std::vector<std::string> app_rule_effects(const AppRule &rule);
 std::optional<int> resolve_position(std::string_view spec, int start, int size, int window);
 /* Whether `spec` is one of those. */
 bool position_spec_ok(std::string_view spec);
+
+/* A monitor, as rule_monitor sees it. */
+struct MonitorPlace {
+	std::string name;
+	int x = 0, y = 0;
+};
+/* The monitor a rule's <monitor> number or name means, as an index into
+ * `monitors`: a name exactly; a number counted left to right, then top to
+ * bottom (as Openbox's monitors are; not the order they were plugged in);
+ * "primary" the first so. nullopt for none (and for "mouse" / "active",
+ * which are the caller's). */
+std::optional<size_t> rule_monitor(const std::vector<MonitorPlace> &monitors,
+		std::string_view spec);
 
 /* For a regex rule, why a pattern doesn't compile ("title: unmatched
  * parentheses"); empty when they all do, and for globs. Such a pattern

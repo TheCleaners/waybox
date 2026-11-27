@@ -145,3 +145,18 @@ WB_TEST(openbox_positions) {
 	r.monitor = "2";
 	WB_CHECK(wb::app_rule_effects(r) == (std::vector<std::string>{"At center, 40", "On monitor 2"}));
 }
+
+WB_TEST(rule_monitor_by_place_or_name) {
+	/* Plugged in as DP-2 (right), HDMI-A-1 (left), DP-1 (below the left). */
+	std::vector<wb::MonitorPlace> m = {{"DP-2", 1920, 0}, {"HDMI-A-1", 0, 0}, {"DP-1", 0, 1080}};
+	WB_CHECK(wb::rule_monitor(m, "1") == size_t{1});   /* leftmost, top */
+	WB_CHECK(wb::rule_monitor(m, "2") == size_t{2});   /* left, below */
+	WB_CHECK(wb::rule_monitor(m, "3") == size_t{0});   /* right */
+	WB_CHECK(wb::rule_monitor(m, "primary") == size_t{1});
+	WB_CHECK(wb::rule_monitor(m, "DP-1") == size_t{2});
+	WB_CHECK(!wb::rule_monitor(m, "4") && !wb::rule_monitor(m, "0") && !wb::rule_monitor(m, "VGA-1"));
+	WB_CHECK(!wb::rule_monitor(m, "mouse"));
+	AppRule r;
+	r.monitor = "DP-1";
+	WB_CHECK(wb::app_rule_effects(r) == (std::vector<std::string>{"On DP-1"}));
+}

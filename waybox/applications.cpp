@@ -119,6 +119,26 @@ bool position_spec_ok(std::string_view spec) {
 	return resolve_position(spec, 0, 100, 0).has_value();
 }
 
+std::optional<size_t> rule_monitor(const std::vector<MonitorPlace> &monitors,
+		std::string_view spec) {
+	for (size_t i = 0; i < monitors.size(); ++i)
+		if (monitors[i].name == spec)
+			return i;
+	int want = spec == "primary" ? 1 : 0;
+	if (want == 0 && !spec.empty() && spec.find_first_not_of("0123456789") == std::string_view::npos)
+		want = std::stoi(std::string(spec.substr(0, 6)));
+	if (want < 1 || static_cast<size_t>(want) > monitors.size())
+		return std::nullopt;
+	std::vector<size_t> order(monitors.size());
+	for (size_t i = 0; i < order.size(); ++i)
+		order[i] = i;
+	std::stable_sort(order.begin(), order.end(), [&monitors](size_t a, size_t b) {
+		return monitors[a].x != monitors[b].x ? monitors[a].x < monitors[b].x
+				: monitors[a].y < monitors[b].y;
+	});
+	return order[static_cast<size_t>(want - 1)];
+}
+
 std::vector<std::string> app_rule_effects(const AppRule &r) {
 	std::vector<std::string> out;
 	auto num = [](int n) { return std::to_string(n); };
@@ -138,7 +158,8 @@ std::vector<std::string> app_rule_effects(const AppRule &r) {
 		out.push_back(r.monitor == "mouse" ? std::string("On the monitor with the pointer")
 				: r.monitor == "active" ? std::string("On the focused window's monitor")
 				: r.monitor == "primary" ? std::string("On the first monitor")
-				: "On monitor " + r.monitor);
+				: r.monitor.find_first_not_of("0123456789") == std::string::npos
+				? "On monitor " + r.monitor : "On " + r.monitor);
 	if (r.width || r.height)
 		out.push_back((r.width ? num(*r.width) : std::string("auto")) + " \u00d7 " +
 				(r.height ? num(*r.height) : std::string("auto")));
