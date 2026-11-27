@@ -1724,6 +1724,14 @@ struct wb_seat *wb_seat_create(struct wb_server *server) {
 	seat->request_start_drag.connect(&seat->seat->events.request_start_drag,
 			[seat](void *data) {
 		auto *event = static_cast<struct wlr_seat_request_start_drag_event *>(data);
+		/* None while the screen is locked (a drag takes the keyboard grab,
+		 * the lock screen's password field with it). */
+		if (session_locked(seat->server)) {
+			wlr_log(WLR_DEBUG, "%s", "Refused a drag while the screen is locked");
+			if (event->drag->source != nullptr)
+				wlr_data_source_destroy(event->drag->source);
+			return;
+		}
 		if (wlr_seat_validate_pointer_grab_serial(seat->seat, event->origin,
 				event->serial)) {
 			wlr_seat_start_pointer_drag(seat->seat, event->drag, event->serial);
