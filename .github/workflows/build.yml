@@ -10,7 +10,8 @@
 name: build
 on: [push, pull_request]
 
-# Compiles are cached with ccache (meson uses it once it's installed). The
+# Compiles are cached with ccache (named in CC and CXX: meson adds it on its
+# own only when it picks the compiler itself). The
 # cache lives in the workspace (.ccache), so a container, or a VM job that
 # copies the workspace in and back (FreeBSD through vmactions/freebsd-vm with
 # copyback), carries it the same way; each job and matrix combination has
@@ -57,7 +58,7 @@ jobs:
               run: |
                 export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache"
                 ccache -z
-                CC=${{ matrix.cc }} CXX=${{ matrix.cxx }} meson setup build -Dsanitize=disabled --buildtype=${{ matrix.buildtype }}
+                CC="ccache ${{ matrix.cc }}" CXX="ccache ${{ matrix.cxx }}" meson setup build -Dsanitize=disabled --buildtype=${{ matrix.buildtype }}
                 ninja -C build
                 ccache -s
                 meson test -C build --print-errorlogs
@@ -86,7 +87,7 @@ jobs:
               run: |
                 export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache"
                 ccache -z
-                CC=gcc CXX=g++ meson setup build-asan -Dtests_only=true -Dsanitize=enabled
+                CC="ccache gcc" CXX="ccache g++" meson setup build-asan -Dtests_only=true -Dsanitize=enabled
                 ninja -C build-asan
                 ccache -s
                 meson test -C build-asan --print-errorlogs
