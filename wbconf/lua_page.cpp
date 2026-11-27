@@ -1083,6 +1083,14 @@ void set_lua_pages_open(Ui *ui, bool open) {
 			gtk_expander_set_expanded(GTK_EXPANDER(r->settings), open);
 }
 
+void unfold_program_settings(Ui *ui, Ui::ProgramRow *row) {
+	for (LuaPage *p : live_pages(ui))
+		if (p->in != nullptr && p->in == row->in && p->expander != nullptr)
+			gtk_expander_set_expanded(GTK_EXPANDER(p->expander), TRUE);
+	if (row->settings != nullptr)
+		gtk_expander_set_expanded(GTK_EXPANDER(row->settings), TRUE);
+}
+
 bool save_lua_pages(Ui *ui, std::string *error) {
 	for (LuaPage *p : live_pages(ui))
 		if (!p->save(error))

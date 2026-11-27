@@ -663,6 +663,10 @@ void on_program_toggled(GObject *, GParamSpec *, gpointer data) {
 					set_kept_both(row->in->id, o->in->id, false);
 		return;
 	}
+	if (ui->ready && !row->unfolded_once) {
+		row->unfolded_once = true;
+		unfold_program_settings(ui, row);
+	}
 	if (ui->ready)
 		ask_competitors(ui, row);
 	/* XDG autostart starts it: let Waybox instead (that entry off, the

@@ -26,6 +26,12 @@ void geo_picker_refresh(GtkWidget *picker);
 std::string geo_picker_caption(GtkWidget *picker);
 void geo_picker_find(GtkWidget *picker, const std::string &query);
 void geo_picker_click(GtkWidget *picker, double fx, double fy);
+/* Zoomed by 2^steps around (fx, fy) of the view, as the wheel and the
+ * buttons do; moved by a fraction of the view, as a drag; the view, as
+ * "ZOOM LAT LON". */
+void geo_picker_zoom(GtkWidget *picker, double steps, double fx, double fy);
+void geo_picker_pan(GtkWidget *picker, double dfx, double dfy);
+std::string geo_picker_view(GtkWidget *picker);
 /* The crosshair clicked: the system asked (false: no portal to ask). */
 bool geo_picker_locate(GtkWidget *picker);
 /* The time zone's city taken, as its button does (false: no zone found). */

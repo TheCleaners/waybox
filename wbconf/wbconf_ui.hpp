@@ -355,6 +355,9 @@ struct Ui {
 		 * not as "Keep Program Settings Open" says (a Lua page folds its
 		 * own). */
 		GtkWidget *settings = nullptr;
+		/* Its settings unfolded the first time it's turned on (here, this
+		 * run), to show what can be set; folded or not after as kept. */
+		bool unfolded_once = false;
 		bool syncing = false;
 		bool removed = false;
 		/* Turned on while the autostart script starts it too: asked
@@ -610,6 +613,8 @@ std::string view_get(const std::string &key);
 void view_set(const std::string &key, const std::string &value);
 std::string lua_page_fold(Ui *ui, const std::string &id);  /* tests: open|folded|hidden */
 void set_lua_pages_open(Ui *ui, bool open);
+/* A program just turned on: its settings (typed, or its page) unfolded. */
+void unfold_program_settings(Ui *ui, Ui::ProgramRow *row);
 /* `command`: the program's command line as its row has it now (its options
  * given to the page, wb.option), if it has one. */
 GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in, std::shared_ptr<void> *holder,
