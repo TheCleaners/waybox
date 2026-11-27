@@ -1,5 +1,7 @@
 #include "wb_test.hpp"
 
+#include <algorithm>
+#include <limits>
 #include <set>
 
 #include "waybox/session_store.hpp"
@@ -79,6 +81,78 @@ WB_TEST(store_expiry) {
 	WB_CHECK(s.sessions.size() == SessionStore::kMaxSessions);
 	WB_CHECK(s.sessions.count("s0") == 1);
 	WB_CHECK(s.sessions.count("s" + std::to_string(SessionStore::kMaxSessions + 4)) == 0);
+}
+
+/* Timestamps checked before they're converted: out of int64_t's range,
+ * negative or not whole, a session counts as long unused (and expires);
+ * expire() never subtracts an unchecked one. (Run under UBSan: a cast or
+ * an overflow here would stop the test.) */
+WB_TEST(store_bad_timestamps) {
+	SessionStore s;
+	const int64_t now = 1'700'000'000;
+	WB_CHECK(s.from_json(R"({"version":1,"sessions":{
+		"huge":{"used":1e30,"windows":{}},
+		"two63":{"used":9223372036854775808,"windows":{}},
+		"neg":{"used":-5,"windows":{}},
+		"half":{"used":1700000000.5,"windows":{}},
+		"str":{"used":"soon","windows":{}},
+		"good":{"used":1699999000,"windows":{}}}})"));
+	WB_CHECK(s.sessions.size() == 6);
+	for (const char *bad : {"huge", "two63", "neg", "half", "str"})
+		WB_CHECK(s.sessions[bad].used == 0);
+	WB_CHECK(s.sessions["good"].used == 1699999000);
+	s.expire(now);
+	WB_CHECK(s.sessions.size() == 1 && s.sessions.count("good") == 1);
+	/* Set in code to the extremes: compared, not subtracted. */
+	s.sessions["min"].used = std::numeric_limits<int64_t>::min();
+	s.sessions["max"].used = std::numeric_limits<int64_t>::max();
+	s.expire(now);
+	WB_CHECK(s.sessions.count("min") == 0 && s.sessions.count("max") == 1);
+	s.expire(std::numeric_limits<int64_t>::min());
+	s.expire(std::numeric_limits<int64_t>::max());
+	WB_CHECK(s.sessions.count("max") == 1);
+}
+
+/* The format's version: none is the first; one this Waybox doesn't know
+ * isn't read (a newer one says so, so it isn't written over); what was
+ * loaded before stays when a load fails. */
+WB_TEST(store_versions) {
+	SessionStore s;
+	bool newer = true;
+	WB_CHECK(s.from_json(R"({"sessions":{"a":{"used":5,"windows":{}}}})", &newer) && !newer);
+	WB_CHECK(s.from_json(R"({"version":1,"sessions":{"b":{"used":5,"windows":{}}}})", &newer));
+	WB_CHECK(s.sessions.count("b") == 1 && s.sessions.count("a") == 0);
+	WB_CHECK(!s.from_json(R"({"version":2,"sessions":{}})", &newer) && newer);
+	WB_CHECK(!s.from_json(R"({"version":"1","sessions":{}})", &newer) && !newer);
+	WB_CHECK(!s.from_json(R"({"version":0,"sessions":{}})", &newer) && !newer);
+	WB_CHECK(!s.from_json("not json"));
+	WB_CHECK(s.sessions.size() == 1 && s.sessions.count("b") == 1);
+	/* Bigger than a store can be: not parsed at all. */
+	std::string big = R"({"sessions":{},"pad":")" +
+			std::string(SessionStore::kMaxFileBytes, 'x') + R"("})";
+	WB_CHECK(!s.from_json(big));
+	WB_CHECK(s.sessions.count("b") == 1);
+}
+
+/* Over the count, the newest kept: the same ones every time (ties by id). */
+WB_TEST(store_trim_deterministic) {
+	SessionStore a, b;
+	const int64_t now = 1'700'000'000;
+	for (size_t i = 0; i < SessionStore::kMaxSessions + 50; ++i) {
+		std::string id = "s" + std::to_string(i);
+		int64_t used = now - static_cast<int64_t>(i % 7);  /* many ties */
+		a.sessions[id].used = used;
+		b.sessions[id].used = used;
+	}
+	a.expire(now);
+	b.expire(now);
+	WB_CHECK(a.sessions.size() == SessionStore::kMaxSessions);
+	WB_CHECK(a.sessions == b.sessions);
+	/* None kept is older than one that went. */
+	int64_t oldest_kept = now;
+	for (const auto &[id, s] : a.sessions)
+		oldest_kept = std::min(oldest_kept, s.used);
+	WB_CHECK(oldest_kept >= now - 6);
 }
 
 WB_TEST(restored_rect_on_its_output) {

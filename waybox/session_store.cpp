@@ -1,6 +1,9 @@
 #include "waybox/session_store.hpp"
 
 #include <algorithm>
+#include <vector>
+#include <limits>
+#include <cmath>
 #include <cstdio>
 #include <fcntl.h>
 #include <random>
@@ -56,21 +59,39 @@ std::string SessionStore::to_json() const {
 	return json::dump(json::Value(std::move(root))) + "\n";
 }
 
-bool SessionStore::from_json(std::string_view text) {
-	sessions.clear();
+bool SessionStore::from_json(std::string_view text, bool *newer) {
+	if (newer != nullptr)
+		*newer = false;
+	if (text.size() > kMaxFileBytes)
+		return false;
 	std::optional<json::Value> v = json::parse(text);
 	if (!v || v->object() == nullptr)
 		return false;
+	/* No version: the first format (as written before it said so). */
+	if (const json::Value *ver = v->get("version")) {
+		const double *n = ver->number();
+		if (n == nullptr || *n != kVersion) {
+			if (n != nullptr && *n > kVersion && newer != nullptr)
+				*newer = true;
+			return false;
+		}
+	}
 	const json::Value *all = v->get("sessions");
 	if (all == nullptr || all->object() == nullptr)
 		return false;
+	std::map<std::string, SavedSession> loaded;
 	for (const auto &[id, so] : *all->object()) {
 		if (so.object() == nullptr || id.empty() || id.size() > kMaxNameBytes || !valid_utf8(id))
 			continue;
 		SavedSession s;
+		/* Checked before converting: a double out of int64_t's range
+		 * (1e30) or not whole is no timestamp; such a session counts as
+		 * long unused. */
 		const json::Value *used = so.get("used");
-		if (used != nullptr && used->number() != nullptr)
-			s.used = static_cast<int64_t>(*used->number());
+		const double *u = used != nullptr ? used->number() : nullptr;
+		if (u != nullptr && *u >= 0 && *u <= static_cast<double>(kMaxTimestamp) &&
+				*u == std::floor(*u))
+			s.used = static_cast<int64_t>(*u);
 		const json::Value *windows = so.get("windows");
 		if (windows != nullptr && windows->object() != nullptr)
 			for (const auto &[name, wo] : *windows->object()) {
@@ -91,19 +112,33 @@ bool SessionStore::from_json(std::string_view text) {
 					continue;
 				s.windows[name] = w;
 			}
-		sessions[id] = std::move(s);
+		loaded[id] = std::move(s);
 	}
+	sessions = std::move(loaded);
 	return true;
 }
 
 void SessionStore::expire(int64_t now) {
+	/* Compared with a cutoff, never subtracted from: `used` may be anything
+	 * (set in code, or a bad file's). */
+	int64_t cutoff = now > std::numeric_limits<int64_t>::min() + kMaxAgeSeconds
+			? now - kMaxAgeSeconds : std::numeric_limits<int64_t>::min();
 	for (auto it = sessions.begin(); it != sessions.end();)
-		it = now - it->second.used > kMaxAgeSeconds ? sessions.erase(it) : std::next(it);
-	while (sessions.size() > kMaxSessions) {
-		auto oldest = std::min_element(sessions.begin(), sessions.end(),
-				[](const auto &a, const auto &b) { return a.second.used < b.second.used; });
-		sessions.erase(oldest);
-	}
+		it = it->second.used < cutoff ? sessions.erase(it) : std::next(it);
+	if (sessions.size() <= kMaxSessions)
+		return;
+	/* The kMaxSessions most recently used kept, in one pass (ties by id,
+	 * so which go is the same every time). */
+	std::vector<std::pair<int64_t, std::string>> order;
+	order.reserve(sessions.size());
+	for (const auto &[id, s] : sessions)
+		order.emplace_back(s.used, id);
+	auto newer_first = [](const auto &a, const auto &b) {
+		return a.first != b.first ? a.first > b.first : a.second < b.second;
+	};
+	std::nth_element(order.begin(), order.begin() + kMaxSessions, order.end(), newer_first);
+	for (auto it = order.begin() + kMaxSessions; it != order.end(); ++it)
+		sessions.erase(it->second);
 }
 
 bool SessionStore::set_window(const std::string &session, const std::string &name,
