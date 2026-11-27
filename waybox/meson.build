@@ -43,6 +43,7 @@ wb_src = [
     'idle.cpp',
     'startup_supervisor.cpp',
     'proc_group.cpp',
+    'cycle_outline.cpp',
     'shortcuts_inhibit.cpp',
     'ipc.cpp',
     'fixes.cpp',

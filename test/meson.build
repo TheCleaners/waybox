@@ -892,6 +892,7 @@ if python.found() and not get_option('tests_only')
     ['input_method_setting', 'input_method_setting_test.py', [], 60],
     ['ipc', 'ipc_test.py', [waybox_msg, lock_client], 60],
     ['lock_control', 'lock_control_test.py', [lock_client, workspace_client], 60],
+    ['cycle_outline', 'cycle_outline_test.py', [], 60],
     ['osd_look', 'osd_look_test.py', [waybox_msg], 60],
     ['python_ipc', 'python_ipc_test.py', [touch_client, python_src_dir], 60],
     ['desktop_context', 'desktop_context_test.py', [desktop_client, vpointer_client], 60],

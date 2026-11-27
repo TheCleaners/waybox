@@ -9,6 +9,7 @@
 
 #include "script.h"
 #include "about.h"
+#include "waybox/cycle_outline.hpp"
 #include "waybox/about_card.hpp"
 #include "waybox/geometry_actions.hpp"
 #include "color_pick.h"
@@ -130,6 +131,19 @@ static std::string toplevel_label(struct wb_toplevel *t) {
 	return "(untitled)";
 }
 
+/* The outline around the switcher's selected window (made with the switcher,
+ * below its list; gone with it). */
+static void outline_selected(struct wb_server *server) {
+	if (server->switcher == nullptr)
+		return;
+	if (server->switcher->outline == nullptr)
+		server->switcher->outline = std::make_unique<wb::CycleOutline>(server);
+	int sel = server->switcher->selected();
+	server->switcher->outline->show(sel >= 0 && sel < static_cast<int>(server->switcher_windows.size())
+			? server->switcher_windows[sel] : nullptr);
+	server->switcher->raise();
+}
+
 /* Dismiss the OSD and focus the selected window (Alt released / Return). */
 void wb_switcher_commit(struct wb_server *server) {
 	if (server->switcher == nullptr)
@@ -162,6 +176,7 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 			server->switcher->select_prev();
 		else
 			server->switcher->select_next();
+		outline_selected(server);
 		return;
 	}
 
@@ -246,6 +261,7 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 	server->switcher_windows = std::move(wins);
 	server->switcher_mods = trigger;
 	server->switcher = std::move(widget);
+	outline_selected(server);
 }
 
 /* Open the window menu for the focused window: at the pointer when it is
@@ -1132,10 +1148,13 @@ void wb_keyboard::on_key(void *data) {
 						server->switcher->select_prev();
 					else
 						server->switcher->select_next();
+					outline_selected(server);
 				} else if (s == XKB_KEY_Up || s == XKB_KEY_Left) {
 					server->switcher->select_prev();
+					outline_selected(server);
 				} else if (s == XKB_KEY_Down || s == XKB_KEY_Right) {
 					server->switcher->select_next();
+					outline_selected(server);
 				}
 			}
 			idle_activity(server, seat);
