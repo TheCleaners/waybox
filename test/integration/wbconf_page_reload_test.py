@@ -49,6 +49,8 @@ end
 
 
 def main():
+    # Packaged files as a package installs them: only their owner may write.
+    os.umask(0o022)
     if len(sys.argv) != 5:
         print(__doc__)
         sys.exit(2)
@@ -132,6 +134,7 @@ def main():
     wenv = dict(env, WAYLAND_DISPLAY=sock, GDK_BACKEND="wayland", GSK_RENDERER="cairo",
                 DBUS_SESSION_BUS_ADDRESS="disabled:", GSETTINGS_BACKEND="memory",
                 GIO_USE_VFS="local", NO_AT_BRIDGE="1", WBCONF_SCHEMA_DIR=schema,
+                WBCONF_TEST_TRUSTED_OWNER=str(os.getuid()),  # the stand-in for root
                 WAYBOX_PID=str(proc.pid), WBCONF_LUA=runner,
                 WBCONF_TEST_TOC=";".join(steps))
     failures = []

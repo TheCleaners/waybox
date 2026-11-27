@@ -19,6 +19,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "waybox/trust.hpp"
 #include "waybox/json.hpp"
 #include "waybox/page_protocol.hpp"
 #include "waybox/setting_problems.hpp"
@@ -74,11 +75,12 @@ std::string read_text(const std::string &path) {
 	return s;
 }
 
-/* What an approval is for: the integration file and its script together. */
-std::string page_hash(const wb::Integration &in) {
-	std::string both = read_text(in.dir + "/" + in.id + ".integration");
+/* What an approval is for: the integration file and its script together
+ * (as read once, for the page). */
+std::string page_hash(const std::string &manifest, const std::string &script) {
+	std::string both = manifest;
 	both.push_back('\0');
-	both += read_text(wb::lua_page_path(in));
+	both += script;
 	gchar *h = g_compute_checksum_for_data(G_CHECKSUM_SHA256,
 			reinterpret_cast<const guchar *>(both.data()), both.size());
 	std::string out = h != nullptr ? h : "";
@@ -179,6 +181,12 @@ struct LuaPage {
 	bool approval_full = false;     /* what it may touch is full access */
 	std::string reloaded;           /* the last wb.reload(): tests */
 	std::string hash;               /* what an approval would be for */
+	/* The page as it was read, once: its integration file and script, and
+	 * the integration parsed from that text (`in` points to it). The hash,
+	 * the approval card, what it may touch and the source the runner
+	 * runs are all this one copy: what's allowed is what runs. */
+	std::string manifest_text, script_text;
+	std::unique_ptr<wb::Integration> snapshot;
 	bool syncing = false;
 	/* The program's command, as its row has it now (none: no row). */
 	std::function<std::string()> command;
@@ -649,7 +657,8 @@ struct LuaPage {
 		for (const std::string &r : in->runs)
 			runs.emplace_back(r);
 		auto replies = ask(json::Object{{"open", json::Object{
-				{"script", wb::lua_page_path(*in)}, {"home", std::string(home ? home : "")},
+				{"script", wb::lua_page_path(*in)}, {"source", script_text},
+				{"home", std::string(home ? home : "")},
 				{"files", std::move(files)}, {"runs", std::move(runs)},
 				{"options", std::move(opts)}}}});
 		/* Errors gathered aside, added after: added to `replies` while it's
@@ -897,7 +906,7 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 	gtk_text_view_set_left_margin(GTK_TEXT_VIEW(view), 6);
 	gtk_text_view_set_top_margin(GTK_TEXT_VIEW(view), 4);
 	gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(view), 4);
-	std::string code = numbered(read_text(wb::lua_page_path(in)));
+	std::string code = numbered(p->script_text);
 	gtk_text_buffer_set_text(gtk_text_view_get_buffer(GTK_TEXT_VIEW(view)), code.c_str(), -1);
 	GtkWidget *scroll = gtk_scrolled_window_new();
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC,
@@ -950,7 +959,15 @@ GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in_ptr,
 		std::function<bool()> in_use) {
 	auto p = std::make_shared<LuaPage>();
 	p->ui = ui;
-	p->in = in_ptr;
+	/* Read once (see LuaPage::snapshot): what's shown, allowed and run. */
+	p->manifest_text = read_text(in_ptr->dir + "/" + in_ptr->id + ".integration");
+	p->script_text = read_text(wb::lua_page_path(*in_ptr));
+	if (auto parsed = wb::parse_integration(in_ptr->id, p->manifest_text)) {
+		parsed->dir = in_ptr->dir;
+		p->snapshot = std::make_unique<wb::Integration>(std::move(*parsed));
+	}
+	bool read_whole = p->snapshot != nullptr && p->snapshot->page == in_ptr->page;
+	p->in = read_whole ? p->snapshot.get() : in_ptr;
 	p->command = std::move(command);
 	p->in_use = std::move(in_use);
 	p->self = p;
@@ -979,11 +996,27 @@ GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in_ptr,
 	/* Trusted only when no one but root could have changed it (a package's
 	 * files): its folder, its integration file and its script. Else it
 	 * runs once allowed, for what it is now; changing it asks again. */
-	const wb::Integration &in = *in_ptr;
-	bool trusted = !writable(in.dir) && !writable(in.dir + "/" + in.id + ".integration") &&
-			!writable(wb::lua_page_path(in));
+	/* Changed under it (no longer an integration, or another page): not
+	 * run; reopening wbconf reads it again. */
+	if (!read_whole) {
+		p->fail(_("This page's files changed while wbconf read them. Close and open "
+				"wbconf again to see it."));
+		return box;
+	}
+	const wb::Integration &in = *p->in;
+	/* Root's (and the folders above it, as spelled and resolved), no one
+	 * else may write it, nor the user. (WBCONF_TEST_TRUSTED_OWNER: the
+	 * tests' stand-in for root.) */
+	uid_t system = 0;
+	if (const char *t = getenv("WBCONF_TEST_TRUSTED_OWNER"))
+		system = static_cast<uid_t>(strtoul(t, nullptr, 10));
+	auto sound = [system](const std::string &path) {
+		return wb::owned_by_system(path, system) && !writable(path);
+	};
+	bool trusted = sound(in.dir) && sound(in.dir + "/" + in.id + ".integration") &&
+			sound(wb::lua_page_path(in));
 	if (!trusted) {
-		p->hash = page_hash(in);
+		p->hash = page_hash(p->manifest_text, p->script_text);
 		auto approved = page::parse_approvals(read_text(approvals_path()));
 		auto it = approved.find(in.id);
 		if (it == approved.end() || it->second != p->hash) {
@@ -1090,7 +1123,8 @@ void set_lua_pages_open(Ui *ui, bool open) {
 
 void unfold_program_settings(Ui *ui, Ui::ProgramRow *row) {
 	for (LuaPage *p : live_pages(ui))
-		if (p->in != nullptr && p->in == row->in && p->expander != nullptr)
+		if (p->in != nullptr && row->in != nullptr && p->in->id == row->in->id &&
+				p->expander != nullptr)
 			gtk_expander_set_expanded(GTK_EXPANDER(p->expander), TRUE);
 	if (row->settings != nullptr)
 		gtk_expander_set_expanded(GTK_EXPANDER(row->settings), TRUE);

@@ -332,6 +332,14 @@ atomic_file_test = executable(
   )
 test('atomic_file', atomic_file_test, suite: 'unit')
 
+# Whether only the system could have changed a file (pages run unasked).
+trust_test = executable(
+  'trust_test',
+  ['trust_test.cpp', 'wb_test_main.cpp', trust_src],
+  include_directories: [inc_dir],
+  )
+test('trust', trust_test, suite: 'unit')
+
 # The applications menu: .desktop files, categories, the scan and its cache.
 app_menu_test = executable(
   'app_menu_test',
