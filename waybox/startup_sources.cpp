@@ -119,6 +119,42 @@ std::string basename_of(const std::string &w) {
 }
 
 /* The program a simple start line runs ("" if it isn't one). */
+std::string simple_start(const std::vector<std::string> &words);
+
+/* "(waybar || yambar) &", "waybar || yambar &": the first that runs; each a
+ * plain command. The first program, the others in `others`; "" if not. */
+std::string alternatives_start(const std::vector<std::string> &words,
+		std::vector<std::string> &others) {
+	if (words.size() < 4 || words.back() != "&")
+		return "";
+	size_t b = 0, e = words.size() - 1;  /* [b, e): before the & */
+	if (words[b] == "(" && words[e - 1] == ")") {
+		++b;
+		--e;
+	}
+	std::vector<std::vector<std::string>> parts(1);
+	for (size_t i = b; i < e; ++i) {
+		if (words[i] == "||")
+			parts.emplace_back();
+		else
+			parts.back().push_back(words[i]);
+	}
+	if (parts.size() < 2)
+		return "";
+	std::string first;
+	for (std::vector<std::string> &p : parts) {
+		p.push_back("&");  /* each as a start of its own */
+		std::string prog = simple_start(p);
+		if (prog.empty())
+			return "";
+		if (first.empty())
+			first = prog;
+		else
+			others.push_back(prog);
+	}
+	return first;
+}
+
 std::string simple_start(const std::vector<std::string> &words) {
 	if (words.size() < 2 || words.back() != "&")
 		return "";
@@ -334,10 +370,14 @@ std::vector<ScriptEntry> script_entries(std::string_view script) {
 				: std::string_view(lines[n]), words))
 			continue;
 		if (depth == 0 && kinds[n] == LineKind::Code) {
+			std::vector<std::string> others;
 			std::string prog = simple_start(words);
+			if (prog.empty())
+				prog = alternatives_start(words, others);
 			if (!prog.empty()) {
 				ScriptEntry e;
 				e.program = prog;
+				e.alternatives = std::move(others);
 				e.command = std::string(is_comment ? std::string_view(commented)
 						: trim(lines[n]));
 				e.line = static_cast<int>(n);
@@ -469,7 +509,9 @@ ScriptStarters script_starters(std::string_view script, const std::string &progr
 	for (const ScriptEntry &e : script_entries(script)) {
 		if (!e.enabled)
 			continue;
-		bool direct = !e.function && e.program == program;
+		bool direct = !e.function && (e.program == program ||
+				std::find(e.alternatives.begin(), e.alternatives.end(), program) !=
+						e.alternatives.end());
 		bool via = e.function && runs.count(e.program) && runs[e.program];
 		if (direct || via) {
 			out.lines.push_back(e);

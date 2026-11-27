@@ -171,6 +171,32 @@ wlsunset &
 	WB_CHECK(wb::script_set_enabled(script, 10, false) == script);
 }
 
+/* "(waybar || yambar) &": a start line for waybar, yambar its fallback;
+ * found for either (so taking either over offers to switch it off). */
+WB_TEST(script_entries_alternatives) {
+	const char *script = R"SH(#!/bin/sh
+(waybar || yambar) &
+mako -c x || dunst &
+(swaybg -i a.png; waybar) &
+(foo || bar && baz) &
+)SH";
+	std::vector<wb::ScriptEntry> entries = wb::script_entries(script);
+	WB_CHECK(entries.size() == 2);
+	if (entries.size() == 2) {
+		WB_CHECK(entries[0].program == "waybar" && entries[0].line == 1 &&
+				(entries[0].alternatives == std::vector<std::string>{"yambar"}));
+		WB_CHECK(entries[1].program == "mako" &&
+				(entries[1].alternatives == std::vector<std::string>{"dunst"}));
+	}
+	for (const char *p : {"waybar", "yambar"}) {
+		wb::ScriptStarters s = wb::script_starters(script, p);
+		WB_CHECK(s.lines.size() == 1 && s.lines[0].line == 1);
+	}
+	/* Switched off as a whole line. */
+	std::string off = wb::script_set_enabled(script, 1, false);
+	WB_CHECK(off.find("#(waybar || yambar) &") != std::string::npos);
+}
+
 WB_TEST(script_starters_mentions_are_runs) {
 	/* A function that only names the program (a message, a check, a kill)
 	 * doesn't start it. */
