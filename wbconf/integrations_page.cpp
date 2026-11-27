@@ -737,14 +737,29 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 	/* Its command (made now, for a page to read; shown under the options). */
 	row->command = GTK_ENTRY(gtk_entry_new());
 	gtk_editable_set_text(GTK_EDITABLE(row->command), command.c_str());
+	/* "NAME Settings", folded unless kept open, around what it holds. */
+	auto fold = [&row, in](GtkWidget *child) {
+		std::string title = in->name + " " + _("Settings");
+		GtkWidget *e = gtk_expander_new(title.c_str());
+		gtk_widget_add_css_class(e, "wb-page-expander");
+		gtk_widget_set_margin_top(child, 6);
+		gtk_expander_set_child(GTK_EXPANDER(e), child);
+		gtk_expander_set_expanded(GTK_EXPANDER(e), lua_pages_open());
+		row->settings = e;
+		return e;
+	};
 	if (in != nullptr && !in->options.empty()) {
-		/* With a page, the options go under it, folded. */
+		/* With a page, the options go under it, folded; without, they're
+		 * its settings, folded as a page is. */
 		GtkWidget *options_parent = row->details;
 		GtkWidget *expander = nullptr;
 		if (!in->page.empty()) {
 			expander = gtk_expander_new(_("All options"));
 			options_parent = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
 			gtk_expander_set_child(GTK_EXPANDER(expander), options_parent);
+		} else {
+			options_parent = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+			gtk_box_append(GTK_BOX(row->details), fold(options_parent));
 		}
 		GtkWidget *grid = section_grid(options_parent);
 		int r = 0;
@@ -759,7 +774,8 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 		}
 		if (expander != nullptr) {
 			if (GtkWidget *page = build_integration_page(ui, row.get()))
-				gtk_box_append(GTK_BOX(row->details), page);
+				gtk_box_append(GTK_BOX(row->details), in->page == "wallpaper"
+						? fold(page) : page);  /* a Lua page folds its own */
 			gtk_box_append(GTK_BOX(row->details), expander);
 		}
 	} else if (in != nullptr && !in->page.empty()) {

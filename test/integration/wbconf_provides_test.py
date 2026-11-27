@@ -52,6 +52,8 @@ def main():
         os.chmod(os.path.join(bindir, name), 0o755)
         with open(os.path.join(integ, name + ".integration"), "w") as f:
             f.write(INTEGRATION.format(name=name, provides=provides))
+            if name == "plain":  # typed options: folded as a page is
+                f.write("\n[Option size]\nLabel=Size\nFlag=-s\nType=number\n")
     runtime = os.path.join(workdir, "run")
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman", HOME=home,
@@ -95,7 +97,7 @@ def main():
         a.kill()
         _, err = a.communicate()
         return [l for l in err.splitlines()
-                if l.startswith(("competing-asked:", "progstatus:"))]
+                if l.startswith(("competing-asked:", "progstatus:", "pagefold:"))]
 
     failures = []
     view = os.path.join(cfg, "waybox", "wbconf-view")
@@ -120,6 +122,11 @@ def main():
     run(["set:program.bga=on", "set:program.bgb=on", "set:program.bga=off"], "keep")
     if "bga+bgb" in (open(view).read() if os.path.exists(view) else ""):
         failures.append("turning bga off didn't forget Keep Both")
+    # Typed options fold too: folded, then kept open from the sidebar's menu.
+    folds = [l for l in run(["pagefold:plain", "pages-open", "pagefold:plain",
+                             "pages-folded"], "keep") if l.startswith("pagefold:")]
+    if folds != ["pagefold:plain|folded", "pagefold:plain|open"]:
+        failures.append(f"typed options folded, then open: {folds}")
     # 3. Both started by rc.xml, nothing asked: the status warns.
     with open(rc, "w") as f:
         f.write('<?xml version="1.0"?>\n<openbox_config xmlns="http://openbox.org/3.4/rc">'
