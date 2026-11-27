@@ -1,6 +1,7 @@
 [Integration]
 Name=Wallpaper (Waybox)
 Category=Wallpaper
+Provides=wallpaper
 Comment=A random wallpaper, or one you choose, with whichever wallpaper program is installed (swaybg, hyprpaper or wpaperd)
 Exec=waybox-wallpaper
 Page=wallpaper

@@ -1217,6 +1217,15 @@ gboolean toc_step(gpointer data) {
 		/* "luapage-dump:ID|KEY=VALUE[!PROBLEM][(hidden)]...|error:..." */
 		std::string id = step.substr(8);
 		fprintf(stderr, "luapage-dump:%s%s\n", id.c_str(), lua_page_dump(ui, id).c_str());
+	} else if (step.rfind("progstatus:", 0) == 0) {
+		/* "progstatus:ID" -> "progstatus:ID|on|STATUS[|warning]" */
+		for (auto &p : ui->programs)
+			if (p->in != nullptr && p->in->id == step.substr(11) && p->status != nullptr)
+				fprintf(stderr, "progstatus:%s|%s|%s%s\n", p->in->id.c_str(),
+						gtk_switch_get_active(p->on) ? "on" : "off",
+						gtk_label_get_text(p->status),
+						gtk_widget_has_css_class(GTK_WIDGET(p->status), "warning")
+								? "|warning" : "");
 	} else if (step.rfind("wallgrid:", 0) == 0) {
 		/* "wallgrid:ID" -> "wallgrid:ID|a.png,b.png" */
 		for (auto &p : ui->programs)

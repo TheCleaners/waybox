@@ -1,6 +1,7 @@
 [Integration]
 Name=Gammastep
 Category=NightLight
+Provides=night-light
 Comment=Warmer screen colors after sunset
 Exec=gammastep -l 51.5:-0.1
 Version=gammastep -V

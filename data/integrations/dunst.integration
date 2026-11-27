@@ -1,6 +1,7 @@
 [Integration]
 Name=Dunst
 Category=Notifications
+Provides=notifications
 Comment=Notification daemon
 Exec=dunst
 Version=dunst -v

@@ -1,6 +1,7 @@
 [Integration]
 Name=Waypaper
 Category=Wallpaper
+Provides=wallpaper
 Comment=Choose a wallpaper in Waypaper; at startup, the last one chosen is set again
 Exec=waypaper --restore
 Binary=waypaper

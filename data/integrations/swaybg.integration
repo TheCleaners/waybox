@@ -1,6 +1,7 @@
 [Integration]
 Name=swaybg
 Category=Wallpaper
+Provides=wallpaper
 Comment=Wallpaper image or solid color
 Exec=swaybg -c '#303030'
 Page=wallpaper
