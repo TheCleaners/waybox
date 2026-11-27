@@ -66,6 +66,10 @@ enum class ActionType {
 	GrowToEdge,
 	ShrinkToEdge,
 	GrowToFill,
+	/* Openbox's directional focus: DirectionalTargetWindow and
+	 * DirectionalCycleWindows (focused at once: no popup yet), with
+	 * <direction> or 3.4's names (DirectionalFocusNorth, ...). */
+	DirectionalFocus,
 	SnapToEdge,
 	Move,
 	Resize,

@@ -77,3 +77,21 @@ WB_TEST(grow_shrink_and_fill) {
 	/* Fill: every side out, stopping at the window on the right. */
 	WB_CHECK(same(wb::grow_to_fill(kWin, kArea, others), {0, 30, 500, 800}));
 }
+
+WB_TEST(directional_target_picks_the_nearest_that_way) {
+	using wb::Dir8;
+	/* From the middle: one to the right, one up-right and further, one left. */
+	Rect from{400, 300, 200, 200};
+	std::vector<Rect> c = {{700, 300, 200, 200}, {800, 0, 200, 200}, {0, 320, 200, 200},
+			{420, 600, 160, 100}};
+	WB_CHECK(wb::directional_target(from, c, Dir8::East) == 0u);
+	WB_CHECK(wb::directional_target(from, c, Dir8::West) == 2u);
+	WB_CHECK(wb::directional_target(from, c, Dir8::South) == 3u);
+	WB_CHECK(wb::directional_target(from, c, Dir8::NorthEast) == 1u);
+	WB_CHECK(!wb::directional_target(from, c, Dir8::NorthWest).has_value());
+	/* Straight ahead beats nearer but off to the side. */
+	std::vector<Rect> d = {{650, 650, 100, 100}, {900, 350, 100, 100}};
+	WB_CHECK(wb::directional_target(from, d, Dir8::East) == 1u);
+	WB_CHECK(wb::dir8_from_name("southwest") == Dir8::SouthWest);
+	WB_CHECK(wb::dir8_from_name("up") == Dir8::North);
+}

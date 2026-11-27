@@ -526,6 +526,15 @@ act on a window use the focused one.
 *GrowToFill*
 	Grow every side out to the next edge, without overlapping.
 
+*DirectionalTargetWindow*, *DirectionalCycleWindows*
+	Focus (and raise) the nearest window that way from the focused one (or
+	the pointer), among those shown on this desktop: *<direction>* is
+	*north*, *northeast*, *east*, *southeast*, *south*, *southwest*,
+	*west* or *northwest*. A window straight ahead wins over a nearer one
+	off to the side. *DirectionalCycleWindows* focuses at once (Openbox's
+	popup isn't shown). Openbox 3.4's *DirectionalFocusNorth* and the like
+	work too.
+
 *ShowAbout*
 	Waybox's own: a card in the middle of the monitor with Waybox's
 	version and what's running (wlroots, the renderer, Xwayland, the

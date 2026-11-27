@@ -7,6 +7,8 @@ Two undecorated windows (a rule), so a window's frame is its geometry.
 3. MoveToCenter: centered on the monitor.
 4. "b" placed on the right; "a" moved left of it: GrowToEdge east stops at
    b's left edge; MoveToEdgeNorth (Openbox 3.4's name) at the top.
+5. Directional focus: from a, DirectionalTargetWindow east focuses b;
+   DirectionalFocusWest (3.4's name) back to a; nothing north: unchanged.
 Skips (exit 77) without a headless display.
 
 Usage: geometry_actions_test.py <waybox> <activate_client>
@@ -126,6 +128,21 @@ def main():
         expect(act("GrowToEdge", "a", direction="east"), (50, 150, 650, 200),
                "GrowToEdge east, to b")
         expect(act("MoveToEdgeNorth", "a"), (50, 0, 650, 200), "MoveToEdgeNorth")
+
+        def focused():
+            return [w["app_id"] for w in ipc({"request": "get_windows"})["windows"]
+                    if w.get("focused")]
+        act("Focus", "a")
+        expect(focused(), ["a"], "a focused")
+        ipc({"request": "action", "action": "DirectionalTargetWindow", "direction": "east"})
+        time.sleep(0.4)
+        expect(focused(), ["b"], "DirectionalTargetWindow east")
+        ipc({"request": "action", "action": "DirectionalFocusWest"})
+        time.sleep(0.4)
+        expect(focused(), ["a"], "DirectionalFocusWest")
+        ipc({"request": "action", "action": "DirectionalTargetWindow", "direction": "north"})
+        time.sleep(0.4)
+        expect(focused(), ["a"], "nothing north")
     except (OSError, RuntimeError, ValueError, StopIteration, KeyError) as e:
         failures.append(f"{type(e).__name__}: {e}")
     finally:
