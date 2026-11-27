@@ -63,6 +63,7 @@ WANT = [
 EDITS = ";".join([
     "shortcut-keys:W-d=W-S-d",
     "shortcut-option:W-Return=command=alacritty",
+    "shortcut-repeat:W-Return=on",
     "shortcut-action:W-F2=Close",
     "shortcut-remove:C-a x",
     "shortcut-add:W-n=ToggleMaximize",
@@ -168,7 +169,7 @@ def main():
 
     # Edited, then saved.
     rc = os.path.join(cfg, "waybox", "rc.xml")
-    err = run_wbconf(wbconf, wenv, "click:Shortcuts;" + EDITS, 0.8 * 14 + 2)
+    err = run_wbconf(wbconf, wenv, "click:Shortcuts;" + EDITS, 0.8 * 15 + 2)
     lines = err.splitlines()
     cut = next((i for i, l in enumerate(lines) if l.startswith("changes-dump:")), len(lines))
 
@@ -204,6 +205,14 @@ def main():
     text = open(rc).read()
     if "<!-- mine -->" not in text:
         failures.append("the comment in <keyboard> was lost")
+    # Repeat while held: written on its <keybind>, listed among the changes.
+    if 'key="W-Return" repeat="yes"' not in text:
+        failures.append("Repeat while held wasn't written as repeat=\"yes\"")
+    # Only "Repeat while held" turned on: a change of its own, unsaved.
+    e2 = run_wbconf(wbconf, wenv, "click:Shortcuts;shortcut-repeat:W-S-d=on;changes", 0.8 * 3 + 2)
+    c2 = [l for l in e2.splitlines() if l.startswith("changes-dump:")]
+    if not c2 or not c2[0].startswith("changes-dump:1|"):
+        failures.append(f"repeat alone isn't a change: {c2}")
     if 'key="C-a"' in text:
         failures.append("the removed chain left its C-a behind")
 

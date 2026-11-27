@@ -1281,6 +1281,21 @@ void write_actions(xmlNode *parent, const std::vector<BoundAction> &actions) {
 	xml_edit::write_actions(parent, actions);
 }
 
+/* A keybind's repeat="…" said yes (as Waybox reads it). */
+bool repeat_on(xmlNode *keybind) {
+	std::string r = attr_value(keybind, "repeat").value_or("");
+	std::transform(r.begin(), r.end(), r.begin(), [](unsigned char ch) { return std::tolower(ch); });
+	return r == "yes" || r == "true" || r == "on" || r == "1";
+}
+
+/* repeat="yes" written, or (off) a yes taken away; an explicit "no" kept. */
+void write_repeat(xmlNode *keybind, bool repeat) {
+	if (repeat)
+		xmlSetProp(keybind, xc("repeat"), xc("yes"));
+	else if (repeat_on(keybind))
+		xmlUnsetProp(keybind, xc("repeat"));
+}
+
 void collect_keys(xmlNode *parent, std::vector<std::string> &chain, std::vector<KeyBinding> &out) {
 	for (xmlNode *c = parent->children; c != nullptr; c = c->next) {
 		if (!is_element(c, "keybind"))
@@ -1293,7 +1308,7 @@ void collect_keys(xmlNode *parent, std::vector<std::string> &chain, std::vector<
 		if (nested)
 			collect_keys(c, chain, out);
 		else
-			out.push_back({chain, read_actions(c)});
+			out.push_back({chain, read_actions(c), repeat_on(c)});
 		chain.pop_back();
 	}
 }
@@ -1419,6 +1434,7 @@ bool RcDocument::set_keybinding(const std::vector<std::string> &was,
 	/* The same keys: actions replaced where it stands (comments kept). */
 	if (old != nullptr && now && now->chain == was) {
 		write_actions(old, now->actions);
+		write_repeat(old, now->repeat);
 		return true;
 	}
 	if (old != nullptr)
@@ -1446,6 +1462,7 @@ bool RcDocument::set_keybinding(const std::vector<std::string> &was,
 		at = next;
 	}
 	write_actions(at, now->actions);
+	write_repeat(at, now->repeat);
 	return true;
 }
 
