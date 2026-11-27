@@ -265,6 +265,11 @@ void set_toplevel_urgent(struct wb_toplevel *toplevel, bool urgent);
  * those brought back. Focusing a window ends it, the others left minimized
  * (as in Openbox). */
 void toggle_show_desktop(struct wb_server *server);
+/* AddDesktop, RemoveDesktop: one more after the current or the last; the
+ * current or the last taken away, its windows to the one before. Until the
+ * next Reconfigure (rc.xml keeps its number). */
+void add_desktop(struct wb_server *server, bool after_current);
+void remove_desktop(struct wb_server *server, bool current);
 /* The process behind a Wayland window (its connection's credentials, which
  * a program can't fake), or -1 (an X11 window's _NET_WM_PID is only its own
  * say); `uid` its owner's. */

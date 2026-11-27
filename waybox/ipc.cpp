@@ -383,6 +383,8 @@ Value handle(Client *c, const Value &req) {
 			action->to = req.str("to");
 		if (req.get("direction"))
 			action->direction = req.str("direction");
+		if (req.get("where"))
+			action->direction = req.str("where");
 		if (const Value *w = req.get("wrap"); w && w->boolean())
 			action->wrap = *w->boolean();
 		if (const Value *f = req.get("follow"); f && f->boolean())

@@ -724,6 +724,58 @@ void wb_toggle_omnipresent(struct wb_toplevel *toplevel) {
 			toplevel->omnipresent ? "on" : "off");
 }
 
+void add_desktop(struct wb_server *server, bool after_current) {
+	if (server->config == nullptr || server->config->desktops.number >= wb::kMaxDesktops)
+		return;
+	int at = after_current ? server->current_desktop + 1 : server->config->desktops.number;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link)
+		if (t->desktop >= at)
+			++t->desktop;
+	if (server->last_desktop >= at)
+		++server->last_desktop;
+	++server->config->desktops.number;
+	wlr_log(WLR_INFO, "wb-desktop add %d (of %d)", at + 1, server->config->desktops.number);
+	desktops_reconfigured(server);
+	workspace_schedule_sync(server);
+	ipc_desktop_event(server);
+}
+
+void remove_desktop(struct wb_server *server, bool current) {
+	if (server->config == nullptr || server->config->desktops.number <= 1)
+		return;
+	int gone = current ? server->current_desktop : server->config->desktops.number - 1;
+	/* Its windows to the one before it (the first's to the next, which
+	 * then becomes the first). */
+	int to = gone > 0 ? gone - 1 : 0;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link) {
+		if (t->desktop == gone)
+			t->desktop = to;
+		else if (t->desktop > gone)
+			--t->desktop;
+	}
+	if (server->last_desktop > gone)
+		--server->last_desktop;
+	int shown = server->current_desktop;
+	if (shown > gone)
+		--shown;
+	else if (shown == gone)
+		shown = to;
+	--server->config->desktops.number;
+	wlr_log(WLR_INFO, "wb-desktop remove %d (of %d)", gone + 1,
+			server->config->desktops.number + 1);
+	if (shown != server->current_desktop) {
+		switch_desktop(server, shown, true);
+	} else {
+		wl_list_for_each(t, &server->toplevels, link)
+			update_desktop_visibility(t);
+	}
+	desktops_reconfigured(server);
+	workspace_schedule_sync(server);
+	ipc_desktop_event(server);
+}
+
 void desktops_reconfigured(struct wb_server *server) {
 	int count = desktop_count(server);
 	struct wb_toplevel *toplevel;
