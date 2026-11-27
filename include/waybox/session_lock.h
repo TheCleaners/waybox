@@ -48,5 +48,9 @@ void session_lock_keep_on_top(struct wb_server *server);
 /* An output committed a frame; used to delay "locked" until every output has
  * actually shown the blanked scene, as the protocol requires. */
 void session_lock_output_frame(struct wb_output *output);
+/* An output presented a frame (or dropped it): the lock frame shown. */
+struct wlr_output_event_present;
+void session_lock_output_present(struct wb_output *output,
+		const struct wlr_output_event_present *event);
 
 #endif /* _WB_SESSION_LOCK_H */

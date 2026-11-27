@@ -71,6 +71,9 @@ bool wb_input_is_virtual(struct wlr_input_device *device);
 /* True if input from `device` must be dropped under the <virtualInput>
  * policy (see config.h). */
 bool wb_input_blocked(struct wb_server *server, struct wlr_input_device *device);
+/* The seat's keyboard, if <virtualInput> blocks it now (locked, or the
+ * policy changed): another allowed one, or none. */
+void seat_recheck_keyboard(struct wb_server *server);
 /* The test touchscreen (only with WAYBOX_TEST_TOUCH=1): "down", "motion",
  * "up" or "frame" for a touch point at (x, y) in 0..1 of the layout.
  * False without it. */

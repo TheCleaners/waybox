@@ -500,8 +500,10 @@ if python.found() and not get_option('tests_only')
     'lock_client',
     [
       'integration' / 'lock_client.c',
-      wayland_scanner_client.process(session_lock_xml),
-      wayland_scanner_code.process(session_lock_xml),
+      wayland_scanner_client.process(session_lock_xml,
+          wl_protocol_dir / 'unstable/text-input/text-input-unstable-v3.xml'),
+      wayland_scanner_code.process(session_lock_xml,
+          wl_protocol_dir / 'unstable/text-input/text-input-unstable-v3.xml'),
     ],
     dependencies: [dependency('wayland-client')],
     )
@@ -871,7 +873,7 @@ if python.found() and not get_option('tests_only')
     ['idle_inhibit', 'idle_inhibit_test.py', [inhibit_client], 60],
     ['idle_screen_off', 'idle_screen_off_test.py', [inhibit_client], 60],
     ['input_focus', 'input_focus_test.py', [], 60],
-    ['input_method', 'input_method_test.py', [ime_client, text_input_client], 90],
+    ['input_method', 'input_method_test.py', [ime_client, text_input_client, lock_client], 90],
     ['input_method_setting', 'input_method_setting_test.py', [], 60],
     ['ipc', 'ipc_test.py', [waybox_msg, lock_client], 60],
     ['osd_look', 'osd_look_test.py', [waybox_msg], 60],

@@ -7,6 +7,9 @@
  * locker. Exits 2 if the compositor refused the lock ("finished").
  * Prints "key" / "button" for keyboard keys and pointer buttons it receives,
  * so the test can check which input reaches the lock screen.
+ * With LOCK_TEXT_INPUT=1 it also uses text-input-v3, as a locker with an
+ * input method would: "ti-enter" when its text input gets focus (then
+ * enabled, surrounding text "secret"), "ti-commit TEXT" for text it gets.
  */
 #define _GNU_SOURCE
 #include <poll.h>
@@ -19,6 +22,30 @@
 #include <wayland-client.h>
 
 #include "ext-session-lock-v1-client-protocol.h"
+#include "text-input-unstable-v3-client-protocol.h"
+
+static struct zwp_text_input_manager_v3 *ti_manager;
+
+static void ti_enter(void *d, struct zwp_text_input_v3 *ti, struct wl_surface *s) {
+	puts("ti-enter");
+	fflush(stdout);
+	zwp_text_input_v3_enable(ti);
+	zwp_text_input_v3_set_surrounding_text(ti, "secret", 6, 6);
+	zwp_text_input_v3_commit(ti);
+}
+static void ti_leave(void *d, struct zwp_text_input_v3 *ti, struct wl_surface *s) {}
+static void ti_preedit(void *d, struct zwp_text_input_v3 *ti, const char *t, int32_t b,
+		int32_t e) {}
+static void ti_commit(void *d, struct zwp_text_input_v3 *ti, const char *text) {
+	printf("ti-commit %s\n", text ? text : "");
+	fflush(stdout);
+}
+static void ti_delete(void *d, struct zwp_text_input_v3 *ti, uint32_t b, uint32_t a) {}
+static void ti_done(void *d, struct zwp_text_input_v3 *ti, uint32_t serial) {}
+static const struct zwp_text_input_v3_listener ti_listener = {
+	.enter = ti_enter, .leave = ti_leave, .preedit_string = ti_preedit,
+	.commit_string = ti_commit, .delete_surrounding_text = ti_delete, .done = ti_done,
+};
 
 #define MAX_OUTPUTS 8
 
@@ -159,6 +186,8 @@ static void registry_global(void *data, struct wl_registry *registry,
 	} else if (strcmp(interface, wl_seat_interface.name) == 0 && seat == NULL) {
 		seat = wl_registry_bind(registry, name, &wl_seat_interface, 2);
 		wl_seat_add_listener(seat, &seat_listener, NULL);
+	} else if (strcmp(interface, zwp_text_input_manager_v3_interface.name) == 0) {
+		ti_manager = wl_registry_bind(registry, name, &zwp_text_input_manager_v3_interface, 1);
 	} else if (strcmp(interface, wl_output_interface.name) == 0 &&
 			num_outputs < MAX_OUTPUTS) {
 		outputs[num_outputs++] = wl_registry_bind(registry, name,
@@ -189,6 +218,10 @@ int main(void) {
 		return 1;
 	}
 
+	if (getenv("LOCK_TEXT_INPUT") != NULL && ti_manager != NULL && seat != NULL) {
+		struct zwp_text_input_v3 *ti = zwp_text_input_manager_v3_get_text_input(ti_manager, seat);
+		zwp_text_input_v3_add_listener(ti, &ti_listener, NULL);
+	}
 	struct ext_session_lock_v1 *lock = ext_session_lock_manager_v1_lock(lock_manager);
 	ext_session_lock_v1_add_listener(lock, &lock_listener, NULL);
 	static struct lock_surface surfaces[MAX_OUTPUTS];

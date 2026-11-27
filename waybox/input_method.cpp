@@ -153,6 +153,10 @@ static void send_state(wb_input_method_relay *relay) {
 }
 
 static wb_text_input *find_active(wb_input_method_relay *relay) {
+	/* Lock screens get no input method: it would be activated for the
+	 * locker, see its text (a password field's) and send it commits. */
+	if (session_locked(relay->server))
+		return nullptr;
 	struct wlr_surface *focused = focused_surface(relay);
 	if (focused == nullptr)
 		return nullptr;
@@ -182,11 +186,13 @@ static void update_active(wb_input_method_relay *relay) {
 
 /* Text inputs follow keyboard focus: they enter surfaces of their own client. */
 static void focus_text_inputs(wb_input_method_relay *relay, struct wlr_surface *surface) {
+	/* Locked: no text input is entered (the lock screen's included). */
+	bool locked = session_locked(relay->server);
 	for (auto &t : relay->text_inputs) {
 		struct wlr_text_input_v3 *input = t->input;
-		if (input->focused_surface != nullptr && input->focused_surface != surface)
+		if (input->focused_surface != nullptr && (input->focused_surface != surface || locked))
 			wlr_text_input_v3_send_leave(input);
-		if (input->focused_surface == nullptr && same_client(input->resource, surface))
+		if (!locked && input->focused_surface == nullptr && same_client(input->resource, surface))
 			wlr_text_input_v3_send_enter(input, surface);
 	}
 	update_active(relay);
