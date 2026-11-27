@@ -49,6 +49,9 @@ const char *kCss = R"(
 .wb-menu-row { padding: 3px 6px; }
 .wb-menu-title { font-size: 0.85em; font-weight: bold; opacity: 0.75; }
 .wb-menu-editor { margin-top: 2px; }
+.wb-drop-before { box-shadow: inset 0 2px 0 @theme_selected_bg_color; }
+.wb-drop-after { box-shadow: inset 0 -2px 0 @theme_selected_bg_color; }
+.wb-drop-into { background-color: alpha(@theme_selected_bg_color, 0.18); }
 .wb-rule-matches { font-size: 0.95em; }
 .wb-rule-kind { font-size: 0.9em; font-style: italic; }
 .wb-rule-error { color: mix(@error_color, @theme_fg_color, 0.3); }

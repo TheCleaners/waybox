@@ -9,6 +9,8 @@ separator added, entries moved into the submenu above, out again and
 earlier, the last change undone; a program added from the installed ones
 (its name, icon and command, field codes left out), and its icon chosen
 from the theme. Saved: menu.xml has exactly that, its comment kept.
+Then dragged: an entry dropped before another, into a submenu, after
+one; a submenu dropped into what it holds, refused.
 Skips (exit 77) without a headless display.
 
 Usage: wbconf_menu_test.py <waybox> <wbconf> <schema-dir>
@@ -202,6 +204,27 @@ def main():
     ]
     if got != want:
         failures.append(f"menu.xml: {got}")
+    # Dragged and dropped (as a drop does it), on the menu as saved.
+    app = subprocess.Popen([wbconf], env=dict(wenv, WBCONF_TEST_TOC=";".join([
+        "click:Menu",
+        "menu-drop:8=1=before",    # Test Editor first
+        "menu-drop:1=4=into",      # into Tools (4 before it's taken out of the way)
+        "menu-drop:3=3.1=after",   # Tools into what it holds: refused
+        "menu-drop:6=3=after",     # Exit after Tools
+        "menu"])), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    wbtest.reap_on_exit(app)
+    time.sleep(0.8 * 7 + 2)
+    app.kill()
+    lines = app.communicate()[1].splitlines()
+    drops = [l[len("menu-drop:"):] for l in lines if l.startswith("menu-drop:")]
+    if drops != ["moved", "moved", "refused", "moved"]:
+        failures.append(f"drops: {drops}")
+    rows = [l.split("|")[1] + " " + l.split("|")[2] for l in lines if l.startswith("menu|")]
+    want_rows = ["1 Console", "2 ", "3 Tools", "3.1 Test Editor", "3.2 Calculator", "4 Exit",
+                 "5 Editor", "6 ", "7 Games"]
+    if rows != want_rows:
+        failures.append(f"after the drops: {rows}")
+
     proc.terminate()
     try:
         proc.wait(timeout=10)
