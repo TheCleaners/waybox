@@ -93,9 +93,18 @@ class Client:
 
 
 def ipc(runtime, display, request):
+    path = os.path.join(runtime, f"waybox-{display}.sock")
+    for _ in range(20):  # a moment for it to be there; then say which
+        if os.path.exists(path):
+            break
+        time.sleep(0.1)
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as c:
         c.settimeout(5)
-        c.connect(os.path.join(runtime, f"waybox-{display}.sock"))
+        try:
+            c.connect(path)
+        except FileNotFoundError as e:
+            raise RuntimeError(f"no scripting socket {path} "
+                               f"(there: {sorted(os.listdir(runtime))})") from e
         c.sendall((json.dumps(request) + "\n").encode())
         buf = b""
         while not buf.endswith(b"\n"):
