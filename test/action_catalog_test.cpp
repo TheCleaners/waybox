@@ -28,6 +28,7 @@ WB_TEST(catalog_covers_the_registry) {
 WB_TEST(descriptions) {
 	using wb::describe_action;
 	WB_CHECK(describe_action({"Execute", {{"command", "foot"}}}) == "Run foot");
+	WB_CHECK(describe_action({"Execute", {{"execute", "foot"}}}) == "Run foot");
 	WB_CHECK(describe_action({"GoToDesktop", {{"to", "2"}}}) == "Go to desktop 2");
 	WB_CHECK(describe_action({"GoToDesktop", {{"to", "right"}}}) == "Go to the next desktop");
 	WB_CHECK(describe_action({"SendToDesktop", {{"to", "left"}}}) ==

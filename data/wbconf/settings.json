@@ -231,6 +231,18 @@
       ]
     },
     {
+      "id": "shortcuts",
+      "title": "Shortcuts",
+      "settings": [
+        { "id": "waybox.keybindings", "title": "Keyboard", "type": "custom",
+          "widget": "keybindings",
+          "keywords": "keybind keybinding shortcut hotkey key binding chain super alt ctrl" },
+        { "id": "waybox.mousebindings", "title": "Mouse", "type": "custom",
+          "widget": "mousebindings",
+          "keywords": "mousebind mouse binding click double drag titlebar desktop button" }
+      ]
+    },
+    {
       "id": "integrations",
       "title": "Integrations",
       "description": "Programs Waybox starts with the session, and starts again if they crash. Nothing is started unless you turn it on here (or list it in rc.xml).",

@@ -27,6 +27,12 @@ const char *kCss = R"(
 .wb-toc row label { font-size: 0.95em; }
 .wb-toc .wb-toc-arrow { opacity: 0.6; -gtk-icon-size: 12px; }
 .wb-toc .wb-toc-section { margin-left: 18px; }
+.wb-keycap { padding: 0 7px; min-height: 22px; border-radius: 5px; font-size: 0.92em;
+  border: 1px solid alpha(currentColor, 0.22); border-bottom-width: 2px;
+  background-color: alpha(currentColor, 0.05); }
+.wb-shortcut-row { padding: 4px 0; }
+.wb-shortcut-group { font-weight: bold; margin-top: 10px; margin-bottom: 2px; }
+.wb-shortcut-place { font-weight: bold; }
 .wb-toc-toolbar button { min-width: 22px; min-height: 22px; padding: 0; margin: 0;
   border-radius: 5px; opacity: 0.55; -gtk-icon-size: 14px; }
 .wb-toc-toolbar button:hover, .wb-toc-toolbar button:checked { opacity: 1; }
@@ -483,6 +489,10 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 			return build_theme_block(ui);
 		if (d.widget == "monitors")
 			return build_monitors_block(ui);
+		if (d.widget == "keybindings")
+			return build_keybindings_block(ui);
+		if (d.widget == "mousebindings")
+			return build_mousebindings_block(ui);
 		if (d.widget.rfind("program:", 0) == 0)
 			return build_program_block(ui, d.widget.substr(8));
 		if (d.widget == "programs-other")
@@ -1217,6 +1227,9 @@ gboolean toc_step(gpointer data) {
 		/* "luapage-dump:ID|KEY=VALUE[!PROBLEM][(hidden)]...|error:..." */
 		std::string id = step.substr(8);
 		fprintf(stderr, "luapage-dump:%s%s\n", id.c_str(), lua_page_dump(ui, id).c_str());
+	} else if (step == "shortcuts") {
+		for (const std::string &l : ui->shortcut_lines)
+			fprintf(stderr, "shortcut:%s\n", l.c_str());
 	} else if (step.rfind("progstatus:", 0) == 0) {
 		/* "progstatus:ID" -> "progstatus:ID|on|STATUS[|warning]" */
 		for (auto &p : ui->programs)

@@ -383,6 +383,11 @@ struct Ui {
 	std::vector<std::unique_ptr<BindingRow>> bindings;
 	/* Every Lua page shown (its row owns it): saved, listed, tested. */
 	std::vector<std::weak_ptr<void>> lua_pages;
+	/* The Shortcuts page's two lists. */
+	GtkWidget *shortcut_keys = nullptr;
+	GtkWidget *shortcut_mouse = nullptr;
+	/* Its rows as text, for tests: "key|W-d|Show the desktop|Desktops". */
+	std::vector<std::string> shortcut_lines;
 	std::vector<std::string> bound_keys;  /* every key rc.xml binds */
 
 	/* The input method: None, an installed framework (from the integration
@@ -638,6 +643,10 @@ std::optional<wb::InputMethodSetting> collect_input_method(Ui *ui);
 /* Choose by integration id ("" none, "custom"), as the dropdown would. */
 void choose_input_method(Ui *ui, const std::string &id);
 void populate_bindings(Ui *ui, const wb::RcDocument *doc);
+/* The Shortcuts page (shortcuts_page.cpp). */
+GtkWidget *build_keybindings_block(Ui *ui);
+GtkWidget *build_mousebindings_block(Ui *ui);
+void populate_shortcuts(Ui *ui, const wb::RcDocument *doc);
 /* The binding rows' changes into `doc`; then what's saved is what's shown. */
 void apply_bindings(Ui *ui, wb::RcDocument &doc);
 void bindings_saved(Ui *ui);
