@@ -15,6 +15,9 @@ namespace wbconf {
 namespace {
 
 const char *kCss = R"(
+.wb-geo-zoom { min-width: 28px; min-height: 28px; padding: 0; background-color: @theme_base_color;
+  box-shadow: 0 1px 2px alpha(black, 0.15); }
+.wb-geo-zoom:hover { background-color: mix(@theme_base_color, currentColor, 0.08); }
 .wb-setting { padding: 3px 8px 5px 0; border-radius: 6px; }
 .wb-setting:hover { background: alpha(currentColor, 0.04); }
 .wb-setting .wb-gear { opacity: 0; }
@@ -1309,7 +1312,23 @@ gboolean toc_step(gpointer data) {
 				geo_picker_find(p->geo, what.substr(5));
 			else if (what == "zone")
 				geo_picker_use_zone(p->geo);
-			else if (what == "locate")
+			else if (what.rfind("zoom:", 0) == 0) {
+				/* "zoom:STEPS" (the buttons: around the middle) or
+				 * "zoom:STEPS@FX,FY" (the wheel: around the pointer). */
+				std::string z = what.substr(5);
+				size_t at = z.find('@'), c = z.find(',');
+				double fx = 0.5, fy = 0.5;
+				if (at != std::string::npos && c != std::string::npos) {
+					fx = g_ascii_strtod(z.substr(at + 1, c - at - 1).c_str(), nullptr);
+					fy = g_ascii_strtod(z.substr(c + 1).c_str(), nullptr);
+				}
+				geo_picker_zoom(p->geo, g_ascii_strtod(z.substr(0, at).c_str(), nullptr), fx, fy);
+			} else if (what.rfind("pan:", 0) == 0) {
+				std::string xy = what.substr(4);
+				size_t c = xy.find(',');
+				geo_picker_pan(p->geo, g_ascii_strtod(xy.substr(0, c).c_str(), nullptr),
+						g_ascii_strtod(xy.substr(c + 1).c_str(), nullptr));
+			} else if (what == "locate")
 				fprintf(stderr, "geo-locate:%s\n", geo_picker_locate(p->geo) ? "asked" : "no portal");
 			else if (what.rfind("type:", 0) == 0) {
 				/* Typed in the latitude field, as a person would. */
@@ -1330,8 +1349,9 @@ gboolean toc_step(gpointer data) {
 						? std::string(gtk_editable_get_text(GTK_EDITABLE(it->second->entry)))
 						: std::string();
 			};
-			fprintf(stderr, "geo|%s|%s|%s|%s\n", id.c_str(), text(l[0]).c_str(),
-					text(l[1]).c_str(), geo_picker_caption(p->geo).c_str());
+			fprintf(stderr, "geo|%s|%s|%s|%s|%s\n", id.c_str(), text(l[0]).c_str(),
+					text(l[1]).c_str(), geo_picker_caption(p->geo).c_str(),
+					geo_picker_view(p->geo).c_str());
 		}
 	} else if (step.rfind("progstatus:", 0) == 0) {
 		/* "progstatus:ID" -> "progstatus:ID|on|STATUS[|warning]" */

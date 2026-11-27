@@ -11,6 +11,7 @@
 #include "geo_picker.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <fstream>
 #include <memory>
@@ -82,6 +83,15 @@ struct Picker {
 	std::vector<const wb::geo::City *> shown;
 	/* Asking the Location portal: its session, the signals waited for. */
 	GtkWidget *locate = nullptr;
+	/* The view: zoom (1: the whole world) and the place in its middle. */
+	double zoom = 1;
+	Point view;
+	GtkWidget *zoom_in = nullptr, *zoom_out = nullptr;
+	/* A drag: of the place (pressed on it, or nothing to pan), or of the
+	 * map; a press that didn't move is a click. */
+	bool dragging_place = false, moved = false;
+	Point view_at_press;
+	double pointer_x = -1, pointer_y = -1;
 	GDBusConnection *bus = nullptr;
 	std::string session;
 	guint on_location = 0, on_response = 0, timer = 0;
@@ -180,6 +190,7 @@ void stop_locate(Picker *p, const char *why) {
 
 void refresh_caption(Picker *p);
 void pick(Picker *p, Point at);
+void show_place(Picker *p, Point at);
 
 /* Ask the Location portal where this is: a session, started; the place
  * comes in a signal (LocationUpdated), or a refusal in the request's
@@ -215,6 +226,7 @@ void start_locate(Picker *p) {
 		if (!ok)
 			return;
 		stop_locate(p, nullptr);
+		show_place(p, Point{lat, lon});
 		pick(p, Point{lat, lon});
 	}, p, nullptr);
 	p->on_response = g_dbus_connection_signal_subscribe(p->bus, kPortal,
@@ -271,6 +283,65 @@ void map_box(GtkWidget *w, double *x, double *y, double *mw, double *mh) {
 	*y = (H - *mh) / 2;
 }
 
+constexpr double kMaxZoom = 64;
+
+/* The view kept on the world (no space beyond its edges), the buttons
+ * off at the ends. */
+void clamp_view(Picker *p) {
+	p->zoom = std::clamp(p->zoom, 1.0, kMaxZoom);
+	double hw = 180 / p->zoom, hh = 90 / p->zoom;
+	p->view.lon = std::clamp(p->view.lon, -180 + hw, 180 - hw);
+	p->view.lat = std::clamp(p->view.lat, -90 + hh, 90 - hh);
+	if (p->zoom_in != nullptr) {
+		gtk_widget_set_sensitive(p->zoom_in, p->zoom < kMaxZoom);
+		gtk_widget_set_sensitive(p->zoom_out, p->zoom > 1);
+	}
+}
+
+/* The place at a fraction across and down the view, and back. */
+Point at_fraction(const Picker *p, double fx, double fy) {
+	return Point{p->view.lat + (0.5 - fy) * 180 / p->zoom, p->view.lon + (fx - 0.5) * 360 / p->zoom};
+}
+void fraction_of(const Picker *p, Point at, double *fx, double *fy) {
+	*fx = 0.5 + (at.lon - p->view.lon) * p->zoom / 360;
+	*fy = 0.5 - (at.lat - p->view.lat) * p->zoom / 180;
+}
+
+/* Zoomed by `factor`, the place at (fx, fy) staying under it (the
+ * pointer's, for the wheel; the middle, for the buttons). */
+void zoom_at(Picker *p, double factor, double fx, double fy) {
+	Point keep = at_fraction(p, fx, fy);
+	p->zoom = std::clamp(p->zoom * factor, 1.0, kMaxZoom);
+	p->view.lon = keep.lon - (fx - 0.5) * 360 / p->zoom;
+	p->view.lat = keep.lat - (0.5 - fy) * 180 / p->zoom;
+	clamp_view(p);
+	gtk_widget_queue_draw(p->map);
+}
+
+/* The map moved by a fraction of the view (as a drag moves it). */
+void pan_by(Picker *p, double dfx, double dfy) {
+	p->view.lon -= dfx * 360 / p->zoom;
+	p->view.lat += dfy * 180 / p->zoom;
+	clamp_view(p);
+	gtk_widget_queue_draw(p->map);
+}
+
+/* A place shown: in the middle, near enough to see where (a city, the
+ * time zone's, the system's answer). */
+void show_place(Picker *p, Point at) {
+	p->view = at;
+	p->zoom = std::max(p->zoom, 8.0);
+	clamp_view(p);
+}
+
+/* Grid lines: every 30 degrees, finer as it zooms in. */
+double grid_step(double zoom) {
+	for (double s : {30.0, 10.0, 5.0, 2.0, 1.0, 0.5, 0.25})
+		if (360 / zoom / s >= 4)
+			return s;
+	return 0.1;
+}
+
 void draw(GtkDrawingArea *area, cairo_t *cr, int, int, gpointer data) {
 	auto *p = static_cast<Picker *>(data);
 	GtkWidget *w = GTK_WIDGET(area);
@@ -278,22 +349,30 @@ void draw(GtkDrawingArea *area, cairo_t *cr, int, int, gpointer data) {
 	gtk_widget_get_color(w, &fg);
 	double x0, y0, mw, mh;
 	map_box(w, &x0, &y0, &mw, &mh);
-	auto px = [&](const Point &pt) { return x0 + (pt.lon + 180) / 360 * mw; };
-	auto py = [&](const Point &pt) { return y0 + (90 - pt.lat) / 180 * mh; };
+	double scale = mw * p->zoom / 360;  /* pixels a degree */
+	double cx = x0 + mw / 2, cy = y0 + mh / 2;
+	auto px = [&](const Point &pt) { return cx + (pt.lon - p->view.lon) * scale; };
+	auto py = [&](const Point &pt) { return cy - (pt.lat - p->view.lat) * scale; };
+	double west = p->view.lon - 180 / p->zoom, east = p->view.lon + 180 / p->zoom;
+	double south = p->view.lat - 90 / p->zoom, north = p->view.lat + 90 / p->zoom;
 
-	/* The sea, the grid every 30 degrees. */
+	cairo_save(cr);
+	cairo_rectangle(cr, x0, y0, mw, mh);
+	cairo_clip(cr);
+	/* The sea, the grid. */
 	cairo_rectangle(cr, x0, y0, mw, mh);
 	cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.04);
 	cairo_fill(cr);
 	cairo_set_line_width(cr, 1);
 	cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.07);
-	for (int lon = -150; lon <= 150; lon += 30) {
-		double x = px({0, static_cast<double>(lon)});
+	double step = grid_step(p->zoom);
+	for (double lon = std::ceil(west / step) * step; lon <= east; lon += step) {
+		double x = px({0, lon});
 		cairo_move_to(cr, std::round(x) + 0.5, y0);
 		cairo_line_to(cr, std::round(x) + 0.5, y0 + mh);
 	}
-	for (int lat = -60; lat <= 60; lat += 30) {
-		double y = py({static_cast<double>(lat), 0});
+	for (double lat = std::ceil(south / step) * step; lat <= north; lat += step) {
+		double y = py({lat, 0});
 		cairo_move_to(cr, x0, std::round(y) + 0.5);
 		cairo_line_to(cr, x0 + mw, std::round(y) + 0.5);
 	}
@@ -314,6 +393,45 @@ void draw(GtkDrawingArea *area, cairo_t *cr, int, int, gpointer data) {
 	cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.38);
 	cairo_stroke(cr);
 
+	/* Zoomed in: the cities, to tell where; the biggest named, none
+	 * over another. */
+	if (p->zoom >= 4) {
+		std::vector<std::array<double, 4>> taken;
+		int dots = 0, names = 0;
+		PangoLayout *layout = gtk_widget_create_pango_layout(w, nullptr);
+		PangoAttrList *small = pango_attr_list_new();
+		pango_attr_list_insert(small, pango_attr_scale_new(0.82));
+		pango_layout_set_attributes(layout, small);
+		pango_attr_list_unref(small);
+		for (const wb::geo::City &c : geo_data().cities) {  /* the most populous first */
+			if (c.at.lon < west || c.at.lon > east || c.at.lat < south || c.at.lat > north)
+				continue;
+			if (++dots > 120)
+				break;
+			double x = px(c.at), y = py(c.at);
+			cairo_arc(cr, x, y, 1.8, 0, 2 * M_PI);
+			cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.45);
+			cairo_fill(cr);
+			if (names >= 24)
+				continue;
+			pango_layout_set_text(layout, c.name.c_str(), -1);
+			int lw = 0, lh = 0;
+			pango_layout_get_pixel_size(layout, &lw, &lh);
+			std::array<double, 4> box = {x + 4, y - lh / 2.0, x + 4 + lw, y + lh / 2.0};
+			bool clear = std::none_of(taken.begin(), taken.end(), [&box](const auto &t) {
+				return box[0] < t[2] + 4 && t[0] < box[2] + 4 && box[1] < t[3] && t[1] < box[3];
+			});
+			if (!clear)
+				continue;
+			taken.push_back(box);
+			++names;
+			cairo_move_to(cr, box[0], box[1]);
+			cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.75);
+			pango_cairo_show_layout(cr, layout);
+		}
+		g_object_unref(layout);
+	}
+
 	/* The place: a dot in the accent color, ringed so it shows on land. */
 	if (auto at = p->get()) {
 		GdkRGBA accent = {0.21, 0.52, 0.89, 1};
@@ -329,6 +447,7 @@ void draw(GtkDrawingArea *area, cairo_t *cr, int, int, gpointer data) {
 		cairo_set_source_rgba(cr, 1, 1, 1, 0.9);
 		cairo_stroke(cr);
 	}
+	cairo_restore(cr);
 }
 
 void refresh_caption(Picker *p) {
@@ -352,13 +471,103 @@ void pick(Picker *p, Point at) {
 	refresh_caption(p);
 }
 
-/* A point in the widget, as a place (nullopt off the map). */
-std::optional<Point> place_at(Picker *p, double x, double y) {
+/* A point in the widget, as a fraction of the view (false off the map). */
+bool fraction_at(Picker *p, double x, double y, double *fx, double *fy) {
 	double x0, y0, mw, mh;
 	map_box(p->map, &x0, &y0, &mw, &mh);
-	if (mw <= 0 || mh <= 0 || x < x0 || x > x0 + mw || y < y0 || y > y0 + mh)
+	if (mw <= 0 || mh <= 0)
+		return false;
+	*fx = (x - x0) / mw;
+	*fy = (y - y0) / mh;
+	return *fx >= 0 && *fx <= 1 && *fy >= 0 && *fy <= 1;
+}
+
+/* A point in the widget, as a place (nullopt off the map). */
+std::optional<Point> place_at(Picker *p, double x, double y) {
+	double fx = 0, fy = 0;
+	if (!fraction_at(p, x, y, &fx, &fy))
 		return std::nullopt;
-	return Point{90 - (y - y0) / mh * 180, (x - x0) / mw * 360 - 180};
+	return at_fraction(p, fx, fy);
+}
+
+/* Whether the point is on the place's dot (to drag it, not the map). */
+bool on_place(Picker *p, double x, double y) {
+	auto at = p->get();
+	double x0, y0, mw, mh;
+	map_box(p->map, &x0, &y0, &mw, &mh);
+	if (!at || mw <= 0)
+		return false;
+	double fx = 0, fy = 0;
+	fraction_of(p, *at, &fx, &fy);
+	return std::hypot(x0 + fx * mw - x, y0 + fy * mh - y) <= 10;
+}
+
+void on_drag_begin(GtkGestureDrag *, double x, double y, gpointer d) {
+	auto *p = static_cast<Picker *>(d);
+	p->moved = false;
+	p->view_at_press = p->view;
+	/* Nothing to pan (the whole world shown): a drag is of the place. */
+	p->dragging_place = on_place(p, x, y) || p->zoom <= 1;
+	if (p->dragging_place)
+		if (auto at = place_at(p, x, y))
+			pick(p, *at);
+}
+
+void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer d) {
+	auto *p = static_cast<Picker *>(d);
+	double sx = 0;
+	double sy = 0;
+	gtk_gesture_drag_get_start_point(g, &sx, &sy);
+	if (p->dragging_place) {
+		if (auto at = place_at(p, sx + dx, sy + dy))
+			pick(p, *at);
+		return;
+	}
+	if (!p->moved && std::hypot(dx, dy) < 4)
+		return;
+	p->moved = true;
+	gtk_widget_set_cursor_from_name(p->map, "grabbing");
+	double x0, y0, mw, mh;
+	map_box(p->map, &x0, &y0, &mw, &mh);
+	if (mw <= 0)
+		return;
+	p->view = p->view_at_press;
+	pan_by(p, dx / mw, dy / mh);
+}
+
+void on_drag_end(GtkGestureDrag *g, double, double, gpointer d) {
+	auto *p = static_cast<Picker *>(d);
+	gtk_widget_set_cursor_from_name(p->map, "crosshair");
+	if (p->dragging_place || p->moved)
+		return;
+	/* Pressed and let go where it was: a click, the place put there. */
+	double sx = 0;
+	double sy = 0;
+	gtk_gesture_drag_get_start_point(g, &sx, &sy);
+	if (auto at = place_at(p, sx, sy))
+		pick(p, *at);
+}
+
+gboolean on_scroll(GtkEventControllerScroll *c, double, double dy, gpointer d) {
+	auto *p = static_cast<Picker *>(d);
+	double fx = 0.5, fy = 0.5;
+	if (!fraction_at(p, p->pointer_x, p->pointer_y, &fx, &fy)) {
+		fx = 0.5;
+		fy = 0.5;
+	}
+	/* A wheel's notch: twice as near (or far); a touchpad's, smoothly. */
+	double notches = gtk_event_controller_scroll_get_unit(c) == GDK_SCROLL_UNIT_WHEEL ? dy : dy / 40;
+	/* (Taken even with no further to go: the page scrolling on from the
+	 * map's limits jars.) */
+	zoom_at(p, std::pow(2.0, -notches), fx, fy);
+	return TRUE;
+}
+
+void on_motion(GtkEventControllerMotion *, double x, double y, gpointer d) {
+	auto *p = static_cast<Picker *>(d);
+	p->pointer_x = x;
+	p->pointer_y = y;
+	gtk_widget_set_cursor_from_name(p->map, on_place(p, x, y) ? "grab" : "crosshair");
 }
 
 void fill_results(Picker *p) {
@@ -435,6 +644,7 @@ GtkWidget *geo_picker_new(std::function<std::optional<Point>()> get,
 	g_signal_connect(p->search, "activate", G_CALLBACK(+[](GtkSearchEntry *, gpointer d) {
 		auto *p = static_cast<Picker *>(d);
 		if (!p->shown.empty()) {
+			show_place(p, p->shown[0]->at);
 			pick(p, p->shown[0]->at);
 			gtk_popover_popdown(GTK_POPOVER(p->popover));
 		}
@@ -444,6 +654,7 @@ GtkWidget *geo_picker_new(std::function<std::optional<Point>()> get,
 		auto *p = static_cast<Picker *>(d);
 		int i = gtk_list_box_row_get_index(row);
 		if (i >= 0 && static_cast<size_t>(i) < p->shown.size()) {
+			show_place(p, p->shown[static_cast<size_t>(i)]->at);
 			pick(p, p->shown[static_cast<size_t>(i)]->at);
 			gtk_editable_set_text(GTK_EDITABLE(p->search), "");
 			gtk_popover_popdown(GTK_POPOVER(p->popover));
@@ -451,14 +662,20 @@ GtkWidget *geo_picker_new(std::function<std::optional<Point>()> get,
 	}), p);
 	const GeoData &d = geo_data();
 	if (d.zone_at) {
-		std::string label = std::string(_("Use My Time Zone's City")) + " (" + d.zone_city + ")";
-		GtkWidget *tz = gtk_button_new_with_label(label.c_str());
-		gtk_widget_add_css_class(tz, "flat");
+		/* A button that looks one: framed, a clock, the city named. */
+		std::string label = std::string(_("Use Time Zone's City:")) + " " + d.zone_city;
+		GtkWidget *tz = gtk_button_new();
+		GtkWidget *content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+		gtk_box_append(GTK_BOX(content), gtk_image_new_from_icon_name("preferences-system-time-symbolic"));
+		gtk_box_append(GTK_BOX(content), gtk_label_new(label.c_str()));
+		gtk_button_set_child(GTK_BUTTON(tz), content);
 		gtk_widget_set_tooltip_text(tz, _("Your time zone's own city: close enough for sunset "
 				"and sunrise, unless your zone is a wide one"));
 		g_signal_connect(tz, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
-			if (geo_data().zone_at)
+			if (geo_data().zone_at) {
+				show_place(static_cast<Picker *>(d), *geo_data().zone_at);
 				pick(static_cast<Picker *>(d), *geo_data().zone_at);
+			}
 		}), p);
 		gtk_box_append(GTK_BOX(bar), tz);
 	}
@@ -471,25 +688,47 @@ GtkWidget *geo_picker_new(std::function<std::optional<Point>()> get,
 	gtk_widget_set_halign(p->map, GTK_ALIGN_START);
 	gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(p->map), draw, p, nullptr);
 	gtk_widget_set_cursor_from_name(p->map, "crosshair");
-	gtk_widget_set_tooltip_text(p->map, _("Click or drag where you are"));
+	gtk_widget_set_tooltip_text(p->map, _("Click where you are, or drag the dot; drag the map "
+			"to move it, the wheel or + and \u2212 to zoom"));
 	GtkGesture *drag = gtk_gesture_drag_new();
-	g_signal_connect(drag, "drag-begin", G_CALLBACK(+[](GtkGestureDrag *, double x, double y,
-			gpointer d) {
-		auto *p = static_cast<Picker *>(d);
-		if (auto at = place_at(p, x, y))
-			pick(p, *at);
-	}), p);
-	g_signal_connect(drag, "drag-update", G_CALLBACK(+[](GtkGestureDrag *g, double dx, double dy,
-			gpointer d) {
-		auto *p = static_cast<Picker *>(d);
-		double sx = 0;
-		double sy = 0;
-		gtk_gesture_drag_get_start_point(g, &sx, &sy);
-		if (auto at = place_at(p, sx + dx, sy + dy))
-			pick(p, *at);
-	}), p);
+	g_signal_connect(drag, "drag-begin", G_CALLBACK(on_drag_begin), p);
+	g_signal_connect(drag, "drag-update", G_CALLBACK(on_drag_update), p);
+	g_signal_connect(drag, "drag-end", G_CALLBACK(on_drag_end), p);
 	gtk_widget_add_controller(p->map, GTK_EVENT_CONTROLLER(drag));
-	gtk_box_append(GTK_BOX(p->box), p->map);
+	GtkEventController *scroll = gtk_event_controller_scroll_new(
+			GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
+	g_signal_connect(scroll, "scroll", G_CALLBACK(on_scroll), p);
+	gtk_widget_add_controller(p->map, scroll);
+	GtkEventController *motion = gtk_event_controller_motion_new();
+	g_signal_connect(motion, "motion", G_CALLBACK(on_motion), p);
+	gtk_widget_add_controller(p->map, motion);
+	/* + and \u2212, over the map's corner. */
+	GtkWidget *overlay = gtk_overlay_new();
+	gtk_overlay_set_child(GTK_OVERLAY(overlay), p->map);
+	gtk_widget_set_halign(overlay, GTK_ALIGN_START);
+	GtkWidget *zoom = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_widget_add_css_class(zoom, "linked");
+	gtk_widget_set_halign(zoom, GTK_ALIGN_END);
+	gtk_widget_set_valign(zoom, GTK_ALIGN_START);
+	gtk_widget_set_margin_top(zoom, 6);
+	gtk_widget_set_margin_end(zoom, 6);
+	p->zoom_in = gtk_button_new_from_icon_name("list-add-symbolic");
+	p->zoom_out = gtk_button_new_from_icon_name("list-remove-symbolic");
+	gtk_widget_set_tooltip_text(p->zoom_in, _("Zoom In"));
+	gtk_widget_set_tooltip_text(p->zoom_out, _("Zoom Out"));
+	for (GtkWidget *b : {p->zoom_in, p->zoom_out}) {
+		gtk_widget_add_css_class(b, "wb-geo-zoom");
+		gtk_box_append(GTK_BOX(zoom), b);
+	}
+	g_signal_connect(p->zoom_in, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
+		zoom_at(static_cast<Picker *>(d), 2, 0.5, 0.5);
+	}), p);
+	g_signal_connect(p->zoom_out, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
+		zoom_at(static_cast<Picker *>(d), 0.5, 0.5, 0.5);
+	}), p);
+	gtk_overlay_add_overlay(GTK_OVERLAY(overlay), zoom);
+	clamp_view(p);
+	gtk_box_append(GTK_BOX(p->box), overlay);
 
 	p->caption = gtk_label_new("");
 	gtk_label_set_xalign(GTK_LABEL(p->caption), 0);
@@ -503,6 +742,14 @@ void geo_picker_refresh(GtkWidget *picker) {
 	auto *p = static_cast<Picker *>(g_object_get_data(G_OBJECT(picker), "wb-geo"));
 	if (p == nullptr)
 		return;
+	if (auto at = p->get()) {
+		double fx = 0, fy = 0;
+		fraction_of(p, *at, &fx, &fy);
+		if (fx < 0 || fx > 1 || fy < 0 || fy > 1) {
+			p->view = *at;
+			clamp_view(p);
+		}
+	}
 	gtk_widget_queue_draw(p->map);
 	refresh_caption(p);
 }
@@ -518,8 +765,11 @@ void geo_picker_find(GtkWidget *picker, const std::string &query) {
 		return;
 	gtk_editable_set_text(GTK_EDITABLE(p->search), query.c_str());
 	fill_results(p);
-	if (!p->shown.empty())
+	if (!p->shown.empty()) {
+		show_place(p, p->shown[0]->at);
 		pick(p, p->shown[0]->at);
+		gtk_editable_set_text(GTK_EDITABLE(p->search), "");  /* as a pick from the list */
+	}
 	gtk_popover_popdown(GTK_POPOVER(p->popover));
 }
 
@@ -535,6 +785,7 @@ bool geo_picker_use_zone(GtkWidget *picker) {
 	auto *p = static_cast<Picker *>(g_object_get_data(G_OBJECT(picker), "wb-geo"));
 	if (p == nullptr || !geo_data().zone_at)
 		return false;
+	show_place(p, *geo_data().zone_at);
 	pick(p, *geo_data().zone_at);
 	return true;
 }
@@ -543,9 +794,31 @@ void geo_picker_click(GtkWidget *picker, double fx, double fy) {
 	auto *p = static_cast<Picker *>(g_object_get_data(G_OBJECT(picker), "wb-geo"));
 	if (p == nullptr)
 		return;
-	/* As place_at reads a click that far across and down the map. */
+	/* As a click that far across and down the view. */
 	if (fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1)
-		pick(p, Point{90 - fy * 180, fx * 360 - 180});
+		pick(p, at_fraction(p, fx, fy));
+}
+
+void geo_picker_zoom(GtkWidget *picker, double steps, double fx, double fy) {
+	auto *p = static_cast<Picker *>(g_object_get_data(G_OBJECT(picker), "wb-geo"));
+	if (p != nullptr)
+		zoom_at(p, std::pow(2.0, steps), fx, fy);
+}
+
+void geo_picker_pan(GtkWidget *picker, double dfx, double dfy) {
+	auto *p = static_cast<Picker *>(g_object_get_data(G_OBJECT(picker), "wb-geo"));
+	if (p != nullptr)
+		pan_by(p, dfx, dfy);
+}
+
+std::string geo_picker_view(GtkWidget *picker) {
+	auto *p = static_cast<Picker *>(g_object_get_data(G_OBJECT(picker), "wb-geo"));
+	if (p == nullptr)
+		return "";
+	char buf[96];
+	g_snprintf(buf, sizeof buf, "%.2f %s %s", p->zoom, wb::geo::format_degrees(p->view.lat).c_str(),
+			wb::geo::format_degrees(p->view.lon).c_str());
+	return buf;
 }
 
 }  // namespace wbconf

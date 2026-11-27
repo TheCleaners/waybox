@@ -12,6 +12,9 @@ it, nothing to ask (the button off); with one (a
 stand-in on a private bus), asked at neighborhood accuracy, the place it
 gives taken (Paris); refused, the place left as it was and why said.
 (Skipped without dbus-daemon or Python's GLib bindings.)
+The map: zoomed and moved (the buttons, the wheel around the pointer, a
+drag), within their limits.
+Turned on, its settings unfold, the first time only.
 Skips (exit 77) without a headless display.
 
 Usage: wbconf_geo_test.py <waybox> <wbconf> <schema-dir> <source-root>
@@ -79,39 +82,67 @@ def main():
                 PATH=bindir + ":" + os.environ.get("PATH", ""),
                 WAYBOX_PID=str(proc.pid),
                 WBCONF_TEST_TOC=";".join(["dump", "geo:wlsunset=show",
-                                          "geo:wlsunset=find:lisbon",
                                           "geo:wlsunset=click:0.5,0.5",
                                           "geo:wlsunset=type:38,72",
-                                          "geo:wlsunset=zone"]))
+                                          "geo:wlsunset=find:lisbon",
+                                          "geo:wlsunset=click:0.75,0.5",
+                                          "geo:wlsunset=zoom:-1",
+                                          "geo:wlsunset=pan:0.5,0",
+                                          "geo:wlsunset=zoom:1@0.75,0.5",
+                                          "geo:wlsunset=zoom:-9",
+                                          "geo:wlsunset=zone",
+                                          # Turned on: its settings unfold, the first time only.
+                                          "pagefold:wlsunset",
+                                          "set:program.wlsunset=on", "pagefold:wlsunset",
+                                          "set:program.wlsunset=off", "pages-folded",
+                                          "set:program.wlsunset=on", "pagefold:wlsunset"]))
     app = subprocess.Popen([wbconf], env=wenv, stdout=subprocess.DEVNULL,
                            stderr=subprocess.PIPE, text=True)
     wbtest.reap_on_exit(app)
-    time.sleep(0.8 * 6 + 2)
+    time.sleep(0.8 * 19 + 2)
     app.kill()
-    lines = [l.split("|") for l in app.communicate()[1].splitlines() if l.startswith("geo|")]
+    out = app.communicate()[1].splitlines()
+    lines = [l.split("|") for l in out if l.startswith("geo|")]
+    folds = [l.split("|")[1] for l in out if l.startswith("pagefold:wlsunset|")]
 
     failures = []
     # Lisbon as the cities file has it.
     lisbon = next(l.split("\t") for l in open(os.path.join(root, "data", "geo", "cities.tsv"),
                                              encoding="utf-8")
                   if l.startswith("Lisbon\t"))
+    lat, lon = lisbon[2], lisbon[3]
+    east = f"{float(lon) + 360 / 8 / 4:.2f}"  # a quarter of the view (45 degrees) east
+    # (lat field, lon field, caption start, view: zoom, its middle)
     want = [
-        ("51.5", "-0.1", "51.50, -0.10 · near London"),
-        (lisbon[2], lisbon[3], f"{lisbon[2]}, {lisbon[3]} · near Lisbon, Portugal"),
-        ("0.00", "0.00", "0.00, 0.00 · near "),
-        ("38,72", "0.00", "38.72, 0.00 · near "),
+        ("51.5", "-0.1", "51.50, -0.10 \u00b7 near London", "1.00 0.00 0.00"),
+        ("0.00", "0.00", "0.00, 0.00 \u00b7 near ", "1.00 0.00 0.00"),
+        ("38,72", "0.00", "38.72, 0.00 \u00b7 near ", "1.00 0.00 0.00"),
+        # Found: shown near (zoom 8) in the middle.
+        (lat, lon, f"{lat}, {lon} \u00b7 near Lisbon, Portugal", f"8.00 {lat} {lon}"),
+        # A click a quarter right of the middle: that far east at zoom 8.
+        (lat, east, f"{lat}, {east}", f"8.00 {lat} {lon}"),
+        # The minus button: around the middle.
+        (lat, east, "", f"4.00 {lat} {lon}"),
+        # Dragged half the view right: the middle 45 degrees west.
+        (lat, east, "", f"4.00 {lat} {float(lon) - 45:.2f}"),
+        # The wheel a quarter right: that place kept under it.
+        (lat, east, "", f"8.00 {lat} {float(lon) - 45 + 22.5 - 11.25:.2f}"),
+        # Out past the whole world: the whole world, no further.
+        (lat, east, "", "1.00 0.00 0.00"),
     ]
-    if len(lines) < 5:
+    if len(lines) < 10:
         failures.append(f"geo steps: {lines}")
     else:
-        for got, (lat, lon, caption) in zip(lines, want):
-            if got[2] != lat or got[3] != lon or not got[4].startswith(caption):
-                failures.append(f"geo: {got[2:]} not {lat}, {lon}, {caption}...")
+        for i, (got, (la, lo, caption, view)) in enumerate(zip(lines, want)):
+            if got[2] != la or got[3] != lo or not got[4].startswith(caption) or got[5] != view:
+                failures.append(f"geo step {i}: {got[2:]} not {la}, {lo}, {caption}..., {view}")
         zone = "/usr/share/zoneinfo/zone1970.tab"
         if os.path.exists(zone):
             # zone1970.tab's Lisbon: +3843-00908.
-            if lines[4][2:4] != ["38.72", "-9.13"]:
-                failures.append(f"the time zone's city: {lines[4][2:]}")
+            if lines[9][2:4] != ["38.72", "-9.13"] or not lines[9][5].startswith("8.00 "):
+                failures.append(f"the time zone's city: {lines[9][2:]}")
+    if folds != ["folded", "open", "folded"]:
+        failures.append(f"settings on first turning on (folded, open; then as kept): {folds}")
     # The crosshair, with no portal (the session bus off): nothing to ask.
     no = [l for l in lines if l[0] == "geo"]
     # (The steps above ran without one; the button's answer is checked below.)
