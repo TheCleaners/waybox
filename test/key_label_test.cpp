@@ -29,7 +29,10 @@ WB_TEST(buttons_events_contexts) {
 	std::string rest;
 	wb::HeldModifiers h = wb::held_of("W-S-Left", rest);
 	WB_CHECK(h.super && h.shift && !h.alt && !h.ctrl && rest == "Left");
-	WB_CHECK(wb::rc_key(wb::held_of("A-Middle", rest), rest) == "A-Middle");
+	/* held_of fills `rest` first: its own statement (argument order is
+	 * unspecified, and GCC reads `rest` before the call). */
+	wb::HeldModifiers alt = wb::held_of("A-Middle", rest);
+	WB_CHECK(wb::rc_key(alt, rest) == "A-Middle");
 }
 
 WB_TEST(rc_key_from_a_press) {
