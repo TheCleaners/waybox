@@ -77,10 +77,13 @@ std::string read_text(const std::string &path) {
 
 /* What an approval is for: the integration file and its script together
  * (as read once, for the page). */
-std::string page_hash(const std::string &manifest, const std::string &script) {
+std::string page_hash(const std::string &manifest, const std::string &script,
+		const std::string &targets) {
 	std::string both = manifest;
 	both.push_back('\0');
 	both += script;
+	both.push_back('\0');
+	both += targets;
 	gchar *h = g_compute_checksum_for_data(G_CHECKSUM_SHA256,
 			reinterpret_cast<const guchar *>(both.data()), both.size());
 	std::string out = h != nullptr ? h : "";
@@ -195,6 +198,7 @@ struct LuaPage {
 	std::function<bool()> in_use;
 	std::map<std::string, std::string> options;  /* the command's, as opened */
 	std::vector<std::string> allowed;            /* Files= and what the command names */
+	std::map<std::string, std::string> resolved; /* each (expanded) -> its target, at open */
 	guint refresh_source = 0;
 	std::weak_ptr<LuaPage> self;
 
@@ -652,14 +656,23 @@ struct LuaPage {
 		json::Object opts;
 		for (const auto &[k, v] : options)
 			opts[k] = v;
-		for (const std::string &f : allowed)
+		/* Each file's target, resolved now: where it's read and written
+		 * (a link changed later is refused, not followed). */
+		json::Array targets;
+		resolved.clear();
+		for (const std::string &f : allowed) {
 			files.emplace_back(f);
+			std::string t = page::resolve_path(page::expand_home(f, home ? home : ""));
+			resolved[page::expand_home(f, home ? home : "")] = t;
+			targets.emplace_back(t);
+		}
 		for (const std::string &r : in->runs)
 			runs.emplace_back(r);
 		auto replies = ask(json::Object{{"open", json::Object{
 				{"script", wb::lua_page_path(*in)}, {"source", script_text},
 				{"home", std::string(home ? home : "")},
-				{"files", std::move(files)}, {"runs", std::move(runs)},
+				{"files", std::move(files)}, {"resolved", std::move(targets)},
+				{"runs", std::move(runs)},
 				{"options", std::move(opts)}}}});
 		/* Errors gathered aside, added after: added to `replies` while it's
 		 * read, it could grow and leave the loop on freed memory. */
@@ -717,6 +730,16 @@ struct LuaPage {
 				g_warning("%s's page: writing %s isn't allowed (Files=): refused",
 						in->name.c_str(), path.c_str());
 				return false;
+			}
+			/* Where it led when opened (and approved), still: written there
+			 * (a link kept a link: a dotfile managed by symlinks stays so). */
+			if (auto rt = resolved.find(path); rt != resolved.end()) {
+				if (page::resolve_path(path) != rt->second) {
+					*err = in->name + ": " + path + _(" leads elsewhere now (a link changed); "
+							"close and open wbconf");
+					return false;
+				}
+				path = rt->second;
 			}
 			/* A backup of what was there, then the new text. */
 			gchar *old = nullptr;
@@ -785,8 +808,20 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 	std::vector<wb::PageAccess> runs, files;
 	for (const std::string &r : in.runs)
 		runs.push_back(wb::run_access(in, r));
-	for (const std::string &f : in.files)
-		files.push_back(wb::file_access(in, page::expand_home(f, home), home));
+	/* Graded as written and where it leads (a link): the farther reach. */
+	std::vector<std::string> leads;
+	for (const std::string &f : in.files) {
+		std::string at = page::expand_home(f, home);
+		std::string target = page::resolve_path(at);
+		wb::PageAccess a = wb::file_access(in, at, home);
+		if (target != at) {
+			wb::PageAccess b = wb::file_access(in, target, home);
+			if (static_cast<int>(b.reach) > static_cast<int>(a.reach))
+				a = b;
+		}
+		files.push_back(a);
+		leads.push_back(target != at ? target : "");
+	}
 	using RK = wb::IntegrationReload::Kind;
 	std::optional<wb::PageAccess> reload_run;
 	if (in.reload.kind == RK::Command)
@@ -851,6 +886,7 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 	for (size_t i = 0; i < in.files.size(); ++i)
 		gtk_box_append(GTK_BOX(list), permission_line(line_icon(files[i], "document-edit-symbolic"),
 				std::string(_("Read and change")) + " " + mono(in.files[i]) +
+				(leads[i].empty() ? std::string() : std::string(" \u2192 ") + mono(leads[i])) +
 				note(files[i], true)));
 	/* "Read and change the file its command names (-c, Config file)". */
 	for (const wb::IntegrationOption &o : in.options)
@@ -1016,7 +1052,11 @@ GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in_ptr,
 	bool trusted = sound(in.dir) && sound(in.dir + "/" + in.id + ".integration") &&
 			sound(wb::lua_page_path(in));
 	if (!trusted) {
-		p->hash = page_hash(p->manifest_text, p->script_text);
+		/* Where its Files= lead too: a link pointed elsewhere asks again. */
+		std::string targets;
+		for (const std::string &f : in.files)
+			targets += page::resolve_path(page::expand_home(f, home_dir())) + "\n";
+		p->hash = page_hash(p->manifest_text, p->script_text, targets);
 		auto approved = page::parse_approvals(read_text(approvals_path()));
 		auto it = approved.find(in.id);
 		if (it == approved.end() || it->second != p->hash) {

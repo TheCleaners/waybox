@@ -19,6 +19,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <map>
 #include <string>
 #include <sys/resource.h>
 #include <vector>
@@ -62,6 +63,7 @@ constexpr size_t kMaxRead = 1u << 20;   /* wb.read: a config file, not a disk */
 struct Runner {
 	lua_State *L = nullptr;
 	std::vector<std::string> files, runs;
+	std::map<std::string, std::string> resolved;  /* Files= (expanded) -> its target */
 	std::map<std::string, std::string> options;  /* its command's, by id */
 	std::string home, script_name;
 	std::vector<json::Value> out;  /* this call's messages */
@@ -208,7 +210,15 @@ int wb_read(lua_State *L) {
 	std::string path = luaL_checkstring(L, 1);
 	if (!wb::page::path_allowed(path, R.files, R.home))
 		return luaL_error(L, "wb.read: %s isn't in the integration's Files=", path.c_str());
-	std::ifstream f(wb::page::expand_home(path, R.home), std::ios::binary);
+	std::string at = wb::page::expand_home(path, R.home);
+	if (auto it = R.resolved.find(at); it != R.resolved.end()) {
+		/* Where it led when the page was opened (and approved), still. */
+		if (wb::page::resolve_path(at) != it->second)
+			return luaL_error(L, "wb.read: %s leads elsewhere now (a link changed); "
+					"close and open wbconf", path.c_str());
+		at = it->second;
+	}
+	std::ifstream f(at, std::ios::binary);
 	if (!f) {
 		lua_pushnil(L);
 		lua_pushstring(L, "can't be read (missing?)");
@@ -1120,6 +1130,12 @@ bool open_page(const json::Value &msg) {
 		return out;
 	};
 	R.files = strings("files");
+	/* Each one's target, as resolved and approved in wbconf (parallel to
+	 * "files"): read there, and only while it still leads there. */
+	R.resolved.clear();
+	std::vector<std::string> targets = strings("resolved");
+	for (size_t i = 0; i < R.files.size() && i < targets.size(); ++i)
+		R.resolved[wb::page::expand_home(R.files[i], R.home)] = targets[i];
 	R.runs = strings("runs");
 	R.options.clear();
 	if (const json::Value *o = msg.get("options"); o != nullptr && o->object() != nullptr)
