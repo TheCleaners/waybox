@@ -46,6 +46,9 @@ const char *kCss = R"(
 .wb-rule-kept { font-size: 0.92em; }
 .wb-rules-script { padding: 6px 10px; margin-bottom: 6px; border-radius: 6px;
   background-color: alpha(@theme_selected_bg_color, 0.12); }
+.wb-menu-row { padding: 3px 6px; }
+.wb-menu-title { font-size: 0.85em; font-weight: bold; opacity: 0.75; }
+.wb-menu-editor { margin-top: 2px; }
 .wb-rule-matches { font-size: 0.95em; }
 .wb-rule-kind { font-size: 0.9em; font-style: italic; }
 .wb-rule-error { color: mix(@error_color, @theme_fg_color, 0.3); }
@@ -518,6 +521,8 @@ GtkWidget *control_for(Ui *ui, Ui::SettingRow *r) {
 			return build_keybindings_block(ui);
 		if (d.widget == "apprules")
 			return build_rules_block(ui);
+		if (d.widget == "menutree")
+			return build_menu_block(ui);
 		if (d.widget == "mousebindings")
 			return build_mousebindings_block(ui);
 		if (d.widget.rfind("program:", 0) == 0)
@@ -1275,6 +1280,10 @@ gboolean toc_step(gpointer data) {
 		/* "luapage-dump:ID|KEY=VALUE[!PROBLEM][(hidden)]...|error:..." */
 		std::string id = step.substr(8);
 		fprintf(stderr, "luapage-dump:%s%s\n", id.c_str(), lua_page_dump(ui, id).c_str());
+	} else if (step == "menu") {
+		menu_dump(ui);
+	} else if (step.rfind("menu-", 0) == 0) {
+		menu_test_step(ui, step);
 	} else if (step == "rules") {
 		rule_dump(ui);
 	} else if (step.rfind("rule-", 0) == 0) {
