@@ -17,7 +17,7 @@ namespace {
 /* The single source of truth for known actions. Adding a row here is all that
  * is needed to register a new action name for parsing; wire its behaviour into
  * run_action() to make it do something. */
-constexpr std::array<ActionSpec, 46> kRegistry = {{
+constexpr std::array<ActionSpec, 66> kRegistry = {{
 	{"Execute",        ActionType::Execute,        true},
 	{"NextWindow",     ActionType::NextWindow,     false},
 	{"PreviousWindow", ActionType::PreviousWindow, false},
@@ -65,6 +65,28 @@ constexpr std::array<ActionSpec, 46> kRegistry = {{
 	{"ToggleAlwaysOnTop",    ActionType::ToggleAlwaysOnTop,    false},
 	{"ToggleAlwaysOnBottom", ActionType::ToggleAlwaysOnBottom, false},
 	{"ShowAbout",      ActionType::ShowAbout,      false},
+	/* Openbox's geometry actions; MoveToEdgeNorth and the like: Openbox
+	 * 3.4's names, the direction in them. */
+	{"MoveResizeTo", ActionType::MoveResizeTo, false},
+	{"MoveRelative", ActionType::MoveRelative, false},
+	{"ResizeRelative", ActionType::ResizeRelative, false},
+	{"MoveToCenter", ActionType::MoveToCenter, false},
+	{"GrowToFill", ActionType::GrowToFill, false},
+	{"MoveToEdge", ActionType::MoveToEdge, false},
+	{"GrowToEdge", ActionType::GrowToEdge, false},
+	{"ShrinkToEdge", ActionType::ShrinkToEdge, false},
+	{"MoveToEdgeNorth", ActionType::MoveToEdge, false, "north"},
+	{"MoveToEdgeSouth", ActionType::MoveToEdge, false, "south"},
+	{"MoveToEdgeEast", ActionType::MoveToEdge, false, "east"},
+	{"MoveToEdgeWest", ActionType::MoveToEdge, false, "west"},
+	{"GrowToEdgeNorth", ActionType::GrowToEdge, false, "north"},
+	{"GrowToEdgeSouth", ActionType::GrowToEdge, false, "south"},
+	{"GrowToEdgeEast", ActionType::GrowToEdge, false, "east"},
+	{"GrowToEdgeWest", ActionType::GrowToEdge, false, "west"},
+	{"ShrinkToEdgeNorth", ActionType::ShrinkToEdge, false, "north"},
+	{"ShrinkToEdgeSouth", ActionType::ShrinkToEdge, false, "south"},
+	{"ShrinkToEdgeEast", ActionType::ShrinkToEdge, false, "east"},
+	{"ShrinkToEdgeWest", ActionType::ShrinkToEdge, false, "west"},
 	{"SnapToEdge",     ActionType::SnapToEdge,     false},
 	{"Move",           ActionType::Move,           false},
 	{"Resize",         ActionType::Resize,         false},

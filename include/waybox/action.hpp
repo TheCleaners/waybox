@@ -1,6 +1,7 @@
 #ifndef WB_ACTION_HPP
 #define WB_ACTION_HPP
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -54,6 +55,17 @@ enum class ActionType {
 	ToggleAlwaysOnTop,
 	ToggleAlwaysOnBottom,
 	ShowAbout,  /* Waybox's: the About card */
+	/* Openbox's geometry actions (geometry_actions.hpp): their options in
+	 * `args` (<x>, <y>, <width>, <height>, <left>, ...), the edge ones'
+	 * <direction> (or the name's). */
+	MoveResizeTo,
+	MoveRelative,
+	ResizeRelative,
+	MoveToCenter,
+	MoveToEdge,
+	GrowToEdge,
+	ShrinkToEdge,
+	GrowToFill,
 	SnapToEdge,
 	Move,
 	Resize,
@@ -76,6 +88,8 @@ struct Action {
 	bool wrap = true;
 	bool follow = true;
 	std::string direction{};  /* SnapToEdge: left, right, up, down, up-left, ... */
+	/* Other options by name, as given (the geometry actions'). */
+	std::map<std::string, std::string> args{};
 	int script_callback = 0;  /* ScriptCall */
 	/* If and ForEach: the conditions and the actions of each branch. */
 	std::shared_ptr<const Conditional> conditional{};

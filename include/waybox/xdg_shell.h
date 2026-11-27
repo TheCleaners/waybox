@@ -242,6 +242,10 @@ struct wlr_output *get_active_output(struct wb_toplevel *toplevel);
 void tile_toplevel(struct wb_toplevel *toplevel, wb::TileZone zone,
 		struct wlr_output *output);
 void untile_toplevel(struct wb_toplevel *toplevel, bool restore_position);
+/* A window's frame (its outer rectangle, decorations included), and moving
+ * it to another (out of maximized or tiled first; within its size limits). */
+wb::Rect toplevel_frame(struct wb_toplevel *toplevel);
+void set_toplevel_frame(struct wb_toplevel *toplevel, wb::Rect frame);
 /* The frame rectangle `zone` covers on `output`, for the drag preview. */
 wb::Rect tile_preview_rect(struct wb_server *server, struct wlr_output *output,
 		wb::TileZone zone);

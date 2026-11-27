@@ -7,6 +7,7 @@
 #include "script.h"
 #include "about.h"
 #include "waybox/about_card.hpp"
+#include "waybox/geometry_actions.hpp"
 #include "color_pick.h"
 #include "waybox/stall.hpp"
 #include "idle.h"
@@ -401,6 +402,71 @@ static void run_conditional(const wb::Action &action, struct wb_server *server) 
  * "live" half of the action framework (the registry/parsing half lives in
  * action.cpp). Adding a new action means adding a case here plus a row in the
  * action.cpp registry. */
+/* Openbox's geometry actions on window `t`, in the usable area of its
+ * monitor (or <monitor>N</monitor>'s, for MoveResizeTo); the edge ones stop
+ * at the other windows shown on this desktop. */
+static void run_geometry_action(const wb::Action &action, struct wb_server *server,
+		struct wb_toplevel *t) {
+	using T = wb::ActionType;
+	struct wlr_output *output = get_active_output(t);
+	if (action.type == T::MoveResizeTo) {
+		auto m = action.args.find("monitor");
+		if (m != action.args.end() && m->second != "current") {
+			int want = std::atoi(m->second.c_str()), i = 0;
+			struct wb_output *o;
+			wl_list_for_each_reverse(o, &server->outputs, link)
+				if (++i == want)
+					output = o->wlr_output;
+		}
+	}
+	if (output == nullptr)
+		return;
+	struct wlr_box ua = output_usable_area(server, output);
+	wb::Rect area{ua.x, ua.y, ua.width, ua.height};
+	wb::Rect frame = toplevel_frame(t);
+	std::vector<wb::Rect> others;
+	struct wb_toplevel *o;
+	wl_list_for_each(o, &server->toplevels, link)
+		if (o != t && o->mapped && !o->minimized && o->scene_tree != nullptr &&
+				o->scene_tree->node.enabled && toplevel_on_current_desktop(o))
+			others.push_back(toplevel_frame(o));
+	auto dir = wb::edge_dir_from_name(action.direction);
+	wb::Rect r = frame;
+	switch (action.type) {
+	case T::MoveResizeTo:
+		r = wb::move_resize_to(frame, area, action.args);
+		break;
+	case T::MoveRelative:
+		r = wb::move_relative(frame, action.args);
+		break;
+	case T::ResizeRelative:
+		r = wb::resize_relative(frame, action.args);
+		break;
+	case T::MoveToCenter:
+		r = wb::move_to_center(frame, area);
+		break;
+	case T::MoveToEdge:
+		if (dir)
+			r = wb::move_to_edge(frame, area, others, *dir);
+		break;
+	case T::GrowToEdge:
+		if (dir)
+			r = wb::grow_to_edge(frame, area, others, *dir);
+		break;
+	case T::ShrinkToEdge:
+		if (dir)
+			r = wb::shrink_to_edge(frame, others, *dir);
+		break;
+	case T::GrowToFill:
+		r = wb::grow_to_fill(frame, area, others);
+		break;
+	default:
+		break;
+	}
+	if (r.x != frame.x || r.y != frame.y || r.width != frame.width || r.height != frame.height)
+		set_toplevel_frame(t, r);
+}
+
 void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	switch (action.type) {
 	case wb::ActionType::Execute:
@@ -564,6 +630,20 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		else
 			layer = action.direction == "top" ? 1 : action.direction == "bottom" ? -1 : 0;
 		set_toplevel_layer(toplevel, layer);
+		break;
+	}
+	case wb::ActionType::MoveResizeTo:
+	case wb::ActionType::MoveRelative:
+	case wb::ActionType::ResizeRelative:
+	case wb::ActionType::MoveToCenter:
+	case wb::ActionType::MoveToEdge:
+	case wb::ActionType::GrowToEdge:
+	case wb::ActionType::ShrinkToEdge:
+	case wb::ActionType::GrowToFill: {
+		struct wb_toplevel *t = action_target(server);
+		if (t == nullptr || !t->mapped || !t->scene_tree->node.enabled)
+			break;
+		run_geometry_action(action, server, t);
 		break;
 	}
 	case wb::ActionType::ShowAbout:

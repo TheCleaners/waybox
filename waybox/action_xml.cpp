@@ -173,6 +173,11 @@ std::optional<Action> parse_action_depth(xmlNode *action_node, int depth) {
 			action->direction = text(c);
 		else if (is(c, "follow"))
 			action->follow = parse_yes(text(c), action->follow);
+		else if (c->type == XML_ELEMENT_NODE)
+			for (const char *k : {"x", "y", "width", "height", "monitor", "left", "right",
+					"top", "bottom"})
+				if (is(c, k))
+					action->args[k] = text(c);
 	}
 	if (action->type == ActionType::If || action->type == ActionType::ForEach) {
 		if (depth >= kMaxNesting)

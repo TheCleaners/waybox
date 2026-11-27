@@ -2,6 +2,7 @@ wb_src = [
   action_src,
   window_cycle_src,
   geometry_src,
+  geometry_actions_src,
   mousebind_src,
   placement_src,
   applications_src,
