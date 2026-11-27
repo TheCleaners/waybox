@@ -20,6 +20,7 @@ wb_src = [
   menu_src,
   app_menu_src,
   session_store_src,
+  atomic_file_src,
   desktops_src,
   edge_tiling_src,
   client_menu_src,

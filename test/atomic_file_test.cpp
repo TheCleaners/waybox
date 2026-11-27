@@ -81,3 +81,22 @@ WB_TEST(atomic_write_failure) {
 	WB_CHECK(!wb::write_file_atomic(dir() + "/missing/x.conf", "x", &err));
 	WB_CHECK(err.find("missing/x.conf") != std::string::npos);
 }
+
+/* Read only if a regular file, and no bigger than allowed: a FIFO (which
+ * would block a plain read) and an oversized file are refused at once. */
+WB_TEST(read_regular_file_bounds) {
+	std::string d = dir() + "/read";
+	mkdir(d.c_str(), 0700);
+	std::string ok = d + "/ok.desktop";
+	{
+		std::ofstream(ok) << "[Desktop Entry]\nIcon=x\n";
+	}
+	auto got = wb::read_regular_file(ok, 1024);
+	WB_CHECK(got && *got == "[Desktop Entry]\nIcon=x\n");
+	WB_CHECK(!wb::read_regular_file(ok, 5));  /* longer than allowed */
+	std::string fifo = d + "/fifo.desktop";
+	WB_CHECK(mkfifo(fifo.c_str(), 0600) == 0);
+	WB_CHECK(!wb::read_regular_file(fifo, 1024));  /* returns, refused */
+	WB_CHECK(!wb::read_regular_file(d + "/missing", 1024));
+	WB_CHECK(!wb::read_regular_file(d, 1024));  /* a directory */
+}

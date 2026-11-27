@@ -1,6 +1,7 @@
 #ifndef WB_ATOMIC_FILE_HPP
 #define WB_ATOMIC_FILE_HPP
 
+#include <optional>
 #include <string>
 
 namespace wb {
@@ -16,6 +17,12 @@ namespace wb {
  * why. False on failure.
  */
 bool write_file_atomic(const std::string &path, const std::string &text, std::string *error);
+
+/* A regular file's contents, at most `max_bytes` (a longer one isn't
+ * read at all); nullopt for anything else (missing, a FIFO or device,
+ * which is opened without blocking and refused). For files a client's
+ * choice of name picks, read on the compositor's thread. */
+std::optional<std::string> read_regular_file(const std::string &path, size_t max_bytes);
 
 }  // namespace wb
 
