@@ -515,7 +515,17 @@ std::string system_rc_path();
 std::optional<wb::RcDocument> load_document(std::string *problem);
 pid_t session_compositor();
 bool is_waybox(long pid);
-int signal_waybox_reload();
+/* SIGUSR2 to this session's Waybox; outside one, to the user's only
+ * Waybox (with several, none: `several` set). The number signalled. */
+int signal_waybox_reload(bool *several = nullptr);
+/* Asks Waybox to reconfigure and says how it went: over its socket, the
+ * answer once done (applied, or kept as it was and why); without one, the
+ * signal (sent, not confirmed). */
+struct ReloadResult {
+	enum Kind { Applied, Refused, Signalled, Several, NoWaybox } kind = NoWaybox;
+	std::string error;  /* Refused: why */
+};
+ReloadResult reload_waybox();
 /* One request to Waybox's socket; its answer, or nullptr after
  * `timeout_s` seconds or with no socket. */
 JsonObject *waybox_request(const std::string &request, int timeout_s = 1);

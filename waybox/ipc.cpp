@@ -16,6 +16,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <poll.h>
 #include <unistd.h>
 #include <vector>
 
@@ -66,6 +67,9 @@ struct Client {
 	bool picking = false;  /* waiting for a color pick's answer */
 	bool overflow = false;  /* more queued than allowed: it goes */
 	bool hangup = false;    /* it went (or sent too much): it goes once answered */
+	/* Its request is running now; and the socket stopped meanwhile (a
+	 * reconfigure it asked for turned it off): answered, then dropped. */
+	bool answering = false, ending = false;
 	/* The "id" of the request being answered, and of the pick waiting for
 	 * its answer (echoed in its reply). */
 	std::optional<Value> id, pick_id;
@@ -293,6 +297,15 @@ Value handle(Client *c, const Value &req) {
 		return Object{{"ok", true}};
 	}
 	/* What blocked the event loop (see stall.hpp). */
+	/* Read rc.xml again and apply it (Reconfigure), answering once it's
+	 * done: applied, or kept as it was, with why (wbconf says which). */
+	if (cmd == "reconfigure") {
+		std::string problem;
+		if (!wb_reconfigure(server, &problem))
+			return Object{{"ok", false}, {"applied", false},
+					{"error", problem.empty() ? std::string("rc.xml can't be read") : problem}};
+		return Object{{"ok", true}, {"applied", true}};
+	}
 	if (cmd == "get_stalls") {
 		Array scopes;
 		for (const auto &[name, st] : wb::Stalls::get().stats())
@@ -595,8 +608,10 @@ bool answer_lines(Client *c) {
 			continue;
 		auto req = wb::json::parse(line);
 		c->id = req && req->object() ? request_id(*req) : std::nullopt;
+		c->answering = true;
 		Value answer = req && req->object() ? handle(c, *req)
 				: error("not a JSON object");
+		c->answering = false;
 		/* The request may have dropped this client (or stopped the
 		 * socket): it's still allocated, just closed. An answer for
 		 * later (a pick) is sent when it comes, with this one's id. */
@@ -606,6 +621,18 @@ bool answer_lines(Client *c) {
 		else if (!c->closing)
 			reply(c, std::move(answer), c->id);
 		c->id.reset();
+		if (c->ending) {
+			/* The socket is gone: this answer sent now (a moment at most,
+			 * it's small), then the client. */
+			for (int tries = 0; tries < 50 && !c->closing; ++tries) {
+				if (!flush(c) || c->out_off >= c->out.size())
+					break;  /* sent (or the client's gone) */
+				struct pollfd pfd = {c->fd, POLLOUT, 0};
+				poll(&pfd, 1, 20);
+			}
+			drop(c->st, c);
+			return false;
+		}
 	}
 	return false;
 }
@@ -726,8 +753,12 @@ void stop(struct wb_server *server, bool now) {
 	struct wb_ipc_state *st = server->ipc;
 	if (st == nullptr)
 		return;
-	for (auto &c : st->clients)
-		drop(st, c.get());
+	for (auto &c : st->clients) {
+		if (c->answering && !now)
+			c->ending = true;  /* its answer first (answer_lines drops it) */
+		else
+			drop(st, c.get());
+	}
 	if (st->source != nullptr)
 		wl_event_source_remove(st->source);
 	st->source = nullptr;

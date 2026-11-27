@@ -29,6 +29,10 @@ bool unsaved(Ui *ui) {
 }
 
 const char *kUnsavedTag = "wb-unsaved-status";
+/* A save that left something unsaved (or wasn't applied): its message,
+ * and the number of unsaved changes then, plus one. It stays until that
+ * number moves (the changes button beside it shows the count). */
+const char *kSaveResultTag = "wb-save-result";
 
 }  // namespace
 
@@ -41,6 +45,10 @@ void refresh_save_state(Ui *ui) {
 	refresh_changes_button(ui, changes);
 	refresh_problems(ui);
 	bool showing = g_object_get_data(G_OBJECT(ui->status), kUnsavedTag) != nullptr;
+	int kept = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(ui->status), kSaveResultTag));
+	if (kept > 0 && kept - 1 == n)
+		return;  /* the save's message stays */
+	g_object_set_data(G_OBJECT(ui->status), kSaveResultTag, nullptr);
 	if (n > 0) {
 		char *t = g_strdup_printf(ngettext("%d change not saved yet",
 				"%d changes not saved yet", n), n);
@@ -110,44 +118,71 @@ void on_save(GtkButton *, gpointer data) {
 	bindings_saved(ui);
 	populate_shortcuts(ui, &*doc);  /* the bindings as written */
 	populate_rules(ui, &*doc);
+	/* The rest, each its own file: the first that fails stops them, but
+	 * Waybox is still told (rc.xml is written: else it would differ from
+	 * what runs until the next start), and the status says both. */
+	std::string not_saved;
 	if (!save_sources(ui, &err)) {
-		refresh_save_state(ui);
-		set_status(ui, std::string(_("Saved rc.xml, but not the autostart changes: ")) + err);
-		return;
-	}
-	sources_saved(ui);
-	if (!apply_menu(ui, &err)) {
-		refresh_save_state(ui);
-		set_status(ui, std::string(_("Saved rc.xml, but not the menu: ")) + err);
-		return;
-	}
-	ui->save_notes.clear();
-	if (!save_lua_pages(ui, &err)) {
-		refresh_save_state(ui);
-		set_status(ui, std::string(_("Saved rc.xml, but not a program's own settings: ")) + err);
-		return;
-	}
-	if (!save_gtk(ui, &err)) {
-		refresh_save_state(ui);
-		set_status(ui, std::string(_("Saved rc.xml, but not the GTK settings: ")) + err);
-		return;
+		not_saved = std::string(_("but not the autostart changes: ")) + err;
+	} else {
+		sources_saved(ui);
+		if (!apply_menu(ui, &err)) {
+			not_saved = std::string(_("but not the menu: ")) + err;
+		} else {
+			ui->save_notes.clear();
+			if (!save_lua_pages(ui, &err))
+				not_saved = std::string(_("but not a program's own settings: ")) + err;
+			else if (!save_gtk(ui, &err))
+				not_saved = std::string(_("but not the GTK settings: ")) + err;
+		}
 	}
 	refresh_save_state(ui);
-	stop_moved_programs(ui);
-	g_timeout_add_once(800, [](gpointer data) {
-		refresh_output_manager_notice(static_cast<Ui *>(data));
-	}, ui);
-	int n = signal_waybox_reload();
-	if (n > 0)
-		set_status(ui, _("Saved and reloaded waybox."));
+	if (not_saved.empty()) {
+		stop_moved_programs(ui);
+		g_timeout_add_once(800, [](gpointer data) {
+			refresh_output_manager_notice(static_cast<Ui *>(data));
+		}, ui);
+	}
+	ReloadResult reload = reload_waybox();
+	using K = ReloadResult;
+	bool running = reload.kind == K::Applied || reload.kind == K::Signalled;
+	std::string status;
+	switch (reload.kind) {
+	case K::Applied:
+		status = _("Saved and applied.");
+		break;
+	case K::Signalled:
+		status = _("Saved; asked Waybox to reload.");
+		break;
+	case K::Refused:
+		status = std::string(_("Saved, but Waybox kept its current settings: ")) + reload.error;
+		break;
+	case K::Several:
+		status = std::string(_("Saved to ")) + path + " " +
+				_("(not reloaded: several Waybox sessions run, and this wbconf isn't in one).");
+		break;
+	case K::NoWaybox:
+		status = std::string(_("Saved to ")) + path + " " + _("(no running waybox to reload).");
+		break;
+	}
+	if (!not_saved.empty())
+		status = std::string(_("Saved rc.xml")) +
+				(reload.kind == K::Applied ? _(" and applied it, ") : ", ") + not_saved +
+				(reload.kind == K::Refused
+						? std::string(" ") + _("Waybox kept its current settings: ") + reload.error
+						: std::string());
+	set_status(ui, status);
+	if (ui->status != nullptr)
+		g_object_set_data(G_OBJECT(ui->status), kUnsavedTag, nullptr);
+	if (ui->status != nullptr && (!not_saved.empty() || reload.kind == K::Refused))
+		g_object_set_data(G_OBJECT(ui->status), kSaveResultTag,
+				GINT_TO_POINTER(static_cast<int>(unsaved_changes(ui).size()) + 1));
 	/* Monitors changed and in use: keep them, or have the old ones back
 	 * if no one answers (a mode the monitor can't show hides the dialog). */
-	if (n > 0 && (now.outputs != before.outputs || now.hdr_outputs != before.hdr_outputs))
+	if (running && reload.kind != K::Refused &&
+			(now.outputs != before.outputs || now.hdr_outputs != before.hdr_outputs))
 		ask_keep_monitors(ui, outputs_xml, hdr_xml);
-	else if (n <= 0)
-		set_status(ui, std::string(_("Saved to ")) + path + " " +
-				_("(no running waybox to reload)."));
-	if (!ui->save_notes.empty() && ui->status != nullptr) {
+	if (not_saved.empty() && !ui->save_notes.empty() && ui->status != nullptr) {
 		std::string text = gtk_label_get_text(ui->status);
 		for (const std::string &note : ui->save_notes)
 			text += " " + note;

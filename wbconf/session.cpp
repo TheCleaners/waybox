@@ -111,7 +111,7 @@ bool is_waybox(long pid) {
 /* Ask Waybox to reconfigure (SIGUSR2, the signal Openbox uses): the one
  * wbconf runs in; outside a Waybox session, every Waybox this user runs.
  * Returns the number signalled. */
-int signal_waybox_reload() {
+int signal_waybox_reload(bool *several) {
 	/* The Waybox that started us (it exports its pid), then the one
 	 * serving our Wayland display, and only then any of ours. */
 	if (const char *env = getenv("WAYBOX_PID")) {
@@ -121,12 +121,39 @@ int signal_waybox_reload() {
 	}
 	if (pid_t pid = session_compositor(); pid > 0 && is_waybox(pid))
 		return kill(pid, SIGUSR2) == 0 ? 1 : 0;
-	int signalled = 0;
+	/* Outside a session: the user's Waybox if there's only one (with
+	 * several, which is meant can't be told: none rather than all). */
 	uid_t me = getuid();
+	std::vector<pid_t> ours;
 	for (const ProcessInfo &p : list_processes())
-		if (p.name == "waybox" && p.uid == me && kill(p.pid, SIGUSR2) == 0)
-			++signalled;
-	return signalled;
+		if (p.name == "waybox" && p.uid == me)
+			ours.push_back(p.pid);
+	if (ours.size() > 1) {
+		if (several != nullptr)
+			*several = true;
+		return 0;
+	}
+	return !ours.empty() && kill(ours[0], SIGUSR2) == 0 ? 1 : 0;
+}
+
+ReloadResult reload_waybox() {
+	ReloadResult r;
+	if (JsonObject *o = waybox_request("{\"request\":\"reconfigure\"}", 10)) {
+		bool applied = json_object_get_boolean_member_with_default(o, "applied", false);
+		bool answered = json_object_has_member(o, "applied");  /* an older one doesn't */
+		r.error = json_object_get_string_member_with_default(o, "error", "");
+		json_object_unref(o);
+		if (answered) {
+			r.kind = applied ? ReloadResult::Applied : ReloadResult::Refused;
+			return r;
+		}
+		r.error.clear();
+	}
+	bool several = false;
+	int n = signal_waybox_reload(&several);
+	r.kind = n > 0 ? ReloadResult::Signalled
+			: several ? ReloadResult::Several : ReloadResult::NoWaybox;
+	return r;
 }
 
 /* One request to the running Waybox's scripting socket (on unless <ipc

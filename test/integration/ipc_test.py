@@ -13,8 +13,10 @@ Skips (exit 77) without foot, or a headless display.
 
 5. A request sent just before closing the connection still runs; actions,
    bell previews' commands and restart_program are refused while the
-   screen is locked; and turning the socket off with
-   a Reconfigure sent through the socket itself doesn't crash Waybox.
+   screen is locked; "reconfigure" answers once done, applied, or kept
+   with where rc.xml went wrong; and turning the socket off with a
+   reconfigure sent through the socket itself is answered and doesn't
+   crash Waybox.
 
 6. Limits and framing: a request's "id" comes back in its reply (errors
    too); many requests sent at once are all answered, in order; a request
@@ -379,11 +381,26 @@ def main():
         time.sleep(0.5)
         sub.close()
 
-        # The socket turned off by a Reconfigure sent through it.
+        # "reconfigure": answered once done, applied or not (and why).
         rc_path = os.path.join(cenv["XDG_CONFIG_HOME"], "waybox", "rc.xml")
-        text = open(rc_path).read().replace("<waybox>", '<waybox><ipc enabled="no"/>', 1)
+        good = open(rc_path).read()
+        rc, out, err = run_msg(cenv2, "raw", '{"request":"reconfigure"}')
+        if '"applied":true' not in out:
+            failures.append(f"reconfigure wasn't answered as applied: {out} {err}")
+        open(rc_path, "w").write(good.replace("</openbox_config>", "<oops></openbox_config>"))
+        rc, out, err = run_msg(cenv2, "raw", '{"request":"reconfigure"}')
+        # (waybox-msg says a refusal's error on stderr, exiting non-zero)
+        if rc == 0 or "line 5" not in (out + err):
+            failures.append(f"a broken rc.xml wasn't answered as kept, with where: {out} {err}")
+        open(rc_path, "w").write(good)
+
+        # The socket turned off by a reconfigure sent through it: answered
+        # all the same.
+        text = good.replace("<waybox>", '<waybox><ipc enabled="no"/>', 1)
         open(rc_path, "w").write(text)
-        run_msg(cenv2, "action", "Reconfigure")
+        rc, out, err = run_msg(cenv2, "raw", '{"request":"reconfigure"}')
+        if '"applied":true' not in out:
+            failures.append(f"a reconfigure turning the socket off wasn't answered: {out} {err}")
         time.sleep(0.8)
         if proc.poll() is not None:
             raise RuntimeError(f"waybox died turning the socket off ({proc.returncode})")
