@@ -6,7 +6,8 @@ wbt-other.desktop; a wbt-applet runs, as that autostart started it.
 1. wbt-applet's row says where it's started from ("the system's autostart
    (wbt-applet.desktop)").
 2. Turned on, asked, "Let Waybox Start It" (WBCONF_TEST_XDG=take): no
-   warning; saved: a Hidden=true copy in ~/.config/autostart, the system's
+   warning; saved: a copy in ~/.config/autostart saying NotShowIn=Waybox
+   (the folder is every desktop's: only Waybox's is turned off), the system's
    file as it was, rc.xml's <startup> has it, the running copy stopped.
 3. wbt-other turned on, "Cancel": switched back off, nothing written.
 Skips (77) without ps or a headless display.
@@ -121,8 +122,10 @@ def main():
     if len(status) < 2 or "would run twice" in status[1] or status[1].endswith("|warning"):
         failures.append(f"after letting Waybox start it: {status[1:]}")
     copy = os.path.join(cfg, "autostart", "wbt-applet.desktop")
-    if not os.path.exists(copy) or "Hidden=true" not in open(copy).read():
-        failures.append("no Hidden=true copy in ~/.config/autostart")
+    if not os.path.exists(copy) or "NotShowIn=Waybox;" not in open(copy).read() or \
+            "Hidden" in open(copy).read():
+        failures.append("no NotShowIn=Waybox copy in ~/.config/autostart (other desktops "
+                        "must keep starting it)")
     if open(system_file).read() != system_before:
         failures.append("the system's file was changed")
     if not re.search(r"<program[^>]*>\s*(<command>)?wbt-applet", open(rc_path).read()):

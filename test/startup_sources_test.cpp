@@ -66,18 +66,33 @@ WB_TEST(autostart_entries_follow_the_spec) {
 	WB_CHECK(!wb::parse_autostart("[Desktop Entry]\nName=No exec\n", {}, n));
 }
 
-WB_TEST(switching_autostart_writes_hidden) {
+/* Switched for Waybox only: ~/.config/autostart is every desktop's. */
+WB_TEST(switching_autostart_is_for_waybox_only) {
 	std::string text = "[Desktop Entry]\nName=Foo\nExec=foo\n[Desktop Action x]\nExec=y\n";
 	std::string off = wb::autostart_set_enabled(text, false);
-	WB_CHECK(off == "[Desktop Entry]\nName=Foo\nExec=foo\nHidden=true\n[Desktop Action x]\nExec=y\n");
-	wb::AutostartEntry e;
-	WB_CHECK(wb::parse_autostart(off, {}, e) && !e.enabled);
+	WB_CHECK(off == "[Desktop Entry]\nName=Foo\nExec=foo\nNotShowIn=Waybox;\n"
+			"[Desktop Action x]\nExec=y\n");
+	wb::AutostartEntry e, g;
+	WB_CHECK(wb::parse_autostart(off, {"Waybox"}, e) && e.enabled && !e.for_here);
+	WB_CHECK(wb::parse_autostart(off, {"GNOME"}, g) && g.enabled && g.for_here);
 	WB_CHECK(wb::autostart_set_enabled(off, true) == text);
-	std::string gnome = "[Desktop Entry]\nExec=foo\nX-GNOME-Autostart-enabled=false\n";
-	wb::AutostartEntry g;
-	WB_CHECK(wb::parse_autostart(wb::autostart_set_enabled(gnome, true), {}, g) && g.enabled);
-	WB_CHECK(wb::autostart_set_enabled("[Desktop Entry]\nExec=foo\nHidden=false\n", false) ==
-			"[Desktop Entry]\nExec=foo\nHidden=true\n");
+	/* Others in NotShowIn kept; Waybox added once, taken out alone. */
+	std::string nm = "[Desktop Entry]\nExec=nm-applet\nNotShowIn=KDE;GNOME;\n";
+	std::string nm_off = wb::autostart_set_enabled(nm, false);
+	WB_CHECK(nm_off == "[Desktop Entry]\nExec=nm-applet\nNotShowIn=KDE;GNOME;Waybox;\n");
+	WB_CHECK(wb::autostart_set_enabled(nm_off, false) == nm_off);
+	WB_CHECK(wb::autostart_set_enabled(nm_off, true) == nm);
+	/* OnlyShowIn: off takes Waybox out; on puts it in. */
+	WB_CHECK(wb::autostart_set_enabled("[Desktop Entry]\nExec=a\nOnlyShowIn=XFCE;\n", true) ==
+			"[Desktop Entry]\nExec=a\nOnlyShowIn=XFCE;Waybox;\n");
+	/* On drops what turns it off everywhere (an older wbconf's Hidden). */
+	std::string gnome = "[Desktop Entry]\nExec=foo\nX-GNOME-Autostart-enabled=false\nHidden=true\n";
+	wb::AutostartEntry h;
+	WB_CHECK(wb::parse_autostart(wb::autostart_set_enabled(gnome, true), {"Waybox"}, h) &&
+			h.enabled && h.for_here);
+	/* Another desktop's name, given. */
+	WB_CHECK(wb::autostart_set_enabled("[Desktop Entry]\nExec=b\n", false, "sway") ==
+			"[Desktop Entry]\nExec=b\nNotShowIn=sway;\n");
 }
 
 WB_TEST(script_starters_direct_function_and_elsewhere) {
