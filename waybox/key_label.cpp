@@ -118,16 +118,56 @@ std::string rc_key(const HeldModifiers &held, std::string_view k) {
 	return out + key;
 }
 
+HeldModifiers held_of(std::string_view key, std::string &rest) {
+	HeldModifiers held;
+	for (const std::string &m : split_mods(key, rest)) {
+		held.super = held.super || m == "Super";
+		held.alt = held.alt || m == "Alt";
+		held.ctrl = held.ctrl || m == "Ctrl";
+		held.shift = held.shift || m == "Shift";
+	}
+	return held;
+}
+
+const std::vector<std::pair<std::string, std::string>> &mouse_contexts() {
+	static const std::vector<std::pair<std::string, std::string>> all = {
+		{"Root", "Desktop"}, {"Client", "Window"}, {"Frame", "Anywhere on a window"},
+		{"Titlebar", "Titlebar"}, {"Icon", "Window icon"}, {"Close", "Close button"},
+		{"Maximize", "Maximize button"}, {"Iconify", "Minimize button"},
+		{"Shade", "Roll-up button"}, {"AllDesktops", "All-desktops button"},
+		{"Top", "Top edge"}, {"Bottom", "Bottom edge"}, {"Left", "Left edge"},
+		{"Right", "Right edge"}, {"TLCorner", "Top-left corner"},
+		{"TRCorner", "Top-right corner"}, {"BLCorner", "Bottom-left corner"},
+		{"BRCorner", "Bottom-right corner"},
+	};
+	return all;
+}
+
+const std::vector<std::pair<std::string, std::string>> &mouse_buttons() {
+	static const std::vector<std::pair<std::string, std::string>> all = {
+		{"Left", "Left button"}, {"Middle", "Middle button"}, {"Right", "Right button"},
+		{"Up", "Scroll up"}, {"Down", "Scroll down"},
+	};
+	return all;
+}
+
+const std::vector<std::pair<std::string, std::string>> &mouse_events() {
+	static const std::vector<std::pair<std::string, std::string>> all = {
+		{"Press", "Press"}, {"Click", "Click"}, {"DoubleClick", "Double-click"},
+		{"Release", "Release"}, {"Drag", "Drag"},
+	};
+	return all;
+}
+
 std::string context_label(std::string_view c) {
-	if (c == "Root" || c == "Desktop")
+	if (c == "Desktop")
 		return "Desktop";
-	if (c == "Client")
-		return "Window";
-	if (c == "Frame")
-		return "Anywhere on a window";
-	if (c == "Titlebar" || c == "Title")
+	if (c == "Title")
 		return "Titlebar";
-	return std::string(c);  /* Top, Left, BLCorner, Close, Iconify, ... */
+	for (const auto &[name, label] : mouse_contexts())
+		if (c == name)
+			return label;
+	return std::string(c);
 }
 
 }  // namespace wb

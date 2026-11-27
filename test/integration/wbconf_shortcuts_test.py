@@ -9,6 +9,11 @@ Then edited through the page's widgets and saved: keys moved (W-d to
 W-S-d), a command changed (where it stands, as <command>), an action
 swapped (its options dropped), a chain removed, one added; rc.xml has
 exactly that, the If binding and the comment untouched.
+
+Then the mouse and search: a binding given Alt and moved to the window, one
+moved to the wheel (its event becomes Click), one added; searching
+"maximize" shows only the bindings that maximize and offers the actions no
+key runs yet; picking one adds a shortcut for it.
 Skips (exit 77) without a headless display.
 
 Usage: wbconf_shortcuts_test.py <waybox> <wbconf> <schema-dir>
@@ -62,6 +67,30 @@ EDITS = ";".join([
     "shortcut-remove:C-a x",
     "shortcut-add:W-n=ToggleMaximize",
     "shortcuts", "changes", "save", "status", "shortcuts"])
+
+
+MOUSE_EDITS = ";".join([
+    "shortcut-mod:Titlebar Left DoubleClick=A-",
+    "shortcut-place:Titlebar A-Left DoubleClick=Client",
+    "shortcut-button:Root Right Press=Up",
+    "shortcut-addmouse:Close Middle Click=Close",
+    "search:maximize", "shortcut-visible",
+    "shortcut-suggest:Maximize", "shortcut-keys:=W-m",
+    "search:", "shortcut-visible", "changes", "save", "status"])
+
+
+def mousebinds(path):
+    """rc.xml's mouse bindings: {"Root Right Press": [(action, options)]}."""
+    import xml.etree.ElementTree as ET
+    ns = "{http://openbox.org/3.4/rc}"
+    out = {}
+    mouse = ET.parse(path).getroot().find(ns + "mouse")
+    for ctx in mouse.findall(ns + "context") if mouse is not None else []:
+        for mb in ctx.findall(ns + "mousebind"):
+            acts = [(a.get("name"), {c.tag[len(ns):]: (c.text or "") for c in a})
+                    for a in mb.findall(ns + "action")]
+            out[" ".join([ctx.get("name"), mb.get("button"), mb.get("action")])] = acts
+    return out
 
 
 def keybinds(path):
@@ -177,6 +206,34 @@ def main():
         failures.append("the comment in <keyboard> was lost")
     if 'key="C-a"' in text:
         failures.append("the removed chain left its C-a behind")
+
+    # The mouse, and search.
+    err = run_wbconf(wbconf, wenv, "click:Shortcuts;" + MOUSE_EDITS, 0.8 * 16 + 2)
+    lines = err.splitlines()
+    visible = [l for l in lines if l.startswith("shortcut-visible:")]
+    # The new mouse binding too: rows being set up stay in sight.
+    want_visible = ("shortcut-visible:W-n,Client A-Left DoubleClick,Close Middle Click"
+                    "|suggest:Maximize,Unmaximize")
+    if not visible or visible[0] != want_visible:
+        failures.append(f"searching maximize: {visible[:1]}")
+    if len(visible) < 2 or visible[1].count(",") < 8 or "|suggest:" not in visible[1] \
+            or not visible[1].endswith("|suggest:"):
+        failures.append(f"search cleared: {visible[1:2]}")
+    changes = [l for l in lines if l.startswith("changes-dump:")]
+    if not changes or not changes[0].startswith("changes-dump:4|"):
+        failures.append(f"unsaved changes: {changes}")
+    got_mouse = mousebinds(rc)
+    want_mouse = {
+        "Client A-Left DoubleClick": [("ToggleMaximize", {})],
+        "Root Up Click": [("ShowMenu", {"menu": "root-menu"})],
+        "Close Middle Click": [("Close", {})],
+    }
+    if got_mouse != want_mouse:
+        failures.append(f"rc.xml mouse bindings: {got_mouse}")
+    if keybinds(rc).get("W-m") != [("Maximize", {})]:
+        failures.append(f"the suggested shortcut: {keybinds(rc).get('W-m')}")
+    if "<context name=\"Titlebar\"" in open(rc).read():
+        failures.append("the emptied Titlebar context was left behind")
     proc.terminate()
     try:
         proc.wait(timeout=10)

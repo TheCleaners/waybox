@@ -3,12 +3,15 @@
  * and a line saying what each does, grouped as the action catalog groups
  * actions.
  *
- * A key binding is edited where it stands: its row opens underneath with
- * the keys (click them, press the new ones), the action (a searchable
- * list) and that action's options, if it has any. Each row keeps the
- * binding as saved and as it is now; Save & Apply writes the ones that
- * differ. Bindings with If, ForEach and the like stay rc.xml's to edit.
- * Mouse bindings are listed, not edited yet.
+ * A binding is edited where it stands: its row opens underneath with what
+ * sets it off (keys: click them, press the new ones; mouse: where, which
+ * button, with which keys held, how), the action (a searchable list) and
+ * that action's options, if it has any. Each row keeps the binding as
+ * saved and as it is now; Save & Apply writes the ones that differ.
+ * Bindings with If, ForEach and the like stay rc.xml's to edit.
+ *
+ * Search filters the rows themselves, and offers to bind an action no key
+ * runs yet ("Add a shortcut for Maximize or restore").
  */
 #include "wbconf_ui.hpp"
 
@@ -22,17 +25,26 @@ namespace wbconf {
 
 struct ShortcutEdit {
 	Ui *ui = nullptr;
-	std::optional<wb::KeyBinding> was, now;
+	bool mouse = false;
+	std::optional<wb::KeyBinding> was, now;      /* a key binding */
+	std::optional<wb::MouseBinding> mwas, mnow;  /* or a mouse one */
 	bool editable = true;
 	GtkWidget *outer = nullptr;      /* the row and, under it, its editor */
+	GtkWidget *heading = nullptr;    /* its category's, if listed under one */
 	GtkWidget *keys_cell = nullptr;  /* in the column of keys */
 	GtkWidget *does = nullptr;
 	GtkWidget *head = nullptr;
 	GtkWidget *undo = nullptr;
 	GtkWidget *revealer = nullptr;
+	/* Keys. */
 	GtkWidget *keys_button = nullptr;
 	GtkWidget *keys_hint = nullptr;
 	GtkWidget *then_button = nullptr;
+	/* Mouse. */
+	GtkWidget *place = nullptr, *button = nullptr, *event = nullptr, *event_field = nullptr;
+	std::vector<std::string> places, buttons, events;  /* the dropdowns' values */
+	std::map<std::string, GtkWidget *> mods;           /* "W-" -> its toggle */
+	/* The action. */
 	GtkWidget *action = nullptr;     /* GtkDropDown */
 	GtkWidget *options = nullptr;
 	GtkWidget *also = nullptr;
@@ -44,7 +56,52 @@ struct ShortcutEdit {
 
 namespace {
 
-/* The categories in the catalog's order, then "Other". */
+/* ---- The binding, key or mouse ---- */
+
+bool present(const ShortcutEdit *e) {
+	return e->mouse ? e->mnow.has_value() : e->now.has_value();
+}
+
+bool dirty(const ShortcutEdit *e) {
+	return e->mouse ? e->mnow != e->mwas : e->now != e->was;
+}
+
+bool was_saved(const ShortcutEdit *e) {
+	return e->mouse ? e->mwas.has_value() : e->was.has_value();
+}
+
+/* New and not set off by anything yet: not a change to save. */
+bool incomplete(const ShortcutEdit *e) {
+	return !e->mouse && e->now && e->now->chain.empty();
+}
+
+std::vector<wb::BoundAction> &acts(ShortcutEdit *e) {
+	return e->mouse ? e->mnow->actions : e->now->actions;
+}
+
+/* What it does, as now (or as it was, when removed). */
+const std::vector<wb::BoundAction> &shown_acts(const ShortcutEdit *e) {
+	if (e->mouse)
+		return e->mnow ? e->mnow->actions : e->mwas->actions;
+	return e->now ? e->now->actions : e->was->actions;
+}
+
+void forget_changes(ShortcutEdit *e) {
+	if (e->mouse)
+		e->mnow = e->mwas;
+	else
+		e->now = e->was;
+}
+
+void remove_now(ShortcutEdit *e) {
+	if (e->mouse)
+		e->mnow.reset();
+	else
+		e->now.reset();
+}
+
+/* ---- Text ---- */
+
 std::vector<std::string> category_order() {
 	std::vector<std::string> out;
 	for (const wb::ActionInfo &a : wb::action_catalog())
@@ -73,19 +130,52 @@ std::string chain_text(const std::vector<std::string> &chain) {
 	return out;
 }
 
-/* "Super D then X": a binding's keys as read. */
+std::string caps_text(const std::vector<std::string> &caps) {
+	std::string out;
+	for (const std::string &c : caps)
+		out += (out.empty() ? "" : "+") + c;
+	return out;
+}
+
+/* "Super+D then X": a binding's keys as read. */
 std::string chain_caps_text(const std::vector<std::string> &chain) {
 	std::string out;
 	for (const std::string &k : chain) {
 		if (!out.empty())
 			out += std::string(" ") + _("then") + " ";
-		std::string step;
-		for (const std::string &c : wb::key_caps(k))
-			step += (step.empty() ? "" : "+") + c;
-		out += step;
+		out += caps_text(wb::key_caps(k));
 	}
 	return out;
 }
+
+std::string lower_first(std::string s) {
+	if (!s.empty())
+		s[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(s[0])));
+	return s;
+}
+
+bool is_wheel(const std::string &button) {
+	return button.ends_with("Up") || button.ends_with("Down");
+}
+
+/* "Titlebar Left button double-click". */
+std::string mouse_text(const wb::MouseBinding &m) {
+	std::string out = wb::context_label(m.context) + " " + caps_text(wb::button_caps(m.button));
+	if (!is_wheel(m.button))
+		out += " " + lower_first(wb::event_label(m.event));
+	return out;
+}
+
+/* The row's identity for tests and the dump: "W-a x", "Root Right Press". */
+std::string id_of(const ShortcutEdit *e) {
+	if (e->mouse) {
+		const wb::MouseBinding &m = e->mnow ? *e->mnow : *e->mwas;
+		return m.context + " " + m.button + " " + m.event;
+	}
+	return chain_text(e->now ? e->now->chain : e->was->chain);
+}
+
+/* ---- Small widgets ---- */
 
 GtkWidget *cap(const std::string &text) {
 	GtkWidget *l = gtk_label_new(text.c_str());
@@ -111,7 +201,6 @@ void clear(GtkWidget *box) {
 		gtk_box_remove(GTK_BOX(box), c);
 }
 
-/* A chain's caps, "then" between its keys. */
 GtkWidget *chain_caps(const std::vector<std::string> &chain) {
 	GtkWidget *keys = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 	for (size_t i = 0; i < chain.size(); ++i) {
@@ -122,32 +211,66 @@ GtkWidget *chain_caps(const std::vector<std::string> &chain) {
 	return keys;
 }
 
-/* ---- One key binding's row ---- */
-
-const wb::KeyBinding &shown(const ShortcutEdit *e) {
-	return e->now ? *e->now : *e->was;
+/* "Titlebar  [Left button]  double-click"; the wheel without "click". */
+GtkWidget *mouse_caps(const wb::MouseBinding &m) {
+	GtkWidget *keys = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+	GtkWidget *where = gtk_label_new(wb::context_label(m.context).c_str());
+	gtk_widget_add_css_class(where, "wb-shortcut-place");
+	gtk_box_append(GTK_BOX(keys), where);
+	gtk_box_append(GTK_BOX(keys), caps(wb::button_caps(m.button)));
+	if (!is_wheel(m.button))
+		gtk_box_append(GTK_BOX(keys), dim(lower_first(wb::event_label(m.event))));
+	return keys;
 }
 
-/* The row's keys and line, as the binding is now (or was, struck out). */
+GtkWidget *dropdown(const std::vector<std::pair<std::string, std::string>> &items,
+		const std::string &current, std::vector<std::string> &values) {
+	GtkStringList *model = gtk_string_list_new(nullptr);
+	guint sel = 0;
+	bool found = false;
+	for (const auto &[v, label] : items) {
+		if (v == current) {
+			sel = static_cast<guint>(values.size());
+			found = true;
+		}
+		values.push_back(v);
+		gtk_string_list_append(model, label.c_str());
+	}
+	if (!found && !current.empty()) {
+		/* What rc.xml has that isn't offered: shown as it's written. */
+		sel = static_cast<guint>(values.size());
+		values.push_back(current);
+		gtk_string_list_append(model, current.c_str());
+	}
+	GtkWidget *dd = gtk_drop_down_new(G_LIST_MODEL(model), nullptr);
+	gtk_drop_down_set_selected(GTK_DROP_DOWN(dd), sel);
+	return dd;
+}
+
+/* ---- The row ---- */
+
 void refresh_head(ShortcutEdit *e) {
-	const wb::KeyBinding &b = shown(e);
 	clear(e->keys_cell);
-	gtk_box_append(GTK_BOX(e->keys_cell),
-			b.chain.empty() ? dim(_("No keys yet")) : chain_caps(b.chain));
-	std::string does = b.actions.empty() ? std::string(_("Nothing")) : wb::describe_actions(b.actions);
+	if (e->mouse)
+		gtk_box_append(GTK_BOX(e->keys_cell), mouse_caps(e->mnow ? *e->mnow : *e->mwas));
+	else if ((e->now ? e->now->chain : e->was->chain).empty())
+		gtk_box_append(GTK_BOX(e->keys_cell), dim(_("No keys yet")));
+	else
+		gtk_box_append(GTK_BOX(e->keys_cell), chain_caps(e->now ? e->now->chain : e->was->chain));
+	const auto &a = shown_acts(e);
+	std::string does = a.empty() ? std::string(_("Nothing")) : wb::describe_actions(a);
 	gtk_label_set_text(GTK_LABEL(e->does), does.c_str());
 	gtk_widget_set_tooltip_text(e->does, does.c_str());
-	bool removed = !e->now;
-	if (removed)
+	if (!present(e))
 		gtk_widget_add_css_class(e->head, "wb-removed");
 	else
 		gtk_widget_remove_css_class(e->head, "wb-removed");
-	if (e->now != e->was)
+	if (dirty(e))
 		gtk_widget_add_css_class(e->outer, "wb-shortcut-unsaved");
 	else
 		gtk_widget_remove_css_class(e->outer, "wb-shortcut-unsaved");
-	gtk_widget_set_visible(e->undo, e->now != e->was && e->was.has_value());
-	gtk_widget_set_tooltip_text(e->undo, removed ? _("Keep this shortcut")
+	gtk_widget_set_visible(e->undo, dirty(e) && was_saved(e));
+	gtk_widget_set_tooltip_text(e->undo, !present(e) ? _("Keep this shortcut")
 			: _("Put back the shortcut as saved"));
 }
 
@@ -233,7 +356,8 @@ gboolean on_capture_key(GtkEventControllerKey *ctl, guint keyval, guint, GdkModi
 	held.alt = (state & GDK_ALT_MASK) != 0;
 	held.ctrl = (state & GDK_CONTROL_MASK) != 0;
 	held.shift = (state & GDK_SHIFT_MASK) != 0;
-	std::string name = ev != nullptr ? base_key_name(ev, keyval) : gdk_keyval_name(keyval);
+	const char *raw = gdk_keyval_name(keyval);
+	std::string name = ev != nullptr ? base_key_name(ev, keyval) : (raw ? raw : "");
 	if (name == "Escape" && !held.super && !held.alt && !held.ctrl && !held.shift) {
 		end_capture(ui);  /* keys as they were */
 		return TRUE;
@@ -271,12 +395,90 @@ void start_capture(ShortcutEdit *e, bool append) {
 	refresh_keys(e);
 }
 
-/* ---- The editor ---- */
+/* ---- The mouse: where, which button, keys held, how ---- */
+
+void on_mouse_changed(ShortcutEdit *e) {
+	if (e->updating || !e->mnow)
+		return;
+	auto pick = [](GtkWidget *dd, const std::vector<std::string> &values) {
+		guint i = gtk_drop_down_get_selected(GTK_DROP_DOWN(dd));
+		return i < values.size() ? values[i] : std::string();
+	};
+	wb::HeldModifiers held;
+	held.super = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(e->mods["W-"]));
+	held.ctrl = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(e->mods["C-"]));
+	held.alt = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(e->mods["A-"]));
+	held.shift = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(e->mods["S-"]));
+	std::string button = pick(e->button, e->buttons);
+	e->mnow->context = pick(e->place, e->places);
+	e->mnow->button = wb::rc_key(held, button);
+	/* The wheel turns, it isn't pressed or dragged: always a click. */
+	if (is_wheel(button))
+		e->mnow->event = "Click";
+	else
+		e->mnow->event = pick(e->event, e->events);
+	gtk_widget_set_visible(e->event_field, !is_wheel(button));
+	changed(e);
+}
+
+GtkWidget *field(GtkSizeGroup *labels, const char *label, GtkWidget *w) {
+	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+	GtkWidget *l = gtk_label_new(label);
+	gtk_label_set_xalign(GTK_LABEL(l), 0);
+	gtk_widget_add_css_class(l, "dim-label");
+	gtk_size_group_add_widget(labels, l);
+	gtk_box_append(GTK_BOX(row), l);
+	gtk_widget_set_hexpand(w, TRUE);
+	gtk_widget_set_halign(w, GTK_ALIGN_START);
+	gtk_box_append(GTK_BOX(row), w);
+	return row;
+}
+
+void build_mouse_fields(ShortcutEdit *e, GtkWidget *box, GtkSizeGroup *labels) {
+	const wb::MouseBinding &m = *e->mnow;
+	std::string rest;
+	wb::HeldModifiers held = wb::held_of(m.button, rest);
+	auto on_dd = +[](GObject *, GParamSpec *, gpointer d) {
+		on_mouse_changed(static_cast<ShortcutEdit *>(d));
+	};
+	e->place = dropdown(wb::mouse_contexts(), m.context, e->places);
+	g_signal_connect(e->place, "notify::selected", G_CALLBACK(on_dd), e);
+	gtk_box_append(GTK_BOX(box), field(labels, _("Where"), e->place));
+
+	GtkWidget *how = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+	struct Mod { const char *prefix, *label; bool on; };
+	for (const Mod &mod : {Mod{"W-", "Super", held.super}, Mod{"C-", "Ctrl", held.ctrl},
+			Mod{"A-", "Alt", held.alt}, Mod{"S-", "Shift", held.shift}}) {
+		GtkWidget *t = gtk_toggle_button_new_with_label(mod.label);
+		gtk_widget_add_css_class(t, "wb-mod-toggle");
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(t), mod.on);
+		gtk_widget_set_tooltip_text(t, _("Held while clicking"));
+		g_signal_connect(t, "toggled", G_CALLBACK(+[](GtkToggleButton *, gpointer d) {
+			on_mouse_changed(static_cast<ShortcutEdit *>(d));
+		}), e);
+		e->mods[mod.prefix] = t;
+		gtk_box_append(GTK_BOX(how), t);
+	}
+	gtk_box_append(GTK_BOX(how), dim("+"));
+	e->button = dropdown(wb::mouse_buttons(), rest, e->buttons);
+	g_signal_connect(e->button, "notify::selected", G_CALLBACK(on_dd), e);
+	gtk_box_append(GTK_BOX(how), e->button);
+	gtk_box_append(GTK_BOX(box), field(labels, _("Button"), how));
+
+	e->event = dropdown(wb::mouse_events(), m.event, e->events);
+	g_signal_connect(e->event, "notify::selected", G_CALLBACK(on_dd), e);
+	e->event_field = field(labels, _("When"), e->event);
+	gtk_widget_set_visible(e->event_field, !is_wheel(rest));
+	gtk_box_append(GTK_BOX(box), e->event_field);
+}
+
+/* ---- The action and its options ---- */
 
 wb::BoundAction &first_action(ShortcutEdit *e) {
-	if (e->now->actions.empty())
-		e->now->actions.push_back({"Execute", {}, false});
-	return e->now->actions[0];
+	auto &a = acts(e);
+	if (a.empty())
+		a.push_back({"Execute", {}, false});
+	return a[0];
 }
 
 /* An option's value now; "command" also reads Openbox's older <execute>. */
@@ -333,36 +535,23 @@ void on_option_bool(GtkCheckButton *b, gpointer data) {
 	set_option(e, name, gtk_check_button_get_active(b) ? "yes" : "no");
 }
 
-GtkWidget *field(GtkSizeGroup *labels, const char *label, GtkWidget *w) {
-	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-	GtkWidget *l = gtk_label_new(label);
-	gtk_label_set_xalign(GTK_LABEL(l), 0);
-	gtk_widget_add_css_class(l, "dim-label");
-	gtk_size_group_add_widget(labels, l);
-	gtk_box_append(GTK_BOX(row), l);
-	gtk_widget_set_hexpand(w, TRUE);
-	gtk_widget_set_halign(w, GTK_ALIGN_START);
-	gtk_box_append(GTK_BOX(row), w);
-	return row;
-}
-
 /* The chosen action's options: only those it has. */
 void build_options(ShortcutEdit *e) {
 	clear(e->options);
 	e->option_widgets.clear();
 	const wb::BoundAction &a = first_action(e);
 	const wb::ActionInfo *info = wb::action_info(a.name);
-	if (info == nullptr)
-		return;
 	GtkSizeGroup *labels = GTK_SIZE_GROUP(g_object_get_data(G_OBJECT(e->options), "wb-labels"));
 	e->updating = true;
-	for (const wb::ActionOption &o : info->options) {
+	for (const wb::ActionOption &o : info != nullptr ? info->options
+			: std::vector<wb::ActionOption>{}) {
 		std::string v = option_value(a, o.name);
 		GtkWidget *w = nullptr;
+		const char *label = o.label.c_str();
 		switch (o.kind) {
 		case wb::OptionKind::Text:
 		case wb::OptionKind::Number:
-		case wb::OptionKind::Command: {
+		case wb::OptionKind::Command:
 			w = gtk_entry_new();
 			gtk_editable_set_text(GTK_EDITABLE(w), v.c_str());
 			if (!o.fallback.empty())
@@ -376,44 +565,40 @@ void build_options(ShortcutEdit *e) {
 			}
 			if (o.kind == wb::OptionKind::Number)
 				gtk_entry_set_input_purpose(GTK_ENTRY(w), GTK_INPUT_PURPOSE_DIGITS);
-			g_object_set_data_full(G_OBJECT(w), "wb-option", g_strdup(o.name.c_str()), g_free);
 			g_signal_connect(w, "changed", G_CALLBACK(on_option_text), e);
 			break;
-		}
 		case wb::OptionKind::Choice: {
-			std::vector<const char *> labels_v;
+			std::vector<const char *> names;
 			guint sel = 0;
 			std::string want = v.empty() ? o.fallback : v;
 			for (size_t i = 0; i < o.choices.size(); ++i) {
-				labels_v.push_back(o.choices[i].second.c_str());
+				names.push_back(o.choices[i].second.c_str());
 				if (o.choices[i].first == want)
 					sel = static_cast<guint>(i);
 			}
-			labels_v.push_back(nullptr);
-			w = gtk_drop_down_new_from_strings(labels_v.data());
+			names.push_back(nullptr);
+			w = gtk_drop_down_new_from_strings(names.data());
 			gtk_drop_down_set_selected(GTK_DROP_DOWN(w), sel);
-			g_object_set_data_full(G_OBJECT(w), "wb-option", g_strdup(o.name.c_str()), g_free);
 			g_signal_connect(w, "notify::selected", G_CALLBACK(on_option_choice), e);
 			break;
 		}
-		case wb::OptionKind::Bool: {
+		case wb::OptionKind::Bool:
 			w = gtk_check_button_new_with_label(o.label.c_str());
-			std::string want = v.empty() ? o.fallback : v;
-			gtk_check_button_set_active(GTK_CHECK_BUTTON(w), wb::setting_true(want));
-			g_object_set_data_full(G_OBJECT(w), "wb-option", g_strdup(o.name.c_str()), g_free);
+			gtk_check_button_set_active(GTK_CHECK_BUTTON(w),
+					wb::setting_true(v.empty() ? o.fallback : v));
 			g_signal_connect(w, "toggled", G_CALLBACK(on_option_bool), e);
-			gtk_box_append(GTK_BOX(e->options), field(labels, "", w));
-			e->option_widgets[o.name] = w;
-			continue;
+			label = "";
+			break;
 		}
-		}
-		gtk_box_append(GTK_BOX(e->options), field(labels, o.label.c_str(), w));
+		g_object_set_data_full(G_OBJECT(w), "wb-option", g_strdup(o.name.c_str()), g_free);
+		gtk_box_append(GTK_BOX(e->options), field(labels, label, w));
 		e->option_widgets[o.name] = w;
 	}
 	e->updating = false;
 	/* More than one action: the first edited here, the rest kept. */
-	if (e->now->actions.size() > 1) {
-		std::vector<wb::BoundAction> rest(e->now->actions.begin() + 1, e->now->actions.end());
+	const auto &all = acts(e);
+	if (all.size() > 1) {
+		std::vector<wb::BoundAction> rest(all.begin() + 1, all.end());
 		gtk_label_set_text(GTK_LABEL(e->also),
 				(std::string(_("Then also: ")) + wb::describe_actions(rest)).c_str());
 		gtk_widget_set_visible(e->also, TRUE);
@@ -422,9 +607,15 @@ void build_options(ShortcutEdit *e) {
 	}
 }
 
+void select_action(ShortcutEdit *e, const std::string &name) {
+	for (size_t i = 0; i < e->action_names.size(); ++i)
+		if (e->action_names[i] == name)
+			gtk_drop_down_set_selected(GTK_DROP_DOWN(e->action), static_cast<guint>(i));
+}
+
 void on_action_selected(GObject *, GParamSpec *, gpointer data) {
 	auto *e = static_cast<ShortcutEdit *>(data);
-	if (e->updating || !e->now)
+	if (e->updating || !present(e))
 		return;
 	guint i = gtk_drop_down_get_selected(GTK_DROP_DOWN(e->action));
 	if (i >= e->action_names.size())
@@ -445,17 +636,7 @@ void on_action_selected(GObject *, GParamSpec *, gpointer data) {
 	changed(e);
 }
 
-void on_keys_clicked(GtkButton *, gpointer data) {
-	auto *e = static_cast<ShortcutEdit *>(data);
-	if (e->ui->capturing == e)
-		end_capture(e->ui);
-	else
-		start_capture(e, false);
-}
-
-void on_then_clicked(GtkButton *, gpointer data) {
-	start_capture(static_cast<ShortcutEdit *>(data), true);
-}
+/* ---- Opening, removing, putting back ---- */
 
 void set_open(ShortcutEdit *e, bool open) {
 	if (!open && e->ui->capturing == e)
@@ -465,17 +646,6 @@ void set_open(ShortcutEdit *e, bool open) {
 		gtk_widget_add_css_class(e->outer, "wb-shortcut-open");
 	else
 		gtk_widget_remove_css_class(e->outer, "wb-shortcut-open");
-}
-
-void on_head_clicked(GtkButton *, gpointer data) {
-	auto *e = static_cast<ShortcutEdit *>(data);
-	if (!e->now)
-		return;
-	set_open(e, !gtk_revealer_get_reveal_child(GTK_REVEALER(e->revealer)));
-}
-
-void on_done(GtkButton *, gpointer data) {
-	set_open(static_cast<ShortcutEdit *>(data), false);
 }
 
 void forget(ShortcutEdit *e) {
@@ -493,26 +663,47 @@ void forget(ShortcutEdit *e) {
 void on_remove(GtkButton *, gpointer data) {
 	auto *e = static_cast<ShortcutEdit *>(data);
 	set_open(e, false);
-	if (!e->was) {
+	if (!was_saved(e)) {
 		forget(e);  /* never saved: nothing to keep */
 		return;
 	}
-	e->now.reset();
+	remove_now(e);
 	changed(e);
+}
+
+/* The editor's fields as the binding is now. */
+void show_in_editor(ShortcutEdit *e) {
+	if (!present(e) || e->action == nullptr)
+		return;
+	e->updating = true;
+	if (!acts(e).empty())
+		select_action(e, acts(e)[0].name);
+	if (e->mouse) {
+		std::string rest;
+		wb::HeldModifiers held = wb::held_of(e->mnow->button, rest);
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(e->mods["W-"]), held.super);
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(e->mods["C-"]), held.ctrl);
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(e->mods["A-"]), held.alt);
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(e->mods["S-"]), held.shift);
+		auto set = [](GtkWidget *dd, const std::vector<std::string> &values, const std::string &v) {
+			for (size_t i = 0; i < values.size(); ++i)
+				if (values[i] == v)
+					gtk_drop_down_set_selected(GTK_DROP_DOWN(dd), static_cast<guint>(i));
+		};
+		set(e->place, e->places, e->mnow->context);
+		set(e->button, e->buttons, rest);
+		set(e->event, e->events, e->mnow->event);
+		gtk_widget_set_visible(e->event_field, !is_wheel(rest));
+	}
+	e->updating = false;
+	build_options(e);
 }
 
 void on_undo(GtkButton *, gpointer data) {
 	auto *e = static_cast<ShortcutEdit *>(data);
 	set_open(e, false);
-	e->now = e->was;
-	/* The editor shows the saved binding again. */
-	e->updating = true;
-	for (size_t i = 0; i < e->action_names.size(); ++i)
-		if (e->now && !e->now->actions.empty() && e->action_names[i] == e->now->actions[0].name)
-			gtk_drop_down_set_selected(GTK_DROP_DOWN(e->action), static_cast<guint>(i));
-	e->updating = false;
-	if (e->now)
-		build_options(e);
+	forget_changes(e);
+	show_in_editor(e);
 	changed(e);
 }
 
@@ -521,27 +712,39 @@ GtkWidget *build_editor(ShortcutEdit *e) {
 	gtk_widget_add_css_class(box, "wb-shortcut-editor");
 	GtkSizeGroup *labels = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
 
-	/* Keys: click, press. */
-	GtkWidget *keys = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-	e->keys_button = gtk_button_new();
-	gtk_widget_add_css_class(e->keys_button, "wb-keys-button");
-	gtk_widget_set_tooltip_text(e->keys_button, _("Click, then press the keys to use"));
-	g_signal_connect(e->keys_button, "clicked", G_CALLBACK(on_keys_clicked), e);
-	gtk_box_append(GTK_BOX(keys), e->keys_button);
-	e->then_button = gtk_button_new_with_label(_("Then another key"));
-	gtk_widget_add_css_class(e->then_button, "flat");
-	gtk_widget_set_tooltip_text(e->then_button,
-			_("A chain: press these keys, let go, then the next one"));
-	g_signal_connect(e->then_button, "clicked", G_CALLBACK(on_then_clicked), e);
-	gtk_box_append(GTK_BOX(keys), e->then_button);
-	e->keys_hint = dim(_("Esc cancels"));
-	gtk_box_append(GTK_BOX(keys), e->keys_hint);
-	gtk_box_append(GTK_BOX(box), field(labels, _("Keys"), keys));
+	if (e->mouse) {
+		build_mouse_fields(e, box, labels);
+	} else {
+		/* Keys: click, press. */
+		GtkWidget *keys = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+		e->keys_button = gtk_button_new();
+		gtk_widget_add_css_class(e->keys_button, "wb-keys-button");
+		gtk_widget_set_tooltip_text(e->keys_button, _("Click, then press the keys to use"));
+		g_signal_connect(e->keys_button, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
+			auto *x = static_cast<ShortcutEdit *>(d);
+			if (x->ui->capturing == x)
+				end_capture(x->ui);
+			else
+				start_capture(x, false);
+		}), e);
+		gtk_box_append(GTK_BOX(keys), e->keys_button);
+		e->then_button = gtk_button_new_with_label(_("Then another key"));
+		gtk_widget_add_css_class(e->then_button, "flat");
+		gtk_widget_set_tooltip_text(e->then_button,
+				_("A chain: press these keys, let go, then the next one"));
+		g_signal_connect(e->then_button, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
+			start_capture(static_cast<ShortcutEdit *>(d), true);
+		}), e);
+		gtk_box_append(GTK_BOX(keys), e->then_button);
+		e->keys_hint = dim(_("Esc cancels"));
+		gtk_box_append(GTK_BOX(keys), e->keys_hint);
+		gtk_box_append(GTK_BOX(box), field(labels, _("Keys"), keys));
+	}
 
 	/* Action: type to find it. */
 	GtkStringList *model = gtk_string_list_new(nullptr);
 	guint sel = GTK_INVALID_LIST_POSITION;
-	std::string current = e->now->actions.empty() ? "" : e->now->actions[0].name;
+	std::string current = acts(e).empty() ? "" : acts(e)[0].name;
 	const wb::ActionInfo *cur = wb::action_info(current);
 	for (const wb::ActionInfo &a : wb::action_catalog()) {
 		if (cur != nullptr && a.name == cur->name)
@@ -558,7 +761,8 @@ GtkWidget *build_editor(ShortcutEdit *e) {
 	GtkExpression *expr = gtk_property_expression_new(GTK_TYPE_STRING_OBJECT, nullptr, "string");
 	e->action = gtk_drop_down_new(G_LIST_MODEL(model), expr);
 	gtk_drop_down_set_enable_search(GTK_DROP_DOWN(e->action), TRUE);
-	gtk_drop_down_set_search_match_mode(GTK_DROP_DOWN(e->action), GTK_STRING_FILTER_MATCH_MODE_SUBSTRING);
+	gtk_drop_down_set_search_match_mode(GTK_DROP_DOWN(e->action),
+			GTK_STRING_FILTER_MATCH_MODE_SUBSTRING);
 	if (sel != GTK_INVALID_LIST_POSITION)
 		gtk_drop_down_set_selected(GTK_DROP_DOWN(e->action), sel);
 	g_signal_connect(e->action, "notify::selected", G_CALLBACK(on_action_selected), e);
@@ -577,31 +781,30 @@ GtkWidget *build_editor(ShortcutEdit *e) {
 	/* Remove on the left, away from Done. */
 	GtkWidget *foot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
 	gtk_widget_set_margin_top(foot, 4);
-	GtkWidget *remove = gtk_button_new_with_label(_("Remove Shortcut"));
+	GtkWidget *remove = gtk_button_new_with_label(
+			e->mouse ? _("Remove Mouse Binding") : _("Remove Shortcut"));
 	gtk_widget_add_css_class(remove, "flat");
-	gtk_widget_add_css_class(remove, "destructive-action");
+	gtk_widget_add_css_class(remove, "wb-remove");
 	g_signal_connect(remove, "clicked", G_CALLBACK(on_remove), e);
 	gtk_box_append(GTK_BOX(foot), remove);
 	GtkWidget *gap = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 	gtk_widget_set_hexpand(gap, TRUE);
 	gtk_box_append(GTK_BOX(foot), gap);
 	GtkWidget *done = gtk_button_new_with_label(_("Done"));
-	g_signal_connect(done, "clicked", G_CALLBACK(on_done), e);
+	g_signal_connect(done, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
+		set_open(static_cast<ShortcutEdit *>(d), false);
+	}), e);
 	gtk_box_append(GTK_BOX(foot), done);
 	gtk_box_append(GTK_BOX(box), foot);
 	refresh_keys(e);
 	return box;
 }
 
-/* A key binding's row: a button that opens its editor underneath, or for
- * one only rc.xml edits, a quiet line saying so. */
-ShortcutEdit *key_row(Ui *ui, GtkSizeGroup *column, std::optional<wb::KeyBinding> was,
-		std::optional<wb::KeyBinding> now) {
-	auto e = std::make_shared<ShortcutEdit>();
+/* A binding's row: a button that opens its editor underneath, or for one
+ * only rc.xml edits, a quiet line saying so. */
+ShortcutEdit *add_row(Ui *ui, std::shared_ptr<ShortcutEdit> e, GtkSizeGroup *column) {
 	e->ui = ui;
-	e->was = std::move(was);
-	e->now = std::move(now);
-	e->editable = !any_advanced(shown(e.get()).actions);
+	e->editable = !any_advanced(shown_acts(e.get()));
 	e->outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 	gtk_widget_add_css_class(e->outer, "wb-shortcut");
 
@@ -622,10 +825,15 @@ ShortcutEdit *key_row(Ui *ui, GtkSizeGroup *column, std::optional<wb::KeyBinding
 		gtk_widget_add_css_class(e->head, "flat");
 		gtk_widget_add_css_class(e->head, "wb-shortcut-row");
 		gtk_widget_set_hexpand(e->head, TRUE);
-		g_signal_connect(e->head, "clicked", G_CALLBACK(on_head_clicked), e.get());
+		g_signal_connect(e->head, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
+			auto *x = static_cast<ShortcutEdit *>(d);
+			if (present(x))
+				set_open(x, !gtk_revealer_get_reveal_child(GTK_REVEALER(x->revealer)));
+		}), e.get());
 	} else {
 		e->head = line;
 		gtk_widget_add_css_class(e->head, "wb-shortcut-row");
+		gtk_widget_add_css_class(e->head, "wb-shortcut-static");
 		gtk_widget_add_css_class(e->does, "dim-label");
 		gtk_widget_set_tooltip_text(e->head,
 				_("Uses If, ForEach or the like: edited in rc.xml"));
@@ -642,7 +850,7 @@ ShortcutEdit *key_row(Ui *ui, GtkSizeGroup *column, std::optional<wb::KeyBinding
 	gtk_revealer_set_transition_type(GTK_REVEALER(e->revealer),
 			GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN);
 	gtk_revealer_set_transition_duration(GTK_REVEALER(e->revealer), 150);
-	if (e->editable && e->now)
+	if (e->editable && present(e.get()))
 		gtk_revealer_set_child(GTK_REVEALER(e->revealer), build_editor(e.get()));
 	gtk_box_append(GTK_BOX(e->outer), e->revealer);
 	refresh_head(e.get());
@@ -650,19 +858,44 @@ ShortcutEdit *key_row(Ui *ui, GtkSizeGroup *column, std::optional<wb::KeyBinding
 	return e.get();
 }
 
-void on_add(GtkButton *, gpointer data) {
-	auto *ui = static_cast<Ui *>(data);
-	wb::KeyBinding fresh{{}, {{"Execute", {}, false}}};
-	ShortcutEdit *e = key_row(ui, ui->shortcut_column, std::nullopt, fresh);
-	gtk_box_insert_child_after(GTK_BOX(ui->shortcut_keys), e->outer,
-			gtk_widget_get_prev_sibling(ui->shortcut_add));
+ShortcutEdit *key_row(Ui *ui, std::optional<wb::KeyBinding> was, std::optional<wb::KeyBinding> now) {
+	auto e = std::make_shared<ShortcutEdit>();
+	e->was = std::move(was);
+	e->now = std::move(now);
+	return add_row(ui, e, ui->shortcut_column);
+}
+
+ShortcutEdit *mouse_row(Ui *ui, std::optional<wb::MouseBinding> was,
+		std::optional<wb::MouseBinding> now) {
+	auto e = std::make_shared<ShortcutEdit>();
+	e->mouse = true;
+	e->mwas = std::move(was);
+	e->mnow = std::move(now);
+	return add_row(ui, e, ui->shortcut_mouse_column);
+}
+
+/* A new row, open, just above its list's Add button. */
+ShortcutEdit *add_new(Ui *ui, bool mouse) {
+	ShortcutEdit *e;
+	GtkWidget *list = mouse ? ui->shortcut_mouse : ui->shortcut_keys;
+	GtkWidget *add = mouse ? ui->shortcut_mouse_add : ui->shortcut_add;
+	if (mouse)
+		e = mouse_row(ui, std::nullopt,
+				wb::MouseBinding{"Root", "Middle", "Click", {{"Execute", {}, false}}});
+	else
+		e = key_row(ui, std::nullopt, wb::KeyBinding{{}, {{"Execute", {}, false}}});
+	GtkWidget *before = gtk_widget_get_prev_sibling(add);
+	/* Under the suggestions, if search shows any: new rows come first. */
+	gtk_box_insert_child_after(GTK_BOX(list), e->outer, before);
 	set_open(e, true);
-	start_capture(e, false);
+	if (!mouse)
+		start_capture(e, false);
 	refresh_save_state(ui);
+	return e;
 }
 
 /* Rows under a heading per category, in the catalog's order. */
-void fill(GtkWidget *box, const std::map<std::string, std::vector<GtkWidget *>> &groups) {
+void fill(GtkWidget *box, const std::map<std::string, std::vector<ShortcutEdit *>> &groups) {
 	for (const std::string &cat : category_order()) {
 		auto it = groups.find(cat);
 		if (it == groups.end())
@@ -671,29 +904,143 @@ void fill(GtkWidget *box, const std::map<std::string, std::vector<GtkWidget *>> 
 		gtk_label_set_xalign(GTK_LABEL(h), 0);
 		gtk_widget_add_css_class(h, "wb-shortcut-group");
 		gtk_box_append(GTK_BOX(box), h);
-		for (GtkWidget *w : it->second)
-			gtk_box_append(GTK_BOX(box), w);
+		for (ShortcutEdit *e : it->second) {
+			e->heading = h;
+			gtk_box_append(GTK_BOX(box), e->outer);
+		}
 	}
 }
 
-ShortcutEdit *find_edit(Ui *ui, const std::string &chain) {
+GtkWidget *add_button(Ui *ui, const char *label, bool mouse) {
+	GtkWidget *b = gtk_button_new();
+	GtkWidget *inside = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+	gtk_box_append(GTK_BOX(inside), gtk_image_new_from_icon_name("list-add-symbolic"));
+	gtk_box_append(GTK_BOX(inside), gtk_label_new(label));
+	gtk_button_set_child(GTK_BUTTON(b), inside);
+	gtk_widget_add_css_class(b, "flat");
+	gtk_widget_set_halign(b, GTK_ALIGN_START);
+	gtk_widget_set_margin_top(b, 8);
+	if (mouse)
+		g_signal_connect(b, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
+			add_new(static_cast<Ui *>(d), true);
+		}), ui);
+	else
+		g_signal_connect(b, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
+			add_new(static_cast<Ui *>(d), false);
+		}), ui);
+	return b;
+}
+
+/* ---- Search ---- */
+
+std::string fold(const std::string &s) {
+	gchar *f = g_utf8_casefold(s.c_str(), -1);
+	std::string out = f;
+	g_free(f);
+	return out;
+}
+
+/* Every word of the query somewhere in what the row says. */
+bool row_matches(const ShortcutEdit *e, const std::vector<std::string> &words) {
+	std::string hay;
+	if (e->mouse) {
+		const wb::MouseBinding &m = e->mnow ? *e->mnow : *e->mwas;
+		hay = mouse_text(m) + " " + m.context + " " + m.button;
+	} else {
+		const auto &chain = e->now ? e->now->chain : e->was->chain;
+		hay = chain_caps_text(chain) + " " + chain_text(chain);
+		for (const std::string &k : chain)
+			for (const std::string &c : wb::key_caps(k))
+				hay += " " + c;
+	}
+	const auto &a = shown_acts(e);
+	hay += " " + wb::describe_actions(a) + " " + category_of(a);
+	for (const wb::BoundAction &b : a)
+		if (const wb::ActionInfo *info = wb::action_info(b.name))
+			hay += " " + info->label + " " + info->name;
+	hay = fold(hay);
+	for (const std::string &w : words)
+		if (hay.find(w) == std::string::npos)
+			return false;
+	return true;
+}
+
+std::vector<std::string> words_of(const std::string &q) {
+	std::vector<std::string> out;
+	std::string f = fold(q), w;
+	for (char c : f + " ") {
+		if (c == ' ') {
+			if (!w.empty())
+				out.push_back(w);
+			w.clear();
+		} else {
+			w += c;
+		}
+	}
+	return out;
+}
+
+/* Actions the query names that no key runs yet: offered to bind. */
+void suggest(Ui *ui, const std::vector<std::string> &words) {
+	clear(ui->shortcut_suggest);
+	if (words.empty()) {
+		gtk_widget_set_visible(ui->shortcut_suggest, FALSE);
+		return;
+	}
+	int n = 0;
+	for (const wb::ActionInfo &a : wb::action_catalog()) {
+		std::string hay = fold(a.label + " " + a.name + " " + a.category);
+		bool match = std::all_of(words.begin(), words.end(),
+				[&hay](const std::string &w) { return hay.find(w) != std::string::npos; });
+		if (!match)
+			continue;
+		bool bound = false;
+		for (auto &e : ui->shortcut_edits)
+			if (!e->mouse && e->now && !e->now->actions.empty() &&
+					wb::action_info(e->now->actions[0].name) == &a)
+				bound = true;
+		if (bound || n >= 3)
+			continue;
+		++n;
+		std::string label = std::string(_("Add a shortcut for ")) + a.label;
+		GtkWidget *b = gtk_button_new();
+		GtkWidget *inside = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+		gtk_box_append(GTK_BOX(inside), gtk_image_new_from_icon_name("list-add-symbolic"));
+		gtk_box_append(GTK_BOX(inside), gtk_label_new(label.c_str()));
+		gtk_button_set_child(GTK_BUTTON(b), inside);
+		gtk_widget_add_css_class(b, "flat");
+		gtk_widget_set_halign(b, GTK_ALIGN_START);
+		g_object_set_data_full(G_OBJECT(b), "wb-action", g_strdup(a.name.c_str()), g_free);
+		g_signal_connect(b, "clicked", G_CALLBACK(+[](GtkButton *btn, gpointer d) {
+			auto *ui = static_cast<Ui *>(d);
+			std::string name = static_cast<const char *>(
+					g_object_get_data(G_OBJECT(btn), "wb-action"));
+			ShortcutEdit *e = add_new(ui, false);
+			select_action(e, name);
+		}), ui);
+		gtk_box_append(GTK_BOX(ui->shortcut_suggest), b);
+	}
+	gtk_widget_set_visible(ui->shortcut_suggest, n > 0);
+}
+
+ShortcutEdit *find_edit(Ui *ui, const std::string &id) {
 	for (auto &e : ui->shortcut_edits)
-		if (chain_text(shown(e.get()).chain) == chain)
+		if (id_of(e.get()) == id)
 			return e.get();
 	return nullptr;
 }
 
-std::vector<std::string> split_chain(const std::string &s) {
+std::vector<std::string> split_words(const std::string &s) {
 	std::vector<std::string> out;
-	size_t at = 0;
-	while (at <= s.size()) {
-		size_t sp = s.find(' ', at);
-		std::string k = s.substr(at, sp == std::string::npos ? std::string::npos : sp - at);
-		if (!k.empty())
-			out.push_back(k);
-		if (sp == std::string::npos)
-			break;
-		at = sp + 1;
+	std::string w;
+	for (char c : s + " ") {
+		if (c == ' ') {
+			if (!w.empty())
+				out.push_back(w);
+			w.clear();
+		} else {
+			w += c;
+		}
 	}
 	return out;
 }
@@ -714,143 +1061,198 @@ void populate_shortcuts(Ui *ui, const wb::RcDocument *doc) {
 	if (doc == nullptr)
 		return;
 	end_capture(ui);
-	ui->shortcut_lines.clear();
+	ui->shortcut_edits.clear();
 	if (ui->shortcut_keys != nullptr) {
 		clear(ui->shortcut_keys);
-		ui->shortcut_edits.clear();
 		if (ui->shortcut_column != nullptr)
 			g_object_unref(ui->shortcut_column);
 		ui->shortcut_column = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
-		std::map<std::string, std::vector<GtkWidget *>> groups;
-		for (const wb::KeyBinding &k : doc->keybindings()) {
-			ShortcutEdit *e = key_row(ui, ui->shortcut_column, k, k);
-			groups[category_of(k.actions)].push_back(e->outer);
-		}
+		std::map<std::string, std::vector<ShortcutEdit *>> groups;
+		for (const wb::KeyBinding &k : doc->keybindings())
+			groups[category_of(k.actions)].push_back(key_row(ui, k, k));
+		ui->shortcut_suggest = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+		gtk_widget_add_css_class(ui->shortcut_suggest, "wb-shortcut-suggest");
+		gtk_widget_set_visible(ui->shortcut_suggest, FALSE);
+		gtk_box_append(GTK_BOX(ui->shortcut_keys), ui->shortcut_suggest);
 		fill(ui->shortcut_keys, groups);
-		ui->shortcut_add = gtk_button_new();
-		GtkWidget *add = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-		gtk_box_append(GTK_BOX(add), gtk_image_new_from_icon_name("list-add-symbolic"));
-		gtk_box_append(GTK_BOX(add), gtk_label_new(_("Add a Shortcut")));
-		gtk_button_set_child(GTK_BUTTON(ui->shortcut_add), add);
-		gtk_widget_add_css_class(ui->shortcut_add, "flat");
-		gtk_widget_set_halign(ui->shortcut_add, GTK_ALIGN_START);
-		gtk_widget_set_margin_top(ui->shortcut_add, 8);
-		g_signal_connect(ui->shortcut_add, "clicked", G_CALLBACK(on_add), ui);
+		ui->shortcut_add = add_button(ui, _("Add a Shortcut"), false);
 		gtk_box_append(GTK_BOX(ui->shortcut_keys), ui->shortcut_add);
 	}
 	if (ui->shortcut_mouse != nullptr) {
 		clear(ui->shortcut_mouse);
-		GtkSizeGroup *column = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
-		std::map<std::string, std::vector<GtkWidget *>> groups;
-		for (const wb::MouseBinding &m : doc->mousebindings()) {
-			/* Where, the button (with its modifiers), how: "Titlebar  [Left
-			 * button]  double-click". */
-			GtkWidget *keys = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-			GtkWidget *where = gtk_label_new(wb::context_label(m.context).c_str());
-			gtk_widget_add_css_class(where, "wb-shortcut-place");
-			gtk_box_append(GTK_BOX(keys), where);
-			gtk_box_append(GTK_BOX(keys), caps(wb::button_caps(m.button)));
-			std::string how = wb::event_label(m.event);
-			if (!how.empty())
-				how[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(how[0])));
-			/* The wheel: scrolling says it all ("click" adds nothing). */
-			bool wheel = m.button.ends_with("Up") || m.button.ends_with("Down");
-			if (!wheel)
-				gtk_box_append(GTK_BOX(keys), dim(how));
-			GtkWidget *r = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
-			gtk_widget_add_css_class(r, "wb-shortcut-row");
-			gtk_widget_add_css_class(r, "wb-shortcut-static");
-			GtkWidget *cell = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-			gtk_box_append(GTK_BOX(cell), keys);
-			gtk_size_group_add_widget(column, cell);
-			gtk_box_append(GTK_BOX(r), cell);
-			std::string does = wb::describe_actions(m.actions);
-			GtkWidget *l = gtk_label_new(does.c_str());
-			gtk_label_set_xalign(GTK_LABEL(l), 0);
-			gtk_label_set_ellipsize(GTK_LABEL(l), PANGO_ELLIPSIZE_END);
-			gtk_widget_set_hexpand(l, TRUE);
-			gtk_widget_set_tooltip_text(l, does.c_str());
-			if (any_advanced(m.actions))
-				gtk_widget_add_css_class(l, "dim-label");
-			gtk_box_append(GTK_BOX(r), l);
-			groups[category_of(m.actions)].push_back(r);
-			ui->shortcut_lines.push_back("mouse|" + m.context + " " + m.button + " " + m.event +
-					"|" + does + "|" + category_of(m.actions));
-		}
+		if (ui->shortcut_mouse_column != nullptr)
+			g_object_unref(ui->shortcut_mouse_column);
+		ui->shortcut_mouse_column = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
+		std::map<std::string, std::vector<ShortcutEdit *>> groups;
+		for (const wb::MouseBinding &m : doc->mousebindings())
+			groups[category_of(m.actions)].push_back(mouse_row(ui, m, m));
 		fill(ui->shortcut_mouse, groups);
-		if (gtk_widget_get_first_child(ui->shortcut_mouse) == nullptr)
-			gtk_box_append(GTK_BOX(ui->shortcut_mouse), dim(_("None in rc.xml.")));
-		g_object_unref(column);
+		ui->shortcut_mouse_add = add_button(ui, _("Add a Mouse Binding"), true);
+		gtk_box_append(GTK_BOX(ui->shortcut_mouse), ui->shortcut_mouse_add);
 	}
+}
+
+bool shortcuts_filter(Ui *ui, const std::string &widget, const std::string &q, bool whole) {
+	bool mouse = widget == "mousebindings";
+	std::vector<std::string> words = words_of(q);
+	bool any = false;
+	std::map<GtkWidget *, bool> headings;
+	for (auto &e : ui->shortcut_edits) {
+		if (e->mouse != mouse)
+			continue;
+		/* New rows stay in sight while being set up. */
+		bool show = whole || words.empty() || !was_saved(e.get()) || row_matches(e.get(), words);
+		gtk_widget_set_visible(e->outer, show);
+		any = any || show;
+		if (e->heading != nullptr)
+			headings[e->heading] = headings[e->heading] || show;
+	}
+	for (auto &[h, show] : headings)
+		gtk_widget_set_visible(h, show);
+	bool suggestions = false;
+	if (!mouse && ui->shortcut_suggest != nullptr) {
+		suggest(ui, whole ? std::vector<std::string>{} : words);
+		suggestions = gtk_widget_get_visible(ui->shortcut_suggest);
+	}
+	return whole || any || suggestions;
 }
 
 void apply_shortcuts(Ui *ui, wb::RcDocument &doc) {
 	end_capture(ui);
-	/* Keys given up first (removed or moved), so a binding moving onto
-	 * keys another just left finds them free. */
-	for (auto &e : ui->shortcut_edits)
-		if (e->was && e->now != e->was && (!e->now || e->now->chain != e->was->chain))
-			doc.set_keybinding(e->was->chain, std::nullopt);
+	/* Keys and places given up first (removed or moved), so a binding
+	 * moving onto ones another just left finds them free. */
 	for (auto &e : ui->shortcut_edits) {
-		if (!e->now || e->now == e->was || e->now->chain.empty())
+		if (!dirty(e.get()) || !was_saved(e.get()))
 			continue;
-		bool same_keys = e->was && e->was->chain == e->now->chain;
-		doc.set_keybinding(same_keys ? e->was->chain : std::vector<std::string>{}, e->now);
+		if (e->mouse) {
+			const auto &w = *e->mwas;
+			if (!e->mnow || e->mnow->context != w.context || e->mnow->button != w.button ||
+					e->mnow->event != w.event)
+				doc.set_mousebinding(e->mwas, std::nullopt);
+		} else if (!e->now || e->now->chain != e->was->chain) {
+			doc.set_keybinding(e->was->chain, std::nullopt);
+		}
+	}
+	for (auto &e : ui->shortcut_edits) {
+		if (!dirty(e.get()) || !present(e.get()) || incomplete(e.get()))
+			continue;
+		if (e->mouse) {
+			const auto &n = *e->mnow;
+			bool same_place = e->mwas && e->mwas->context == n.context &&
+					e->mwas->button == n.button && e->mwas->event == n.event;
+			doc.set_mousebinding(same_place ? e->mwas : std::nullopt, e->mnow);
+		} else {
+			bool same_keys = e->was && e->was->chain == e->now->chain;
+			doc.set_keybinding(same_keys ? e->was->chain : std::vector<std::string>{}, e->now);
+		}
 	}
 }
 
-void shortcut_changes(Ui *ui, const std::string &where, GtkWidget *target,
-		std::vector<UnsavedChange> &out) {
-	auto text = [](const std::optional<wb::KeyBinding> &b) {
-		if (!b)
-			return std::string(_("none"));
-		return chain_caps_text(b->chain) + "  " + wb::describe_actions(b->actions);
+void shortcut_changes(Ui *ui, const std::string &widget, const std::string &where,
+		GtkWidget *target, std::vector<UnsavedChange> &out) {
+	bool mouse = widget == "mousebindings";
+	auto key_text = [](const std::optional<wb::KeyBinding> &b) {
+		return b ? chain_caps_text(b->chain) + "  " + wb::describe_actions(b->actions)
+				: std::string(_("none"));
+	};
+	auto mouse_line = [](const std::optional<wb::MouseBinding> &b) {
+		return b ? mouse_text(*b) + "  " + wb::describe_actions(b->actions)
+				: std::string(_("none"));
 	};
 	for (auto &e : ui->shortcut_edits) {
-		if (e->now == e->was || (e->now && e->now->chain.empty()))
+		if (e->mouse != mouse || !dirty(e.get()) || incomplete(e.get()))
 			continue;  /* the same, or new and not given keys yet */
-		out.push_back({{where, text(e->was), text(e->now)}, target});
+		if (mouse)
+			out.push_back({{where, mouse_line(e->mwas), mouse_line(e->mnow)}, target});
+		else
+			out.push_back({{where, key_text(e->was), key_text(e->now)}, target});
 	}
 }
 
 void shortcut_dump(Ui *ui) {
-	for (auto &e : ui->shortcut_edits) {
-		const wb::KeyBinding &b = shown(e.get());
-		std::string state = !e->now ? "|removed" : e->now != e->was ? "|changed" : "";
-		fprintf(stderr, "shortcut:key|%s|%s|%s%s\n", chain_text(b.chain).c_str(),
-				wb::describe_actions(b.actions).c_str(), category_of(b.actions).c_str(),
-				state.c_str());
-	}
-	for (const std::string &l : ui->shortcut_lines)
-		fprintf(stderr, "shortcut:%s\n", l.c_str());
+	for (bool mouse : {false, true})
+		for (auto &e : ui->shortcut_edits) {
+			if (e->mouse != mouse)
+				continue;
+			const auto &a = shown_acts(e.get());
+			std::string state = !present(e.get()) ? "|removed" : dirty(e.get()) ? "|changed" : "";
+			fprintf(stderr, "shortcut:%s|%s|%s|%s%s\n", mouse ? "mouse" : "key",
+					id_of(e.get()).c_str(), wb::describe_actions(a).c_str(),
+					category_of(a).c_str(), state.c_str());
+		}
 }
 
-/* Test steps, through the same widgets a person uses:
- *   shortcut-open:CHAIN            shortcut-capture:CHAIN
- *   shortcut-keys:CHAIN=NEWCHAIN   (as if pressed)
- *   shortcut-action:CHAIN=Name     shortcut-option:CHAIN=name=value
- *   shortcut-remove:CHAIN          shortcut-undo:CHAIN
- *   shortcut-add:CHAIN=Name        (a new binding)
+/* Test steps, through the same widgets a person uses (ID: a key chain
+ * "C-a x", or a mouse binding's "Context Button Event"):
+ *   shortcut-open:ID   shortcut-capture:ID   shortcut-remove:ID   shortcut-undo:ID
+ *   shortcut-keys:ID=NEWCHAIN (as if pressed)
+ *   shortcut-place:ID=Context  shortcut-button:ID=Button  shortcut-event:ID=Event
+ *   shortcut-mod:ID=W-|C-|A-|S- (toggled)
+ *   shortcut-action:ID=Name    shortcut-option:ID=name=value
+ *   shortcut-add:CHAIN=Name    shortcut-addmouse:Context Button Event=Name
+ *   shortcut-visible (the rows search shows)   shortcut-suggest:Name (click it)
  */
 void shortcut_test_step(Ui *ui, const std::string &step) {
 	size_t colon = step.find(':');
-	std::string verb = step.substr(0, colon), arg = step.substr(colon + 1);
+	std::string verb = step.substr(0, colon);
+	std::string arg = colon == std::string::npos ? "" : step.substr(colon + 1);
 	size_t eq = arg.find('=');
-	std::string chain = arg.substr(0, eq), rest = eq == std::string::npos ? "" : arg.substr(eq + 1);
-	if (verb == "shortcut-add") {
-		on_add(nullptr, ui);
-		ShortcutEdit *e = ui->shortcut_edits.back().get();
-		end_capture(ui);
-		e->now->chain = split_chain(chain);
-		changed(e);
-		for (size_t i = 0; i < e->action_names.size(); ++i)
-			if (e->action_names[i] == rest)
-				gtk_drop_down_set_selected(GTK_DROP_DOWN(e->action), static_cast<guint>(i));
+	std::string id = arg.substr(0, eq), rest = eq == std::string::npos ? "" : arg.substr(eq + 1);
+	auto pick = [](GtkWidget *dd, const std::vector<std::string> &values, const std::string &v) {
+		for (size_t i = 0; i < values.size(); ++i)
+			if (values[i] == v)
+				gtk_drop_down_set_selected(GTK_DROP_DOWN(dd), static_cast<guint>(i));
+	};
+	if (verb == "shortcut-visible") {
+		std::string out, sugg;
+		for (auto &e : ui->shortcut_edits)
+			if (gtk_widget_get_visible(e->outer) && gtk_widget_get_mapped(e->outer))
+				out += (out.empty() ? "" : ",") + id_of(e.get());
+		if (ui->shortcut_suggest != nullptr && gtk_widget_get_visible(ui->shortcut_suggest))
+			for (GtkWidget *b = gtk_widget_get_first_child(ui->shortcut_suggest); b != nullptr;
+					b = gtk_widget_get_next_sibling(b))
+				sugg += (sugg.empty() ? "" : ",") +
+						std::string(static_cast<const char *>(g_object_get_data(G_OBJECT(b), "wb-action")));
+		fprintf(stderr, "shortcut-visible:%s|suggest:%s\n", out.c_str(), sugg.c_str());
 		return;
 	}
-	ShortcutEdit *e = find_edit(ui, chain);
+	if (verb == "shortcut-suggest") {
+		for (GtkWidget *b = gtk_widget_get_first_child(ui->shortcut_suggest); b != nullptr;
+				b = gtk_widget_get_next_sibling(b))
+			if (arg == static_cast<const char *>(g_object_get_data(G_OBJECT(b), "wb-action"))) {
+				g_signal_emit_by_name(b, "clicked");
+				break;
+			}
+		end_capture(ui);
+		return;
+	}
+	if (verb == "shortcut-add" || verb == "shortcut-addmouse") {
+		bool mouse = verb == "shortcut-addmouse";
+		ShortcutEdit *e = add_new(ui, mouse);
+		end_capture(ui);
+		if (mouse) {
+			std::vector<std::string> p = split_words(id);
+			if (p.size() == 3) {
+				std::string r;
+				wb::HeldModifiers held = wb::held_of(p[1], r);
+				gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(e->mods["W-"]), held.super);
+				gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(e->mods["C-"]), held.ctrl);
+				gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(e->mods["A-"]), held.alt);
+				gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(e->mods["S-"]), held.shift);
+				pick(e->place, e->places, p[0]);
+				pick(e->button, e->buttons, r);
+				pick(e->event, e->events, p[2]);
+			}
+		} else {
+			e->now->chain = split_words(id);
+			changed(e);
+		}
+		select_action(e, rest);
+		return;
+	}
+	ShortcutEdit *e = find_edit(ui, id);
 	if (e == nullptr) {
-		fprintf(stderr, "shortcut-step: no binding %s\n", chain.c_str());
+		fprintf(stderr, "shortcut-step: no binding %s\n", id.c_str());
 		return;
 	}
 	if (verb == "shortcut-open") {
@@ -859,12 +1261,19 @@ void shortcut_test_step(Ui *ui, const std::string &step) {
 		set_open(e, true);
 		start_capture(e, false);
 	} else if (verb == "shortcut-keys" && e->now) {
-		e->now->chain = split_chain(rest);
+		e->now->chain = split_words(rest);
 		changed(e);
+	} else if (verb == "shortcut-place" && e->mouse) {
+		pick(e->place, e->places, rest);
+	} else if (verb == "shortcut-button" && e->mouse) {
+		pick(e->button, e->buttons, rest);
+	} else if (verb == "shortcut-event" && e->mouse) {
+		pick(e->event, e->events, rest);
+	} else if (verb == "shortcut-mod" && e->mouse && e->mods.count(rest)) {
+		GtkToggleButton *t = GTK_TOGGLE_BUTTON(e->mods[rest]);
+		gtk_toggle_button_set_active(t, !gtk_toggle_button_get_active(t));
 	} else if (verb == "shortcut-action") {
-		for (size_t i = 0; i < e->action_names.size(); ++i)
-			if (e->action_names[i] == rest)
-				gtk_drop_down_set_selected(GTK_DROP_DOWN(e->action), static_cast<guint>(i));
+		select_action(e, rest);
 	} else if (verb == "shortcut-option") {
 		size_t eq2 = rest.find('=');
 		auto it = e->option_widgets.find(rest.substr(0, eq2));

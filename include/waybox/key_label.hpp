@@ -9,6 +9,7 @@
  */
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace wb {
@@ -28,6 +29,16 @@ struct HeldModifiers {
 	bool super = false, alt = false, ctrl = false, shift = false;
 };
 std::string rc_key(const HeldModifiers &held, std::string_view key_name);
+/* The other way: "W-S-Left" -> {super, shift} and "Left" (the rest). */
+HeldModifiers held_of(std::string_view key, std::string &rest);
+
+/* Where a mouse binding applies, in the order offered: rc.xml's context
+ * name and what it's called ("Close" -> "Close button"). */
+const std::vector<std::pair<std::string, std::string>> &mouse_contexts();
+/* The buttons and events offered, likewise ("Up" -> "Scroll up",
+ * "DoubleClick" -> "Double-click"). */
+const std::vector<std::pair<std::string, std::string>> &mouse_buttons();
+const std::vector<std::pair<std::string, std::string>> &mouse_events();
 
 }  // namespace wb
 
