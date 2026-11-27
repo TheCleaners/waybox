@@ -160,6 +160,18 @@ def main():
         if replies != [{"write": {"path": want_path, "text": "timeout=3000\n"}},
                        {"run": ["makoctl", "reload"]}]:
             failures.append(f"save: {replies}")
+        # Files= bound to where they led when opened (and approved): one
+        # that leads elsewhere now (a link changed) isn't read.
+        moved = Runner(exe, env)
+        try:
+            o = json.loads(json.dumps(opened))
+            o["open"]["resolved"] = ["/elsewhere/not/where/it/leads"]
+            replies = moved.ask(o)
+            e = errors(replies)
+            if not e or "leads elsewhere now" not in e[0]["message"]:
+                failures.append(f"a file whose link changed was read: {replies}")
+        finally:
+            moved.close()
         # 5. The sandbox.
         t0 = time.time()
         replies = r.ask({"click": "spin"})

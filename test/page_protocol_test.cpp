@@ -2,7 +2,10 @@
 
 #include "waybox/page_protocol.hpp"
 
+#include <fstream>
 #include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 
 using wb::json::Value;
 using wb::page::Kind;
@@ -171,3 +174,20 @@ WB_TEST(page_font_monospace) {
 	WB_CHECK(wb::page::page_from_json(wb::page::page_to_json(*p)) == p);
 }
 
+
+/* Where a Files= entry really leads: a link followed; a file not there
+ * yet, under a linked folder, the folder's target and its name. */
+WB_TEST(resolve_path_follows_links) {
+	char t[] = "/tmp/wb-resolve-XXXXXX";
+	std::string d = mkdtemp(t);
+	char real[4096];
+	std::string rd = realpath(d.c_str(), real);  /* (/tmp itself may be a link) */
+	mkdir((d + "/dotfiles").c_str(), 0700);
+	std::ofstream(d + "/dotfiles/conf") << "x";
+	symlink((d + "/dotfiles/conf").c_str(), (d + "/conf").c_str());
+	WB_CHECK(wb::page::resolve_path(d + "/conf") == rd + "/dotfiles/conf");
+	symlink((d + "/dotfiles").c_str(), (d + "/linked").c_str());
+	WB_CHECK(wb::page::resolve_path(d + "/linked/new.ini") == rd + "/dotfiles/new.ini");
+	WB_CHECK(wb::page::resolve_path(d + "/a/b/c") == rd + "/a/b/c");
+	WB_CHECK(wb::page::resolve_path("relative") == "relative");
+}

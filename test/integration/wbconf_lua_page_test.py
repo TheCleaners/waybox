@@ -10,7 +10,8 @@ Integration files with Page=NAME.lua, two as a package installs them
   (Runs=). wbconf (driven by WBCONF_TEST_TOC) shows its values from the
   file; a timeout under a second shows a problem (on_change), and the
   change is listed as not saved; its button runs touch; Save & Apply has
-  wbconf write the new file (the old one kept as config.bak) and run the
+  wbconf write the new file (the old one kept as config.bak; the config a
+  link into a dotfiles folder: written to its target, the link kept) and run the
   page's reload (touch).
 - broken: its script has a syntax error: the page says so, with the line,
   and wbconf goes on.
@@ -173,8 +174,13 @@ def main():
     conf = os.path.join(home, ".config", "demo", "config")  # ~/.config, as Files= says
     os.makedirs(os.path.dirname(conf))
     original = f"marker={workdir}\ntimeout=7000\nicons=yes\n"
-    with open(conf, "w") as f:
+    # A link into a dotfiles folder (as GNU Stow makes them): read through,
+    # written to its target, the link kept.
+    target = os.path.join(home, "dotfiles", "demo-config")
+    os.makedirs(os.path.dirname(target))
+    with open(target, "w") as f:
         f.write(original)
+    os.symlink(target, conf)
     runtime = os.path.join(workdir, "run")
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman", HOME=home,
@@ -248,9 +254,11 @@ def main():
     text = open(conf).read()
     if text != f"marker={workdir}\ntimeout=500\nicons=yes\n":
         failures.append(f"the file as saved: {text!r}")
-    bak = conf + ".bak"
+    if not os.path.islink(conf) or os.path.realpath(conf) != os.path.realpath(target):
+        failures.append("saving replaced the link with a file (or moved it)")
+    bak = target + ".bak"
     if not os.path.exists(bak) or open(bak).read() != original:
-        failures.append("no backup of the file as it was")
+        failures.append("no backup of the file as it was (beside its target)")
     # Approval: mine waits (its runner not started), runs once allowed, is
     # remembered; changed, it's asked about again.
     approvals = os.path.join(cfg, "waybox", "approved-pages")
