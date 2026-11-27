@@ -14,11 +14,15 @@
  */
 #include "wbconf_ui.hpp"
 
+#include <algorithm>
+#include <clocale>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 
 #include "action_editor.hpp"
+#include "waybox/app_menu.hpp"
 #include "waybox/menu_doc.hpp"
 
 namespace fs = std::filesystem;
@@ -50,6 +54,8 @@ struct MenuState {
 	std::vector<Step> steps;
 	std::optional<wb::MenuDocument> doc;  /* loaded, with the steps done */
 	std::optional<Path> open;             /* the entry whose editor is open */
+	std::vector<wb::DesktopEntry> apps;   /* installed programs, as last listed */
+	GtkWidget *apps_list = nullptr, *apps_search = nullptr;
 	GtkWidget *tree = nullptr, *undo = nullptr, *editor = nullptr;
 };
 
@@ -225,6 +231,200 @@ std::string fresh_id(MenuState *st, const std::string &label) {
 	return id;
 }
 
+/* ---- Installed programs, and icons ---- */
+
+/* The programs Waybox's applications menu lists: the .desktop files in
+ * the applications directories, shown on this desktop, by name. */
+std::vector<wb::DesktopEntry> installed_apps() {
+	std::vector<std::string> desktops;
+	const char *cur = getenv("XDG_CURRENT_DESKTOP");
+	std::string list = cur != nullptr && *cur ? cur : "Waybox";
+	for (size_t at = 0; at <= list.size();) {
+		size_t colon = list.find(':', at);
+		std::string d = list.substr(at, colon == std::string::npos ? std::string::npos : colon - at);
+		if (!d.empty())
+			desktops.push_back(d);
+		if (colon == std::string::npos)
+			break;
+		at = colon + 1;
+	}
+	const char *loc = setlocale(LC_MESSAGES, nullptr);
+	auto apps = wb::scan_applications(wb::application_dirs(getenv("XDG_DATA_HOME"),
+			getenv("HOME"), getenv("XDG_DATA_DIRS")), wb::locale_names(loc ? loc : ""), desktops);
+	std::sort(apps.begin(), apps.end(), [](const wb::DesktopEntry &a, const wb::DesktopEntry &b) {
+		return g_utf8_collate(a.name.c_str(), b.name.c_str()) < 0;
+	});
+	return apps;
+}
+
+void add_app(Ui *ui, const wb::DesktopEntry &app);
+
+/* The programs' list, filtered by what's typed. */
+void fill_apps(Ui *ui, GtkWidget *list, const std::string &query) {
+	MenuState *st = ui->menu.get();
+	while (GtkWidget *c = gtk_widget_get_first_child(list))
+		gtk_list_box_remove(GTK_LIST_BOX(list), c);
+	gchar *q = g_utf8_casefold(query.c_str(), -1);
+	for (size_t i = 0; i < st->apps.size(); ++i) {
+		const wb::DesktopEntry &a = st->apps[i];
+		gchar *n = g_utf8_casefold(a.name.c_str(), -1);
+		bool hit = *q == '\0' || strstr(n, q) != nullptr;
+		g_free(n);
+		if (!hit)
+			continue;
+		GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+		gtk_widget_set_margin_top(row, 4);
+		gtk_widget_set_margin_bottom(row, 4);
+		gtk_widget_set_margin_start(row, 6);
+		GtkWidget *img = icon_of(a.icon);
+		gtk_image_set_pixel_size(GTK_IMAGE(img), 24);
+		gtk_widget_set_size_request(img, 24, 24);
+		gtk_box_append(GTK_BOX(row), img);
+		GtkWidget *l = gtk_label_new(a.name.c_str());
+		gtk_label_set_xalign(GTK_LABEL(l), 0);
+		gtk_box_append(GTK_BOX(row), l);
+		gtk_list_box_append(GTK_LIST_BOX(list), row);
+		g_object_set_data(G_OBJECT(gtk_widget_get_parent(row)), "wb-app",
+				GSIZE_TO_POINTER(i + 1));
+	}
+	g_free(q);
+}
+
+/* "Add a Program You Have": a searchable list of the installed programs;
+ * the one chosen added with its name, icon and command. */
+GtkWidget *apps_button(Ui *ui) {
+	GtkWidget *button = gtk_menu_button_new();
+	GtkWidget *inside = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+	gtk_box_append(GTK_BOX(inside), gtk_image_new_from_icon_name("list-add-symbolic"));
+	gtk_box_append(GTK_BOX(inside), gtk_label_new(_("Add a Program You Have")));
+	gtk_menu_button_set_child(GTK_MENU_BUTTON(button), inside);
+	gtk_menu_button_set_has_frame(GTK_MENU_BUTTON(button), FALSE);
+	GtkWidget *pop = gtk_popover_new();
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+	GtkWidget *search = gtk_search_entry_new();
+	gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(search), _("Find a program"));
+	gtk_box_append(GTK_BOX(box), search);
+	GtkWidget *scroll = gtk_scrolled_window_new();
+	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER,
+			GTK_POLICY_AUTOMATIC);
+	gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(scroll), 320);
+	gtk_scrolled_window_set_min_content_width(GTK_SCROLLED_WINDOW(scroll), 300);
+	GtkWidget *list = gtk_list_box_new();
+	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), list);
+	gtk_box_append(GTK_BOX(box), scroll);
+	gtk_popover_set_child(GTK_POPOVER(pop), box);
+	gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), pop);
+	g_object_set_data(G_OBJECT(search), "wb-list", list);
+	g_object_set_data(G_OBJECT(pop), "wb-list", list);
+	g_object_set_data(G_OBJECT(pop), "wb-search", search);
+	g_object_set_data(G_OBJECT(list), "wb-pop", pop);
+	ui->menu->apps_list = list;
+	ui->menu->apps_search = search;
+	/* Listed afresh each time it opens (programs come and go). */
+	g_signal_connect(pop, "show", G_CALLBACK(+[](GtkWidget *p, gpointer d) {
+		Ui *ui = static_cast<Ui *>(d);
+		ui->menu->apps = installed_apps();
+		auto *search = static_cast<GtkWidget *>(g_object_get_data(G_OBJECT(p), "wb-search"));
+		gtk_editable_set_text(GTK_EDITABLE(search), "");
+		fill_apps(ui, static_cast<GtkWidget *>(g_object_get_data(G_OBJECT(p), "wb-list")), "");
+	}), ui);
+	g_signal_connect(search, "search-changed", G_CALLBACK(+[](GtkSearchEntry *s, gpointer d) {
+		fill_apps(static_cast<Ui *>(d), static_cast<GtkWidget *>(g_object_get_data(G_OBJECT(s),
+				"wb-list")), gtk_editable_get_text(GTK_EDITABLE(s)));
+	}), ui);
+	g_signal_connect(list, "row-activated", G_CALLBACK(+[](GtkListBox *l, GtkListBoxRow *row,
+			gpointer d) {
+		Ui *ui = static_cast<Ui *>(d);
+		size_t i = GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(row), "wb-app"));
+		gtk_popover_popdown(GTK_POPOVER(g_object_get_data(G_OBJECT(l), "wb-pop")));
+		if (i >= 1 && i <= ui->menu->apps.size())
+			add_app(ui, ui->menu->apps[i - 1]);
+	}), ui);
+	return button;
+}
+
+/* Icons from the theme whose names have every word typed (the symbolic
+ * ones left out), the first `limit`. */
+std::vector<std::string> theme_icons(const std::string &query, size_t limit) {
+	GtkIconTheme *theme = gtk_icon_theme_get_for_display(gdk_display_get_default());
+	char **names = gtk_icon_theme_get_icon_names(theme);
+	std::vector<std::string> all;
+	for (char **n = names; n != nullptr && *n != nullptr; ++n)
+		if (!g_str_has_suffix(*n, "-symbolic") && (query.empty() || strstr(*n, query.c_str())))
+			all.emplace_back(*n);
+	g_strfreev(names);
+	std::sort(all.begin(), all.end());
+	if (all.size() > limit)
+		all.resize(limit);
+	return all;
+}
+
+/* The icon picker's grid, for what's typed. */
+void fill_icons(GtkWidget *grid, GtkWidget *target, const std::string &query) {
+	while (GtkWidget *c = gtk_widget_get_first_child(grid))
+		gtk_flow_box_remove(GTK_FLOW_BOX(grid), c);
+	for (const std::string &name : theme_icons(query, 96)) {
+		GtkWidget *b = gtk_button_new();
+		GtkWidget *img = gtk_image_new_from_icon_name(name.c_str());
+		gtk_image_set_pixel_size(GTK_IMAGE(img), 24);
+		gtk_button_set_child(GTK_BUTTON(b), img);
+		gtk_widget_add_css_class(b, "flat");
+		gtk_widget_set_tooltip_text(b, name.c_str());
+		g_object_set_data_full(G_OBJECT(b), "wb-icon-name", g_strdup(name.c_str()), g_free);
+		g_object_set_data(G_OBJECT(b), "wb-target", target);
+		g_signal_connect(b, "clicked", G_CALLBACK(+[](GtkButton *btn, gpointer) {
+			auto *t = static_cast<GtkWidget *>(g_object_get_data(G_OBJECT(btn), "wb-target"));
+			gtk_editable_set_text(GTK_EDITABLE(t), static_cast<const char *>(
+					g_object_get_data(G_OBJECT(btn), "wb-icon-name")));
+			if (GtkWidget *pop = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_POPOVER))
+				gtk_popover_popdown(GTK_POPOVER(pop));
+		}), nullptr);
+		gtk_flow_box_append(GTK_FLOW_BOX(grid), b);
+	}
+}
+
+/* "Choose…" beside an icon field: the theme's icons, searchable. */
+GtkWidget *icon_picker(GtkWidget *target) {
+	GtkWidget *button = gtk_menu_button_new();
+	gtk_menu_button_set_label(GTK_MENU_BUTTON(button), _("Choose\u2026"));
+	GtkWidget *pop = gtk_popover_new();
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+	GtkWidget *search = gtk_search_entry_new();
+	gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(search), _("Find an icon"));
+	gtk_box_append(GTK_BOX(box), search);
+	GtkWidget *scroll = gtk_scrolled_window_new();
+	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER,
+			GTK_POLICY_AUTOMATIC);
+	gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(scroll), 260);
+	gtk_scrolled_window_set_min_content_width(GTK_SCROLLED_WINDOW(scroll), 340);
+	GtkWidget *grid = gtk_flow_box_new();
+	gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(grid), GTK_SELECTION_NONE);
+	gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(grid), 8);
+	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), grid);
+	gtk_box_append(GTK_BOX(box), scroll);
+	gtk_popover_set_child(GTK_POPOVER(pop), box);
+	gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), pop);
+	g_object_set_data(G_OBJECT(search), "wb-grid", grid);
+	g_object_set_data(G_OBJECT(search), "wb-target", target);
+	g_object_set_data(G_OBJECT(pop), "wb-search", search);
+	g_object_set_data(G_OBJECT(button), "wb-search", search);
+	g_signal_connect(pop, "show", G_CALLBACK(+[](GtkWidget *p, gpointer) {
+		auto *s = static_cast<GtkWidget *>(g_object_get_data(G_OBJECT(p), "wb-search"));
+		auto *t = static_cast<GtkWidget *>(g_object_get_data(G_OBJECT(s), "wb-target"));
+		/* Starting from the icon's name as it is, so its likes show. */
+		std::string now = gtk_editable_get_text(GTK_EDITABLE(t));
+		std::string word = now.substr(0, now.find('-'));
+		gtk_editable_set_text(GTK_EDITABLE(s), word.c_str());
+		fill_icons(static_cast<GtkWidget *>(g_object_get_data(G_OBJECT(s), "wb-grid")), t, word);
+	}), nullptr);
+	g_signal_connect(search, "search-changed", G_CALLBACK(+[](GtkSearchEntry *s, gpointer) {
+		fill_icons(static_cast<GtkWidget *>(g_object_get_data(G_OBJECT(s), "wb-grid")),
+				static_cast<GtkWidget *>(g_object_get_data(G_OBJECT(s), "wb-target")),
+				gtk_editable_get_text(GTK_EDITABLE(s)));
+	}), nullptr);
+	return button;
+}
+
 /* ---- The editor under an entry ---- */
 
 GtkWidget *field(GtkSizeGroup *labels, const char *label, GtkWidget *w) {
@@ -382,6 +582,7 @@ GtkWidget *build_editor(Ui *ui, const wb::MenuEntry &e, const Path &p) {
 		g_object_set_data(G_OBJECT(box), "wb-icon", icon);
 		gtk_box_append(GTK_BOX(icons), preview);
 		gtk_box_append(GTK_BOX(icons), icon);
+		gtk_box_append(GTK_BOX(icons), icon_picker(icon));
 		gtk_box_append(GTK_BOX(box), field(labels, _("Icon"), icons));
 	}
 	switch (e.kind) {
@@ -649,6 +850,22 @@ void add_entry(Ui *ui, K kind) {
 	render(ui);
 }
 
+void add_app(Ui *ui, const wb::DesktopEntry &app) {
+	MenuState *st = ui->menu.get();
+	if (!st->doc)
+		return;
+	wb::MenuEntry e;
+	e.kind = K::Item;
+	e.label = app.name;
+	e.icon = app.icon;
+	e.actions = {{"Execute", {{"command", wb::desktop_entry_command(app, "$TERMINAL")}}, false}};
+	size_t n = current(st).children.size();
+	Step s{Step::Op::Insert, {}, {}, n, e, _("none"), entry_text(e, *st->doc)};
+	st->open = Path{n};
+	step(ui, s);
+	render(ui);
+}
+
 }  // namespace
 
 GtkWidget *build_menu_block(Ui *ui) {
@@ -687,6 +904,7 @@ GtkWidget *build_menu_block(Ui *ui) {
 	}
 	gtk_popover_set_child(GTK_POPOVER(pop), list);
 	gtk_menu_button_set_popover(GTK_MENU_BUTTON(add), pop);
+	gtk_box_append(GTK_BOX(foot), apps_button(ui));
 	gtk_box_append(GTK_BOX(foot), add);
 	GtkWidget *gap = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 	gtk_widget_set_hexpand(gap, TRUE);
@@ -788,6 +1006,17 @@ void menu_test_step(Ui *ui, const std::string &stp) {
 		g_signal_emit_by_name(st->undo, "clicked");
 		return;
 	}
+	if (verb == "menu-addapp") {
+		/* As if picked from the list: the first program named so. */
+		st->apps = installed_apps();
+		for (const wb::DesktopEntry &a : st->apps)
+			if (a.name == arg) {
+				add_app(ui, a);
+				return;
+			}
+		fprintf(stderr, "menu-addapp: no program %s\n", arg.c_str());
+		return;
+	}
 	if (verb == "menu-add") {
 		K k = arg == "separator" ? K::Separator : arg == "submenu" ? K::Submenu
 				: arg == "applications" ? K::Applications : arg == "pipe" ? K::Pipe : K::Item;
@@ -819,6 +1048,13 @@ void menu_test_step(Ui *ui, const std::string &stp) {
 			size_t eq2 = rest.find('=');
 			action_editor_set_option(ae, rest.substr(0, eq2), rest.substr(eq2 + 1));
 		}
+	} else if (verb == "menu-iconpick") {
+		/* The picker's first icon for what's typed, clicked. */
+		auto *icon = static_cast<GtkWidget *>(g_object_get_data(G_OBJECT(st->editor), "wb-icon"));
+		std::vector<std::string> found = theme_icons(rest, 1);
+		fprintf(stderr, "menu-iconpick:%s\n", found.empty() ? "" : found[0].c_str());
+		if (icon != nullptr && !found.empty())
+			gtk_editable_set_text(GTK_EDITABLE(icon), found[0].c_str());
 	} else if (verb == "menu-remove") {
 		for (GtkWidget *c = gtk_widget_get_last_child(st->editor); c != nullptr;
 				c = gtk_widget_get_prev_sibling(c))
