@@ -133,6 +133,11 @@ struct wb_config {
 	/* rc.xml <waybox><ipc enabled="yes"/>: the scripting socket. Off
 	 * unless set. */
 	bool ipc_enabled = true;  /* <ipc enabled="no"/> turns it off */
+	/* <activation focus="smart|always|never"/>: a window asking to be shown
+	 * (a link opened in the browser). smart: focused if it's on this desktop
+	 * and you asked (a click, a key); otherwise it, and its desktop, are
+	 * marked urgent. always: focused, its desktop shown. never: marked. */
+	enum class Activation { Smart, Always, Never } activation = Activation::Smart;
 
 	/* rc.xml <waybox><inputMethod command="fcitx5"><env name="XMODIFIERS"
 	 * value="@im=fcitx"/></inputMethod>: the input method (IBus, Fcitx5,

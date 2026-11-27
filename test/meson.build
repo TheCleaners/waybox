@@ -623,6 +623,17 @@ if python.found() and not get_option('tests_only')
     )
 
   # A window that tags itself (xdg-toplevel-tag).
+  activate_client = executable(
+    'activate_client',
+    [
+      'integration' / 'activate_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml),
+      wayland_scanner_client.process(wl_protocol_dir / 'staging/xdg-activation/xdg-activation-v1.xml'),
+      wayland_scanner_code.process(wl_protocol_dir / 'staging/xdg-activation/xdg-activation-v1.xml'),
+    ],
+    dependencies: [dependency('wayland-client')],
+  )
   tag_client = executable(
     'tag_client',
     [
@@ -860,6 +871,7 @@ if python.found() and not get_option('tests_only')
     ['window_state', 'window_state_test.py', [], 60],
     ['wlr_data_control', 'wlr_data_control_test.py', [wlr_dc_client], 60],
     ['workspace', 'workspace_test.py', [workspace_client], 60],
+    ['urgency', 'urgency_test.py', [activate_client, workspace_client], 60],
     ['xwayland', 'xwayland_test.py', [vpointer_client], 90],
   ]
   # wbconf is built only with GTK 4.

@@ -322,9 +322,22 @@ void new_managed(struct wb_server *server, struct wlr_xwayland_surface *xs) {
 		if (t->mapped)
 			set_toplevel_minimized(t, ev->minimize);
 	});
+	/* _NET_ACTIVE_WINDOW: X11 can't show what input was behind it, so
+	 * it's taken as the user's (as Sway does): focused on this desktop, on
+	 * another marked urgent (smart, the default); <activation> decides. */
 	t->request_activate.connect(&xs->events.request_activate, [t](void *) {
-		if (t->mapped)
-			focus_toplevel(t);
+		toplevel_request_activation(t, true);
+	});
+	/* WM_HINTS' urgency flag: urgent while it's set. */
+	t->set_hints.connect(&xs->events.set_hints, [t, xs](void *) {
+		bool want = xs->hints != nullptr &&
+				(xs->hints->flags & XCB_ICCCM_WM_HINT_X_URGENCY) != 0;
+		if (!t->mapped)
+			return;
+		struct wlr_surface *s = view_surface(t);
+		bool focused = s != nullptr &&
+				t->server->seat->seat->keyboard_state.focused_surface == s;
+		set_toplevel_urgent(t, want && !focused);
 	});
 	t->set_title.connect(&xs->events.set_title,
 			[t](void *) { toplevel_title_changed(t); });

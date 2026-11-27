@@ -259,6 +259,7 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
   <switcher order="mru" osd="yes" wrap="yes" icons="yes"/>
   <edgeTiling enabled="yes" range="10"/>
   <sessionRestore enabled="yes"/>
+  <activation focus="smart"/>
   <titlebar paddingY="2" buttonSize="0" resizeGrab="8"/>
   <virtualInput allow="unlocked"/>
   <xwayland enabled="yes"/>
@@ -296,6 +297,17 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 	where it will go. Dragging a tiled window away restores its size.
 	*range* is how close to the edge the pointer must be, in pixels. Only
 	outer edges count, not the edges between two monitors.
+
+*<activation focus="smart|always|never"/>*
+	A window asking to be shown (xdg-activation; X11's \_NET\_ACTIVE\_WINDOW),
+	as a browser does for a link opened in another program. *smart* (the
+	default): shown if it's on the current desktop and the request came
+	from your input (a click, a key; X11 requests count as yours);
+	otherwise marked urgent. *always*: shown, switching desktops (still
+	only for requests from your input). *never*: only marked. An urgent
+	window's desktop is urgent to panels (ext-workspace: Waybar colors
+	it) until the window is focused; *<If><urgent>* matches it, and
+	*get_windows* says so. An X11 window's urgency hint marks it too.
 
 *<sessionRestore>*
 	Programs that ask (xdg-session-management) get their windows back at

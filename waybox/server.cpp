@@ -415,14 +415,11 @@ bool wb_start_server(struct wb_server* server) {
 			[](void *data) {
 		auto *event =
 			static_cast<struct wlr_xdg_activation_v1_request_activate_event *>(data);
-		/* Only on behalf of the user: a token made from an input event (it
-		 * has a seat, and wlroots checked its serial), as when you click a
-		 * link or launch something. A program can't take the keyboard
-		 * (and switch desktops) on its own. */
-		if (event->token == nullptr || event->token->seat == nullptr) {
-			wlr_log(WLR_INFO, "%s", _("Ignoring an activation request not made from user input"));
-			return;
-		}
+		/* On behalf of the user: a token made from an input event (it has
+		 * a seat, and wlroots checked its serial), as when you click a link
+		 * or launch something. A program on its own can't take the
+		 * keyboard (or switch desktops): its window is marked urgent. */
+		bool from_user = event->token != nullptr && event->token->seat != nullptr;
 		struct wlr_xdg_surface *xdg_surface =
 			wlr_xdg_surface_try_from_wlr_surface(event->surface);
 		if (xdg_surface == NULL ||
@@ -433,7 +430,7 @@ bool wb_start_server(struct wb_server* server) {
 		struct wb_toplevel *toplevel =
 			toplevel_from_node(tree ? &tree->node : NULL);
 		if (toplevel != NULL)
-			focus_toplevel(toplevel);
+			toplevel_request_activation(toplevel, from_user);
 	});
 
 	server->gamma_control_manager =
