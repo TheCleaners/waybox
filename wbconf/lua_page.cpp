@@ -169,6 +169,9 @@ struct LuaPage {
 	bool syncing = false;
 	/* The program's command, as its row has it now (none: no row). */
 	std::function<std::string()> command;
+	/* Whether its program is used (started, or bound to a key) as the
+	 * window has it now: a page waiting for approval is said on saving. */
+	std::function<bool()> in_use;
 	std::map<std::string, std::string> options;  /* the command's, as opened */
 	std::vector<std::string> allowed;            /* Files= and what the command names */
 	guint refresh_source = 0;
@@ -662,6 +665,14 @@ struct LuaPage {
 	}
 
 	bool save(std::string *err) {
+		/* Still asking: nothing of the page's done, and said so (the
+		 * program itself starts as its row says, allowed or not). */
+		if (approval != nullptr) {
+			if (in_use && in_use())
+				ui->save_notes.push_back(in->name + _("'s settings page isn't allowed yet, so "
+						"its settings were left as they were."));
+			return true;
+		}
 		bool changed_any = false;
 		json::Object vals;
 		for (const auto &[k, v] : values()) {
@@ -852,6 +863,15 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 		gtk_box_append(GTK_BOX(list), permission_line("channel-secure-symbolic",
 				_("Nothing outside the page itself")));
 	gtk_box_append(GTK_BOX(card), list);
+	/* What allowing it is about, and what it isn't. */
+	gchar *scope = g_strdup_printf(_("This is only about the page: %s starts (or not) as "
+			"set here either way, allowed or not."), in.name.c_str());
+	GtkWidget *scope_label = gtk_label_new(scope);
+	g_free(scope);
+	gtk_label_set_xalign(GTK_LABEL(scope_label), 0);
+	gtk_label_set_wrap(GTK_LABEL(scope_label), TRUE);
+	gtk_widget_add_css_class(scope_label, "dim-label");
+	gtk_box_append(GTK_BOX(card), scope_label);
 
 	/* The script, to read before allowing it. */
 	GtkWidget *expander = gtk_expander_new(_("View the Script"));
@@ -897,9 +917,10 @@ void lua_page_command_changed(const std::shared_ptr<void> &page) {
 
 GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row) {
 	GtkEntry *cmd = row->command;
+	GtkSwitch *on = row->on;
 	GtkWidget *w = build_lua_page_for(ui, row->in, &row->page, [cmd] {
 		return std::string(gtk_editable_get_text(GTK_EDITABLE(cmd)));
-	});
+	}, [on] { return on != nullptr && gtk_switch_get_active(on); });
 	std::weak_ptr<LuaPage> weak = std::static_pointer_cast<LuaPage>(row->page);
 	row->page_refresh = [weak] {
 		if (auto p = weak.lock())
@@ -909,11 +930,13 @@ GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row) {
 }
 
 GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in_ptr,
-		std::shared_ptr<void> *holder, std::function<std::string()> command) {
+		std::shared_ptr<void> *holder, std::function<std::string()> command,
+		std::function<bool()> in_use) {
 	auto p = std::make_shared<LuaPage>();
 	p->ui = ui;
 	p->in = in_ptr;
 	p->command = std::move(command);
+	p->in_use = std::move(in_use);
 	p->self = p;
 	p->box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
 	p->error = GTK_LABEL(gtk_label_new(""));
