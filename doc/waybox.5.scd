@@ -248,6 +248,8 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 :[ server-side decorations on or off
 |  *<desktop>*
 :[ the desktop to open on (1, 2, ...), or *all*
+|  *<layer>*
+:[ *above* (always on top), *normal* or *below* (always on bottom)
 
 ## Waybox extensions
 
@@ -486,6 +488,15 @@ act on a window use the focused one.
 
 *ToggleOmnipresent*
 	Show the window on all desktops, or only the current one.
+
+*SendToTopLayer*, *SendToNormalLayer*, *SendToBottomLayer*
+	Put the window in a layer: always on top, with the others, or always on
+	bottom. Raising and lowering stay within a window's layer; panels stay
+	above all three, and the active fullscreen window above them.
+
+*ToggleAlwaysOnTop*, *ToggleAlwaysOnBottom*
+	Between that layer and the normal one. The window menu's *Layer*
+	submenu does the same.
 
 *SnapToEdge*
 	Tile the window: *<direction>* is *left*, *right*, *up* (maximize),

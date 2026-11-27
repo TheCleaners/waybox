@@ -126,9 +126,12 @@ static void update_tile_preview(struct wb_server *server) {
 		return;
 	wlr_scene_rect_set_size(server->tile_preview, r.width, r.height);
 	wlr_scene_node_set_position(&server->tile_preview->node, r.x, r.y);
-	if (toplevel->scene_tree->node.parent == server->toplevel_tree)
+	/* Just below the window, in its layer. */
+	if (toplevel->scene_tree->node.parent == toplevel_layer_tree(server, toplevel->layer)) {
+		wlr_scene_node_reparent(&server->tile_preview->node, toplevel->scene_tree->node.parent);
 		wlr_scene_node_place_below(&server->tile_preview->node,
 				&toplevel->scene_tree->node);
+	}
 	wlr_scene_node_set_enabled(&server->tile_preview->node, true);
 }
 

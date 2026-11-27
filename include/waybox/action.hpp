@@ -48,6 +48,11 @@ enum class ActionType {
 	GoToDesktop,
 	SendToDesktop,
 	ToggleOmnipresent,
+	/* Openbox's layers: <direction> (or the name) top, normal or bottom;
+	 * the toggles between that layer and normal. */
+	SendToLayer,
+	ToggleAlwaysOnTop,
+	ToggleAlwaysOnBottom,
 	SnapToEdge,
 	Move,
 	Resize,

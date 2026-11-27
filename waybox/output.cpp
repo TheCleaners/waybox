@@ -472,7 +472,8 @@ static void output_release_toplevels(struct wb_output *output) {
 		if (toplevel->fullscreen)
 			set_toplevel_fullscreen(toplevel, false);
 		if (toplevel->scene_tree->node.parent == output->layers.shell_fullscreen)
-			wlr_scene_node_reparent(&toplevel->scene_tree->node, server->toplevel_tree);
+			wlr_scene_node_reparent(&toplevel->scene_tree->node,
+					toplevel_layer_tree(server, toplevel->layer));
 	}
 }
 

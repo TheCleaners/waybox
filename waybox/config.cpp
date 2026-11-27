@@ -336,6 +336,15 @@ static void parse_app_rules(struct wb_config *config, xmlXPathContextPtr ctxt) {
 			rule.iconic = parse_bool(child_text(app, "iconic"));
 			rule.focus = parse_bool(child_text(app, "focus"));
 			rule.decor = parse_bool(child_text(app, "decor"));
+			if (const char *l = child_text(app, "layer")) {
+				std::string v = l;
+				if (v == "above" || v == "top")
+					rule.layer = 1;
+				else if (v == "below" || v == "bottom")
+					rule.layer = -1;
+				else if (v == "normal")
+					rule.layer = 0;
+			}
 			/* <desktop>N</desktop> (1-based) or "all"; anything else
 			 * (including Openbox's "current") leaves the default. */
 			if (const char *d = child_text(app, "desktop")) {

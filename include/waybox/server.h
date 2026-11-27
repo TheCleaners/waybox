@@ -83,6 +83,9 @@ struct wb_server {
 	 * (background, bottom) and upper (top, overlay) layer-shell trees so panels
 	 * like Waybar correctly render above ordinary windows. */
 	struct wlr_scene_tree *toplevel_tree;
+	/* Inside it, bottom to top: the always-below, normal and always-on-top
+	 * windows (Openbox's layers). */
+	struct wlr_scene_tree *toplevel_layers[3];
 	/* X11 override-redirect windows (menus, tooltips), above toplevels. */
 	struct wlr_scene_tree *unmanaged_tree = nullptr;
 	/* The icon of a drag-and-drop in progress, at the pointer, on top. */
