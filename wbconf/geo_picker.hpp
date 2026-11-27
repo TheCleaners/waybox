@@ -26,6 +26,8 @@ void geo_picker_refresh(GtkWidget *picker);
 std::string geo_picker_caption(GtkWidget *picker);
 void geo_picker_find(GtkWidget *picker, const std::string &query);
 void geo_picker_click(GtkWidget *picker, double fx, double fy);
+/* The crosshair clicked: the system asked (false: no portal to ask). */
+bool geo_picker_locate(GtkWidget *picker);
 /* The time zone's city taken, as its button does (false: no zone found). */
 bool geo_picker_use_zone(GtkWidget *picker);
 
