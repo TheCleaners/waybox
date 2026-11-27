@@ -6,9 +6,16 @@ catch, or when meson stops it (SIGTERM on a timeout). Otherwise it would
 keep running, orphaned, after a failed or timed-out test.
 """
 import atexit
+import os
 import signal
 import subprocess
 import sys
+
+# Run by hand inside a Waybox session too, a test's clients mustn't reach
+# that session's Waybox: its socket and pid go (each test sets its own
+# Waybox's where it needs them).
+os.environ.pop("WAYBOX_SOCK", None)
+os.environ.pop("WAYBOX_PID", None)
 
 _procs = []
 
