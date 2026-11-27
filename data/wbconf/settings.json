@@ -164,8 +164,14 @@
         { "id": "waybox.switcher.icons", "title": "Show window icons", "type": "bool", "default": "yes",
           "rc": { "path": "waybox/switcher", "attr": "icons" } },
         { "id": "waybox.switcher.close", "title": "Close windows from the switcher", "type": "bool", "default": "yes",
-          "description": "A close button on the selected row and the one under the pointer; Delete closes the selected window, Shift+Delete ends its program.",
-          "keywords": "kill quit x delete", "rc": { "path": "waybox/switcher", "attr": "close" } }
+          "description": "A close button on the selected row and the one under the pointer (Shift+click ends the program), and the two keys below.",
+          "keywords": "kill quit x delete", "rc": { "path": "waybox/switcher", "attr": "close" } },
+        { "id": "waybox.switcher.closeKey", "title": "Key to close the selected window", "type": "key", "default": "Delete",
+          "description": "While the switcher is up (its modifier still held). A window that doesn't close and doesn't respond either is marked so; pressed again then, the key ends its program. One that responds (asking to save, say) is only asked again.",
+          "keywords": "kill quit x delete shortcut", "rc": { "path": "waybox/switcher", "attr": "closeKey" } },
+        { "id": "waybox.switcher.killKey", "title": "Key to end the selected window's program", "type": "key", "default": "S-Delete",
+          "description": "While the switcher is up: the program ends at once, without asking (unsaved work is lost).",
+          "keywords": "kill force quit shortcut", "rc": { "path": "waybox/switcher", "attr": "killKey" } }
       ]
     },
     {

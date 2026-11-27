@@ -163,6 +163,8 @@ void wb_switcher_forget(struct wb_server *server, struct wb_toplevel *toplevel) 
 	if (server->switcher == nullptr)
 		return;
 	auto &wins = server->switcher_windows;
+	if (server->switcher->asked_to_close == toplevel)
+		server->switcher->asked_to_close = nullptr;
 	auto it = std::find(wins.begin(), wins.end(), toplevel);
 	if (it == wins.end())
 		return;
@@ -178,6 +180,54 @@ void wb_switcher_forget(struct wb_server *server, struct wb_toplevel *toplevel) 
 
 static void run_window_action(wb::ActionType type, struct wb_server *server,
 		struct wb_toplevel *t);
+
+/* From the switcher: `t` asked to close; asked again (still there), its
+ * program ended (Kill, whose own second time forces it); `kill`: ended at
+ * once. */
+static void switcher_close_window(struct wb_server *server, struct wb_toplevel *t, bool kill) {
+	/* Asked again, and it doesn't answer pings: hung, its program goes.
+	 * One that answers is only asked again: it may be asking to save. */
+	if (!kill && server->switcher->asked_to_close == t && t->not_responding)
+		kill = true;
+	wlr_log(WLR_INFO, "wb-switcher %s %s", kill ? "kill" : "close",
+			view_app_id(t) ? view_app_id(t) : "");
+	if (kill) {
+		run_window_action(wb::ActionType::Kill, server, t);
+	} else {
+		view_close(t);
+		toplevel_ping(t);  /* hung? (unanswered in 2.5 s: its row says so) */
+		server->switcher->asked_to_close = t;
+	}
+}
+
+void wb_switcher_note(struct wb_server *server, struct wb_toplevel *toplevel) {
+	if (server->switcher == nullptr)
+		return;
+	auto &wins = server->switcher_windows;
+	auto it = std::find(wins.begin(), wins.end(), toplevel);
+	if (it == wins.end())
+		return;
+	server->switcher->set_note(static_cast<int>(it - wins.begin()),
+			toplevel->not_responding ? _("not responding: close again to end it") : "");
+	outline_selected(server);
+}
+
+/* Whether `sym` with `modifiers` is the switcher key `spec` (rc.xml's
+ * syntax), the switcher's own modifier and the locks left out. */
+static bool switcher_key_is(struct wb_server *server, const std::string &spec, xkb_keysym_t sym,
+		uint32_t modifiers) {
+	if (spec.empty() || spec == "none")
+		return false;
+	uint32_t want_sym = 0, want_mods = 0;
+	wb_parse_key_combo(spec.c_str(), &want_sym, &want_mods);
+	if (want_sym == 0)
+		return false;
+	uint32_t mods = modifiers & ~(server->switcher_mods | WLR_MODIFIER_CAPS | WLR_MODIFIER_MOD2);
+	/* Delete and KP_Delete alike. */
+	if (sym == XKB_KEY_KP_Delete)
+		sym = XKB_KEY_Delete;
+	return wb::keysym_fold_case(sym) == wb::keysym_fold_case(want_sym) && mods == want_mods;
+}
 
 bool wb_switcher_click(struct wb_server *server, double x, double y, uint32_t button,
 		bool pressed) {
@@ -195,12 +245,7 @@ bool wb_switcher_click(struct wb_server *server, double x, double y, uint32_t bu
 	if (h.close) {
 		struct wlr_keyboard *kb = wlr_seat_get_keyboard(server->seat->seat);
 		bool kill = kb != nullptr && (wlr_keyboard_get_modifiers(kb) & WLR_MODIFIER_SHIFT);
-		wlr_log(WLR_INFO, "wb-switcher %s %s", kill ? "kill" : "close",
-				view_app_id(t) ? view_app_id(t) : "");
-		if (kill)
-			run_window_action(wb::ActionType::Kill, server, t);
-		else
-			view_close(t);
+		switcher_close_window(server, t, kill);
 		return true;
 	}
 	server->switcher->select(h.row);
@@ -306,7 +351,7 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 	std::vector<wb::SwitcherWidget::Entry> rows;
 	rows.reserve(wins.size());
 	for (struct wb_toplevel *w : wins)
-		rows.push_back({toplevel_label(w), w->icon});
+		rows.push_back({toplevel_label(w), w->icon, ""});
 	widget->open(std::move(rows), sel);
 
 	server->switcher_windows = std::move(wins);
@@ -1192,23 +1237,19 @@ void wb_keyboard::on_key(void *data) {
 					wb_switcher_commit(server);
 					break;
 				}
-				/* Delete: the selected window asked to close; Shift+Delete:
-				 * its program ended (Kill). The switcher stays: the row goes
-				 * when the window does. */
-				if ((s == XKB_KEY_Delete || s == XKB_KEY_KP_Delete) &&
-						server->switcher->can_close()) {
-					int sel = server->switcher->selected();
-					if (sel >= 0 && sel < static_cast<int>(server->switcher_windows.size())) {
-						struct wb_toplevel *t = server->switcher_windows[sel];
-						bool kill = modifiers & WLR_MODIFIER_SHIFT;
-						wlr_log(WLR_INFO, "wb-switcher %s %s", kill ? "kill" : "close",
-								view_app_id(t) ? view_app_id(t) : "");
-						if (kill)
-							run_window_action(wb::ActionType::Kill, server, t);
-						else
-							view_close(t);
+				/* Its keys (<switcher closeKey killKey>, Delete and
+				 * Shift+Delete): the selected window asked to close (again:
+				 * its program ended), or its program ended. The switcher
+				 * stays: the row goes when the window does. */
+				if (server->switcher->can_close()) {
+					const wb::SwitcherBehavior &b = server->switcher->behavior();
+					bool kill = switcher_key_is(server, b.kill_key, s, modifiers);
+					if (kill || switcher_key_is(server, b.close_key, s, modifiers)) {
+						int sel = server->switcher->selected();
+						if (sel >= 0 && sel < static_cast<int>(server->switcher_windows.size()))
+							switcher_close_window(server, server->switcher_windows[sel], kill);
+						break;
 					}
-					break;
 				}
 				if (s == XKB_KEY_Tab || s == XKB_KEY_ISO_Left_Tab) {
 					bool reverse = (s == XKB_KEY_ISO_Left_Tab) ||

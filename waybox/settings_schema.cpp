@@ -48,6 +48,7 @@ SettingType type_of(const std::string &t) {
 	if (t == "lines") return SettingType::Lines;
 	if (t == "color") return SettingType::Color;
 	if (t == "custom") return SettingType::Custom;
+	if (t == "key") return SettingType::Key;  /* a key, captured (rc.xml's syntax) */
 	return SettingType::String;
 }
 

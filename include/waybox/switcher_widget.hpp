@@ -43,6 +43,7 @@ public:
 	struct Entry {
 		std::string label;
 		cairo_surface_t *icon = nullptr;
+		std::string note;  /* after the title, dimmed ("not responding") */
 	};
 
 	/* Build the OSD from the windows' entries and place it centred, with
@@ -63,6 +64,8 @@ public:
 		bool close = false;
 	};
 	Hit hit(double lx, double ly) const;
+	/* Row `i`'s note (after its title). */
+	void set_note(int i, const std::string &note);
 	/* Select row `i` (a click on it). */
 	void select(int i);
 
@@ -72,6 +75,10 @@ public:
 	int selected() const { return selected_; }
 	/* Whether windows may be closed from it (<switcher close>). */
 	bool can_close() const { return behavior_.close; }
+	const SwitcherBehavior &behavior() const { return behavior_; }
+	/* The window last asked to close from it: asked again (the key or
+	 * its x, the window still there), its program is ended. */
+	const void *asked_to_close = nullptr;
 	/* Above everything again (after the outline was drawn). */
 	void raise();
 

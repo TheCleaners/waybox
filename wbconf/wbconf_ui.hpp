@@ -453,6 +453,11 @@ struct Ui {
 		GtkDropDown *dropdown = nullptr;
 		GtkEntry *entry = nullptr;
 		GtkTextView *text = nullptr;
+		/* Key: a button showing the key, which captures the next one
+		 * pressed; the value as rc.xml writes it ("none": no key). */
+		GtkButton *key = nullptr;
+		std::string key_value;
+		bool capturing = false;
 		std::unique_ptr<ColorControl> color;  /* type color */
 		std::unique_ptr<FontControl> font;
 		bool updating = false;                /* setting the control from code */

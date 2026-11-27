@@ -99,6 +99,7 @@ def main():
                 DBUS_SESSION_BUS_ADDRESS="disabled:",  # never the user's wbconf
                 WBCONF_SCHEMA_DIR=schema, WAYBOX_PID=str(proc.pid),
                 WBCONF_TEST_SET="waybox.xwayland.enabled=no;"
+                                "waybox.switcher.closeKey=x;"
                                 "desktops.number=6;"
                                 "desktops.perMonitor=yes;"
                                 "mouse.libinput.naturalScroll=;"
@@ -122,6 +123,8 @@ def main():
             failures.append("a changed setting wasn't written")
         if "<number>6</number>" not in out:
             failures.append("a new setting wasn't written")
+        if not re.search(r'<switcher [^>]*closeKey="x"', out):
+            failures.append("the switcher's close key wasn't written")
         if "<perMonitor>yes</perMonitor>" not in out:
             failures.append("desktops per monitor wasn't written")
         if "naturalScroll" in out or "<mouse>" in out:
@@ -132,10 +135,12 @@ def main():
         if not re.search(r'<inputMethod command="fcitx5 --replace">\s*'
                          r'<env name="XMODIFIERS" value="@im=fcitx"/>', out):
             failures.append("the input method wasn't written")
-        for kept in ("<!-- my own notes -->", "<name>Clearlooks</name>",
-                     '<switcher icons="no"/>'):
+        for kept in ("<!-- my own notes -->", "<name>Clearlooks</name>"):
             if kept not in out:
                 failures.append(f"{kept!r} wasn't kept as it was")
+        # (closeKey set beside it, icons="no" kept.)
+        if not re.search(r'<switcher icons="no"[^>]*/>', out):
+            failures.append("<switcher icons=\"no\"> wasn't kept")
         if not os.path.exists(rc_path + ".bak") or open(rc_path + ".bak").read() != RC:
             failures.append("no backup of the previous rc.xml")
         log.flush()
