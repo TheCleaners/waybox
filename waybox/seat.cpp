@@ -1316,9 +1316,28 @@ static void handle_new_keyboard(struct wb_server *server,
 		delete keyboard;
 	});
 
-	wlr_seat_set_keyboard(server->seat->seat, keyboard->keyboard);
+	/* The seat's keyboard (its keys and modifiers go with focus): not a
+	 * virtual one <virtualInput> blocks now. */
+	if (!wb_input_blocked(server, device))
+		wlr_seat_set_keyboard(server->seat->seat, keyboard->keyboard);
 
 	wl_list_insert(&server->seat->keyboards, &keyboard->link);
+}
+
+void seat_recheck_keyboard(struct wb_server *server) {
+	struct wlr_keyboard *now = wlr_seat_get_keyboard(server->seat->seat);
+	if (now == nullptr || !wb_input_blocked(server, &now->base))
+		return;
+	/* A blocked one (a virtual keyboard, the screen locked): the first
+	 * keyboard allowed, or none, so focus doesn't carry its state. */
+	struct wlr_keyboard *pick = nullptr;
+	struct wb_keyboard *k;
+	wl_list_for_each(k, &server->seat->keyboards, link)
+		if (pick == nullptr && !wb_input_blocked(server, &k->keyboard->base))
+			pick = k->keyboard;
+	wlr_seat_set_keyboard(server->seat->seat, pick);
+	wlr_log(WLR_INFO, "wb-seat keyboard: a blocked one let go (now %s)",
+			pick != nullptr ? "another" : "none");
 }
 
 #ifdef HAS_LIBINPUT

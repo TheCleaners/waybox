@@ -19,7 +19,12 @@ an application with a text field:
 
 Skips (exit 77) without wtype, grim or magick, or a headless display.
 
-Usage: input_method_test.py <waybox> <ime_client> <text_input_client>
+7. Locked, with a locker that uses text-input-v3: the input method isn't
+   activated for the lock screen and never sees its text, the locker's
+   text input isn't entered; unlocked, the application's text field has it
+   again.
+
+Usage: input_method_test.py <waybox> <ime_client> <text_input_client> <lock_client>
 """
 import os
 import queue
@@ -91,10 +96,10 @@ class Client:
 
 
 def main():
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 5:
         print(__doc__)
         sys.exit(2)
-    waybox, ime_bin, app_bin = sys.argv[1:]
+    waybox, ime_bin, app_bin, lock_bin = sys.argv[1:]
     for tool in ("wtype", "grim", "magick"):
         if shutil.which(tool) is None:
             print(f"SKIP: {tool} not found", file=sys.stderr)
@@ -207,6 +212,21 @@ def main():
              "-opaque", "#ff0000", "-format", "%[fx:int(mean*w*h+0.5)]", "info:"],
             capture_output=True, text=True).stdout.strip()
         expect(red == str(200 * 100), f"the popup isn't fully on screen ({red} red pixels)")
+
+        # 7. Locked by a locker using text-input-v3: no input method for it.
+        locker = Client([lock_bin], dict(cenv, LOCK_TEXT_INPUT="1"))
+        clients.append(locker)
+        expect(locker.wait_for("^locked$") is not None, "the locker didn't lock")
+        during = ime.collect(1.0)
+        locker_saw = locker.collect(0.5)
+        expect("activate" not in during and not any("secret" in l for l in during),
+               f"the input method was activated for the lock screen: {during}")
+        expect("ti-enter" not in locker_saw,
+               f"the locker's text input was entered while locked: {locker_saw}")
+        locker.send("unlock")
+        locker.proc.wait(timeout=5)
+        expect(ime.wait_for("^activate$") is not None,
+               "after unlocking, the application's text field didn't get the input method back")
 
         # 1. A second input method (last: its virtual keyboard would become
         # the seat's keyboard, and the grab check above needs the first's).

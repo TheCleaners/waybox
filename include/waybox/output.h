@@ -41,6 +41,7 @@ struct wb_output {
 
 	wb::Listener destroy;
 	wb::Listener frame;
+	wb::Listener present;
 	wb::Listener request_state;
 
 	struct wl_list link;

@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <memory>
 #include <set>
+#include <optional>
+#include <map>
 #include <vector>
 
 #include "waybox/cursor.h"
@@ -55,7 +57,13 @@ struct wb_session_lock_state {
 	bool locked = false;
 	struct wlr_session_lock_v1 *lock = nullptr;
 	bool locked_sent = false;
-	std::set<struct wlr_output *> awaiting_frame;
+	/* Outputs yet to show a locked frame: each with its lock frame's commit
+	 * (once it committed one); "locked" waits for each one's presentation,
+	 * not just its commit (ext-session-lock-v1: a lock, then a suspend
+	 * right away, mustn't race the first locked frame). `shown_locked`:
+	 * those that have, so one isn't waited for twice. */
+	std::map<struct wlr_output *, std::optional<uint32_t>> awaiting_frame;
+	std::set<struct wlr_output *> shown_locked;
 
 	std::vector<std::unique_ptr<LockSurface>> surfaces;
 
@@ -163,6 +171,14 @@ void session_lock_arrange(struct wb_server *server) {
 	}
 	for (auto &s : st->surfaces)
 		position_surface(st, s.get());
+	/* An output enabled while "locked" is still to be sent: it must show
+	 * the lock too before it is. */
+	if (st->lock != nullptr && !st->locked_sent)
+		wl_list_for_each(output, &server->outputs, link)
+			if (output->wlr_output->enabled &&
+					wlr_scene_get_scene_output(server->scene, output->wlr_output) &&
+					!st->shown_locked.count(output->wlr_output))
+				st->awaiting_frame.emplace(output->wlr_output, std::nullopt);
 }
 
 static void maybe_send_locked(struct wb_session_lock_state *st) {
@@ -176,7 +192,25 @@ void session_lock_output_frame(struct wb_output *output) {
 	struct wb_session_lock_state *st = state_of(output->server);
 	if (st == nullptr || st->lock == nullptr || st->locked_sent)
 		return;
-	st->awaiting_frame.erase(output->wlr_output);
+	/* Committed (the blanking in it): its number, to match the
+	 * presentation of it. */
+	auto it = st->awaiting_frame.find(output->wlr_output);
+	if (it != st->awaiting_frame.end() && !it->second)
+		it->second = output->wlr_output->commit_seq;
+}
+
+void session_lock_output_present(struct wb_output *output,
+		const struct wlr_output_event_present *event) {
+	struct wb_session_lock_state *st = state_of(output->server);
+	if (st == nullptr || st->lock == nullptr || st->locked_sent)
+		return;
+	auto it = st->awaiting_frame.find(output->wlr_output);
+	if (it == st->awaiting_frame.end() || !it->second || event->commit_seq < *it->second)
+		return;
+	/* That frame (or a later one) shown, or not shown at all (the session
+	 * isn't on this seat's displays: nothing of it is visible either). */
+	st->awaiting_frame.erase(it);
+	st->shown_locked.insert(output->wlr_output);
 	maybe_send_locked(st);
 }
 
@@ -208,6 +242,10 @@ static void begin_lock(struct wb_session_lock_state *st) {
 	wlr_seat_pointer_clear_focus(server->seat->seat);
 
 	st->locked = true;
+	/* Locked: a virtual keyboard <virtualInput> now blocks isn't the
+	 * seat's keyboard (its keys and modifiers would go with focus to the
+	 * lock screen). */
+	seat_recheck_keyboard(server);
 	wlr_scene_node_set_enabled(&st->tree->node, true);
 	session_lock_keep_on_top(server);
 	session_lock_arrange(server);
@@ -219,6 +257,7 @@ static void end_lock(struct wb_session_lock_state *st) {
 	st->locked = false;
 	st->surfaces.clear();
 	st->awaiting_frame.clear();
+	st->shown_locked.clear();
 	wlr_scene_node_set_enabled(&st->tree->node, false);
 
 	if (server->seat->focused_layer != nullptr) {
@@ -292,6 +331,7 @@ static void handle_new_lock(struct wb_session_lock_state *st,
 		st->lock = nullptr;
 		st->surfaces.clear();
 		st->awaiting_frame.clear();
+		st->shown_locked.clear();
 		if (st->locked) {
 			wlr_log(WLR_ERROR, "%s", _("Session locker exited without unlocking; "
 					"the session stays locked until a new locker unlocks it"));
@@ -313,7 +353,7 @@ static void handle_new_lock(struct wb_session_lock_state *st,
 		/* Only outputs that draw frames (enabled, in the layout). */
 		if (output->wlr_output->enabled &&
 				wlr_scene_get_scene_output(st->server->scene, output->wlr_output))
-			st->awaiting_frame.insert(output->wlr_output);
+			st->awaiting_frame.emplace(output->wlr_output, std::nullopt);
 	}
 	maybe_send_locked(st);
 }
@@ -356,5 +396,6 @@ void session_lock_output_gone(struct wb_server *server, struct wlr_output *outpu
 	/* An output unplugged or turned off before its first locked frame must
 	 * not hold back "locked" for ever. */
 	st->awaiting_frame.erase(output);
+	st->shown_locked.erase(output);
 	maybe_send_locked(st);
 }

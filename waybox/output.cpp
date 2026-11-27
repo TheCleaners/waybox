@@ -541,6 +541,10 @@ void new_output_notify(struct wb_server *server, void *data) {
 
 	output->frame.connect(&wlr_output->events.frame,
 			[output](void *data) { output->on_frame(data); });
+	output->present.connect(&wlr_output->events.present, [output](void *data) {
+		session_lock_output_present(output,
+				static_cast<struct wlr_output_event_present *>(data));
+	});
 	output->request_state.connect(&wlr_output->events.request_state,
 			[output](void *data) { output->on_request_state(data); });
 	output->destroy.connect(&wlr_output->events.destroy, [output](void *data) {

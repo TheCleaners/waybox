@@ -138,6 +138,7 @@ void wb_reconfigure(struct wb_server *server) {
 	startup_apply(server);     /* <startup>: start, stop what changed */
 	idle_reconfigured(server); /* <idle>: the new timeout counts from now */
 	wlr_log(WLR_INFO, "%s", _("Reconfigured"));
+	seat_recheck_keyboard(server);  /* <virtualInput> may have changed */
 }
 
 /* Colour management (color-management-v1, color-representation-v1): clients
