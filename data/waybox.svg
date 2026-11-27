@@ -1,14 +1,24 @@
 <?xml version="1.0" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
   "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="48px" width="48px">
-  <desc>Waybox icon</desc>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="48px" width="48px"
+     viewBox="0 0 48 48">
+  <desc>Waybox icon: a window, its name in it</desc>
   <defs>
     <linearGradient id="titlegradient" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#589bda" />
-        <stop offset="100%" stop-color="#3c7cb7" />
+      <stop offset="0%" stop-color="#589bda" />
+      <stop offset="100%" stop-color="#3c7cb7" />
     </linearGradient>
+    <linearGradient id="markgradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4a8ccc" />
+      <stop offset="100%" stop-color="#2f6aa3" />
+    </linearGradient>
+    <mask id="counters">
+      <rect width="48" height="48" fill="white"/>
+      <g fill="black"><rect x="11.5" y="24.2" width="3.1" height="10.7" rx="1.5"/><rect x="17.4" y="24.2" width="3.1" height="10.7" rx="1.5"/><rect x="32.7" y="29.1" width="3.6" height="7.3" rx="1.8"/></g>
+    </mask>
   </defs>
   <rect height="10" width="48" x="0" y="0" fill="url(#titlegradient)" />
   <rect height="38" width="48" x="0" y="10" fill="#eaeaea" />
+  <g fill="url(#markgradient)" mask="url(#counters)"><rect x="7.1" y="25.7" width="17.7" height="14.2" rx="4.5"/><rect x="26.3" y="19.3" width="5.1" height="13.4" rx="2.5"/><rect x="26.3" y="25.7" width="14.4" height="14.2" rx="4.8"/></g>
 </svg>
