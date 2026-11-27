@@ -466,11 +466,40 @@ void startup_finish(struct wb_server *server) {
 	struct wb_startup_state *st = server->startup;
 	if (st == nullptr)
 		return;
+	/* Every group Waybox started ends with it: SIGTERM, up to 1.5 s for
+	 * them to go, then SIGKILL to what's left; each leader kept unreaped
+	 * till then, so that the group's id is still its own. */
+	std::vector<pid_t> leaders = st->stopping;
 	for (auto &p : st->programs) {
 		if (p->pid > 0)
-			kill(-p->pid, SIGTERM);
-		for (pid_t h : p->held)
-			kill(-h, SIGTERM);
+			leaders.push_back(p->pid);
+		leaders.insert(leaders.end(), p->held.begin(), p->held.end());
+	}
+	for (pid_t l : leaders)
+		if (kill(-l, SIGTERM) != 0)
+			kill(l, SIGTERM);
+	for (int64_t until = now_ms() + 1500; !leaders.empty() && now_ms() < until;) {
+		leaders.erase(std::remove_if(leaders.begin(), leaders.end(), release_if_done),
+				leaders.end());
+		if (!leaders.empty())
+			usleep(20 * 1000);
+	}
+	for (pid_t l : leaders) {
+		wlr_log(WLR_INFO, "wb-startup kill %d (exiting)", l);
+		if (kill(-l, SIGKILL) != 0)
+			kill(l, SIGKILL);
+	}
+	/* Reaped once exited (killed, at once unless stuck in the kernel; not
+	 * waited on past 0.5 s more). */
+	for (int64_t until = now_ms() + 500; !leaders.empty() && now_ms() < until;) {
+		leaders.erase(std::remove_if(leaders.begin(), leaders.end(), [](pid_t l) {
+			if (!exited(l))
+				return false;
+			reap(l);
+			return true;
+		}), leaders.end());
+		if (!leaders.empty())
+			usleep(20 * 1000);
 	}
 	if (st->held_timer != nullptr)
 		wl_event_source_remove(st->held_timer);

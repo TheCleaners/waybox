@@ -14,7 +14,7 @@
    (no zombie left behind).
 3. A program killed is started again.
 4. When Waybox exits, the programs it started end, and what a program
-   that exited left running.
+   that exited left running, even what ignores SIGTERM.
 5. Without <startup>, nothing is started.
 
 Usage: startup_programs_test.py <waybox>
@@ -71,6 +71,7 @@ def main():
     left_pid = os.path.join(workdir, "left.pid")
     kept_pid = os.path.join(workdir, "kept.pid")
     stubborn_pid = os.path.join(workdir, "stubborn.pid")
+    stubborn2_pid = os.path.join(workdir, "stubborn2.pid")
 
     def write_rc(programs):
         body = "\n".join(
@@ -179,6 +180,8 @@ def main():
             ("crashy", "exec sleep 1002", ""),
             ("keeper", f"sleep 1004 &amp; echo $! &gt; {kept_pid}", ""),
             ("brief", "sleep 2 &amp;", ""),  # kept: reaped by the supervisor's own look
+            # Still configured when Waybox exits: killed then.
+            ("stubborn2", f"(trap '' TERM; exec sleep 1006) &amp; echo $! &gt; {stubborn2_pid}", ""),
         ])
         proc.send_signal(signal.SIGUSR2)
         time.sleep(1.0)
@@ -232,7 +235,15 @@ def main():
     finally:
         stop(proc, log)
 
-    # 4. Exiting ends them.
+    # 4. Exiting ends them, one ignoring SIGTERM too.
+    try:
+        stubborn2 = int(open(stubborn2_pid).read().strip())
+    except (OSError, ValueError):
+        stubborn2 = None
+        failures.append("the second stubborn program's background process didn't start")
+    if stubborn2 is not None and alive(stubborn2):
+        failures.append("what a program left running, ignoring SIGTERM, outlived waybox")
+        os.kill(stubborn2, signal.SIGKILL)
     time.sleep(0.5)
     left = [p for name in ("later", "crashy") for p in pids(lp, name)[-1:] if alive(p)]
     if kept is not None and alive(kept):
