@@ -678,8 +678,10 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		break;
 	}
 	case wb::ActionType::SendToDesktop: {
+		/* Any mapped window, minimized or on another desktop too (as in
+		 * Openbox): only where it lives changes. */
 		struct wb_toplevel *toplevel = action_target(server);
-		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled)
+		if (toplevel == nullptr || !toplevel->mapped)
 			break;
 		if (auto target = wb::desktop_target(action.to,
 				server->current_desktop, server->last_desktop,
@@ -691,7 +693,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 	case wb::ActionType::ToggleAlwaysOnTop:
 	case wb::ActionType::ToggleAlwaysOnBottom: {
 		struct wb_toplevel *toplevel = action_target(server);
-		if (toplevel == nullptr || !toplevel->scene_tree->node.enabled)
+		if (toplevel == nullptr || !toplevel->mapped)
 			break;
 		int layer = 0;
 		if (action.type == wb::ActionType::ToggleAlwaysOnTop)
@@ -782,7 +784,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		break;
 	case wb::ActionType::ToggleOmnipresent: {
 		struct wb_toplevel *toplevel = action_target(server);
-		if (toplevel && toplevel->scene_tree->node.enabled)
+		if (toplevel && toplevel->mapped)
 			wb_toggle_omnipresent(toplevel);
 		break;
 	}
