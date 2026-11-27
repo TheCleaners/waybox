@@ -296,7 +296,9 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 	right and top to bottom); Alt+Tab goes to the next window in that order.
 	*osd*: show the list while the modifier is held (otherwise, switch at
 	once). *wrap*: cycling wraps at the ends. *icons*: each window's icon
-	beside its title (default *yes*).
+	beside its title (default *yes*). While the list is shown, the window
+	it would pick is outlined (white, black, white, 6 px around its frame,
+	as Openbox's).
 
 *<edgeTiling>*
 	Dragging a window to a monitor edge tiles it: the left or right half,
@@ -663,8 +665,10 @@ Openbox themes work as they are.
 The on-screen displays use Openbox's *osd.\** keys where a theme has them:
 *osd.bg* (and its *.color*, *.colorTo*), *osd.border.width*,
 *osd.border.color*, *osd.label.text.color* (or
-*osd.inactive.label.text.color*), and for the switcher's selected row
-*osd.hilight.bg* and *osd.active.label.text.color*. What a theme leaves
+*osd.inactive.label.text.color*), for the switcher's selected row
+*osd.hilight.bg* and *osd.active.label.text.color*, and for the desktop
+popup's squares *osd.hilight.bg* (the desktop shown) and
+*osd.unhilight.bg* (the others; else the panel's background). What a theme leaves
 out comes from its menu: *menu.items.bg*, *menu.items.text.color*,
 *menu.items.active.bg*, the border, *waybox.menu.corner.radius* and
 *waybox.menu.opacity*. *<osd>* in rc.xml goes over both.

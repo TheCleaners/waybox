@@ -5,6 +5,7 @@
  * class only renders and tracks the selected index.
  */
 #include "waybox/switcher_widget.hpp"
+#include "waybox/cycle_outline.hpp"
 
 #include <algorithm>
 
@@ -23,6 +24,10 @@ SwitcherWidget::SwitcherWidget(struct wb_server *server,
 	wlr_scene_node_raise_to_top(&tree_->node);
 	session_lock_keep_on_top(server_);
 	text_height_ = measure_text("Ag", style_.item_text.font).height;
+}
+
+void SwitcherWidget::raise() {
+	wlr_scene_node_raise_to_top(&tree_->node);
 }
 
 SwitcherWidget::~SwitcherWidget() {

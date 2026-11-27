@@ -28,6 +28,8 @@ namespace wb {
  * release. The widget grabs the keyboard while it exists so Tab/Shift+Tab,
  * Escape and Return never reach clients.
  */
+class CycleOutline;
+
 class SwitcherWidget {
 public:
 	SwitcherWidget(struct wb_server *server, const SwitcherStyle &style,
@@ -52,6 +54,12 @@ public:
 	void select_prev();  /* retreat one entry (wraps if behavior.wrap) */
 
 	int selected() const { return selected_; }
+	/* Above everything again (after the outline was drawn). */
+	void raise();
+
+	/* The outline around the selected window (Openbox's focus cycle
+	 * indicator): set by whoever cycles, gone with the switcher. */
+	std::unique_ptr<CycleOutline> outline;
 	std::size_t size() const { return entries_.size(); }
 	bool empty() const { return entries_.empty(); }
 
