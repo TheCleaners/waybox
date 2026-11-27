@@ -1078,6 +1078,12 @@ gboolean toc_step(gpointer data) {
 		/* "luapage-dump:ID|KEY=VALUE[!PROBLEM][(hidden)]...|error:..." */
 		std::string id = step.substr(8);
 		fprintf(stderr, "luapage-dump:%s%s\n", id.c_str(), lua_page_dump(ui, id).c_str());
+	} else if (step.rfind("pagefold:", 0) == 0) {
+		/* "pagefold:ID" -> "pagefold:ID|open|folded|hidden" */
+		std::string id = step.substr(9);
+		fprintf(stderr, "pagefold:%s|%s\n", id.c_str(), lua_page_fold(ui, id).c_str());
+	} else if (step == "pages-open" || step == "pages-folded") {
+		set_lua_pages_open(ui, step == "pages-open");
 	} else if (step.rfind("luaset:", 0) == 0) {
 		/* "luaset:ID.KEY=VALUE" (or ID.click=KEY), timed as the steps are. */
 		std::string rest = step.substr(7);
