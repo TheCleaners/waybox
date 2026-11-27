@@ -88,6 +88,7 @@ void on_save(GtkButton *, gpointer data) {
 	}
 	doc->apply(now, base);
 	apply_bindings(ui, *doc);
+	apply_shortcuts(ui, *doc);
 	std::string err;
 	if (!doc->save_file(path, &err)) {
 		set_status(ui, std::string(_("Not saved: ")) + err);
@@ -106,6 +107,7 @@ void on_save(GtkButton *, gpointer data) {
 	ui->shown = shown_settings(ui);
 	rows_saved(ui);
 	bindings_saved(ui);
+	populate_shortcuts(ui, &*doc);  /* the bindings as written */
 	if (!save_sources(ui, &err)) {
 		refresh_save_state(ui);
 		set_status(ui, std::string(_("Saved rc.xml, but not the autostart changes: ")) + err);

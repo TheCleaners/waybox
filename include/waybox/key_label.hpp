@@ -20,6 +20,15 @@ std::string event_label(std::string_view event);
 /* A mouse context: "Titlebar", "the desktop" (Root), "a window" (Client). */
 std::string context_label(std::string_view context);
 
+/* A key pressed, as rc.xml writes it: the modifiers held, then the key's
+ * name (xkb's, as gdk_keyval_name gives it): {super, shift}, "Left" ->
+ * "W-S-Left"; one letter is lowercase ("W-d", not "W-D"). Empty for a
+ * modifier on its own (Shift_L, Super_R, ...): not a key to bind yet. */
+struct HeldModifiers {
+	bool super = false, alt = false, ctrl = false, shift = false;
+};
+std::string rc_key(const HeldModifiers &held, std::string_view key_name);
+
 }  // namespace wb
 
 #endif /* WB_KEY_LABEL_HPP */

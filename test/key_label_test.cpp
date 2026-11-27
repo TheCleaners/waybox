@@ -25,3 +25,25 @@ WB_TEST(buttons_events_contexts) {
 	WB_CHECK(wb::context_label("Client") == "Window");
 	WB_CHECK(wb::context_label("Close") == "Close");
 }
+
+WB_TEST(rc_key_from_a_press) {
+	wb::HeldModifiers super_shift;
+	super_shift.super = true;
+	super_shift.shift = true;
+	WB_CHECK(wb::rc_key(super_shift, "Left") == "W-S-Left");
+	wb::HeldModifiers ctrl_alt;
+	ctrl_alt.ctrl = true;
+	ctrl_alt.alt = true;
+	WB_CHECK(wb::rc_key(ctrl_alt, "Delete") == "C-A-Delete");
+	wb::HeldModifiers super;
+	super.super = true;
+	/* A letter as rc.xml writes it, whatever case the keyval had. */
+	WB_CHECK(wb::rc_key(super, "D") == "W-d");
+	WB_CHECK(wb::rc_key(super, "d") == "W-d");
+	WB_CHECK(wb::rc_key({}, "F2") == "F2");
+	/* A modifier on its own isn't a key yet. */
+	WB_CHECK(wb::rc_key(super, "Super_L").empty());
+	WB_CHECK(wb::rc_key({}, "Shift_R").empty());
+	/* And what's written reads back as the caps pressed. */
+	WB_CHECK(wb::key_caps(wb::rc_key(super_shift, "Left")) == (V{"Super", "Shift", "←"}));
+}

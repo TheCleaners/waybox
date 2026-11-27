@@ -201,6 +201,8 @@ std::string option_field_value(const OptionField &f);
 /* Show `value` (from the command), without calling on_change. */
 void set_option_field_value(OptionField &f, const std::string &value);
 
+struct ShortcutEdit;  /* shortcuts_page.cpp */
+
 struct Ui {
 	/* Built and shown: a switch changing now is the user's (or a test's). */
 	bool ready = false;
@@ -386,7 +388,14 @@ struct Ui {
 	/* The Shortcuts page's two lists. */
 	GtkWidget *shortcut_keys = nullptr;
 	GtkWidget *shortcut_mouse = nullptr;
-	/* Its rows as text, for tests: "key|W-d|Show the desktop|Desktops". */
+	GtkWidget *shortcut_add = nullptr;
+	GtkSizeGroup *shortcut_column = nullptr;  /* the keys' column */
+	/* Each key binding as saved and as it is now (shared_ptr: the type is
+	 * the page's own). */
+	std::vector<std::shared_ptr<ShortcutEdit>> shortcut_edits;
+	ShortcutEdit *capturing = nullptr;  /* whose keys are being pressed */
+	GtkEventController *capture_keys = nullptr;
+	/* The mouse rows as text, for tests. */
 	std::vector<std::string> shortcut_lines;
 	std::vector<std::string> bound_keys;  /* every key rc.xml binds */
 
@@ -647,6 +656,11 @@ void populate_bindings(Ui *ui, const wb::RcDocument *doc);
 GtkWidget *build_keybindings_block(Ui *ui);
 GtkWidget *build_mousebindings_block(Ui *ui);
 void populate_shortcuts(Ui *ui, const wb::RcDocument *doc);
+/* The key bindings changed, into rc.xml (at Save & Apply). */
+void apply_shortcuts(Ui *ui, wb::RcDocument &doc);
+/* Test hooks: the rows to stderr; a step ("shortcut-add:W-x=Close"). */
+void shortcut_dump(Ui *ui);
+void shortcut_test_step(Ui *ui, const std::string &step);
 /* The binding rows' changes into `doc`; then what's saved is what's shown. */
 void apply_bindings(Ui *ui, wb::RcDocument &doc);
 void bindings_saved(Ui *ui);
@@ -706,6 +720,8 @@ std::vector<UnsavedChange> unsaved_changes(Ui *ui);
 void gtk_changes(Ui *ui, const std::string &where, GtkWidget *target,
 		std::vector<UnsavedChange> &out);
 void sources_changes(Ui *ui, bool script, const std::string &where, GtkWidget *target,
+		std::vector<UnsavedChange> &out);
+void shortcut_changes(Ui *ui, const std::string &where, GtkWidget *target,
 		std::vector<UnsavedChange> &out);
 void binding_changes(Ui *ui, const std::string &id, const std::string &where,
 		GtkWidget *target, std::vector<UnsavedChange> &out);

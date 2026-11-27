@@ -94,6 +94,30 @@ std::string event_label(std::string_view e) {
 	return std::string(e);
 }
 
+std::string rc_key(const HeldModifiers &held, std::string_view k) {
+	static const char *const lone[] = {"Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L",
+			"Alt_R", "Super_L", "Super_R", "Meta_L", "Meta_R", "Hyper_L", "Hyper_R",
+			"ISO_Level3_Shift", "Caps_Lock", "Num_Lock"};
+	for (const char *m : lone)
+		if (k == m)
+			return "";
+	if (k.empty())
+		return "";
+	std::string out;
+	if (held.super)
+		out += "W-";
+	if (held.ctrl)
+		out += "C-";
+	if (held.alt)
+		out += "A-";
+	if (held.shift)
+		out += "S-";
+	std::string key(k);
+	if (key.size() == 1 && key[0] >= 'A' && key[0] <= 'Z')
+		key[0] = static_cast<char>(key[0] - 'A' + 'a');
+	return out + key;
+}
+
 std::string context_label(std::string_view c) {
 	if (c == "Root" || c == "Desktop")
 		return "Desktop";
