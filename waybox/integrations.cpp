@@ -457,7 +457,25 @@ std::string full_access_run(const std::string &program) {
 }
 
 std::string full_access_file(const std::string &path, const std::string &home) {
-	std::string p = path;
+	/* The path as plainly written: "//", "/./" and ".." steps resolved, so
+	 * no other spelling of ~/.bashrc passes for an ordinary file. */
+	std::string p;
+	{
+		std::string raw = path;
+		std::string prefix;
+		if (raw.rfind("~/", 0) == 0) {
+			prefix = "~";
+			raw = raw.substr(1);
+		}
+		std::string collapsed;
+		for (char c : raw)
+			if (!(c == '/' && !collapsed.empty() && collapsed.back() == '/'))
+				collapsed += c;
+		std::string norm = std::filesystem::path(collapsed).lexically_normal().string();
+		if (norm.size() > 1 && norm.back() == '/')
+			norm.pop_back();
+		p = prefix + norm;
+	}
 	if (!home.empty() && p.compare(0, home.size(), home) == 0 &&
 			(p.size() == home.size() || p[home.size()] == '/'))
 		p = "~" + p.substr(home.size());

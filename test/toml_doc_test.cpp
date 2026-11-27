@@ -219,3 +219,15 @@ WB_TEST(toml_survives_broken_files) {
 	for (size_t i = 0; i < a.size(); ++i)
 		exercise(a.substr(0, i) + a.substr(i + 1));
 }
+
+/* A new nested key inside an element of an array of tables: a dotted key
+ * in that element (a [header] couldn't name it, and building one threw). */
+WB_TEST(toml_nested_key_in_array_element) {
+	auto d = Document::parse("[[bind]]\nkey = \"a\"\n\n[[bind]]\nkey = \"b\"\n");
+	WB_CHECK(d.ok());
+	WB_CHECK(d.set(Path{std::string("bind"), size_t{0}, std::string("mods"),
+			std::string("shift")}, integer(1)));
+	WB_CHECK(d.ok());
+	WB_CHECK(d.text().find("[[bind]]\nkey = \"a\"\nmods.shift = 1\n") != std::string::npos);
+	WB_CHECK(d.text().find("[bind.mods]") == std::string::npos);
+}

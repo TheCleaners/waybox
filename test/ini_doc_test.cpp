@@ -138,3 +138,13 @@ WB_TEST(ini_sections_removed_and_moved) {
 	WB_CHECK(!s.move_section_to_end("nope"));
 }
 
+
+/* A value is one line: a newline in it can't add keys or [sections]. */
+WB_TEST(ini_value_one_line) {
+	auto d = Document::parse("font=Sans 10\n");
+	d.set("", "font", "Sans 10\n[app-name=x]\ninvisible=1");
+	WB_CHECK(d.text().find("\n[app-name=x]") == std::string::npos);
+	WB_CHECK(d.text().find("\ninvisible=1") == std::string::npos);
+	auto again = Document::parse(d.text());
+	WB_CHECK(again.text() == d.text());
+}

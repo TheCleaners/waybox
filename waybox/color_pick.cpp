@@ -9,6 +9,7 @@
 #include "waybox/cursor.h"
 #include "waybox/mousebind.hpp"
 #include "waybox/server.h"
+#include "waybox/session_lock.h"
 
 namespace {
 
@@ -21,6 +22,9 @@ struct Pick {
 };
 
 Pick *pick = nullptr;
+/* The button whose press ended a pick: its release is the pick's too,
+ * not a stray release for whatever is under the pointer. */
+uint32_t ended_by = 0;
 
 void end(bool ok, const wb::Color &c, const std::string &error) {
 	if (pick == nullptr)
@@ -102,8 +106,9 @@ bool color_pick_active(struct wb_server *) {
 }
 
 bool color_pick_start(struct wb_server *server, ColorPicked done) {
-	if (pick != nullptr)
+	if (pick != nullptr || session_locked(server))
 		return false;
+	ended_by = 0;
 	pick = new Pick{server, std::move(done)};
 	pick->timer = wl_event_loop_add_timer(server->wl_event_loop, [](void *) {
 		end(false, {}, "timed out");
@@ -131,10 +136,16 @@ bool color_pick_motion(struct wb_server *server) {
 }
 
 bool color_pick_button(struct wb_server *server, uint32_t button, bool pressed) {
-	if (pick == nullptr)
+	if (pick == nullptr) {
+		if (!pressed && ended_by != 0 && button == ended_by) {
+			ended_by = 0;
+			return true;
+		}
 		return false;
+	}
 	if (!pressed)
 		return true;  /* (the press was the pick's: so is its release) */
+	ended_by = button;
 	if (button == wb::MOUSE_BUTTON_LEFT) {
 		wb::Color c;
 		std::string error;

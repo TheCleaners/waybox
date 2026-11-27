@@ -21,8 +21,10 @@ display.
 
 Usage: session_lock_test.py <waybox-binary> <lock-client-binary> [unlocked|always]
 """
+import json
 import os
 import re
+import socket
 import shutil
 import signal
 import subprocess
@@ -177,6 +179,18 @@ def main():
         if typed() != ["before"]:
             failures.append(f"setup: typing did not reach foot before locking ({typed()})")
 
+        # The About card, open when the screen locks: closed by the lock,
+        # not drawn over it.
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as c:
+                c.settimeout(5)
+                c.connect(os.path.join(runtime, f"waybox-{display}.sock"))
+                c.sendall((json.dumps({"request": "action", "action": "ShowAbout"}) + "\n").encode())
+                c.recv(65536)
+        except OSError as e:
+            failures.append(f"setup: the IPC socket: {e}")
+        time.sleep(0.3)
+
         # 1. Lock.
         first = locker()
         if answer(first) != "locked":
@@ -195,6 +209,7 @@ def main():
         time.sleep(0.4)
         if "secret" in typed():
             failures.append("lock: keys typed while locked reached the window")
+
         seen = drain(first)
         if policy == "always":
             if "key" not in seen or "button" not in seen:

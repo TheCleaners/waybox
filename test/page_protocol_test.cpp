@@ -95,6 +95,10 @@ WB_TEST(what_a_page_may_touch) {
 	WB_CHECK(wb::page::path_allowed("/etc/xdg/mako/config", files, "/home/u"));
 	WB_CHECK(!wb::page::path_allowed("~/.config/mako/other", files, "/home/u"));
 	WB_CHECK(!wb::page::path_allowed("~/.config/mako/../mako/config", files, "/home/u"));
+	/* Declared with an odd spelling: still refused. */
+	std::vector<std::string> odd = {"//home/u/.bashrc", "~/.config//mako/config"};
+	WB_CHECK(!wb::page::path_allowed("//home/u/.bashrc", odd, "/home/u"));
+	WB_CHECK(!wb::page::path_allowed("~/.config//mako/config", odd, "/home/u"));
 	WB_CHECK(!wb::page::path_allowed("config", files, "/home/u"));
 	WB_CHECK(!wb::page::path_allowed("", files, "/home/u"));
 	std::vector<std::string> runs = {"makoctl", "notify-send"};

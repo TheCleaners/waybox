@@ -19,7 +19,9 @@ const C kSnap = {{"left", "Left half"}, {"right", "Right half"}, {"up", "Maximiz
 const C kMaximize = {{"both", "Both ways"}, {"horizontal", "Across"}, {"vertical", "Up and down"}};
 
 ActionOption to_desktop() {
-	return {"to", "Desktop", OptionKind::Text, {}, "1"};  /* a number, left, right, last */
+	/* A number, left, right, last; left out, the current one (as
+	 * desktop_target and Openbox have it: the action then does nothing). */
+	return {"to", "Desktop", OptionKind::Text, {}, "current"};
 }
 ActionOption wrap() {
 	return {"wrap", "Wrap around", OptionKind::Bool, {}, "yes"};
@@ -173,7 +175,10 @@ std::string describe_action(const BoundAction &a) {
 	}
 	if (n == "GoToDesktop" || n == "SendToDesktop") {
 		std::string to = option(a, "to");
-		std::string where = to.empty() ? "1" : to;
+		if (to.empty() || to == "current")
+			return n == "GoToDesktop" ? "Stay on this desktop (no desktop given)"
+					: "Keep the window here (no desktop given)";
+		std::string where = to;
 		if (to == "left" || to == "previous")
 			where = "the previous";
 		else if (to == "right" || to == "next")

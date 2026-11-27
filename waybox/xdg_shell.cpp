@@ -453,11 +453,14 @@ void toplevel_request_activation(struct wb_toplevel *toplevel, bool from_user) {
 	A mode = server->config != nullptr ? server->config->activation : A::Smart;
 	bool focus = from_user && (mode == A::Always ||
 			(mode == A::Smart && toplevel_on_current_desktop(toplevel) && !toplevel->minimized));
+	struct wlr_surface *s = view_surface(toplevel);
 	if (focus) {
 		focus_toplevel(toplevel);
-		return;
+		/* Focused, unless something keeps the keyboard (a launcher's layer
+		 * surface): then marked, not lost. */
+		if (s == nullptr || server->seat->seat->keyboard_state.focused_surface == s)
+			return;
 	}
-	struct wlr_surface *s = view_surface(toplevel);
 	if (s != nullptr && server->seat->seat->keyboard_state.focused_surface == s)
 		return;  /* it has focus already */
 	set_toplevel_urgent(toplevel, true);
@@ -742,6 +745,10 @@ void add_desktop(struct wb_server *server, bool after_current) {
 			++t->desktop;
 	if (server->last_desktop >= at)
 		++server->last_desktop;
+	/* The names move with their desktops: the new one has none. */
+	auto &names = server->config->desktops.names;
+	if (static_cast<int>(names.size()) > at)
+		names.insert(names.begin() + at, std::string());
 	remember_runtime_desktops(server, server->config->desktops.number + 1);
 	++server->config->desktops.number;
 	wlr_log(WLR_INFO, "wb-desktop add %d (of %d)", at + 1, server->config->desktops.number);
@@ -766,6 +773,10 @@ void remove_desktop(struct wb_server *server, bool current) {
 	}
 	if (server->last_desktop > gone)
 		--server->last_desktop;
+	/* Its name goes with it; the others stay with their desktops. */
+	auto &names = server->config->desktops.names;
+	if (static_cast<int>(names.size()) > gone)
+		names.erase(names.begin() + gone);
 	int shown = server->current_desktop;
 	if (shown > gone)
 		--shown;
@@ -1847,10 +1858,17 @@ static bool popup_keep_on_screen(struct wb_popup *popup) {
 	struct wb_toplevel *toplevel = popup_root_toplevel(popup->xdg_popup);
 	if (toplevel == NULL)
 		return false;
+	/* Its place is relative to its parent: for a submenu, the menu it
+	 * opened from, itself somewhere in the window. */
+	int px = 0, py = 0;
+	struct wlr_xdg_popup *parent = popup->xdg_popup->parent != NULL
+			? wlr_xdg_popup_try_from_wlr_surface(popup->xdg_popup->parent) : NULL;
+	if (parent != NULL)
+		wlr_xdg_popup_get_toplevel_coords(parent, 0, 0, &px, &py);
 	struct wlr_output *wlr_output = wlr_output_layout_output_at(
 			toplevel->server->output_layout,
-			toplevel->geometry.x + popup->xdg_popup->scheduled.geometry.x,
-			toplevel->geometry.y + popup->xdg_popup->scheduled.geometry.y);
+			toplevel->geometry.x + px + popup->xdg_popup->scheduled.geometry.x,
+			toplevel->geometry.y + py + popup->xdg_popup->scheduled.geometry.y);
 	if (wlr_output == NULL)  /* its corner off every output: the window's */
 		wlr_output = wlr_output_layout_output_at(toplevel->server->output_layout,
 				toplevel->geometry.x, toplevel->geometry.y);
