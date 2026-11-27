@@ -193,7 +193,10 @@ programs; `<waybox><ipc enabled="no"/>` turns it off) for one JSON object per
 line: list windows, desktops and outputs, run any rc.xml action, and
 subscribe to events (windows opening, closing, focused or retitled; desktop
 switches; outputs; reloads). A request's `"id"` comes back in its reply; picks answer when
-the click comes, after any requests sent behind them.
+the click comes, after any requests sent behind them. Whatever reaches the socket acts as you
+(an Execute action runs any command), so don't pass it into a sandbox;
+while the screen is locked, it refuses actions and anything that runs
+or restarts a program.
 `waybox-msg` does it from the shell:
 
 ```sh

@@ -279,6 +279,13 @@ struct wb_toplevel *find_window(struct wb_server *server, const std::string &sel
 Value handle(Client *c, const Value &req) {
 	struct wb_server *server = c->server;
 	std::string cmd = req.str("request");
+	/* While the screen is locked: nothing that runs a command, restarts a
+	 * program or acts on the session (as key and mouse bindings can't).
+	 * Queries and subscriptions stay, for bars and other session services. */
+	static const std::set<std::string> kNotWhileLocked = {
+			"action", "bell", "restart_program", "preview_menu", "pick_color", "pick_window"};
+	if (session_locked(server) && kNotWhileLocked.count(cmd))
+		return error("the screen is locked");
 	/* Only with WAYBOX_TEST_GPU_RESET=1: as if the GPU was reset. */
 	if (cmd == "test_renderer_lost") {
 		if (!wb_test_renderer_lost(server))
