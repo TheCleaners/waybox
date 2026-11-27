@@ -2,8 +2,9 @@
  * ext-workspace-v1 server (see workspace.h). wlroots 0.19 has no helper for
  * this protocol, so the resources are managed here.
  *
- * Lifetimes: a WsClient lives as long as its manager resource. Group and
- * workspace resources may outlive it (a client destroys them after
+ * Lifetimes: a WsClient lives as long as its manager resource, its
+ * WsGroups as long as it or until no longer wanted. Group and
+ * workspace resources may outlive them (a client destroys them after
  * "finished", or in any order on disconnect), so they hold a back-pointer
  * that is cleared when the WsClient goes away, and their request handlers
  * ignore a cleared one.
@@ -26,10 +27,11 @@
 namespace {
 
 struct WsClient;
+struct WsGroup;
 
 /* One ext_workspace_handle_v1 resource. */
 struct WsHandle {
-	WsClient *client = nullptr;  /* null once removed or the client is gone */
+	WsGroup *group = nullptr;  /* null once removed or the client is gone */
 	struct wl_resource *resource = nullptr;
 	int index = 0;
 	std::string name;
@@ -37,20 +39,30 @@ struct WsHandle {
 	bool sent_state = false;
 };
 
-/* A wl_output resource of the client that the group has entered. */
+/* A wl_output resource of the client that a group has entered. */
 struct WsOutput {
-	WsClient *client = nullptr;
+	WsGroup *group = nullptr;
 	struct wl_resource *resource = nullptr;
 	struct wl_listener destroy = {};
+};
+
+/* One ext_workspace_group_handle_v1: shared desktops, one spanning every
+ * output (`output` empty); desktops per monitor, one per monitor (its
+ * name), each with its own desktops shown. */
+struct WsGroup {
+	WsClient *client = nullptr;
+	std::string output;
+	struct wl_resource *resource = nullptr;  /* null once the client destroyed it */
+	std::vector<WsHandle *> workspaces;      /* index = desktop */
+	std::vector<WsOutput *> outputs;
 };
 
 struct WsClient {
 	struct wb_workspace_state *state = nullptr;
 	struct wl_resource *manager = nullptr;
-	struct wl_resource *group = nullptr;
-	std::vector<WsHandle *> workspaces;  /* index = desktop */
-	std::vector<WsOutput *> outputs;
-	std::vector<int> pending_activate;   /* applied on commit */
+	std::vector<WsGroup *> groups;
+	/* Activations, applied on commit: the group's output ("" all), desktop. */
+	std::vector<std::pair<std::string, int>> pending_activate;
 };
 
 /* Watches one wlr_output for wl_output binds and destruction. */
@@ -73,12 +85,10 @@ struct wb_workspace_state {
 
 namespace {
 
-void sync_client(WsClient *c);
-
 void output_ref_destroyed(struct wl_listener *listener, void *) {
 	WsOutput *o = wl_container_of(listener, o, destroy);
-	if (o->client != nullptr) {
-		auto &v = o->client->outputs;
+	if (o->group != nullptr) {
+		auto &v = o->group->outputs;
 		v.erase(std::remove(v.begin(), v.end(), o), v.end());
 	}
 	wl_list_remove(&o->destroy.link);
@@ -91,8 +101,8 @@ void handle_resource_destroy(struct wl_resource *resource) {
 	auto *h = static_cast<WsHandle *>(wl_resource_get_user_data(resource));
 	if (h == nullptr)
 		return;
-	if (h->client != nullptr) {
-		auto &v = h->client->workspaces;
+	if (h->group != nullptr) {
+		auto &v = h->group->workspaces;
 		std::replace(v.begin(), v.end(), h, static_cast<WsHandle *>(nullptr));
 	}
 	delete h;
@@ -104,8 +114,8 @@ void handle_destroy(struct wl_client *, struct wl_resource *resource) {
 
 void handle_activate(struct wl_client *, struct wl_resource *resource) {
 	auto *h = static_cast<WsHandle *>(wl_resource_get_user_data(resource));
-	if (h != nullptr && h->client != nullptr)
-		h->client->pending_activate.push_back(h->index);
+	if (h != nullptr && h->group != nullptr && h->group->client != nullptr)
+		h->group->client->pending_activate.emplace_back(h->group->output, h->index);
 }
 
 /* Not offered (no capability bit), so a well-behaved client never sends
@@ -124,9 +134,8 @@ const struct ext_workspace_handle_v1_interface handle_impl = {
 /* ---- ext_workspace_group_handle_v1 ---- */
 
 void group_resource_destroy(struct wl_resource *resource) {
-	auto *c = static_cast<WsClient *>(wl_resource_get_user_data(resource));
-	if (c != nullptr)
-		c->group = nullptr;
+	if (auto *g = static_cast<WsGroup *>(wl_resource_get_user_data(resource)))
+		g->resource = nullptr;
 }
 
 void group_create_workspace(struct wl_client *, struct wl_resource *, const char *) {}
@@ -140,21 +149,41 @@ const struct ext_workspace_group_handle_v1_interface group_impl = {
 	.destroy = group_destroy,
 };
 
+/* A group let go of: its workspaces and outputs no longer point to it
+ * (their resources may live on until the client destroys them). With
+ * `tell`, the client is told they're gone (a group no longer wanted). */
+void free_group(WsGroup *g, bool tell) {
+	for (WsHandle *h : g->workspaces) {
+		if (h == nullptr)
+			continue;
+		if (tell) {
+			if (g->resource != nullptr)
+				ext_workspace_group_handle_v1_send_workspace_leave(g->resource, h->resource);
+			ext_workspace_handle_v1_send_removed(h->resource);
+		}
+		h->group = nullptr;
+	}
+	for (WsOutput *o : g->outputs) {
+		if (tell && g->resource != nullptr)
+			ext_workspace_group_handle_v1_send_output_leave(g->resource, o->resource);
+		wl_list_remove(&o->destroy.link);
+		delete o;
+	}
+	if (g->resource != nullptr) {
+		if (tell)
+			ext_workspace_group_handle_v1_send_removed(g->resource);
+		wl_resource_set_user_data(g->resource, nullptr);
+	}
+	delete g;
+}
+
 /* ---- ext_workspace_manager_v1 ---- */
 
 void free_client(WsClient *c) {
 	auto &v = c->state->clients;
 	v.erase(std::remove(v.begin(), v.end(), c), v.end());
-	for (WsHandle *h : c->workspaces) {
-		if (h != nullptr)
-			h->client = nullptr;
-	}
-	for (WsOutput *o : c->outputs) {
-		wl_list_remove(&o->destroy.link);
-		delete o;
-	}
-	if (c->group != nullptr)
-		wl_resource_set_user_data(c->group, nullptr);
+	for (WsGroup *g : c->groups)
+		free_group(g, false);
 	delete c;
 }
 
@@ -163,16 +192,28 @@ void manager_resource_destroy(struct wl_resource *resource) {
 		free_client(c);
 }
 
+struct wb_output *output_named(struct wb_server *server, const std::string &name) {
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link)
+		if (o->wlr_output->enabled && name == o->wlr_output->name)
+			return o;
+	return nullptr;
+}
+
 void manager_commit(struct wl_client *, struct wl_resource *resource) {
 	auto *c = static_cast<WsClient *>(wl_resource_get_user_data(resource));
 	if (c == nullptr)
 		return;
-	std::vector<int> pending = std::move(c->pending_activate);
+	auto pending = std::move(c->pending_activate);
 	c->pending_activate.clear();
 	struct wb_server *server = c->state->server;
-	for (int index : pending) {
-		if (index < desktop_count(server))
+	for (const auto &[output, index] : pending) {
+		if (index >= desktop_count(server))
+			continue;
+		if (output.empty())
 			wb_go_to_desktop(server, index);
+		else if (struct wb_output *o = output_named(server, output))
+			wb_go_to_desktop_on(server, o, index);
 	}
 }
 
@@ -186,84 +227,88 @@ const struct ext_workspace_manager_v1_interface manager_impl = {
 	.stop = manager_stop,
 };
 
-/* Bring one client up to date and finish with "done" if anything changed. */
-void sync_client(WsClient *c) {
+/* Bring one group up to date; true if anything was sent. */
+bool sync_group(WsClient *c, WsGroup *g) {
 	struct wb_server *server = c->state->server;
 	struct wl_client *client = wl_resource_get_client(c->manager);
 	uint32_t version = wl_resource_get_version(c->manager);
 	bool changed = false;
+	struct wb_output *mine = g->output.empty() ? nullptr : output_named(server, g->output);
 
-	/* Outputs: the group spans every output this client has bound. */
+	/* Outputs: every one the client bound (shared), or its monitor's. */
 	std::vector<struct wl_resource *> current;
 	struct wb_output *output;
 	wl_list_for_each(output, &server->outputs, link) {
+		if (mine != nullptr && output != mine)
+			continue;
 		struct wl_resource *r;
 		wl_resource_for_each(r, &output->wlr_output->resources) {
 			if (wl_resource_get_client(r) == client)
 				current.push_back(r);
 		}
 	}
-	for (auto it = c->outputs.begin(); it != c->outputs.end();) {
+	for (auto it = g->outputs.begin(); it != g->outputs.end();) {
 		WsOutput *o = *it;
 		if (std::find(current.begin(), current.end(), o->resource) == current.end()) {
-			if (c->group != nullptr)
-				ext_workspace_group_handle_v1_send_output_leave(c->group, o->resource);
+			if (g->resource != nullptr)
+				ext_workspace_group_handle_v1_send_output_leave(g->resource, o->resource);
 			wl_list_remove(&o->destroy.link);
 			delete o;
-			it = c->outputs.erase(it);
+			it = g->outputs.erase(it);
 			changed = true;
 		} else {
 			++it;
 		}
 	}
 	for (struct wl_resource *r : current) {
-		bool known = std::any_of(c->outputs.begin(), c->outputs.end(),
+		bool known = std::any_of(g->outputs.begin(), g->outputs.end(),
 				[r](WsOutput *o) { return o->resource == r; });
 		if (known)
 			continue;
 		auto *o = new WsOutput{};
-		o->client = c;
+		o->group = g;
 		o->resource = r;
 		o->destroy.notify = output_ref_destroyed;
 		wl_resource_add_destroy_listener(r, &o->destroy);
-		c->outputs.push_back(o);
-		if (c->group != nullptr)
-			ext_workspace_group_handle_v1_send_output_enter(c->group, r);
+		g->outputs.push_back(o);
+		if (g->resource != nullptr)
+			ext_workspace_group_handle_v1_send_output_enter(g->resource, r);
 		changed = true;
 	}
 
 	/* Fewer desktops: remove the extra workspaces. */
 	int count = desktop_count(server);
-	while (static_cast<int>(c->workspaces.size()) > count) {
-		WsHandle *h = c->workspaces.back();
-		c->workspaces.pop_back();
+	while (static_cast<int>(g->workspaces.size()) > count) {
+		WsHandle *h = g->workspaces.back();
+		g->workspaces.pop_back();
 		if (h != nullptr) {
-			if (c->group != nullptr)
-				ext_workspace_group_handle_v1_send_workspace_leave(c->group,
-						h->resource);
+			if (g->resource != nullptr)
+				ext_workspace_group_handle_v1_send_workspace_leave(g->resource, h->resource);
 			ext_workspace_handle_v1_send_removed(h->resource);
-			h->client = nullptr;  /* inert until the client destroys it */
+			h->group = nullptr;  /* inert until the client destroys it */
 		}
 		changed = true;
 	}
-	/* More desktops (or a new client): announce workspaces. */
-	while (static_cast<int>(c->workspaces.size()) < count) {
-		int index = static_cast<int>(c->workspaces.size());
+	/* More desktops (or a new group): announce workspaces. */
+	while (static_cast<int>(g->workspaces.size()) < count) {
+		int index = static_cast<int>(g->workspaces.size());
 		struct wl_resource *r = wl_resource_create(client,
 				&ext_workspace_handle_v1_interface, version, 0);
 		if (r == nullptr) {
 			wl_client_post_no_memory(client);
-			return;
+			return changed;
 		}
 		auto *h = new WsHandle{};
-		h->client = c;
+		h->group = g;
 		h->resource = r;
 		h->index = index;
 		wl_resource_set_implementation(r, &handle_impl, h, handle_resource_destroy);
-		c->workspaces.push_back(h);
+		g->workspaces.push_back(h);
 
 		ext_workspace_manager_v1_send_workspace(c->manager, r);
-		ext_workspace_handle_v1_send_id(r, std::to_string(index + 1).c_str());
+		/* "2"; per monitor "DP-1/2" (ids are unique across groups). */
+		std::string id = (g->output.empty() ? "" : g->output + "/") + std::to_string(index + 1);
+		ext_workspace_handle_v1_send_id(r, id.c_str());
 		struct wl_array coords;
 		wl_array_init(&coords);
 		if (auto *p = static_cast<uint32_t *>(wl_array_add(&coords, sizeof(uint32_t))))
@@ -272,15 +317,16 @@ void sync_client(WsClient *c) {
 		wl_array_release(&coords);
 		ext_workspace_handle_v1_send_capabilities(r,
 				EXT_WORKSPACE_HANDLE_V1_WORKSPACE_CAPABILITIES_ACTIVATE);
-		if (c->group != nullptr)
-			ext_workspace_group_handle_v1_send_workspace_enter(c->group, r);
+		if (g->resource != nullptr)
+			ext_workspace_group_handle_v1_send_workspace_enter(g->resource, r);
 		changed = true;
 	}
 
-	/* Names and the active desktop. */
+	/* Names and the shown desktop (the group's monitor's, or the shared). */
 	const wb::DesktopConfig empty;
 	const wb::DesktopConfig &desktops = server->config ? server->config->desktops : empty;
-	for (WsHandle *h : c->workspaces) {
+	int shown = mine != nullptr ? mine->desktop : server->current_desktop;
+	for (WsHandle *h : g->workspaces) {
 		if (h == nullptr)
 			continue;  /* the client destroyed it; nothing to tell */
 		std::string name = wb::desktop_name(desktops, h->index);
@@ -289,15 +335,19 @@ void sync_client(WsClient *c) {
 			ext_workspace_handle_v1_send_name(h->resource, name.c_str());
 			changed = true;
 		}
-		uint32_t st = h->index == server->current_desktop
-				? EXT_WORKSPACE_HANDLE_V1_STATE_ACTIVE : 0;
-		/* A window on it asking for attention (Waybar shows it red). */
+		uint32_t st = h->index == shown ? EXT_WORKSPACE_HANDLE_V1_STATE_ACTIVE : 0;
+		/* A window on it asking for attention (Waybar shows it red); per
+		 * monitor, one on that monitor. */
 		struct wb_toplevel *t;
-		wl_list_for_each(t, &server->toplevels, link)
+		wl_list_for_each(t, &server->toplevels, link) {
+			if (!t->urgent || !t->mapped)
+				continue;
+			if (mine != nullptr && get_active_output(t) != mine->wlr_output)
+				continue;
 			/* One on every desktop: on the one shown, not all of them. */
-			if (t->urgent && t->mapped && (t->omnipresent ? h->index == server->current_desktop
-					: t->desktop == h->index))
+			if (t->omnipresent ? h->index == shown : t->desktop == h->index)
 				st |= EXT_WORKSPACE_HANDLE_V1_STATE_URGENT;
+		}
 		if (!h->sent_state || st != h->state) {
 			h->state = st;
 			h->sent_state = true;
@@ -305,7 +355,57 @@ void sync_client(WsClient *c) {
 			changed = true;
 		}
 	}
+	return changed;
+}
 
+/* Bring one client up to date: the groups the mode wants (one for all;
+ * per monitor, one each), then each group; "done" if anything changed. */
+void sync_client(WsClient *c) {
+	struct wb_server *server = c->state->server;
+	struct wl_client *client = wl_resource_get_client(c->manager);
+	uint32_t version = wl_resource_get_version(c->manager);
+	bool changed = false;
+
+	std::vector<std::string> want;
+	if (desktops_per_monitor(server)) {
+		struct wb_output *o;
+		wl_list_for_each(o, &server->outputs, link)
+			if (o->wlr_output->enabled)
+				want.push_back(o->wlr_output->name);
+	} else {
+		want.push_back("");
+	}
+	for (auto it = c->groups.begin(); it != c->groups.end();) {
+		if (std::find(want.begin(), want.end(), (*it)->output) == want.end()) {
+			free_group(*it, true);
+			it = c->groups.erase(it);
+			changed = true;
+		} else {
+			++it;
+		}
+	}
+	for (const std::string &name : want) {
+		if (std::any_of(c->groups.begin(), c->groups.end(),
+				[&name](WsGroup *g) { return g->output == name; }))
+			continue;
+		struct wl_resource *r = wl_resource_create(client,
+				&ext_workspace_group_handle_v1_interface, version, 0);
+		if (r == nullptr) {
+			wl_client_post_no_memory(client);
+			return;
+		}
+		auto *g = new WsGroup{};
+		g->client = c;
+		g->output = name;
+		g->resource = r;
+		wl_resource_set_implementation(r, &group_impl, g, group_resource_destroy);
+		c->groups.push_back(g);
+		ext_workspace_manager_v1_send_workspace_group(c->manager, r);
+		ext_workspace_group_handle_v1_send_capabilities(r, 0);
+		changed = true;
+	}
+	for (WsGroup *g : c->groups)
+		changed |= sync_group(c, g);
 	if (changed)
 		ext_workspace_manager_v1_send_done(c->manager);
 }
@@ -323,16 +423,6 @@ void manager_bind(struct wl_client *client, void *data, uint32_t version, uint32
 	c->manager = manager;
 	wl_resource_set_implementation(manager, &manager_impl, c, manager_resource_destroy);
 	st->clients.push_back(c);
-
-	c->group = wl_resource_create(client, &ext_workspace_group_handle_v1_interface,
-			wl_resource_get_version(manager), 0);
-	if (c->group == nullptr) {
-		wl_client_post_no_memory(client);
-		return;
-	}
-	wl_resource_set_implementation(c->group, &group_impl, c, group_resource_destroy);
-	ext_workspace_manager_v1_send_workspace_group(manager, c->group);
-	ext_workspace_group_handle_v1_send_capabilities(c->group, 0);
 	sync_client(c);
 }
 

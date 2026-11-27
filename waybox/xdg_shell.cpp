@@ -600,9 +600,13 @@ void desktop_action_state(struct wb_server *server, int *current, int *last) {
 	*last = o != nullptr ? o->last_desktop : server->last_desktop;
 }
 
-/* Desktops per monitor: a window moved onto another monitor takes the
- * desktop that one shows (so it stays in sight, dragged across too); one
- * on all desktops just notes where it is. */
+/* Desktops per monitor: a window moved onto another monitor while in
+ * sight (on the desktop its monitor showed) takes the desktop the new one
+ * shows, so it stays in sight (dragged across, sent there). One that
+ * wasn't (on another of its monitor's desktops), or whose monitor is gone
+ * (unplugged), keeps its desktop's number: the monitor's desktops carry
+ * over each to the same number, not all onto the one shown. One on all
+ * desktops just notes where it is. */
 static void follow_monitor_desktop(struct wb_toplevel *t) {
 	if (!t->mapped || !desktops_per_monitor(t->server))
 		return;
@@ -610,12 +614,35 @@ static void follow_monitor_desktop(struct wb_toplevel *t) {
 	if (out == nullptr)
 		return;
 	std::string name = out->name;
-	if (!t->desktop_output.empty() && name != t->desktop_output && !t->omnipresent) {
+	struct wb_output *was = nullptr, *o;
+	wl_list_for_each(o, &t->server->outputs, link)
+		if (o->wlr_output->enabled && t->desktop_output == o->wlr_output->name)
+			was = o;
+	bool in_sight = was != nullptr && was->desktop == t->desktop;
+	if (!t->desktop_output.empty() && name != t->desktop_output && !t->omnipresent &&
+			in_sight) {
 		t->desktop = output_desktop(t->server, out);
 		wlr_log(WLR_INFO, "wb-desktop %s follows %s to %d", view_app_id(t), out->name,
 				t->desktop + 1);
 	}
+	bool moved = !t->desktop_output.empty() && name != t->desktop_output;
 	t->desktop_output = name;
+	if (moved) {
+		/* Its new monitor may show another desktop: in sight or not there. */
+		bool was_active = first_toplevel(t->server) == t;
+		toplevel_update_visibility(t);
+		if (was_active && !toplevel_on_current_desktop(t))
+			focus_current_desktop(t->server);
+	}
+}
+
+void desktops_outputs_changed(struct wb_server *server) {
+	if (!desktops_per_monitor(server))
+		return;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link)
+		follow_monitor_desktop(t);
+	workspace_schedule_sync(server);
 }
 
 /* Shared desktops: every monitor shows the server's. */
@@ -716,14 +743,28 @@ int wb_identify_outputs(struct wb_server *server, const std::string &only, int d
 	return shown;
 }
 
-/* Show the desktop's name for a moment (Openbox's <popupTime>). */
-static void show_desktop_popup(struct wb_server *server, int index) {
+/* Show the desktop's name for a moment (Openbox's <popupTime>): on every
+ * monitor (shared, as Openbox), or on the one switched (`on`). */
+static void show_desktop_popup(struct wb_server *server, int index, struct wb_output *on) {
 	wb::DesktopConfig defaults;
 	const wb::DesktopConfig &desktops =
 			server->config != nullptr ? server->config->desktops : defaults;
 	if (desktops.popup_time_ms <= 0)
 		return;
-	wb_show_popup(server, wb::desktop_name(desktops, index), desktops.popup_time_ms);
+	std::vector<struct wlr_output *> outputs;
+	if (on != nullptr) {
+		outputs.push_back(on->wlr_output);
+	} else {
+		struct wb_output *o;
+		wl_list_for_each(o, &server->outputs, link)
+			if (o->wlr_output->enabled)
+				outputs.push_back(o->wlr_output);
+	}
+	if (server->desktop_popup == nullptr)
+		server->desktop_popup = std::make_unique<wb::DesktopPopup>(server,
+				wb_osd_style(server));
+	server->desktop_popup->show_on_each(outputs, wb::desktop_name(desktops, index),
+			desktops.popup_time_ms);
 }
 
 static void switch_desktop_on(struct wb_server *server, struct wb_output *on, int index,
@@ -765,7 +806,7 @@ static void switch_desktop_on(struct wb_server *server, struct wb_output *on, in
 		wlr_log(WLR_INFO, "wb-desktop %d", index + 1);
 		ipc_desktop_event(server);
 		workspace_schedule_sync(server);
-		show_desktop_popup(server, index);
+		show_desktop_popup(server, index, on);
 	}
 	if (refocus)
 		focus_current_desktop_on(server, on);
@@ -774,6 +815,10 @@ static void switch_desktop_on(struct wb_server *server, struct wb_output *on, in
 
 void wb_go_to_desktop(struct wb_server *server, int index) {
 	switch_desktop(server, index, true);
+}
+
+void wb_go_to_desktop_on(struct wb_server *server, struct wb_output *output, int index) {
+	switch_desktop_on(server, desktops_per_monitor(server) ? output : nullptr, index, true);
 }
 
 void wb_send_to_desktop(struct wb_toplevel *toplevel, int index, bool follow) {
@@ -1041,6 +1086,16 @@ void arrange_toplevels(struct wb_server *server) {
 		if (usable.width <= 0 || usable.height <= 0)
 			continue;
 
+		/* Its middle on no monitor (the one it was on unplugged or switched
+		 * off): all of it onto the one it's now nearest. */
+		if (wlr_output_layout_output_at(server->output_layout,
+				toplevel->geometry.x + toplevel->geometry.width / 2.0,
+				toplevel->geometry.y + toplevel->geometry.height / 2.0) == nullptr) {
+			toplevel->geometry.x = std::max(usable.x, std::min(toplevel->geometry.x,
+					usable.x + usable.width - toplevel->geometry.width));
+			toplevel->geometry.y = std::max(usable.y, std::min(toplevel->geometry.y,
+					usable.y + usable.height - toplevel->geometry.height));
+		}
 		/* Keep floating windows reachable after a resolution/scale change. */
 		int max_x = usable.x + usable.width - 1;
 		int max_y = usable.y + usable.height - 1;

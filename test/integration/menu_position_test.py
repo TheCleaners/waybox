@@ -48,6 +48,7 @@ def main():
                 + show("F6", "<position><x>10</x><y>-10</y></position>")
                 + show("F7", "<position><x>center</x></position>")
                 + show("F8", "<position><x>center</x><y>center</y><monitor>all</monitor></position>")
+                + '    <keybind key="F9"><action name="GoToDesktop"><to>2</to></action></keybind>\n'
                 + '  </keyboard>\n</openbox_config>\n')
     with open(os.path.join(cfg, "menu.xml"), "w") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -128,6 +129,12 @@ def main():
             placed[key] = tuple(map(int, at[-1])) if len(at) == len(placed) + 1 else None
             subprocess.run(["wtype", "-k", "Escape"], env=cenv, capture_output=True)
             time.sleep(0.4)
+
+        # Shared desktops: the desktop's name on both monitors (as Openbox).
+        subprocess.run(["wtype", "-k", "F9"], env=cenv, capture_output=True)
+        time.sleep(0.5)
+        if not re.search(r"wb-desktop-popup \S.* on 2", open(log_path).read()):
+            failures.append("the desktop popup isn't on both monitors")
 
         def check(key, want_x, want_y):
             got = placed.get(key)
