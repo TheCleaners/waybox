@@ -65,4 +65,30 @@ bool write_file_atomic(const std::string &path, const std::string &text, std::st
 	return true;
 }
 
+std::optional<std::string> read_regular_file(const std::string &path, size_t max_bytes) {
+	int fd = open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+	if (fd < 0)
+		return std::nullopt;
+	struct stat st;
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) ||
+			static_cast<unsigned long long>(st.st_size) > max_bytes) {
+		close(fd);
+		return std::nullopt;
+	}
+	std::string out;
+	char buf[8192];
+	while (out.size() <= max_bytes) {
+		ssize_t n = read(fd, buf, sizeof buf);
+		if (n < 0 && errno == EINTR)
+			continue;
+		if (n <= 0)
+			break;
+		out.append(buf, static_cast<size_t>(n));
+	}
+	close(fd);
+	if (out.size() > max_bytes)  /* grew while read */
+		return std::nullopt;
+	return out;
+}
+
 }  // namespace wb

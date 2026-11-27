@@ -2,6 +2,7 @@
  * Loading icons into Cairo surfaces (see icon_loader.hpp).
  */
 #include "waybox/icon_loader.hpp"
+#include "waybox/atomic_file.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -181,12 +182,13 @@ std::string desktop_file_icon(std::string_view app_id) {
 		for (const std::string &dir : dirs) {
 			if (dir.empty())
 				continue;
-			std::ifstream in(dir + "/applications/" + name + ".desktop");
-			if (!in)
+			/* The name is the window's choice: a regular file only (a FIFO
+			 * there would block the compositor), and not a huge one. */
+			std::optional<std::string> contents =
+					read_regular_file(dir + "/applications/" + name + ".desktop", 256 * 1024);
+			if (!contents)
 				continue;
-			std::string contents((std::istreambuf_iterator<char>(in)),
-					std::istreambuf_iterator<char>());
-			std::string icon = desktop_entry_icon(contents);
+			std::string icon = desktop_entry_icon(*contents);
 			if (!icon.empty())
 				return icon;
 		}
