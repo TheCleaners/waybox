@@ -203,6 +203,9 @@ struct wb_server {
 	/* "identify" (IPC): each monitor's name, large, on it, for a moment. */
 	std::vector<std::unique_ptr<wb::DesktopPopup>> identify_popups;
 	std::vector<struct wb_toplevel *> switcher_windows;
+	/* NextWindow/PreviousWindow's <monitor> (#367): the monitor whose
+	 * windows the cycle goes through (by name), or empty for all. */
+	std::string cycle_monitor;
 	uint32_t switcher_mods = 0;
 	uint32_t last_key_modifiers = 0;
 

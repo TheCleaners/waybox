@@ -530,10 +530,24 @@ int wb_focused(lua_State *L) {
 
 int wb_desktop(lua_State *L) {
 	lua_newtable(L);
-	lua_pushinteger(L, g->server->current_desktop + 1);
+	/* The desktop of the monitor desktop actions act on (the focused
+	 * window's, else the pointer's): with shared desktops, the one shown. */
+	int cur = 0, last = 0;
+	desktop_action_state(g->server, &cur, &last);
+	lua_pushinteger(L, cur + 1);
 	lua_setfield(L, -2, "current");
 	lua_pushinteger(L, desktop_count(g->server));
 	lua_setfield(L, -2, "count");
+	/* monitors = { ["DP-1"] = 2, ... }: each monitor's (#367). */
+	lua_newtable(L);
+	struct wb_output *o;
+	wl_list_for_each(o, &g->server->outputs, link) {
+		if (!o->wlr_output->enabled)
+			continue;
+		lua_pushinteger(L, output_desktop(g->server, o->wlr_output) + 1);
+		lua_setfield(L, -2, o->wlr_output->name);
+	}
+	lua_setfield(L, -2, "monitors");
 	return 1;
 }
 

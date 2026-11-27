@@ -239,6 +239,18 @@ Value desktop_json(struct wb_server *server, int index) {
 			{"current", index == server->current_desktop}};
 }
 
+/* Each monitor and the desktop it shows (with shared desktops, the same
+ * one on all; per monitor, each its own; #367). */
+Value monitors_json(struct wb_server *server) {
+	Array list;
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link)
+		if (o->wlr_output->enabled)
+			list.push_back(Object{{"output", std::string(o->wlr_output->name)},
+					{"desktop", output_desktop(server, o->wlr_output) + 1}});
+	return list;
+}
+
 /* The window a request names: "focused" (the default), an id, "app_id:X"
  * or "title:X" (the first, most recently used, that matches). */
 struct wb_toplevel *find_window(struct wb_server *server, const std::string &sel) {
@@ -467,7 +479,7 @@ Value handle(Client *c, const Value &req) {
 		Array list;
 		for (int i = 0; i < desktop_count(server); ++i)
 			list.push_back(desktop_json(server, i));
-		return Object{{"ok", true}, {"desktops", list}};
+		return Object{{"ok", true}, {"desktops", list}, {"monitors", monitors_json(server)}};
 	}
 	if (cmd == "get_outputs") {
 		Array list;
@@ -818,7 +830,8 @@ void ipc_desktop_event(struct wb_server *server) {
 	if (server->ipc == nullptr)
 		return;
 	send_event(server, "desktop", Object{{"change", "switch"},
-			{"desktop", desktop_json(server, server->current_desktop)}});
+			{"desktop", desktop_json(server, server->current_desktop)},
+			{"monitors", monitors_json(server)}});
 }
 
 void ipc_bell_event(struct wb_server *server, struct wb_toplevel *t, const std::string &shown,
