@@ -195,13 +195,24 @@ void wb_parse_key_combo(const char *spec, uint32_t *sym, uint32_t *modifiers) {
 	free(buf);
 }
 
+/* The space-separated words of an attribute ("W-a W-b", "Left Middle",
+ * "Frame Client"): Openbox reads each as an alternative. */
+static std::vector<std::string> attr_words(xmlNode *node, const char *name) {
+	std::vector<std::string> out;
+	const char *v = (const char *) get_attribute(node, name);
+	std::istringstream in(v != nullptr ? v : "");
+	for (std::string w; in >> w;)
+		out.push_back(w);
+	return out;
+}
+
 /* Recursively parse a <keybind>: its chord, its direct <action> children, and
  * any nested <keybind> children (a key chain). Nested keybinds are NOT walked
- * for actions of their own here -- those belong to the child node. */
-static wb::KeyBinding parse_keybind(xmlNode *node) {
+ * for actions of their own here -- those belong to the child node. Several
+ * keys in key="W-a W-b" (as Openbox): one binding each, the same actions
+ * and chain under each. */
+static std::vector<wb::KeyBinding> parse_keybind(xmlNode *node) {
 	wb::KeyBinding binding;
-	wb_parse_key_combo((const char *) get_attribute(node, "key"),
-			&binding.sym, &binding.modifiers);
 	if (const char *r = (const char *) get_attribute(node, "repeat"))
 		binding.repeat = strcasecmp(r, "yes") == 0 || strcasecmp(r, "true") == 0 ||
 				strcasecmp(r, "on") == 0 || strcmp(r, "1") == 0;
@@ -210,13 +221,20 @@ static wb::KeyBinding parse_keybind(xmlNode *node) {
 		if (child->type != XML_ELEMENT_NODE)
 			continue;
 		if (strcmp((char *) child->name, "keybind") == 0) {
-			binding.children.push_back(parse_keybind(child));
+			for (wb::KeyBinding &k : parse_keybind(child))
+				binding.children.push_back(std::move(k));
 		} else if (strcmp((char *) child->name, "action") == 0) {
 			if (auto action = wb::parse_action_xml(child))
 				binding.actions.push_back(std::move(*action));
 		}
 	}
-	return binding;
+	std::vector<wb::KeyBinding> out;
+	for (const std::string &key : attr_words(node, "key")) {
+		wb::KeyBinding k = binding;
+		wb_parse_key_combo(key.c_str(), &k.sym, &k.modifiers);
+		out.push_back(std::move(k));
+	}
+	return out;
 }
 
 static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt) {
@@ -236,7 +254,8 @@ static bool parse_key_bindings(struct wb_config *config, xmlXPathContextPtr ctxt
 	for (int i = 0; i < object->nodesetval->nodeNr; i++) {
 		xmlNode *node = object->nodesetval->nodeTab[i];
 		if (node != NULL)
-			config->key_bindings.push_back(parse_keybind(node));
+			for (wb::KeyBinding &k : parse_keybind(node))
+				config->key_bindings.push_back(std::move(k));
 	}
 	xmlXPathFreeObject(object);
 	return true;
@@ -254,31 +273,38 @@ static void parse_mouse_bindings(struct wb_config *config, xmlXPathContextPtr ct
 			xmlNode *ctx_node = object->nodesetval->nodeTab[i];
 			if (ctx_node == NULL)
 				continue;
-			std::optional<wb::MouseContext> context = wb::mouse_context_from_name(
-					(const char *) get_attribute(ctx_node, "name"));
-			if (!context)
-				continue;
-
-			for (xmlNode *mb = ctx_node->children; mb; mb = mb->next) {
-				if (mb->type != XML_ELEMENT_NODE ||
-						strcmp((char *) mb->name, "mousebind") != 0)
+			/* name="Frame Client", button="Left Middle": each an
+			 * alternative (as Openbox); an unknown one skipped, the rest
+			 * kept. */
+			for (const std::string &name : attr_words(ctx_node, "name")) {
+				std::optional<wb::MouseContext> context = wb::mouse_context_from_name(name);
+				if (!context)
 					continue;
-
-				std::optional<wb::MouseButtonSpec> button = wb::parse_mouse_button(
-						(const char *) get_attribute(mb, "button"));
-				std::optional<wb::MouseEvent> event = wb::mouse_event_from_name(
-						(const char *) get_attribute(mb, "action"));
-				if (!button || !event)
-					continue;
-
-				wb::MouseBinding binding;
-				binding.context = *context;
-				binding.event = *event;
-				binding.button = button->button;
-				binding.modifiers = button->modifiers;
-				wb::collect_actions_xml(mb->children, binding.actions, true);
-				if (!binding.actions.empty())
-					config->mouse_bindings.push_back(std::move(binding));
+				for (xmlNode *mb = ctx_node->children; mb; mb = mb->next) {
+					if (mb->type != XML_ELEMENT_NODE ||
+							strcmp((char *) mb->name, "mousebind") != 0)
+						continue;
+					std::optional<wb::MouseEvent> event = wb::mouse_event_from_name(
+							(const char *) get_attribute(mb, "action"));
+					if (!event)
+						continue;
+					std::vector<wb::Action> actions;
+					wb::collect_actions_xml(mb->children, actions, true);
+					if (actions.empty())
+						continue;
+					for (const std::string &b : attr_words(mb, "button")) {
+						std::optional<wb::MouseButtonSpec> button = wb::parse_mouse_button(b.c_str());
+						if (!button)
+							continue;
+						wb::MouseBinding binding;
+						binding.context = *context;
+						binding.event = *event;
+						binding.button = button->button;
+						binding.modifiers = button->modifiers;
+						binding.actions = actions;
+						config->mouse_bindings.push_back(std::move(binding));
+					}
+				}
 			}
 		}
 	}

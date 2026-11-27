@@ -43,7 +43,7 @@ struct ShortcutEdit {
 	/* Never runs: why, and the fix offered. */
 	GtkWidget *warn = nullptr, *warn_label = nullptr, *warn_fix = nullptr;
 	ShortcutEdit *clash_by = nullptr;  /* the binding that takes its keys */
-	const char *clash_kind = "";       /* or "script", "place" (for tests) */
+	const char *clash_kind = "";       /* or "script", "place", "place-some" (for tests) */
 	/* Keys. */
 	GtkWidget *keys_button = nullptr;
 	GtkWidget *repeat = nullptr;  /* "Repeat while held" */
@@ -175,6 +175,27 @@ std::string mouse_text(const wb::MouseBinding &m) {
 	return out;
 }
 
+/* Several keys, buttons or places in one binding (key="W-a W-b",
+ * button="Left Middle", <context name="Frame Client">): Openbox's
+ * alternatives, each running the same; shown, edited in rc.xml. */
+bool has_space(const std::string &s) {
+	return s.find(' ') != std::string::npos;
+}
+std::vector<std::string> words(const std::string &s) {
+	std::vector<std::string> out;
+	std::istringstream in(s);
+	for (std::string w; in >> w;)
+		out.push_back(w);
+	return out;
+}
+bool grouped(const ShortcutEdit *e) {
+	if (e->mouse) {
+		const wb::MouseBinding &m = e->mnow ? *e->mnow : *e->mwas;
+		return has_space(m.context) || has_space(m.button);
+	}
+	const auto &chain = e->now ? e->now->chain : e->was->chain;
+	return std::any_of(chain.begin(), chain.end(), has_space);
+}
 /* The row's identity for tests and the dump: "W-a x", "Root Right Press". */
 std::string id_of(const ShortcutEdit *e) {
 	if (e->mouse) {
@@ -232,6 +253,39 @@ GtkWidget *mouse_caps(const wb::MouseBinding &m) {
 	return keys;
 }
 
+/* A grouped binding drawn as the others are, its alternatives with "or":
+ * [Super+P] or [Play]; Titlebar or Frame [Middle] or [Super+Middle] press. */
+GtkWidget *grouped_caps(const ShortcutEdit *e) {
+	GtkWidget *keys = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+	auto alternatives = [keys](const std::vector<std::string> &alts, auto draw) {
+		for (size_t j = 0; j < alts.size(); ++j) {
+			if (j > 0)
+				gtk_box_append(GTK_BOX(keys), dim(_("or")));
+			gtk_box_append(GTK_BOX(keys), draw(alts[j]));
+		}
+	};
+	if (e->mouse) {
+		const wb::MouseBinding &m = e->mnow ? *e->mnow : *e->mwas;
+		alternatives(words(m.context), [](const std::string &c) {
+			GtkWidget *where = gtk_label_new(wb::context_label(c).c_str());
+			gtk_widget_add_css_class(where, "wb-shortcut-place");
+			return where;
+		});
+		std::vector<std::string> buttons = words(m.button);
+		alternatives(buttons, [](const std::string &b) { return caps(wb::button_caps(b)); });
+		if (!buttons.empty() && !is_wheel(buttons[0]))
+			gtk_box_append(GTK_BOX(keys), dim(lower_first(wb::event_label(m.event))));
+		return keys;
+	}
+	const auto &chain = e->now ? e->now->chain : e->was->chain;
+	for (size_t i = 0; i < chain.size(); ++i) {
+		if (i > 0)
+			gtk_box_append(GTK_BOX(keys), dim(_("then")));
+		alternatives(words(chain[i]), [](const std::string &k) { return caps(wb::key_caps(k)); });
+	}
+	return keys;
+}
+
 GtkWidget *dropdown(const std::vector<std::pair<std::string, std::string>> &items,
 		const std::string &current, std::vector<std::string> &values) {
 	GtkStringList *model = gtk_string_list_new(nullptr);
@@ -260,7 +314,9 @@ GtkWidget *dropdown(const std::vector<std::pair<std::string, std::string>> &item
 
 void refresh_head(ShortcutEdit *e) {
 	clear(e->keys_cell);
-	if (e->mouse)
+	if (grouped(e))
+		gtk_box_append(GTK_BOX(e->keys_cell), grouped_caps(e));
+	else if (e->mouse)
 		gtk_box_append(GTK_BOX(e->keys_cell), mouse_caps(e->mnow ? *e->mnow : *e->mwas));
 	else if ((e->now ? e->now->chain : e->was->chain).empty())
 		gtk_box_append(GTK_BOX(e->keys_cell), dim(_("No keys yet")));
@@ -882,14 +938,25 @@ void refresh_clashes(Ui *ui) {
 			auto clashes = wb::mouse_clashes(places);
 			for (size_t i = 0; i < order.size(); ++i) {
 				if (order[i]->mnow) {
+					/* Each of its places (name="Frame Client" is several):
+					 * one Waybox doesn't read never runs; the others do. */
 					const auto &all = wb::mouse_contexts();
-					const std::string &ctx = order[i]->mnow->context;
-					bool known = std::any_of(all.begin(), all.end(),
-							[&ctx](const auto &p) { return p.first == ctx; });
-					if (!known) {
-						char *t = g_strdup_printf(_("Never runs: Waybox doesn't read clicks on “%s” "
-								"(yet). Pick another place."), ctx.c_str());
-						show_clash(order[i], nullptr, t, false, "place");
+					std::vector<std::string> ctxs = words(order[i]->mnow->context), unknown;
+					for (const std::string &c : ctxs)
+						if (std::none_of(all.begin(), all.end(),
+								[&c](const auto &p) { return p.first == c; }))
+							unknown.push_back(c);
+					if (!unknown.empty()) {
+						std::string names;
+						for (const std::string &u : unknown)
+							names += (names.empty() ? "" : ", ") + u;
+						char *t = unknown.size() == ctxs.size()
+								? g_strdup_printf(_("Never runs: Waybox doesn't read clicks on “%s” "
+										"(yet). Pick another place."), names.c_str())
+								: g_strdup_printf(_("Waybox doesn't read clicks on “%s” (yet); "
+										"the other places work."), names.c_str());
+						show_clash(order[i], nullptr, t, false,
+								unknown.size() == ctxs.size() ? "place" : "place-some");
 						g_free(t);
 						continue;
 					}
@@ -942,7 +1009,7 @@ void refresh_clashes(Ui *ui) {
  * only rc.xml edits, a quiet line saying so. */
 ShortcutEdit *add_row(Ui *ui, std::shared_ptr<ShortcutEdit> e, GtkSizeGroup *column) {
 	e->ui = ui;
-	e->editable = !any_advanced(shown_acts(e.get()));
+	e->editable = !any_advanced(shown_acts(e.get())) && !grouped(e.get());
 	e->outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 	gtk_widget_add_css_class(e->outer, "wb-shortcut");
 
@@ -973,8 +1040,10 @@ ShortcutEdit *add_row(Ui *ui, std::shared_ptr<ShortcutEdit> e, GtkSizeGroup *col
 		gtk_widget_add_css_class(e->head, "wb-shortcut-row");
 		gtk_widget_add_css_class(e->head, "wb-shortcut-static");
 		gtk_widget_add_css_class(e->does, "dim-label");
-		gtk_widget_set_tooltip_text(e->head,
-				_("Uses If, ForEach or the like: edited in rc.xml"));
+		gtk_widget_set_tooltip_text(e->head, grouped(e.get())
+				? _("Several keys, buttons or places in one binding, each doing the same: "
+						"edited in rc.xml")
+				: _("Uses If, ForEach or the like: edited in rc.xml"));
 	}
 	gtk_box_append(GTK_BOX(bar), e->head);
 	e->undo = gtk_button_new_from_icon_name("edit-undo-symbolic");

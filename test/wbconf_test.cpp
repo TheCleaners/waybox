@@ -931,6 +931,29 @@ WB_TEST(bindings_read_and_edit) {
 		WB_CHECK(no->to_string().find("key=\"XF86AudioRaiseVolume\" repeat=\"yes\"") !=
 				std::string::npos);
 	}
+	/* Several keys, buttons or places in one (Openbox's alternatives):
+	 * listed as written, left to rc.xml (wbconf's editor has one each). */
+	{
+		auto g = wb::RcDocument::from_string(R"(<openbox_config><keyboard>
+<keybind key="F5 F6"><action name="Close"/></keybind></keyboard><mouse>
+<context name="Frame Client"><mousebind button="Left Middle" action="Press"><action name="Focus"/></mousebind></context>
+</mouse></openbox_config>)");
+		WB_CHECK(g.has_value());
+		std::string before = g->to_string();
+		auto gk = g->keybindings();
+		WB_CHECK(gk.size() == 1 && gk[0].chain == std::vector<std::string>{"F5 F6"});
+		wb::KeyBinding changed = gk[0];
+		changed.actions = {{"Iconify", {}}};
+		WB_CHECK(!g->set_keybinding({"F5 F6"}, changed));
+		WB_CHECK(!g->set_keybinding({"F5 F6"}, std::nullopt));
+		auto gm = g->mousebindings();
+		WB_CHECK(gm.size() == 1 && gm[0].context == "Frame Client" && gm[0].button == "Left Middle");
+		wb::MouseBinding mm = gm[0];
+		mm.actions = {{"Raise", {}}};
+		WB_CHECK(!g->set_mousebinding(gm[0], mm));
+		WB_CHECK(!g->set_mousebinding(gm[0], std::nullopt));
+		WB_CHECK(g->to_string() == before);
+	}
 	/* Added under the existing C-a. */
 	WB_CHECK(doc->set_keybinding({}, wb::KeyBinding{{"C-a", "y"}, {{"Iconify", {}}}}));
 	keys = doc->keybindings();
