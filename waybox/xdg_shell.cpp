@@ -28,6 +28,19 @@ wb::FrameInsets toplevel_insets(struct wb_toplevel *toplevel) {
 
 static void follow_monitor_desktop(struct wb_toplevel *t);
 
+/* The monitor its middle is on, and where on it (for coming back to it). */
+static void note_output(struct wb_toplevel *t) {
+	struct wlr_output *out = wlr_output_layout_output_at(t->server->output_layout,
+			t->geometry.x + t->geometry.width / 2.0, t->geometry.y + t->geometry.height / 2.0);
+	if (out == nullptr)
+		return;
+	struct wlr_box box;
+	wlr_output_layout_get_box(t->server->output_layout, out, &box);
+	t->on_output = out->name;
+	t->on_dx = t->geometry.x - box.x;
+	t->on_dy = t->geometry.y - box.y;
+}
+
 void position_toplevel(struct wb_toplevel *toplevel) {
 	if (toplevel == nullptr || toplevel->scene_tree == nullptr)
 		return;
@@ -38,6 +51,7 @@ void position_toplevel(struct wb_toplevel *toplevel) {
 	wb::FrameInsets in = toplevel_insets(toplevel);
 	wlr_scene_node_set_position(&toplevel->scene_tree->node,
 			toplevel->geometry.x - in.left, toplevel->geometry.y - in.top);
+	note_output(toplevel);
 	follow_monitor_desktop(toplevel);
 	view_moved(toplevel);
 }
@@ -614,6 +628,11 @@ static void follow_monitor_desktop(struct wb_toplevel *t) {
 	if (out == nullptr)
 		return;
 	std::string name = out->name;
+	if (t->going_home) {  /* back where it was: its desktop as it was */
+		t->desktop_output = name;
+		toplevel_update_visibility(t);
+		return;
+	}
 	struct wb_output *was = nullptr, *o;
 	wl_list_for_each(o, &t->server->outputs, link)
 		if (o->wlr_output->enabled && t->desktop_output == o->wlr_output->name)
@@ -633,6 +652,32 @@ static void follow_monitor_desktop(struct wb_toplevel *t) {
 		toplevel_update_visibility(t);
 		if (was_active && !toplevel_on_current_desktop(t))
 			focus_current_desktop(t->server);
+	}
+}
+
+void windows_return_home(struct wb_server *server) {
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link) {
+		if (t->home_output.empty() || t->scene_tree == nullptr)
+			continue;
+		struct wb_output *o, *home = nullptr;
+		wl_list_for_each(o, &server->outputs, link)
+			if (o->wlr_output->enabled && t->home_output == o->wlr_output->name &&
+					wlr_output_layout_get(server->output_layout, o->wlr_output) != nullptr)
+				home = o;
+		if (home == nullptr)
+			continue;
+		struct wlr_box box;
+		wlr_output_layout_get_box(server->output_layout, home->wlr_output, &box);
+		/* Where it was on it, kept on it (the monitor may have come back
+		 * at another size). */
+		t->geometry.x = box.x + std::clamp(t->home_dx, 0, std::max(0, box.width - t->geometry.width));
+		t->geometry.y = box.y + std::clamp(t->home_dy, 0, std::max(0, box.height - t->geometry.height));
+		t->home_output.clear();
+		t->going_home = true;
+		position_toplevel(t);
+		t->going_home = false;
+		wlr_log(WLR_INFO, "wb-geom %s back on %s", view_app_id(t), home->wlr_output->name);
 	}
 }
 
@@ -1053,6 +1098,15 @@ void arrange_toplevels(struct wb_server *server) {
 	for (struct wb_toplevel *toplevel : toplevels) {
 		if (toplevel->scene_tree == NULL || !view_ready(toplevel))
 			continue;
+		/* Its monitor gone: remembered, to go back to when it returns. */
+		if (toplevel->home_output.empty() && !toplevel->on_output.empty() &&
+				wlr_output_layout_output_at(server->output_layout,
+						toplevel->geometry.x + toplevel->geometry.width / 2.0,
+						toplevel->geometry.y + toplevel->geometry.height / 2.0) == nullptr) {
+			toplevel->home_output = toplevel->on_output;
+			toplevel->home_dx = toplevel->on_dx;
+			toplevel->home_dy = toplevel->on_dy;
+		}
 
 		if (toplevel->fullscreen) {
 			struct wlr_output *output = get_active_output(toplevel);
@@ -1980,6 +2034,9 @@ void begin_interactive(struct wb_toplevel *toplevel,
 	 * compositor stops propagating pointer events to clients and instead
 	 * consumes them itself, to move or resize windows. */
 	struct wb_server *server = toplevel->server;
+	/* Moved or resized by hand: it stays where it's put now, even when the
+	 * monitor it came from returns. */
+	toplevel->home_output.clear();
 	server->grabbed_toplevel = toplevel;
 	server->cursor->cursor_mode = mode;
 
