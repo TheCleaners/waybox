@@ -203,6 +203,7 @@ std::string option_field_value(const OptionField &f);
 void set_option_field_value(OptionField &f, const std::string &value);
 
 struct ShortcutEdit;  /* shortcuts_page.cpp */
+struct RuleEdit;      /* rules_page.cpp */
 
 struct Ui {
 	/* Built and shown: a switch changing now is the user's (or a test's). */
@@ -398,9 +399,11 @@ struct Ui {
 	 * the page's own). */
 	std::vector<std::shared_ptr<ShortcutEdit>> shortcut_edits;
 	ShortcutEdit *capturing = nullptr;  /* whose keys are being pressed */
-	/* The window rules list, and its rows as text (tests). */
-	GtkWidget *rules_box = nullptr;
-	std::vector<std::string> rule_lines;
+	/* The window rules list: each rule as saved and as it is now, in the
+	 * list's order (shared_ptr: the type is the page's own). */
+	GtkWidget *rules_box = nullptr, *rules_empty = nullptr, *rules_foot = nullptr;
+	GtkSizeGroup *rules_column = nullptr;
+	std::vector<std::shared_ptr<RuleEdit>> rule_edits;
 	/* Keys scripts bind (init.lua and rc.xml's <scripts>), read at load. */
 	std::vector<wb::ScriptKey> script_keys;
 	GtkEventController *capture_keys = nullptr;
@@ -666,6 +669,11 @@ void populate_shortcuts(Ui *ui, const wb::RcDocument *doc);
 /* Window rules (rules_page.cpp). */
 GtkWidget *build_rules_block(Ui *ui);
 void populate_rules(Ui *ui, const wb::RcDocument *doc);
+/* The rules changed (and their order), into rc.xml at Save & Apply. */
+void apply_rules(Ui *ui, wb::RcDocument &doc);
+/* Test hooks: the rules to stderr; a step ("rule-set:2=desktop=all"). */
+void rule_dump(Ui *ui);
+void rule_test_step(Ui *ui, const std::string &step);
 /* The bindings changed, into rc.xml (at Save & Apply). */
 void apply_shortcuts(Ui *ui, wb::RcDocument &doc);
 /* Search: the "keybindings"/"mousebindings" list's rows matching `q`
@@ -737,6 +745,8 @@ std::vector<UnsavedChange> unsaved_changes(Ui *ui);
 void gtk_changes(Ui *ui, const std::string &where, GtkWidget *target,
 		std::vector<UnsavedChange> &out);
 void sources_changes(Ui *ui, bool script, const std::string &where, GtkWidget *target,
+		std::vector<UnsavedChange> &out);
+void rule_changes(Ui *ui, const std::string &where, GtkWidget *target,
 		std::vector<UnsavedChange> &out);
 void shortcut_changes(Ui *ui, const std::string &widget, const std::string &where,
 		GtkWidget *target, std::vector<UnsavedChange> &out);
