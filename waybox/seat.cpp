@@ -757,6 +757,12 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		run_window_action(action.type, server, t);
 		break;
 	}
+	case wb::ActionType::AddDesktop:
+		add_desktop(server, action.direction == "current");
+		break;
+	case wb::ActionType::RemoveDesktop:
+		remove_desktop(server, action.direction == "current");
+		break;
 	case wb::ActionType::ToggleShowDesktop:
 		toggle_show_desktop(server);
 		break;

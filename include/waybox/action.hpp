@@ -71,6 +71,9 @@ enum class ActionType {
 	 * <direction> or 3.4's names (DirectionalFocusNorth, ...). */
 	DirectionalFocus,
 	ToggleShowDesktop,
+	/* <where>last</where> (the default) or current. */
+	AddDesktop,
+	RemoveDesktop,
 	/* Openbox's: SIGTERM to the window's process, SIGKILL if asked again
 	 * within 3 s; frame on or off; raise-or-lower; shade-or-lower,
 	 * unshade-or-raise; to the end of the focus order; no focus. */

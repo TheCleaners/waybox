@@ -169,7 +169,7 @@ std::optional<Action> parse_action_depth(xmlNode *action_node, int depth) {
 			action->to = text(c);
 		else if (is(c, "wrap"))
 			action->wrap = parse_yes(text(c), action->wrap);
-		else if (is(c, "direction"))
+		else if (is(c, "direction") || is(c, "where"))  /* <where>: Add/RemoveDesktop */
 			action->direction = text(c);
 		else if (is(c, "follow"))
 			action->follow = parse_yes(text(c), action->follow);

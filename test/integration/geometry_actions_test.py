@@ -11,7 +11,10 @@ Two undecorated windows (a rule), so a window's frame is its geometry.
    DirectionalFocusWest (3.4's name) back to a; nothing north: unchanged.
 6. ToggleShowDesktop: both minimized; again, both back. On, then a
    focused: the mode ends, a shown, b left minimized.
-7. Unfocus leaves nothing focused. Kill on b ends its process (SIGTERM).
+7. Desktops: AddDesktop adds one at the end; b sent to desktop 2, shown,
+   RemoveDesktopCurrent: one fewer, desktop 1 shown, b moved to it; a on
+   desktop 2, AddDesktop <where>current</where> from desktop 1: a now on 3.
+8. Unfocus leaves nothing focused. Kill on b ends its process (SIGTERM).
    (Decorate and the shading ones: window_layers_test, with foot's frame.)
 Skips (exit 77) without a headless display.
 
@@ -165,6 +168,31 @@ def main():
         toggle()  # a new show-desktop, not a restore
         expect(minimized(), ["a", "b"], "ToggleShowDesktop after it ended")
         toggle()
+
+        def desktops():
+            ds = ipc({"request": "get_desktops"})["desktops"]
+            return len(ds), next(d["number"] for d in ds if d.get("current"))
+
+        def on(app_id):
+            return next(w["desktop"] for w in ipc({"request": "get_windows"})["windows"]
+                        if w["app_id"] == app_id)
+
+        def do(**kw):
+            ipc(dict({"request": "action"}, **kw))
+            time.sleep(0.3)
+        act("Focus", "b")  # still minimized from the show-desktop steps
+        n0, _ = desktops()
+        do(action="AddDesktop")
+        expect(desktops(), (n0 + 1, 1), "AddDesktop")
+        do(action="SendToDesktop", to="2", follow=False, window="app_id:b")
+        expect(on("b"), 2, "b sent to desktop 2")
+        do(action="GoToDesktop", to="2")
+        do(action="RemoveDesktopCurrent")
+        expect((desktops(), on("b")), ((n0, 1), 1), "RemoveDesktopCurrent")
+        do(action="SendToDesktop", to="2", follow=False, window="app_id:a")
+        do(action="AddDesktop", where="current")
+        expect((desktops(), on("a")), ((n0 + 1, 1), 3), "AddDesktop after the current")
+        do(action="SendToDesktop", to="1", follow=False, window="app_id:a")
 
         act("Focus", "a")
         act("Unfocus", "a")

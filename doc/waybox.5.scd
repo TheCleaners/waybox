@@ -547,6 +547,13 @@ act on a window use the focused one.
 	Move the window to the end of the focus order (last in Alt+Tab's
 	list); take the keyboard focus from it.
 
+*AddDesktop*, *RemoveDesktop*
+	One more desktop, after the last or (*<where>current</where>*) after
+	the current one; or the last (or current) desktop taken away, its
+	windows moved to the one before it. Until the next Reconfigure, which
+	goes back to rc.xml's *<number>*. Openbox 3.4's *AddDesktopLast*,
+	*RemoveDesktopCurrent* and the like work too.
+
 *ToggleShowDesktop*
 	Minimize the current desktop's windows to show the desktop; again,
 	bring them back. Focusing a window (a click in a taskbar, Alt+Tab)
