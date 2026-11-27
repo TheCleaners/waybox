@@ -10,7 +10,8 @@ to monitor 2 (MoveResizeTo) takes the desktop that one shows (2), and is
 shown there; the right monitor's own window stays hidden. A new window
 opened on the right monitor opens on its desktop (2). Switched off, a
 monitor's windows come onto the other (by desktop number); back on, they
-go back where they were on it.
+go back where they were on it. <monitor> on GoToDesktop ("all", a name)
+and ToggleShowDesktop (a name); get_desktops lists each monitor's.
 
 Skips (exit 77) without foot, wtype, wlrctl, wlr-randr or a headless
 display.
@@ -267,6 +268,41 @@ def main():
             if w.get("output") != right_name or w.get("x", 0) < W or w.get("desktop") != desk:
                 failures.append(f"back on: {app} is on {w.get('output')} at {w.get('x')}, "
                                 f"desktop {w.get('desktop')}; not back on {right_name}, desktop {desk}")
+
+        # <monitor> on the actions, and each monitor's desktop over IPC.
+        def monitors():
+            out = subprocess.run([msg, "get_desktops"], env=cenv, capture_output=True,
+                                 text=True).stdout
+            try:
+                return {m["output"]: m["desktop"] for m in json.loads(out)["monitors"]}
+            except (ValueError, KeyError):
+                return {}
+
+        def act(*args):
+            subprocess.run([msg, "action", *args], env=cenv, capture_output=True)
+            time.sleep(0.4)
+
+        act("GoToDesktop", "to=1", "monitor=all")
+        if monitors() != {left_name: 1, right_name: 1}:
+            failures.append(f"GoToDesktop monitor=all: {monitors()}")
+        act("GoToDesktop", "to=2", f"monitor={left_name}")
+        if monitors() != {left_name: 2, right_name: 1}:
+            failures.append(f"GoToDesktop on the left monitor by name: {monitors()}")
+        # Show the desktop on the right monitor: its window shown ("right",
+        # desktop 1) minimized; nothing else.
+        # (A window on the left monitor, shown there: it stays.)
+        left_x = 300 if positions[0] == (0, 0) and left_name != right_name else 300
+        pointer(left_x if windows()["right"]["x"] >= W else W + 300, 300)
+        open_foot("other")
+        act("ToggleShowDesktop", f"monitor={right_name}")
+        w = windows()
+        if not w.get("right", {}).get("minimized") or w.get("other", {}).get("minimized") \
+                or w.get("other", {}).get("output") == right_name:
+            failures.append("ToggleShowDesktop on the right monitor: "
+                            f"{ {k: v.get('minimized') for k, v in w.items()} }")
+        act("ToggleShowDesktop", f"monitor={right_name}")
+        if windows().get("right", {}).get("minimized"):
+            failures.append("ToggleShowDesktop again didn't bring the window back")
     except RuntimeError as e:
         failures.append(str(e))
     finally:

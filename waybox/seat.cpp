@@ -43,6 +43,36 @@ static void deiconify_toplevel(struct wb_toplevel *toplevel) {
 	set_toplevel_minimized(toplevel, false);
 }
 
+/* The monitor a desktop or cycling action's <monitor> means (#367):
+ * "all" every one (one = nullptr); "this" / "current" the focused window's
+ * (else the pointer's); a number (left to right) or a name, that one; not
+ * given, "this" with desktops per monitor and "all" with shared ones. */
+struct MonitorChoice {
+	struct wb_output *one = nullptr;
+};
+
+static MonitorChoice action_monitor(struct wb_server *server, const wb::Action &action) {
+	auto m = action.args.find("monitor");
+	std::string spec = m != action.args.end() ? m->second : "";
+	if (spec.empty())
+		spec = desktops_per_monitor(server) ? "this" : "all";
+	if (spec == "all")
+		return {};
+	if (spec == "this" || spec == "current")
+		return {desktop_action_output(server)};
+	if (struct wlr_output *o = rule_output(server, spec))
+		return {static_cast<struct wb_output *>(o->data)};
+	return {desktop_action_output(server)};
+}
+
+/* Whether a window is in the cycle (its monitor's, if one was given). */
+static bool on_cycle_monitor(struct wb_server *server, struct wb_toplevel *t) {
+	if (server->cycle_monitor.empty())
+		return true;
+	struct wlr_output *o = get_active_output(t);
+	return o != nullptr && server->cycle_monitor == o->name;
+}
+
 /* Shared Alt+Tab cycle: walk the MRU focus order to the next/previous eligible
  * toplevel using the pure wb::cycle_next() selector, then focus it. */
 static void cycle_toplevels_dir(struct wb_server *server, bool reverse) {
@@ -64,8 +94,9 @@ static void cycle_toplevels_dir(struct wb_server *server, bool reverse) {
 		}
 	}
 
-	auto eligible = [&order](std::size_t i) {
+	auto eligible = [&order, server](std::size_t i) {
 		return order[i]->mapped && toplevel_on_current_desktop(order[i]) &&
+				on_cycle_monitor(server, order[i]) &&
 				view_modal_child(order[i]) == nullptr;  /* its modal stands for it */
 	};
 	std::optional<std::size_t> next =
@@ -148,7 +179,7 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 	std::vector<struct wb_toplevel *> wins;
 	struct wb_toplevel *t;
 	wl_list_for_each(t, &server->focus_order, focus_link)
-		if (t->mapped && toplevel_on_current_desktop(t))
+		if (t->mapped && toplevel_on_current_desktop(t) && on_cycle_monitor(server, t))
 			wins.push_back(t);
 	if (wins.size() < 2) {  /* nothing meaningful to switch between */
 		if (reverse)
@@ -198,6 +229,10 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 	int current = static_cast<int>(std::find(ordered.begin(), ordered.end(), wins[0]) -
 			ordered.begin());
 	int sel = reverse ? (current - 1 + n) % n : (current + 1) % n;
+	/* Another monitor's windows (the focused one isn't among them): the
+	 * first Tab selects the most recent of them, not the one after it. */
+	if (first_toplevel(server) != wins[0])
+		sel = current;
 	wins = std::move(ordered);
 	wb::SwitcherStyle style = wb_osd_style(server);
 	wb::StallScope timing("switcher");
@@ -551,10 +586,13 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		wb_spawn(action.command.c_str());
 		break;
 	case wb::ActionType::NextWindow:
-		switcher_invoke(server, false);
-		break;
 	case wb::ActionType::PreviousWindow:
-		switcher_invoke(server, true);
+		/* A cycle on its way keeps the monitor it started with. */
+		if (server->switcher == nullptr) {
+			struct wb_output *one = action_monitor(server, action).one;
+			server->cycle_monitor = one != nullptr ? one->wlr_output->name : "";
+		}
+		switcher_invoke(server, action.type == wb::ActionType::PreviousWindow);
 		break;
 	case wb::ActionType::Close: {
 		struct wb_toplevel *toplevel = action_target(server);
@@ -698,11 +736,26 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		script_menu_call(server, action.script_callback);
 		break;
 	case wb::ActionType::GoToDesktop: {
+		/* Desktops per monitor: the monitor <monitor> names (the focused
+		 * window's, else the pointer's, by default), or every one ("all"),
+		 * counting from that one's (or the focused one's) desktop. */
+		MonitorChoice m = action_monitor(server, action);
 		int cur = 0, last = 0;
-		desktop_action_state(server, &cur, &last);
+		if (m.one != nullptr && desktops_per_monitor(server)) {
+			cur = m.one->desktop;
+			last = m.one->last_desktop;
+		} else {
+			desktop_action_state(server, &cur, &last);
+		}
 		if (auto target = wb::desktop_target(action.to, cur, last,
-				desktop_count(server), action.wrap))
-			wb_go_to_desktop(server, *target);
+				desktop_count(server), action.wrap)) {
+			if (!desktops_per_monitor(server))
+				wb_go_to_desktop(server, *target);
+			else if (m.one == nullptr)
+				wb_go_to_desktop_everywhere(server, *target);
+			else
+				wb_go_to_desktop_on(server, m.one, *target);
+		}
 		break;
 	}
 	case wb::ActionType::SendToDesktop: {
@@ -804,7 +857,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		break;
 	}
 	case wb::ActionType::ToggleShowDesktop:
-		toggle_show_desktop(server);
+		toggle_show_desktop(server, action_monitor(server, action).one);
 		break;
 	case wb::ActionType::ShowAbout:
 		/* Nothing drawn over the lock screen. */

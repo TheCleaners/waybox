@@ -378,25 +378,32 @@ void lower_toplevel(struct wb_toplevel *toplevel) {
 
 static void switch_desktop(struct wb_server *server, int index, bool refocus);
 
-void toggle_show_desktop(struct wb_server *server) {
+void toggle_show_desktop(struct wb_server *server, struct wb_output *only) {
+	auto here = [only](struct wb_toplevel *t) {
+		return only == nullptr || get_active_output(t) == only->wlr_output;
+	};
 	server->show_desktop_busy = true;
 	struct wb_toplevel *t;
-	if (!server->showing_desktop) {
+	/* Shown already (those here hidden by it): back; else hide them. */
+	bool shown_already = false;
+	wl_list_for_each(t, &server->toplevels, link)
+		if (t->hidden_by_show_desktop && here(t))
+			shown_already = true;
+	if (!shown_already) {
 		/* Collected first: minimizing moves a window in the list. */
 		std::vector<struct wb_toplevel *> shown;
 		wl_list_for_each(t, &server->toplevels, link)
-			if (t->mapped && !t->minimized && toplevel_on_current_desktop(t))
+			if (t->mapped && !t->minimized && toplevel_on_current_desktop(t) && here(t))
 				shown.push_back(t);
 		for (struct wb_toplevel *w : shown) {
 			w->hidden_by_show_desktop = true;
 			set_toplevel_minimized(w, true);
 		}
-		server->showing_desktop = true;
 		wlr_log(WLR_INFO, "wb-showdesktop on %zu", shown.size());
 	} else {
 		std::vector<struct wb_toplevel *> back;
 		wl_list_for_each(t, &server->toplevels, link)
-			if (t->hidden_by_show_desktop)
+			if (t->hidden_by_show_desktop && here(t))
 				back.push_back(t);
 		/* Bottom to top, so they stack as they were. */
 		for (auto it = back.rbegin(); it != back.rend(); ++it) {
@@ -404,9 +411,13 @@ void toggle_show_desktop(struct wb_server *server) {
 			if ((*it)->mapped && (*it)->minimized)
 				set_toplevel_minimized(*it, false);
 		}
-		server->showing_desktop = false;
 		wlr_log(WLR_INFO, "wb-showdesktop off %zu", back.size());
 	}
+	/* Showing the desktop while any window anywhere is hidden by it. */
+	server->showing_desktop = false;
+	wl_list_for_each(t, &server->toplevels, link)
+		if (t->hidden_by_show_desktop)
+			server->showing_desktop = true;
 	server->show_desktop_busy = false;
 }
 
@@ -864,6 +875,19 @@ void wb_go_to_desktop(struct wb_server *server, int index) {
 
 void wb_go_to_desktop_on(struct wb_server *server, struct wb_output *output, int index) {
 	switch_desktop_on(server, desktops_per_monitor(server) ? output : nullptr, index, true);
+}
+
+void wb_go_to_desktop_everywhere(struct wb_server *server, int index) {
+	if (!desktops_per_monitor(server)) {
+		switch_desktop_on(server, nullptr, index, true);
+		return;
+	}
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link)
+		if (o->wlr_output->enabled)
+			switch_desktop_on(server, o, index, false);
+	focus_current_desktop(server);
+	cursor_refresh_focus(server);
 }
 
 void wb_send_to_desktop(struct wb_toplevel *toplevel, int index, bool follow) {

@@ -142,7 +142,9 @@ any action.
 	The focused window, or *nil*.
 
 *wb.desktop()*
-	A table: *current* and *count*.
+	A table: *current* (the desktop of the focused window's monitor, else
+	the pointer's: with shared desktops, the one shown), *count*, and
+	*monitors*, each monitor's name and the desktop it shows.
 
 *wb.outputs()*
 	A list of tables: *name*, *x*, *y*, *width*, *height*, *scale*.

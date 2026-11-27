@@ -293,7 +293,8 @@ void set_toplevel_urgent(struct wb_toplevel *toplevel, bool urgent);
 /* ToggleShowDesktop: the current desktop's windows minimized, or (on again)
  * those brought back. Focusing a window ends it, the others left minimized
  * (as in Openbox). */
-void toggle_show_desktop(struct wb_server *server);
+/* Every window shown minimized (or back); `only`: that monitor's alone. */
+void toggle_show_desktop(struct wb_server *server, struct wb_output *only = nullptr);
 /* AddDesktop, RemoveDesktop: one more after the current or the last; the
  * current or the last taken away, its windows to the one before. Until the
  * next Reconfigure (rc.xml keeps its number). */
@@ -312,6 +313,8 @@ void focus_order_to_bottom(struct wb_toplevel *toplevel);
 void wb_go_to_desktop(struct wb_server *server, int index);
 /* Desktop `index` on monitor `output` (desktops per monitor; shared: on all). */
 void wb_go_to_desktop_on(struct wb_server *server, struct wb_output *output, int index);
+/* Desktop `index` on every monitor (desktops per monitor: each switched). */
+void wb_go_to_desktop_everywhere(struct wb_server *server, int index);
 /* An output's usable area (less panels' reservations), in layout
  * coordinates; empty for nullptr. */
 struct wlr_box output_usable_area(struct wb_server *server, struct wlr_output *output);

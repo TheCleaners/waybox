@@ -431,7 +431,10 @@ act on a window use the focused one.
 	resize, roll up, decorate and close, for the window it was opened on.
 
 *NextWindow*, *PreviousWindow*
-	Switch windows (Alt+Tab).
+	Switch windows (Alt+Tab). *<monitor>* (a Waybox extension): *all*,
+	*this* (the focused window's monitor), or a monitor's number or name:
+	only that monitor's windows. The default is *this* with desktops per
+	monitor, *all* otherwise.
 
 *Close*, *Iconify*, *Raise*, *Lower*
 	Close, minimize, raise or lower the window.
@@ -499,7 +502,9 @@ act on a window use the focused one.
 *GoToDesktop*
 	Go to the desktop in *<to>*: a number, *left*/*previous*,
 	*right*/*next* or *last*. *<wrap>no</wrap>* stops at the first and last
-	desktop.
+	desktop. With desktops per monitor, *<monitor>* (a Waybox extension)
+	says where: *this* (the default: the focused window's monitor, else the
+	pointer's), *all*, or a monitor's number or name.
 
 *SendToDesktop*
 	Move the window to a desktop (*<to>* and *<wrap>* as above).
@@ -572,7 +577,10 @@ act on a window use the focused one.
 *ToggleShowDesktop*
 	Minimize the current desktop's windows to show the desktop; again,
 	bring them back. Focusing a window (a click in a taskbar, Alt+Tab)
-	ends it: that window is shown, the others stay minimized.
+	ends it: that window is shown, the others stay minimized. *<monitor>*
+	(a Waybox extension): *all*, *this* or a monitor's number or name, its
+	windows alone; the default is *this* with desktops per monitor, *all*
+	otherwise.
 
 *DirectionalTargetWindow*, *DirectionalCycleWindows*
 	Focus (and raise) the nearest window that way from the focused one (or
