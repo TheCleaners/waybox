@@ -1695,12 +1695,26 @@ struct wb_seat *wb_seat_create(struct wb_server *server) {
 			[seat](void *data) {
 		auto *event =
 			static_cast<struct wlr_seat_request_set_primary_selection_event *>(data);
+		/* Locked: the selections stay as they were (nothing set at the
+		 * lock screen, or by a clipboard manager meanwhile, outlives it). */
+		if (session_locked(seat->server)) {
+			if (event->source != nullptr)
+				wlr_primary_selection_source_destroy(event->source);
+			return;
+		}
 		wlr_seat_set_primary_selection(seat->seat, event->source, event->serial);
 	});
 	seat->request_set_selection.connect(
 			&seat->seat->events.request_set_selection, [seat](void *data) {
 		auto *event =
 			static_cast<struct wlr_seat_request_set_selection_event *>(data);
+		/* Locked: as the primary selection above (the one copied before
+		 * the lock is still there after it). */
+		if (session_locked(seat->server)) {
+			if (event->source != nullptr)
+				wlr_data_source_destroy(event->source);
+			return;
+		}
 		wlr_seat_set_selection(seat->seat, event->source, event->serial);
 	});
 

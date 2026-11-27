@@ -669,6 +669,22 @@ out comes from its menu: *menu.items.bg*, *menu.items.text.color*,
 *menu.items.active.bg*, the border, *waybox.menu.corner.radius* and
 *waybox.menu.opacity*. *<osd>* in rc.xml goes over both.
 
+# THE LOCKED SCREEN
+
+While a screen locker (*ext-session-lock-v1*) holds the session, only the
+lock screen gets keys and the pointer; bindings, menus and the switcher
+don't run. Also:
+
+- Programs capturing a single window stop: each window's capture ends
+  when the screen locks, and none starts until it's unlocked (capturing
+  a whole monitor shows the lock screen).
+- The clipboard and the primary selection stay as they were: copying,
+  from any program (clipboard managers and the locker included), is
+  refused, so nothing copied at the lock screen outlives it. The locker
+  can paste what was copied before (a password, say).
+- The lock screen gets no input method.
+- Virtual keyboards and pointers follow *<virtualInput>*.
+
 # SEE ALSO
 
 *waybox*(1), *waybox-integration*(5), *openbox*(1), *xkeyboard-config*(7), *libinput*(4)

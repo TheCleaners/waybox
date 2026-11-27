@@ -241,6 +241,13 @@ static void begin_lock(struct wb_session_lock_state *st) {
 	wlr_seat_keyboard_notify_clear_focus(server->seat->seat);
 	wlr_seat_pointer_clear_focus(server->seat->seat);
 
+	/* Window captures end: each window is drawn for them in a scene of its
+	 * own, which the lock screen doesn't cover. (Whole-output captures
+	 * show the lock screen, as the screen does.) */
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link)
+		drop_window_capture(t);
+
 	st->locked = true;
 	/* Locked: a virtual keyboard <virtualInput> now blocks isn't the
 	 * seat's keyboard (its keys and modifiers would go with focus to the
