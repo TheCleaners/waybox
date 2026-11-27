@@ -860,7 +860,7 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 	if (in != nullptr && !in->options.empty()) {
 		/* With a page, the options go under it, folded; without, they're
 		 * its settings, folded as a page is. */
-		GtkWidget *options_parent = row->details;
+		GtkWidget *options_parent = nullptr;  /* (set on both ways below) */
 		GtkWidget *expander = nullptr;
 		if (!in->page.empty()) {
 			expander = gtk_expander_new(_("All options"));

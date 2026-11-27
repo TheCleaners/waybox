@@ -15,8 +15,8 @@ Integration files with Page=NAME.lua, two as a package installs them
   until allowed; then it runs, and is remembered; changed, it's asked
   about again.
 Then a runner gone wrong (a fake one): wbconf refuses its write outside
-Files= and its run outside Runs=; and one that never answers: wbconf says
-so after 3 s and goes on.
+Files= and its run outside Runs=; one that never answers: wbconf says
+so after 3 s and goes on; one whose page can't be drawn: said so.
 Skips (exit 77) without a headless display.
 
 Usage: wbconf_lua_page_test.py <waybox> <wbconf> <schema-dir> <wbconf-lua>
@@ -101,13 +101,19 @@ LOCAL = MINE.replace("Name=Mine", "Name=Local").replace("mine.lua", "local.lua")
 # "stuck", it never answers at all.
 ROGUE = r'''#!/usr/bin/env python3
 import json, sys, time
-stuck = len(sys.argv) > 1
+stuck = "stuck" in sys.argv
+undrawable = "undrawable" in sys.argv
 for line in sys.stdin:
     m = json.loads(line)
     if stuck:
         time.sleep(60)
     out = []
-    if "open" in m:
+    if "open" in m and undrawable:
+        # No "controls": pages wbconf can't draw. Four, so the replies fill
+        # their vector (sizes 1, 2, 4): an error added to it while it was
+        # read made it grow under the loop.
+        out += [{"page": {}} for _ in range(4)]
+    elif "open" in m:
         out.append({"page": {"controls": [{"kind": "number", "key": "n", "label": "N",
                                             "value": "1"},
                                            {"kind": "button", "key": "b", "label": "B"}]}})
@@ -309,7 +315,7 @@ def main():
     # A runner gone wrong: wbconf refuses what isn't allowed. One that never
     # answers: wbconf gives up on it after 3 s and goes on.
     outside = os.path.join(workdir, "outside")
-    for name, args in (("rogue", ""), ("stuck", " stuck")):
+    for name, args in (("rogue", ""), ("stuck", " stuck"), ("undrawable", " undrawable")):
         fake = os.path.join(workdir, name + "-runner")
         with open(fake, "w") as f:
             # Its stderr not wbconf's: a stuck one would hold the test's pipe.
@@ -347,6 +353,11 @@ def main():
         dump = [l for l in err2.splitlines() if l.startswith("luapage-dump:demo")]
         if name == "stuck" and (not dump or "didn't answer in time" not in dump[0]):
             failures.append(f"stuck: not said: {dump} after {time.time() - t0:.0f}s")
+        # A page it can't draw: said, and nothing else goes wrong (the error
+        # added while the replies were being read once corrupted them).
+        if name == "undrawable" and (not dump or "can't be drawn" not in dump[0]
+                                     or "Sanitizer" in err2):
+            failures.append(f"undrawable: {dump} {err2[-600:] if 'Sanitizer' in err2 else ''}")
         if name == "rogue" and "isn't allowed" not in err2 and "isn't in the integration" \
                 not in err2:
             failures.append(f"rogue: not refused: {err2[-400:]}")

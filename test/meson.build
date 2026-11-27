@@ -324,6 +324,14 @@ session_store_test = executable(
   )
 test('session_store', session_store_test, suite: 'unit')
 
+# Files written whole, through a temporary file of their own.
+atomic_file_test = executable(
+  'atomic_file_test',
+  ['atomic_file_test.cpp', 'wb_test_main.cpp', atomic_file_src],
+  include_directories: [inc_dir],
+  )
+test('atomic_file', atomic_file_test, suite: 'unit')
+
 # The applications menu: .desktop files, categories, the scan and its cache.
 app_menu_test = executable(
   'app_menu_test',

@@ -132,7 +132,7 @@ def write_config(root, theme, accent):
                     os.path.join(cfg, "waybox", "menu.xml"))
 
     # Terminals: Fira Code, a soft dark palette, some padding.
-    open(os.path.join(cfg, "foot", "foot.ini"), "w").write(f"""[main]
+    open(os.path.join(cfg, "foot", "foot.ini"), "w").write("""[main]
 font=Fira Code:size=10,monospace:size=10
 shell=dash
 pad=10x8

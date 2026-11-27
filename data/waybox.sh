@@ -24,8 +24,10 @@ _()
         TEXTDOMAINDIR=@localedir@
         export TEXTDOMAINDIR
         eval_gettext "$1"
+        echo
     else
-        printf "$1"
+        # The message as text, not a format (a % in it is just a %).
+        printf '%s\n' "$1"
     fi
 }
 

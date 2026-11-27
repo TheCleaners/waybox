@@ -720,7 +720,6 @@ bool Document::remove(const Path &path) {
 				which.push_back(i);
 	} else if (parent->type == Type::Array && std::holds_alternative<size_t>(last) &&
 			std::get<size_t>(last) < parent->items.size()) {
-		count = parent->items.size();
 		which.push_back(std::get<size_t>(last));
 	}
 	if (which.empty())

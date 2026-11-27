@@ -13,6 +13,7 @@ Driven over its protocol (JSON lines on stdin and stdout), as wbconf does:
    and the page still answers after it.
 6. Mistakes said with their line: an undeclared global, a setting's name
    misspelled (with the right one suggested), a page without page { }.
+7. Compiled Lua (bytecode) instead of source: refused, not run.
 
 Usage: page_runner_test.py <waybox> <wbconf-lua>   (waybox: unused, as the
 harness passes it first)
@@ -192,6 +193,28 @@ def main():
         r.close()
 
     # A script with no page, and one that doesn't load.
+    # Compiled Lua (bytecode) isn't a page: only source is loaded. The page
+    # itself compiled where luajit is there (it would run as it is), else a
+    # bytecode header.
+    bytecode = b"\x1bLJ\x02\x00junk"
+    if shutil.which("luajit"):
+        src = os.path.join(work, "compiled-src.lua")
+        out = os.path.join(work, "compiled.out")
+        with open(src, "w") as f:
+            f.write(PAGE)
+        if subprocess.run(["luajit", "-b", src, out], capture_output=True).returncode == 0:
+            bytecode = open(out, "rb").read()
+    with open(script, "wb") as f:
+        f.write(bytecode)
+    r = Runner(exe, env)
+    try:
+        replies = r.ask(opened)
+        e = errors(replies)
+        if not e or "source" not in e[0]["message"] or any("page" in m for m in replies):
+            failures.append(f"compiled Lua was loaded: {replies}")
+    finally:
+        r.close()
+
     for code, want in (("local x = 1\n", "page { ... } is missing"),
                        ("page {\n  number { }\n}\n", "needs its key first"),
                        ("page { label 'x' \n", "expected")):

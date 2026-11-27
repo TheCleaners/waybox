@@ -6,34 +6,14 @@
  */
 #include "wbconf_ui.hpp"
 
+#include "waybox/atomic_file.hpp"
+
 namespace wbconf {
 
-/* Written to a copy next to it, then put in its place: a crash or a full
- * disk midway never leaves half a file. The file keeps its permissions
- * (a script stays executable). */
+/* Written whole or not at all (see wb::write_file_atomic: a temporary
+ * file of its own beside it, the file's mode kept). */
 bool write_file_atomic(const std::string &path, const std::string &text, std::string *error) {
-	std::string tmp = path + ".wbconf-new";
-	{
-		std::ofstream f(tmp, std::ios::trunc);
-		f << text;
-		f.close();
-		if (!f) {
-			*error = path + ": " + strerror(errno);
-			std::error_code ec;
-			fs::remove(tmp, ec);
-			return false;
-		}
-	}
-	std::error_code ec;
-	auto st = fs::status(path, ec);
-	if (!ec && fs::exists(st))
-		fs::permissions(tmp, st.permissions(), ec);
-	if (rename(tmp.c_str(), path.c_str()) != 0) {
-		*error = path + ": " + strerror(errno);
-		fs::remove(tmp, ec);
-		return false;
-	}
-	return true;
+	return wb::write_file_atomic(path, text, error);
 }
 
 namespace {
