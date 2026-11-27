@@ -1,3 +1,4 @@
+#include <limits>
 #include "wb_test.hpp"
 
 #include "waybox/geometry.hpp"
@@ -183,4 +184,41 @@ WB_TEST(ime_popup_taller_than_the_room_either_side) {
 	Rect out{0, 0, 800, 200};
 	WB_CHECK(wb::place_ime_popup(Rect{10, 90, 2, 20}, 100, 150, out) ==
 			(Rect{10, 50, 100, 150}));
+}
+
+/* Numbers at int's ends (a client's cursor rectangle, rc.xml's margins):
+ * added in 64 bits, no overflow (UBSan would stop the test). */
+WB_TEST(ime_popup_extreme_cursor) {
+	const int M = std::numeric_limits<int>::max(), m = std::numeric_limits<int>::min();
+	Rect out{0, 0, 1920, 1080};
+	Rect r = wb::place_ime_popup(Rect{M, M, M, M}, 300, 120, out);
+	WB_CHECK(r.x == 1620 && r.y == 960);
+	r = wb::place_ime_popup(Rect{m, m, 0, 0}, 300, 120, out);
+	WB_CHECK(r.x == 0 && r.y == 0);
+	r = wb::place_ime_popup(Rect{1, 1, 2, 20}, M, M, out);
+	WB_CHECK(r.x == 0 && r.y == 0);
+}
+
+/* Bigger than its output: its top-left on the output (it can't be made
+ * smaller from here), the rest past the right and bottom edges. */
+WB_TEST(ime_popup_bigger_than_the_output) {
+	Rect out{1920, 0, 1280, 1024};
+	WB_CHECK(wb::place_ime_popup(Rect{2500, 500, 2, 20}, 3000, 2000, out) ==
+			(Rect{1920, 0, 3000, 2000}));
+}
+
+WB_TEST(apply_strut_extreme_margins) {
+	const int M = std::numeric_limits<int>::max();
+	Rect a = wb::apply_strut(Rect{0, 0, 1920, 1080}, wb::Strut{M, M, M, M});
+	WB_CHECK(a.width == 0 && a.height == 0);
+	Rect b = wb::apply_strut(Rect{100, 0, 1920, 1080}, wb::Strut{1000, 0, 1000, 0});
+	WB_CHECK(b.x == 1100 && b.width == 0);
+}
+
+WB_TEST(margins_parsed_strictly) {
+	WB_CHECK(wb::parse_margin("0") == 0 && wb::parse_margin(" 24 ") == 24);
+	WB_CHECK(wb::parse_margin("10000") == 10000);
+	for (const char *bad : {"", " ", "-5", "10001", "4294967295", "99999999999", "12px", "1.5",
+			"0x10", "+3"})
+		WB_CHECK(!wb::parse_margin(bad));
 }
