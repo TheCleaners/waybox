@@ -96,6 +96,7 @@ void populate(Ui *ui, const wb::WayboxSettings &s, const wb::RcDocument *doc) {
 	populate_bindings(ui, doc);
 	populate_shortcuts(ui, doc);
 	populate_rules(ui, doc);
+	populate_menu(ui);
 	populate_input_method(ui, s.input_method);
 	populate_rows(ui, doc);
 

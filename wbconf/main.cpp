@@ -116,6 +116,11 @@ void on_save(GtkButton *, gpointer data) {
 		return;
 	}
 	sources_saved(ui);
+	if (!apply_menu(ui, &err)) {
+		refresh_save_state(ui);
+		set_status(ui, std::string(_("Saved rc.xml, but not the menu: ")) + err);
+		return;
+	}
 	ui->save_notes.clear();
 	if (!save_lua_pages(ui, &err)) {
 		refresh_save_state(ui);

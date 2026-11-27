@@ -149,6 +149,8 @@ std::vector<UnsavedChange> unsaved_changes(Ui *ui) {
 		} else if (w == "xdg-autostart" && !xdg) {
 			xdg = true;
 			sources_changes(ui, false, where, r.row, out);
+		} else if (w == "menutree") {
+			menu_changes(ui, where, r.row, out);
 		} else if (w == "apprules") {
 			rule_changes(ui, where, r.row, out);
 		} else if (w == "keybindings" || w == "mousebindings") {
