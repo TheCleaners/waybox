@@ -387,6 +387,15 @@ Value handle(Client *c, const Value &req) {
 			action->wrap = *w->boolean();
 		if (const Value *f = req.get("follow"); f && f->boolean())
 			action->follow = *f->boolean();
+		for (const char *k : {"x", "y", "width", "height", "monitor", "left", "right", "top",
+				"bottom"})
+			if (const Value *v = req.get(k)) {
+				if (v->string() != nullptr)
+					action->args[k] = v->string()->substr(0, 64);
+				else if (v->number() != nullptr)
+					action->args[k] = std::to_string(static_cast<long>(
+							std::clamp(*v->number(), -1e6, 1e6)));
+			}
 		struct wb_toplevel *target = nullptr;
 		if (req.get("window")) {
 			target = find_window(server, req.str("window"));

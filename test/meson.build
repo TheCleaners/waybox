@@ -122,6 +122,13 @@ edge_tiling_test = executable(
   )
 test('edge_tiling', edge_tiling_test)
 
+geometry_actions_test = executable(
+  'geometry_actions_test',
+  ['geometry_actions_test.cpp', 'wb_test_main.cpp', geometry_actions_src],
+  include_directories: [inc_dir],
+  )
+test('geometry_actions', geometry_actions_test)
+
 client_menu_test = executable(
   'client_menu_test',
   ['client_menu_test.cpp', 'wb_test_main.cpp', client_menu_src, menu_src, action_src],
@@ -873,6 +880,7 @@ if python.found() and not get_option('tests_only')
     ['wlr_data_control', 'wlr_data_control_test.py', [wlr_dc_client], 60],
     ['workspace', 'workspace_test.py', [workspace_client], 60],
     ['urgency', 'urgency_test.py', [activate_client, workspace_client], 60],
+    ['geometry_actions', 'geometry_actions_test.py', [activate_client], 60],
     ['xwayland', 'xwayland_test.py', [vpointer_client], 90],
   ]
   # wbconf is built only with GTK 4.

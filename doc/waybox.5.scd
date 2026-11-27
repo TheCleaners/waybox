@@ -501,6 +501,31 @@ act on a window use the focused one.
 *ToggleOmnipresent*
 	Show the window on all desktops, or only the current one.
 
+*MoveResizeTo*
+	Move and size the window, within the monitor's usable area (panels
+	left out): *<x>*, *<y>* (pixels from the area's left or top; negative:
+	from its right or bottom; *center*; _N_*%*; *current*), *<width>*,
+	*<height>* (pixels, _N_*%* of the area, *current*), *<monitor>* (a
+	number, or *current*). Sizes are measured with the window's frame.
+
+*MoveRelative*, *ResizeRelative*
+	Move the window by *<x>* and *<y>* pixels; move its edges out by
+	*<left>*, *<right>*, *<top>* and *<bottom>* pixels (negative: in;
+	Openbox's older *<x>* and *<y>* are the right and bottom).
+
+*MoveToCenter*
+	Center the window on its monitor.
+
+*MoveToEdge*, *GrowToEdge*, *ShrinkToEdge*
+	With *<direction>north|south|east|west</direction>*: move the window
+	that way until one of its edges meets the next edge (another window's
+	alongside it, or the area's); move that side out to the next edge; or
+	in to the nearest edge of a window it overlaps. Openbox 3.4's names
+	(*MoveToEdgeNorth*, *GrowToEdgeEast*, ...) work too.
+
+*GrowToFill*
+	Grow every side out to the next edge, without overlapping.
+
 *ShowAbout*
 	Waybox's own: a card in the middle of the monitor with Waybox's
 	version and what's running (wlroots, the renderer, Xwayland, the

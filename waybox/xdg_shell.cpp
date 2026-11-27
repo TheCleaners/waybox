@@ -1408,6 +1408,40 @@ void tile_toplevel(struct wb_toplevel *toplevel, wb::TileZone zone,
 			toplevel->geometry.x, toplevel->geometry.y);
 }
 
+wb::Rect toplevel_frame(struct wb_toplevel *toplevel) {
+	wb::FrameInsets in = toplevel_insets(toplevel);
+	return {toplevel->geometry.x - in.left, toplevel->geometry.y - in.top,
+			toplevel->geometry.width + in.left + in.right,
+			toplevel->geometry.height + in.top + in.bottom};
+}
+
+void set_toplevel_frame(struct wb_toplevel *toplevel, wb::Rect frame) {
+	if (!view_ready(toplevel) || toplevel->fullscreen)
+		return;
+	if (toplevel->max_horz || toplevel->max_vert)
+		set_toplevel_maximized(toplevel, false, false);
+	if (toplevel->tiled) {
+		toplevel->tiled = false;
+		toplevel->tile_zone = wb::TileZone::None;
+	}
+	wb::FrameInsets in = toplevel_insets(toplevel);
+	int w = frame.width - in.left - in.right, h = frame.height - in.top - in.bottom;
+	int min_w = 0, min_h = 0, max_w = 0, max_h = 0;
+	view_size_hints(toplevel, &min_w, &min_h, &max_w, &max_h);
+	w = std::max({w, min_w, 1});
+	h = std::max({h, min_h, 1});
+	if (max_w > 0)
+		w = std::min(w, max_w);
+	if (max_h > 0)
+		h = std::min(h, max_h);
+	toplevel->geometry = {frame.x + in.left, frame.y + in.top, w, h};
+	view_set_size(toplevel, w, h);
+	position_toplevel(toplevel);
+	update_toplevel_decoration(toplevel);
+	wlr_log(WLR_INFO, "wb-geom frame %dx%d+%d+%d", frame.width, frame.height, frame.x,
+			frame.y);
+}
+
 void untile_toplevel(struct wb_toplevel *toplevel, bool restore_position) {
 	if (!toplevel->tiled)
 		return;
