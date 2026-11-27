@@ -17,7 +17,7 @@ namespace {
 /* The single source of truth for known actions. Adding a row here is all that
  * is needed to register a new action name for parsing; wire its behaviour into
  * run_action() to make it do something. */
-constexpr std::array<ActionSpec, 76> kRegistry = {{
+constexpr std::array<ActionSpec, 77> kRegistry = {{
 	{"Execute",        ActionType::Execute,        true},
 	{"NextWindow",     ActionType::NextWindow,     false},
 	{"PreviousWindow", ActionType::PreviousWindow, false},
@@ -65,6 +65,7 @@ constexpr std::array<ActionSpec, 76> kRegistry = {{
 	{"ToggleAlwaysOnTop",    ActionType::ToggleAlwaysOnTop,    false},
 	{"ToggleAlwaysOnBottom", ActionType::ToggleAlwaysOnBottom, false},
 	{"ShowAbout",      ActionType::ShowAbout,      false},
+	{"ToggleShowDesktop", ActionType::ToggleShowDesktop, false},
 	{"DirectionalTargetWindow", ActionType::DirectionalFocus, false},
 	{"DirectionalCycleWindows", ActionType::DirectionalFocus, false},
 	{"DirectionalFocusNorth", ActionType::DirectionalFocus, false, "north"},

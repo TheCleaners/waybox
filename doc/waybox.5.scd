@@ -526,6 +526,11 @@ act on a window use the focused one.
 *GrowToFill*
 	Grow every side out to the next edge, without overlapping.
 
+*ToggleShowDesktop*
+	Minimize the current desktop's windows to show the desktop; again,
+	bring them back. Focusing a window (a click in a taskbar, Alt+Tab)
+	ends it: that window is shown, the others stay minimized.
+
 *DirectionalTargetWindow*, *DirectionalCycleWindows*
 	Focus (and raise) the nearest window that way from the focused one (or
 	the pointer), among those shown on this desktop: *<direction>* is

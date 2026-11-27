@@ -672,6 +672,9 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		}
 		break;
 	}
+	case wb::ActionType::ToggleShowDesktop:
+		toggle_show_desktop(server);
+		break;
 	case wb::ActionType::ShowAbout:
 		server->menu.reset();
 		server->about_card = std::make_unique<wb::AboutCard>(server, wb_osd_style(server),

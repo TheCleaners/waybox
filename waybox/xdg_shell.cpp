@@ -360,6 +360,50 @@ void lower_toplevel(struct wb_toplevel *toplevel) {
 
 static void switch_desktop(struct wb_server *server, int index, bool refocus);
 
+void toggle_show_desktop(struct wb_server *server) {
+	server->show_desktop_busy = true;
+	struct wb_toplevel *t;
+	if (!server->showing_desktop) {
+		/* Collected first: minimizing moves a window in the list. */
+		std::vector<struct wb_toplevel *> shown;
+		wl_list_for_each(t, &server->toplevels, link)
+			if (t->mapped && !t->minimized && toplevel_on_current_desktop(t))
+				shown.push_back(t);
+		for (struct wb_toplevel *w : shown) {
+			w->hidden_by_show_desktop = true;
+			set_toplevel_minimized(w, true);
+		}
+		server->showing_desktop = true;
+		wlr_log(WLR_INFO, "wb-showdesktop on %zu", shown.size());
+	} else {
+		std::vector<struct wb_toplevel *> back;
+		wl_list_for_each(t, &server->toplevels, link)
+			if (t->hidden_by_show_desktop)
+				back.push_back(t);
+		/* Bottom to top, so they stack as they were. */
+		for (auto it = back.rbegin(); it != back.rend(); ++it) {
+			(*it)->hidden_by_show_desktop = false;
+			if ((*it)->mapped && (*it)->minimized)
+				set_toplevel_minimized(*it, false);
+		}
+		server->showing_desktop = false;
+		wlr_log(WLR_INFO, "wb-showdesktop off %zu", back.size());
+	}
+	server->show_desktop_busy = false;
+}
+
+/* A window focused while the desktop is shown: that ends it, the others
+ * left minimized. */
+static void end_show_desktop(struct wb_server *server) {
+	if (!server->showing_desktop || server->show_desktop_busy)
+		return;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link)
+		t->hidden_by_show_desktop = false;
+	server->showing_desktop = false;
+	wlr_log(WLR_INFO, "%s", "wb-showdesktop ended");
+}
+
 void set_toplevel_urgent(struct wb_toplevel *toplevel, bool urgent) {
 	if (toplevel == nullptr || toplevel->urgent == urgent)
 		return;
@@ -471,6 +515,7 @@ void focus_toplevel(struct wb_toplevel *toplevel) {
 	seat_focus_surface(server->seat.get(), surface);
 	sync_frame_active(server);
 	set_toplevel_urgent(toplevel, false);  /* attention given */
+	end_show_desktop(server);
 	if (toplevel->mapped)
 		ipc_window_event(toplevel, "focus");
 }
