@@ -1,5 +1,7 @@
 #include "wb_test.hpp"
 
+#include <algorithm>
+
 #include <string>
 
 #include "waybox/wbconf.hpp"
@@ -860,4 +862,73 @@ WB_TEST(output_rules_random_edits) {
 			break;
 		}
 	}
+}
+
+/* Bindings: read (chains flattened), edited in place (comments kept),
+ * added (a chain's keys reused), removed (an emptied chain key too);
+ * advanced ones (If) left to rc.xml. */
+WB_TEST(bindings_read_and_edit) {
+	const char *xml = R"(<?xml version="1.0"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <keyboard>
+    <!-- keep me -->
+    <keybind key="W-e"><action name="Execute"><command>foot</command></action></keybind>
+    <keybind key="C-a">
+      <keybind key="x"><action name="Close"/></keybind>
+    </keybind>
+    <keybind key="W-i"><action name="If"><then><action name="Raise"/></then></action></keybind>
+  </keyboard>
+  <mouse>
+    <context name="Root">
+      <mousebind button="Right" action="Press"><action name="ShowMenu"><menu>root-menu</menu></action></mousebind>
+    </context>
+  </mouse>
+</openbox_config>
+)";
+	auto doc = wb::RcDocument::from_string(xml);
+	WB_CHECK(doc.has_value());
+	if (!doc)
+		return;
+	auto keys = doc->keybindings();
+	WB_CHECK(keys.size() == 3);
+	WB_CHECK((keys[0].chain == std::vector<std::string>{"W-e"}));
+	WB_CHECK(keys[0].actions.size() == 1 && keys[0].actions[0].name == "Execute" &&
+			keys[0].actions[0].options[0] == std::pair<std::string, std::string>("command", "foot"));
+	WB_CHECK((keys[1].chain == std::vector<std::string>{"C-a", "x"}));
+	WB_CHECK(keys[2].actions.size() == 1 && keys[2].actions[0].advanced);
+	auto mouse = doc->mousebindings();
+	WB_CHECK(mouse.size() == 1 && mouse[0].context == "Root" && mouse[0].button == "Right" &&
+			mouse[0].event == "Press" && mouse[0].actions[0].name == "ShowMenu");
+
+	/* In place: W-e now runs alacritty; the comment stays. */
+	wb::KeyBinding e = keys[0];
+	e.actions[0].options = {{"command", "alacritty"}};
+	WB_CHECK(doc->set_keybinding({"W-e"}, e));
+	std::string out = doc->to_string();
+	WB_CHECK(out.find("keep me") != std::string::npos);
+	WB_CHECK(out.find("alacritty") != std::string::npos && out.find(">foot<") == std::string::npos);
+	/* Added under the existing C-a. */
+	WB_CHECK(doc->set_keybinding({}, wb::KeyBinding{{"C-a", "y"}, {{"Iconify", {}}}}));
+	keys = doc->keybindings();
+	WB_CHECK(keys.size() == 4 && (keys[2].chain == std::vector<std::string>{"C-a", "y"}));
+	/* Removed: C-a x, then C-a y; C-a itself goes with the last. */
+	WB_CHECK(doc->set_keybinding({"C-a", "x"}, std::nullopt));
+	WB_CHECK(doc->set_keybinding({"C-a", "y"}, std::nullopt));
+	WB_CHECK(doc->to_string().find("C-a") == std::string::npos);
+	/* Advanced: refused, left as it is. */
+	WB_CHECK(!doc->set_keybinding({"W-i"}, std::nullopt));
+	WB_CHECK(doc->to_string().find("<then>") != std::string::npos);
+	/* Mouse: moved to another button (removed, added), then removed. */
+	wb::MouseBinding m = mouse[0];
+	wb::MouseBinding moved = m;
+	moved.button = "Middle";
+	WB_CHECK(doc->set_mousebinding(m, moved));
+	mouse = doc->mousebindings();
+	WB_CHECK(mouse.size() == 1 && mouse[0].button == "Middle");
+	WB_CHECK(doc->set_mousebinding(moved, std::nullopt));
+	WB_CHECK(doc->mousebindings().empty());
+	/* A new context made for one. */
+	WB_CHECK(doc->set_mousebinding(std::nullopt,
+			wb::MouseBinding{"Titlebar", "Left", "DoubleClick", {{"ToggleMaximize", {}}}}));
+	WB_CHECK(doc->mousebindings().size() == 1);
 }

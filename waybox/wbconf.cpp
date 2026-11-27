@@ -1260,4 +1260,232 @@ void RcDocument::set_keybind(const std::string &key, const std::optional<std::st
 	xmlAddChild(action, cmd);
 }
 
+namespace {
+
+/* An <action> as the editor sees it: simple options (elements holding
+ * only text); anything more (If, ForEach, nested elements) advanced. */
+BoundAction read_action(xmlNode *action) {
+	BoundAction a;
+	a.name = attr_value(action, "name").value_or("");
+	if (a.name == "If" || a.name == "ForEach")
+		a.advanced = true;
+	for (xmlNode *c = action->children; c != nullptr; c = c->next) {
+		if (c->type != XML_ELEMENT_NODE)
+			continue;
+		for (xmlNode *g = c->children; g != nullptr; g = g->next)
+			if (g->type == XML_ELEMENT_NODE)
+				a.advanced = true;
+		a.options.emplace_back(reinterpret_cast<const char *>(c->name),
+				trimmed(node_text(c).value_or("")));
+	}
+	return a;
+}
+
+std::vector<BoundAction> read_actions(xmlNode *parent) {
+	std::vector<BoundAction> out;
+	for (xmlNode *c = parent->children; c != nullptr; c = c->next)
+		if (is_element(c, "action"))
+			out.push_back(read_action(c));
+	return out;
+}
+
+bool any_advanced(const std::vector<BoundAction> &actions) {
+	for (const BoundAction &a : actions)
+		if (a.advanced)
+			return true;
+	return false;
+}
+
+/* `parent`'s actions replaced by `actions` (its other children kept). */
+void write_actions(xmlNode *parent, const std::vector<BoundAction> &actions) {
+	for (xmlNode *c = parent->children; c != nullptr;) {
+		xmlNode *next = c->next;
+		if (is_element(c, "action"))
+			unlink_element(c);
+		c = next;
+	}
+	for (const BoundAction &a : actions) {
+		xmlNode *node = new_child(parent, "action");
+		xmlSetProp(node, xc("name"), xc(a.name.c_str()));
+		for (const auto &[k, v] : a.options) {
+			xmlNode *o = xmlNewNode(node->ns, xc(k.c_str()));
+			xmlNodeAddContent(o, xc(v.c_str()));
+			xmlAddChild(node, o);
+		}
+	}
+}
+
+void collect_keys(xmlNode *parent, std::vector<std::string> &chain, std::vector<KeyBinding> &out) {
+	for (xmlNode *c = parent->children; c != nullptr; c = c->next) {
+		if (!is_element(c, "keybind"))
+			continue;
+		chain.push_back(attr_value(c, "key").value_or(""));
+		bool nested = false;
+		for (xmlNode *g = c->children; g != nullptr; g = g->next)
+			if (is_element(g, "keybind"))
+				nested = true;
+		if (nested)
+			collect_keys(c, chain, out);
+		else
+			out.push_back({chain, read_actions(c)});
+		chain.pop_back();
+	}
+}
+
+/* The <keybind> at the end of `chain` under `kb`, or nullptr. */
+xmlNode *find_chain(xmlNode *kb, const std::vector<std::string> &chain) {
+	xmlNode *at = kb;
+	for (const std::string &key : chain) {
+		xmlNode *next = nullptr;
+		for (xmlNode *c = at ? at->children : nullptr; c != nullptr; c = c->next)
+			if (is_element(c, "keybind") && attr_value(c, "key").value_or("") == key)
+				next = c;
+		if (next == nullptr)
+			return nullptr;
+		at = next;
+	}
+	return at == kb ? nullptr : at;
+}
+
+/* Remove `node`, then any chain keys left with nothing in them. */
+void remove_with_empty_parents(xmlNode *node) {
+	xmlNode *parent = node->parent;
+	unlink_element(node);
+	while (parent != nullptr && is_element(parent, "keybind")) {
+		bool empty = true;
+		for (xmlNode *c = parent->children; c != nullptr; c = c->next)
+			if (c->type == XML_ELEMENT_NODE)
+				empty = false;
+		if (!empty)
+			break;
+		xmlNode *up = parent->parent;
+		unlink_element(parent);
+		parent = up;
+	}
+}
+
+xmlNode *find_mousebind(xmlNode *root, const MouseBinding &m) {
+	xmlNode *mouse = find_path(root, {"mouse"});
+	for (xmlNode *ctx = mouse ? mouse->children : nullptr; ctx != nullptr; ctx = ctx->next) {
+		if (!is_element(ctx, "context") || attr_value(ctx, "name").value_or("") != m.context)
+			continue;
+		for (xmlNode *b = ctx->children; b != nullptr; b = b->next)
+			if (is_element(b, "mousebind") &&
+					attr_value(b, "button").value_or("") == m.button &&
+					attr_value(b, "action").value_or("") == m.event)
+				return b;
+	}
+	return nullptr;
+}
+
+}  // namespace
+
+std::vector<KeyBinding> RcDocument::keybindings() const {
+	std::vector<KeyBinding> out;
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	xmlNode *kb = root ? find_path(root, {"keyboard"}) : nullptr;
+	if (kb != nullptr) {
+		std::vector<std::string> chain;
+		collect_keys(kb, chain, out);
+	}
+	return out;
+}
+
+std::vector<MouseBinding> RcDocument::mousebindings() const {
+	std::vector<MouseBinding> out;
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	xmlNode *mouse = root ? find_path(root, {"mouse"}) : nullptr;
+	for (xmlNode *ctx = mouse ? mouse->children : nullptr; ctx != nullptr; ctx = ctx->next) {
+		if (!is_element(ctx, "context"))
+			continue;
+		std::string name = attr_value(ctx, "name").value_or("");
+		for (xmlNode *b = ctx->children; b != nullptr; b = b->next)
+			if (is_element(b, "mousebind"))
+				out.push_back({name, attr_value(b, "button").value_or(""),
+						attr_value(b, "action").value_or(""), read_actions(b)});
+	}
+	return out;
+}
+
+bool RcDocument::set_keybinding(const std::vector<std::string> &was,
+		const std::optional<KeyBinding> &now) {
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	if (root == nullptr || (now && (now->chain.empty() || any_advanced(now->actions))))
+		return false;
+	xmlNode *kb = find_path(root, {"keyboard"});
+	xmlNode *old = was.empty() || kb == nullptr ? nullptr : find_chain(kb, was);
+	if (old != nullptr && any_advanced(read_actions(old)))
+		return false;  /* only rc.xml edits those */
+	if (!was.empty() && old == nullptr)
+		return false;
+	/* The same keys: actions replaced where it stands (comments kept). */
+	if (old != nullptr && now && now->chain == was) {
+		write_actions(old, now->actions);
+		return true;
+	}
+	if (old != nullptr)
+		remove_with_empty_parents(old);
+	if (!now)
+		return true;
+	/* Added: down the chain, its keys reused where they're there. */
+	xmlNode *at = ensure_path(root, {"keyboard"});
+	for (const std::string &key : now->chain) {
+		xmlNode *next = nullptr;
+		for (xmlNode *c = at->children; c != nullptr; c = c->next)
+			if (is_element(c, "keybind") && attr_value(c, "key").value_or("") == key)
+				next = c;
+		if (next == nullptr) {
+			next = new_child(at, "keybind");
+			xmlSetProp(next, xc("key"), xc(key.c_str()));
+		}
+		at = next;
+	}
+	write_actions(at, now->actions);
+	return true;
+}
+
+bool RcDocument::set_mousebinding(const std::optional<MouseBinding> &was,
+		const std::optional<MouseBinding> &now) {
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	if (root == nullptr || (now && any_advanced(now->actions)))
+		return false;
+	xmlNode *old = was ? find_mousebind(root, *was) : nullptr;
+	if (was && old == nullptr)
+		return false;
+	if (old != nullptr && any_advanced(read_actions(old)))
+		return false;
+	bool same_place = was && now && was->context == now->context &&
+			was->button == now->button && was->event == now->event;
+	if (old != nullptr && same_place) {
+		write_actions(old, now->actions);
+		return true;
+	}
+	if (old != nullptr) {
+		xmlNode *ctx = old->parent;
+		unlink_element(old);
+		bool empty = true;
+		for (xmlNode *c = ctx->children; c != nullptr; c = c->next)
+			if (c->type == XML_ELEMENT_NODE)
+				empty = false;
+		if (empty)
+			unlink_element(ctx);
+	}
+	if (!now)
+		return true;
+	xmlNode *mouse = ensure_path(root, {"mouse"});
+	xmlNode *ctx = nullptr;
+	for (xmlNode *c = mouse->children; c != nullptr; c = c->next)
+		if (is_element(c, "context") && attr_value(c, "name").value_or("") == now->context)
+			ctx = c;
+	if (ctx == nullptr) {
+		ctx = new_child(mouse, "context");
+		xmlSetProp(ctx, xc("name"), xc(now->context.c_str()));
+	}
+	xmlNode *b = new_child(ctx, "mousebind");
+	xmlSetProp(b, xc("button"), xc(now->button.c_str()));
+	xmlSetProp(b, xc("action"), xc(now->event.c_str()));
+	write_actions(b, now->actions);
+	return true;
+}
+
 }  // namespace wb
