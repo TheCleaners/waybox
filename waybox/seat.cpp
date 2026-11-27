@@ -11,6 +11,7 @@
 #include "about.h"
 #include "waybox/cycle_outline.hpp"
 #include "waybox/about_card.hpp"
+#include "waybox/confirm_card.hpp"
 #include "waybox/geometry_actions.hpp"
 #include "color_pick.h"
 #include "waybox/stall.hpp"
@@ -1016,9 +1017,19 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 							server->cursor->cursor->y));
 		break;
 	}
-	case wb::ActionType::Exit:
-		wl_display_terminate(server->wl_display);
+	case wb::ActionType::Exit: {
+		/* As Openbox: asked first (<prompt>no</prompt>: not). */
+		auto p = action.args.find("prompt");
+		if (p != action.args.end() && (p->second == "no" || p->second == "false" ||
+				p->second == "off" || p->second == "0")) {
+			wl_display_terminate(server->wl_display);
+			break;
+		}
+		server->confirm = std::make_unique<wb::ConfirmCard>(server, wb_osd_style(server),
+				_("Exit Waybox?"), _("Programs still open will close."), _("Exit"),
+				_("Cancel"));
 		break;
+	}
 	}
 }
 
@@ -1266,6 +1277,23 @@ void wb_keyboard::on_key(void *data) {
 					server->switcher->select_next();
 					outline_selected(server);
 				}
+			}
+			idle_activity(server, seat);
+			return;
+		}
+
+		/* A question asked (Exit's prompt): its keys answer it, and the
+		 * keyboard goes nowhere else meanwhile. */
+		if (server->confirm != nullptr) {
+			for (int i = 0; i < nsyms; i++) {
+				wb::ConfirmCard::Answer a = server->confirm->on_key(syms[i]);
+				if (a == wb::ConfirmCard::Answer::None)
+					continue;
+				server->confirm.reset();
+				wlr_log(WLR_INFO, "wb-confirm %s", a == wb::ConfirmCard::Answer::Yes ? "yes" : "no");
+				if (a == wb::ConfirmCard::Answer::Yes)
+					wl_display_terminate(server->wl_display);
+				break;
 			}
 			idle_activity(server, seat);
 			return;

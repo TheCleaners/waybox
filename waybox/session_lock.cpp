@@ -18,6 +18,7 @@
 #include "waybox/server.h"
 #include "waybox/switcher_widget.hpp"
 #include "waybox/about_card.hpp"
+#include "waybox/confirm_card.hpp"
 #include "color_pick.h"
 #include "waybox/xdg_shell.h"
 
@@ -220,6 +221,7 @@ static void begin_lock(struct wb_session_lock_state *st) {
 	struct wb_server *server = st->server;
 	server->menu.reset();
 	server->about_card.reset();
+	server->confirm.reset();  /* a question asked: unanswered, as Cancel */
 	/* A color pick takes the pointer: not past the lock screen. */
 	color_pick_cancel(server, "locked");
 	server->switcher.reset();

@@ -4,6 +4,7 @@
 
 #include "waybox/switcher_widget.hpp"
 #include "waybox/about_card.hpp"
+#include "waybox/confirm_card.hpp"
 #include <vector>
 
 #include "toplevel_drag.h"
@@ -314,6 +315,15 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 				run_mouse_bindings(server, held->context, window, held->button,
 						held->modifiers, wb::MouseEvent::Drag);
 		}
+	}
+
+	/* A question asked: its buttons shown under the pointer, nothing for
+	 * the windows below. */
+	if (server->confirm != nullptr) {
+		server->confirm->on_motion(server->cursor->cursor->x, server->cursor->cursor->y);
+		server->cursor->show_xcursor("default");
+		idle_activity(server, server->seat->seat);
+		return;
 	}
 
 	/* Over the window switcher's list: its rows hovered (and their close
@@ -853,6 +863,24 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 		wlr_seat_pointer_notify_button(seat, event->time_msec, event->button,
 				event->state);
 	locked_done:
+		idle_activity(server, seat);
+		return;
+	}
+
+	/* A question asked: a button answers it, a click outside cancels; the
+	 * windows below get nothing meanwhile. */
+	if (server->confirm != nullptr) {
+		if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
+			release_owed();
+			wb::ConfirmCard::Answer a = server->confirm->on_press(cursor->x, cursor->y);
+			if (a != wb::ConfirmCard::Answer::None) {
+				server->confirm.reset();
+				wlr_log(WLR_INFO, "wb-confirm %s",
+						a == wb::ConfirmCard::Answer::Yes ? "yes" : "no");
+				if (a == wb::ConfirmCard::Answer::Yes)
+					wl_display_terminate(server->wl_display);
+			}
+		}
 		idle_activity(server, seat);
 		return;
 	}
