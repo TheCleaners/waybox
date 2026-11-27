@@ -333,11 +333,15 @@ def main():
         h.quit()
         failures += [f"off: {p}" for p in wb.stop()]
 
-        # 8. The directory can't be written: the save fails, is kept, and
-        # is tried again (5 s on) until it can.
+        # 8. The state directory can't be written (a file in its place:
+        # that stops root too, as CI runs): the save fails, is kept, and is
+        # tried again (5 s on) until it can be.
         state_dir = os.path.dirname(store)
+        aside = state_dir + ".aside"
         wb = Waybox(waybox, workdir, "retry")
-        os.chmod(state_dir, 0o500)
+        os.rename(state_dir, aside)
+        with open(state_dir, "w") as f:
+            f.write("not a directory\n")
         try:
             r = client(wb, "sess-r", "-", "launch", "add", "main")
             clients.append(r)
@@ -345,12 +349,13 @@ def main():
             r.wait_for("configured ")
             wb.action("SnapToEdge", wb.windows()["sess-r"]["id"], direction="right")
             time.sleep(1.6)
-            if saved(sid3) is not None:
-                failures.append("saved into a directory that can't be written?")
             if "sessions: can't write" not in open(wb.log_path).read():
                 failures.append("a failed save wasn't logged")
         finally:
-            os.chmod(state_dir, 0o700)
+            os.remove(state_dir)
+            os.rename(aside, state_dir)
+        if saved(sid3) is not None:
+            failures.append("saved while the directory couldn't be written?")
         for _ in range(80):
             time.sleep(0.1)
             if saved(sid3) is not None:
