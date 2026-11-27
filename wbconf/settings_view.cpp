@@ -1273,8 +1273,9 @@ gboolean toc_step(gpointer data) {
 		std::string id = step.substr(8);
 		fprintf(stderr, "luapage-dump:%s%s\n", id.c_str(), lua_page_dump(ui, id).c_str());
 	} else if (step == "rules") {
-		for (const std::string &l : ui->rule_lines)
-			fprintf(stderr, "%s\n", l.c_str());
+		rule_dump(ui);
+	} else if (step.rfind("rule-", 0) == 0) {
+		rule_test_step(ui, step);
 	} else if (step == "shortcuts") {
 		shortcut_dump(ui);
 	} else if (step.rfind("shortcut-", 0) == 0) {
