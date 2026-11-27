@@ -13,7 +13,11 @@ opened on the right monitor opens on its desktop (2).
 Skips (exit 77) without foot, wtype, wlrctl, wlr-randr or a headless
 display.
 
-Usage: desktops_per_monitor_test.py <waybox> <waybox-msg>
+Panels (ext-workspace): a group per monitor, its workspaces "NAME/N",
+each with its own active one; activating one switches that monitor only.
+The desktop popup: on the monitor switched only.
+
+Usage: desktops_per_monitor_test.py <waybox> <waybox-msg> <workspace_client>
 """
 import json
 import os
@@ -30,10 +34,10 @@ SKIP = 77
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print(__doc__)
         sys.exit(2)
-    waybox, msg = sys.argv[1:]
+    waybox, msg, ws_client = sys.argv[1:]
     for tool in ("foot", "wtype", "wlrctl", "wlr-randr"):
         if shutil.which(tool) is None:
             print(f"SKIP: {tool} not found", file=sys.stderr)
@@ -188,6 +192,66 @@ def main():
         pointer(W + 300, 300)
         open_foot("new")
         expect("opened on the right monitor", "new", 2, True)
+
+        # The popup: on the switched monitor alone.
+        pops = re.findall(r"wb-desktop-popup .* on (\d+)", open(log_path).read())
+        if not pops or any(p != "1" for p in pops):
+            failures.append(f"the popup per monitor: shown on {pops}")
+
+        # Panels: a group per monitor, each its own active desktop (the left
+        # shows 1, the right 2); activating the left's 3 switches the left.
+        ws = subprocess.Popen([ws_client], env=cenv, stdin=subprocess.PIPE,
+                              stdout=subprocess.PIPE, text=True)
+        wbtest.reap_on_exit(ws)
+        clients.append(ws)
+
+        def ws_line():
+            line = ""
+            for _ in range(30):
+                l = ws.stdout.readline()
+                if l.startswith("done"):
+                    return l.split()
+            return line.split()
+        first = ws_line()
+        line = " ".join(first)
+        # "<id>:<name>:<active|->" (names have spaces: "Desktop 1").
+        found = re.findall(r"(\S+/\d+):([^:]*?):(active|-)", line)
+        active = sorted(i for i, _, a in found if a == "active")
+        right_name = windows()["new"]["output"]
+        left_name = [o for o in ("HEADLESS-1", "HEADLESS-2") if o != right_name][0]
+        want = sorted([f"{left_name}/1", f"{right_name}/2"])
+        if active != want:
+            failures.append(f"panels: active {active}, not {want} ({line})")
+        if len(found) != 6:
+            failures.append(f"panels: {len(found)} workspaces, not 2 monitors x 3 ({line})")
+        ws.stdin.write(f"activate {left_name}/3\n")
+        ws.stdin.flush()
+        time.sleep(0.5)
+        expect("a panel switched the left monitor", "new", 2, True)
+        expect("a panel switched the left monitor", "left", 2, True)
+        shown = windows()
+        if any(w["output"] == left_name and w["shown"] for w in shown.values()):
+            failures.append(f"the left monitor still shows a window after going to 3: {shown}")
+
+        # Unplugged (switched off): its windows carry over by desktop
+        # number, not all onto the desktop the other shows. The right shows
+        # 2 ("left" and "new" there, in sight); "new" sent to its 3 (out of
+        # sight). The left shows 3. Off goes the right: "left" keeps 2 (out
+        # of sight now), "new" keeps 3 (in sight on the left).
+        subprocess.run([msg, "action", "SendToDesktop", "to=3", "follow=false",
+                        "window=app_id:new"], env=cenv, capture_output=True)
+        time.sleep(0.3)
+        expect("sent out of sight", "new", 3, False)
+        subprocess.run(["wlr-randr", "--output", right_name, "--off"], env=cenv,
+                       capture_output=True)
+        time.sleep(0.8)
+        expect("unplugged, in sight there", "left", 2, False)
+        expect("unplugged, out of sight there", "new", 3, True)
+        # And on the screen that's left, not where the other was.
+        n = windows().get("new", {})
+        left_x = 0 if positions[0][0] == 0 else positions[0][0]
+        if not (n.get("x", -1) >= 0 and n.get("x", 0) + n.get("width", 0) // 2 < W):
+            failures.append(f"unplugged: \"new\" left off-screen at {n.get('x')},{n.get('y')}")
     except RuntimeError as e:
         failures.append(str(e))
     finally:

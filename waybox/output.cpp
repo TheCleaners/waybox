@@ -649,6 +649,10 @@ void init_output(struct wb_server *server) {
 		struct wb_output *output;
 		wl_list_for_each(output, &server->outputs, link)
 			arrange_layers(output);
+		/* A monitor gone (unplugged, switched off): its windows are brought
+		 * onto one still there, maximized and fullscreen ones re-fitted. */
+		arrange_toplevels(server);
+		desktops_outputs_changed(server);
 	});
 
 	server->tearing_control = wlr_tearing_control_manager_v1_create(server->wl_display, 1);

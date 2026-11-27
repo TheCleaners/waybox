@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "waybox/wlroots.hpp"
 
@@ -29,16 +30,21 @@ public:
 	DesktopPopup(const DesktopPopup &) = delete;
 	DesktopPopup &operator=(const DesktopPopup &) = delete;
 
-	/* On the monitor under the pointer; show_on: on `output`. */
+	/* On the monitor under the pointer; show_on: on `output`; show_on_each:
+	 * on each of `outputs` at once (a desktop switch, shared: as Openbox,
+	 * on every monitor). */
 	void show(const std::string &label, int duration_ms);
 	void show_on(struct wlr_output *output, const std::string &label, int duration_ms);
+	void show_on_each(const std::vector<struct wlr_output *> &outputs, const std::string &label,
+			int duration_ms);
 	void hide();
 
 private:
 	struct wb_server *server_;
 	SwitcherStyle style_;
 	struct wlr_scene_tree *tree_ = nullptr;
-	std::unique_ptr<SceneCanvas> canvas_;
+	std::vector<std::unique_ptr<SceneCanvas>> canvases_;  /* one a monitor */
+	bool add_on(struct wlr_output *output, const std::string &label);
 	struct wl_event_source *timer_ = nullptr;
 };
 

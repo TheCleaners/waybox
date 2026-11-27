@@ -261,6 +261,10 @@ bool toplevel_on_desktop(struct wb_toplevel *toplevel, int desktop);
 bool toplevel_on_current_desktop(struct wb_toplevel *toplevel);
 /* The desktop `output` shows (#367); the shared one for none. */
 int output_desktop(struct wb_server *server, struct wlr_output *output);
+/* Monitors added, removed, switched off or moved: with desktops per
+ * monitor, each window's monitor looked at again (a gone one's windows
+ * carry over by desktop number). */
+void desktops_outputs_changed(struct wb_server *server);
 /* Whether each monitor shows its own desktop (<desktops><perMonitor>). */
 bool desktops_per_monitor(struct wb_server *server);
 /* The monitor desktop actions act on: the focused window's, else the
@@ -294,6 +298,8 @@ void focus_order_to_bottom(struct wb_toplevel *toplevel);
 /* Show desktop `index` (0-based): hide the other desktops' windows and focus
  * the most recently used window here (or nothing). */
 void wb_go_to_desktop(struct wb_server *server, int index);
+/* Desktop `index` on monitor `output` (desktops per monitor; shared: on all). */
+void wb_go_to_desktop_on(struct wb_server *server, struct wb_output *output, int index);
 /* An output's usable area (less panels' reservations), in layout
  * coordinates; empty for nullptr. */
 struct wlr_box output_usable_area(struct wb_server *server, struct wlr_output *output);

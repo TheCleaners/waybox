@@ -22,15 +22,15 @@ DesktopPopup::DesktopPopup(struct wb_server *server, const SwitcherStyle &style)
 DesktopPopup::~DesktopPopup() {
 	if (timer_ != nullptr)
 		wl_event_source_remove(timer_);
-	canvas_.reset();
+	canvases_.clear();
 	if (tree_ != nullptr)
 		wlr_scene_node_destroy(&tree_->node);
 }
 
 void DesktopPopup::hide() {
-	if (canvas_ == nullptr)
+	if (canvases_.empty())
 		return;
-	canvas_.reset();
+	canvases_.clear();
 	wlr_log(WLR_INFO, "wb-desktop-popup hidden");
 }
 
@@ -47,10 +47,33 @@ void DesktopPopup::show(const std::string &label, int duration_ms) {
 
 void DesktopPopup::show_on(struct wlr_output *output, const std::string &label,
 		int duration_ms) {
-	if (output == nullptr || duration_ms <= 0 || session_locked(server_))
+	show_on_each({output}, label, duration_ms);
+}
+
+void DesktopPopup::show_on_each(const std::vector<struct wlr_output *> &outputs,
+		const std::string &label, int duration_ms) {
+	if (duration_ms <= 0 || session_locked(server_))
 		return;
+	canvases_.clear();
+	int shown = 0;
+	for (struct wlr_output *output : outputs)
+		if (output != nullptr && add_on(output, label))
+			++shown;
+	if (shown == 0)
+		return;
+	/* Above windows and panels; a lock screen stays above everything. */
+	wlr_scene_node_raise_to_top(&tree_->node);
+	session_lock_keep_on_top(server_);
+	wl_event_source_timer_update(timer_, duration_ms);
+	wlr_log(WLR_INFO, "wb-desktop-popup %s on %d", label.c_str(), shown);
+}
+
+/* The label in the middle (or as the OSD's position says) of `output`. */
+bool DesktopPopup::add_on(struct wlr_output *output, const std::string &label) {
 	struct wlr_box box = {};
 	wlr_output_layout_get_box(server_->output_layout, output, &box);
+	if (box.width <= 0 || box.height <= 0)
+		return false;
 
 	const TextExtents text = measure_text(label, style_.item_text.font);
 	const int pad_x = std::max(style_.panel.padding.left, 8) * 2;
@@ -60,23 +83,19 @@ void DesktopPopup::show_on(struct wlr_output *output, const std::string &label,
 	int x = box.x + (box.width - w) / 2;
 	int y = osd_y(style_.position, box.y, box.height, h);
 
-	canvas_ = std::make_unique<SceneCanvas>(tree_, w, h,
+	auto canvas = std::make_unique<SceneCanvas>(tree_, w, h,
 			output->scale > 0 ? output->scale : 1.0f);
-	canvas_->set_position(x, y);
-	cairo_t *cr = canvas_->cr();
+	canvas->set_position(x, y);
+	cairo_t *cr = canvas->cr();
 	paint_panel(cr, w, h, style_.panel);
 	const StateStyle &st = style_.item.for_state(WidgetState::Normal);
 	paint_text(cr, (w - text.width) / 2, (h - text.height) / 2, label, st.fg,
 			style_.item_text.font);
-	canvas_->commit();
-	wlr_scene_buffer_set_opacity(canvas_->node(),
+	canvas->commit();
+	wlr_scene_buffer_set_opacity(canvas->node(),
 			static_cast<float>(std::clamp(style_.panel.opacity, 0.1, 1.0)));
-
-	/* Above windows and panels; a lock screen stays above everything. */
-	wlr_scene_node_raise_to_top(&tree_->node);
-	session_lock_keep_on_top(server_);
-	wl_event_source_timer_update(timer_, duration_ms);
-	wlr_log(WLR_INFO, "wb-desktop-popup %s", label.c_str());
+	canvases_.push_back(std::move(canvas));
+	return true;
 }
 
 }  // namespace wb
