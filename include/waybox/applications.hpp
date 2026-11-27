@@ -39,6 +39,7 @@ struct AppRule {
 	std::optional<int> y;
 	std::optional<int> width;
 	std::optional<int> height;
+	bool operator==(const AppRule &) const = default;
 };
 
 /* Glob match supporting '*' (any run) and '?' (any one char). Case-sensitive. */

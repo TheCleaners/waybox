@@ -14,6 +14,7 @@
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 
+#include "waybox/app_rule_xml.hpp"
 #include "waybox/font_spec.hpp"
 #include "waybox/stall.hpp"
 #include "config.h"
@@ -326,48 +327,8 @@ static void parse_app_rules(struct wb_config *config, xmlXPathContextPtr ctxt) {
 			if (app == NULL)
 				continue;
 
-			wb::AppRule rule;
-			rule.class_pattern = (const char *) get_attribute(app, "class");
-			rule.name_pattern = (const char *) get_attribute(app, "name");
-			rule.title_pattern = (const char *) get_attribute(app, "title");
-			rule.tag_pattern = (const char *) get_attribute(app, "tag");
-			rule.maximized = parse_bool(child_text(app, "maximized"));
-			rule.fullscreen = parse_bool(child_text(app, "fullscreen"));
-			rule.iconic = parse_bool(child_text(app, "iconic"));
-			rule.focus = parse_bool(child_text(app, "focus"));
-			rule.decor = parse_bool(child_text(app, "decor"));
-			if (const char *l = child_text(app, "layer")) {
-				std::string v = l;
-				if (v == "above" || v == "top")
-					rule.layer = 1;
-				else if (v == "below" || v == "bottom")
-					rule.layer = -1;
-				else if (v == "normal")
-					rule.layer = 0;
-			}
-			/* <desktop>N</desktop> (1-based) or "all"; anything else
-			 * (including Openbox's "current") leaves the default. */
-			if (const char *d = child_text(app, "desktop")) {
-				std::string v = d;
-				if (v == "all")
-					rule.desktop = wb::AppRule::kAllDesktops;
-				else if (int n = atoi(d); n >= 1)
-					rule.desktop = n - 1;
-			}
-
-			if (xmlNode *pos = child_node(app, "position")) {
-				if (const char *x = child_text(pos, "x"))
-					rule.x = atoi(x);
-				if (const char *y = child_text(pos, "y"))
-					rule.y = atoi(y);
-			}
-			if (xmlNode *size = child_node(app, "size")) {
-				/* A size below 1 means nothing: ignored. */
-				if (const char *w = child_text(size, "width"); w && atoi(w) >= 1)
-					rule.width = atoi(w);
-				if (const char *h = child_text(size, "height"); h && atoi(h) >= 1)
-					rule.height = atoi(h);
-			}
+			/* The reader wbconf's editor shares: one meaning for both. */
+			wb::AppRule rule = wb::read_app_rule(app).rule;
 			config->app_rules.push_back(std::move(rule));
 		}
 	}

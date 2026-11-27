@@ -5,6 +5,7 @@
  * plain WayboxSettings struct; this file is the XML glue and is unit-tested via
  * in-memory round-trips (test/wbconf_test.cpp).
  */
+#include "waybox/app_rule_xml.hpp"
 #include "waybox/font_spec.hpp"
 #include "waybox/wbconf.hpp"
 #include "waybox/startup.hpp"
@@ -1480,6 +1481,83 @@ bool RcDocument::set_keybinding(const std::vector<std::string> &was,
 		at = next;
 	}
 	write_actions(at, now->actions);
+	return true;
+}
+
+namespace {
+
+/* The <application> elements under <applications>, in order. */
+std::vector<xmlNode *> app_nodes(xmlNode *root) {
+	std::vector<xmlNode *> out;
+	xmlNode *apps = root != nullptr ? find_path(root, {"applications"}) : nullptr;
+	for (xmlNode *c = apps != nullptr ? apps->children : nullptr; c != nullptr; c = c->next)
+		if (is_element(c, "application"))
+			out.push_back(c);
+	return out;
+}
+
+}  // namespace
+
+std::vector<AppRuleEntry> RcDocument::app_rules() const {
+	std::vector<AppRuleEntry> out;
+	for (xmlNode *n : app_nodes(xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_)))) {
+		AppRuleXml r = read_app_rule(n);
+		out.push_back({std::move(r.rule), std::move(r.kept), r.position_kept});
+	}
+	return out;
+}
+
+bool RcDocument::set_app_rule(std::optional<size_t> index, const std::optional<AppRule> &now) {
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	if (root == nullptr)
+		return false;
+	std::vector<xmlNode *> nodes = app_nodes(root);
+	if (index) {
+		if (*index >= nodes.size())
+			return false;
+		xmlNode *n = nodes[*index];
+		if (!now) {
+			unlink_element(n);
+			return true;
+		}
+		write_app_rule(n, *now, read_app_rule(n).position_kept);
+		return true;
+	}
+	if (!now)
+		return false;
+	xmlNode *n = new_child(ensure_path(root, {"applications"}), "application");
+	if (n == nullptr)
+		return false;
+	write_app_rule(n, *now, false);
+	return true;
+}
+
+bool RcDocument::move_app_rule(size_t from, size_t to) {
+	xmlNode *root = xmlDocGetRootElement(static_cast<xmlDocPtr>(doc_));
+	std::vector<xmlNode *> nodes = app_nodes(root);
+	if (from >= nodes.size() || to >= nodes.size())
+		return false;
+	if (from == to)
+		return true;
+	xmlNode *n = nodes[from];
+	/* With the whitespace before it, so the indentation moves along. */
+	xmlNode *space = n->prev != nullptr && xmlIsBlankNode(n->prev) ? n->prev : nullptr;
+	xmlNode *anchor = nodes[to];
+	xmlUnlinkNode(n);
+	if (space != nullptr)
+		xmlUnlinkNode(space);
+	if (to < from) {
+		/* Before the rule now at `to` (and before its indentation). */
+		xmlNode *before = anchor->prev != nullptr && xmlIsBlankNode(anchor->prev) ? anchor->prev
+				: anchor;
+		if (space != nullptr)
+			xmlAddPrevSibling(before, space);
+		xmlAddPrevSibling(before, n);
+	} else {
+		xmlAddNextSibling(anchor, n);
+		if (space != nullptr)
+			xmlAddPrevSibling(n, space);
+	}
 	return true;
 }
 
