@@ -1309,6 +1309,8 @@ gboolean toc_step(gpointer data) {
 				geo_picker_find(p->geo, what.substr(5));
 			else if (what == "zone")
 				geo_picker_use_zone(p->geo);
+			else if (what == "locate")
+				fprintf(stderr, "geo-locate:%s\n", geo_picker_locate(p->geo) ? "asked" : "no portal");
 			else if (what.rfind("type:", 0) == 0) {
 				/* Typed in the latitude field, as a person would. */
 				auto it = p->options.find(p->in->location[0]);

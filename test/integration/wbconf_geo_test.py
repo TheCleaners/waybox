@@ -7,6 +7,11 @@ command (-l 51.5 -L -0.1): London. A city found ("lisbon"): its place in
 both fields. A click at the map's middle: 0, 0. Typed with a comma (as in
 locales that write decimals so): read. The time zone's city (TZ set to
 Europe/Lisbon): tzdata's place for it (skipped without zone1970.tab).
+The crosshair: with no location portal, or one without GeoClue behind
+it, nothing to ask (the button off); with one (a
+stand-in on a private bus), asked at neighborhood accuracy, the place it
+gives taken (Paris); refused, the place left as it was and why said.
+(Skipped without dbus-daemon or Python's GLib bindings.)
 Skips (exit 77) without a headless display.
 
 Usage: wbconf_geo_test.py <waybox> <wbconf> <schema-dir> <source-root>
@@ -107,6 +112,55 @@ def main():
             # zone1970.tab's Lisbon: +3843-00908.
             if lines[4][2:4] != ["38.72", "-9.13"]:
                 failures.append(f"the time zone's city: {lines[4][2:]}")
+    # The crosshair, with no portal (the session bus off): nothing to ask.
+    no = [l for l in lines if l[0] == "geo"]
+    # (The steps above ran without one; the button's answer is checked below.)
+    have_gi = subprocess.run([sys.executable, "-c", "import gi; gi.require_version('Gio','2.0');"
+                              "from gi.repository import Gio"], capture_output=True).returncode == 0
+    if shutil.which("dbus-daemon") is not None and have_gi:
+        here = os.path.dirname(os.path.abspath(__file__))
+        for mode, want_fields, want_caption in (
+                ("allow", ["48.86", "2.35"], "48.86, 2.35 \u00b7 near Paris"),
+                ("deny", ["51.5", "-0.1"], "The system didn't say where this is"),
+                ("no-geoclue", ["51.5", "-0.1"], "")):
+            daemon = subprocess.run(["dbus-daemon", "--session", "--fork", "--print-address=1",
+                                     "--print-pid=1"], capture_output=True, text=True)
+            address, pid = daemon.stdout.split("\n")[:2]
+            try:
+                fake = subprocess.Popen([sys.executable, os.path.join(here, "fake_location_portal.py")]
+                                        + (["deny"] if mode == "deny" else []),
+                                        env=dict(os.environ, DBUS_SESSION_BUS_ADDRESS=address),
+                                        stdout=subprocess.PIPE, text=True)
+                wbtest.reap_on_exit(fake)
+                fake.stdout.readline()  # ready
+                app = subprocess.Popen([wbconf], env=dict(
+                    wenv, DBUS_SESSION_BUS_ADDRESS=address, WBCONF_GEOCLUE="0" if mode == "no-geoclue" else "1",
+                    WBCONF_TEST_TOC="dump;geo:wlsunset=locate;geo:wlsunset=show"),
+                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+                wbtest.reap_on_exit(app)
+                time.sleep(0.8 * 3 + 2)
+                app.kill()
+                err = app.communicate()[1].splitlines()
+                fake.kill()
+                said = fake.communicate()[0]
+            finally:
+                subprocess.run(["kill", pid], capture_output=True)
+            asked = [l for l in err if l.startswith("geo-locate:")]
+            got = [l.split("|") for l in err if l.startswith("geo|")]
+            if mode == "no-geoclue":
+                # The portal there, GeoClue not: nothing asked, nothing moved.
+                if asked != ["geo-locate:no portal"] or "create" in said:
+                    failures.append(f"no GeoClue: {asked} {said!r}")
+                elif not got or got[-1][2:4] != want_fields:
+                    failures.append(f"no GeoClue: moved to {got[-1:]}")
+                continue
+            if asked != ["geo-locate:asked"]:
+                failures.append(f"{mode}: the crosshair didn't ask: {asked}")
+            elif "create accuracy=3" not in said:
+                failures.append(f"{mode}: not asked at neighborhood accuracy: {said!r}")
+            elif not got or got[-1][2:4] != want_fields or not got[-1][4].startswith(want_caption):
+                failures.append(f"{mode}: after asking: {got[-1:] }")
+
     proc.terminate()
     try:
         proc.wait(timeout=10)

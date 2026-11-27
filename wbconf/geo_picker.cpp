@@ -4,10 +4,13 @@
  * city search (offline: data/geo's cities), the time zone's own city
  * (tzdata), and under it the place in numbers and the nearest city.
  * For a program's latitude and longitude (an integration's Location=:
- * wlsunset's -l / -L): no network, no location service.
+ * wlsunset's -l / -L): offline. The crosshair asks the system where it
+ * is, only when clicked: the xdg-desktop-portal Location portal (which
+ * may ask the user first), where there is one.
  */
 #include "geo_picker.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <memory>
@@ -77,7 +80,187 @@ struct Picker {
 	GtkWidget *box = nullptr, *map = nullptr, *caption = nullptr, *search = nullptr;
 	GtkWidget *results = nullptr, *popover = nullptr;
 	std::vector<const wb::geo::City *> shown;
+	/* Asking the Location portal: its session, the signals waited for. */
+	GtkWidget *locate = nullptr;
+	GDBusConnection *bus = nullptr;
+	std::string session;
+	guint on_location = 0, on_response = 0, timer = 0;
+	~Picker();
 };
+
+constexpr const char *kPortal = "org.freedesktop.portal.Desktop";
+constexpr const char *kPortalPath = "/org/freedesktop/portal/desktop";
+constexpr const char *kLocation = "org.freedesktop.portal.Location";
+
+/* The session bus, if there's one (none in tests: disabled). */
+GDBusConnection *session_bus() {
+	static GDBusConnection *bus = nullptr;
+	static bool tried = false;
+	if (!tried) {
+		tried = true;
+		bus = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, nullptr);
+	}
+	return bus;
+}
+
+/* Whether GeoClue (what the portal asks) is on the system bus, running
+ * or there to start: a portal built with it offers Location even where
+ * it isn't installed, and then can only fail. WBCONF_GEOCLUE=1: taken as
+ * there (tests, whose stand-in portal answers itself). */
+bool geoclue_present() {
+	const char *forced = g_getenv("WBCONF_GEOCLUE");
+	if (forced != nullptr)
+		return g_strcmp0(forced, "1") == 0;
+	GDBusConnection *sys = g_bus_get_sync(G_BUS_TYPE_SYSTEM, nullptr, nullptr);
+	if (sys == nullptr)
+		return false;
+	bool found = false;
+	for (const char *method : {"ListNames", "ListActivatableNames"}) {
+		GVariant *v = g_dbus_connection_call_sync(sys, "org.freedesktop.DBus",
+				"/org/freedesktop/DBus", "org.freedesktop.DBus", method, nullptr,
+				G_VARIANT_TYPE("(as)"), G_DBUS_CALL_FLAGS_NONE, 500, nullptr, nullptr);
+		if (v == nullptr)
+			continue;
+		GVariantIter *it = nullptr;
+		const char *name = nullptr;
+		g_variant_get(v, "(as)", &it);
+		while (!found && g_variant_iter_next(it, "&s", &name))
+			found = g_strcmp0(name, "org.freedesktop.GeoClue2") == 0;
+		g_variant_iter_free(it);
+		g_variant_unref(v);
+	}
+	g_object_unref(sys);
+	return found;
+}
+
+/* Whether a portal offers Location (its interface's version answers) with
+ * GeoClue behind it. */
+bool portal_has_location(GDBusConnection *bus) {
+	if (bus == nullptr || !geoclue_present())
+		return false;
+	GVariant *v = g_dbus_connection_call_sync(bus, kPortal, kPortalPath,
+			"org.freedesktop.DBus.Properties", "Get", g_variant_new("(ss)", kLocation, "version"),
+			G_VARIANT_TYPE("(v)"), G_DBUS_CALL_FLAGS_NONE, 500, nullptr, nullptr);
+	if (v == nullptr)
+		return false;
+	g_variant_unref(v);
+	return true;
+}
+
+void stop_locate(Picker *p, const char *why);
+
+Picker::~Picker() {
+	stop_locate(this, nullptr);
+}
+
+/* "Where am I?" over: signals let go, the session closed, the button
+ * back; `why` (if any) said under the map. */
+void stop_locate(Picker *p, const char *why) {
+	if (p->bus != nullptr) {
+		if (p->on_location != 0)
+			g_dbus_connection_signal_unsubscribe(p->bus, p->on_location);
+		if (p->on_response != 0)
+			g_dbus_connection_signal_unsubscribe(p->bus, p->on_response);
+		if (!p->session.empty())
+			g_dbus_connection_call(p->bus, kPortal, p->session.c_str(),
+					"org.freedesktop.portal.Session", "Close", nullptr, nullptr,
+					G_DBUS_CALL_FLAGS_NONE, -1, nullptr, nullptr, nullptr);
+	}
+	p->on_location = p->on_response = 0;
+	p->session.clear();
+	if (p->timer != 0) {
+		g_source_remove(p->timer);
+		p->timer = 0;
+	}
+	if (p->locate != nullptr)
+		gtk_widget_set_sensitive(p->locate, TRUE);
+	if (why != nullptr && p->caption != nullptr)
+		gtk_label_set_text(GTK_LABEL(p->caption), why);
+}
+
+void refresh_caption(Picker *p);
+void pick(Picker *p, Point at);
+
+/* Ask the Location portal where this is: a session, started; the place
+ * comes in a signal (LocationUpdated), or a refusal in the request's
+ * Response. Neighborhood accuracy: plenty for sunset and sunrise. */
+void start_locate(Picker *p) {
+	p->bus = session_bus();
+	if (p->bus == nullptr || !p->session.empty())
+		return;
+	static int count = 0;
+	++count;
+	std::string sender = g_dbus_connection_get_unique_name(p->bus) + 1;  /* without ':' */
+	std::replace(sender.begin(), sender.end(), '.', '_');
+	std::string token = "wbconf_" + std::to_string(getpid()) + "_" + std::to_string(count);
+	p->session = std::string(kPortalPath) + "/session/" + sender + "/" + token;
+	std::string request = std::string(kPortalPath) + "/request/" + sender + "/" + token;
+	gtk_widget_set_sensitive(p->locate, FALSE);
+	gtk_label_set_text(GTK_LABEL(p->caption), _("Asking the system where this is\u2026"));
+
+	/* Listened for before asking, so no answer is missed. */
+	p->on_location = g_dbus_connection_signal_subscribe(p->bus, kPortal, kLocation,
+			"LocationUpdated", kPortalPath, nullptr, G_DBUS_SIGNAL_FLAGS_NONE,
+			[](GDBusConnection *, const char *, const char *, const char *, const char *,
+					GVariant *params, gpointer d) {
+		auto *p = static_cast<Picker *>(d);
+		const char *session = nullptr;
+		GVariant *loc = nullptr;
+		g_variant_get(params, "(&o@a{sv})", &session, &loc);
+		double lat = 0, lon = 0;
+		bool ok = session != nullptr && p->session == session &&
+				g_variant_lookup(loc, "Latitude", "d", &lat) &&
+				g_variant_lookup(loc, "Longitude", "d", &lon);
+		g_variant_unref(loc);
+		if (!ok)
+			return;
+		stop_locate(p, nullptr);
+		pick(p, Point{lat, lon});
+	}, p, nullptr);
+	p->on_response = g_dbus_connection_signal_subscribe(p->bus, kPortal,
+			"org.freedesktop.portal.Request", "Response", request.c_str(), nullptr,
+			G_DBUS_SIGNAL_FLAGS_NONE, [](GDBusConnection *, const char *, const char *,
+					const char *, const char *, GVariant *params, gpointer d) {
+		guint32 response = 0;
+		g_variant_get(params, "(u@a{sv})", &response, nullptr);
+		if (response != 0)
+			stop_locate(static_cast<Picker *>(d), _("The system didn't say where this is "
+					"(not allowed, or it doesn't know). Pick it on the map."));
+	}, p, nullptr);
+	p->timer = g_timeout_add_seconds(30, [](gpointer d) {
+		auto *p = static_cast<Picker *>(d);
+		p->timer = 0;
+		stop_locate(p, _("No answer from the system's location service. Pick it on the map."));
+		return G_SOURCE_REMOVE;
+	}, p);
+
+	GVariantBuilder opts;
+	g_variant_builder_init(&opts, G_VARIANT_TYPE_VARDICT);
+	g_variant_builder_add(&opts, "{sv}", "session_handle_token", g_variant_new_string(token.c_str()));
+	g_variant_builder_add(&opts, "{sv}", "accuracy", g_variant_new_uint32(3));  /* neighborhood */
+	GError *err = nullptr;
+	GVariant *r = g_dbus_connection_call_sync(p->bus, kPortal, kPortalPath, kLocation,
+			"CreateSession", g_variant_new("(a{sv})", &opts), G_VARIANT_TYPE("(o)"),
+			G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, &err);
+	if (r == nullptr) {
+		g_clear_error(&err);
+		stop_locate(p, _("The system's location service isn't there. Pick it on the map."));
+		return;
+	}
+	g_variant_unref(r);
+	GVariantBuilder start;
+	g_variant_builder_init(&start, G_VARIANT_TYPE_VARDICT);
+	g_variant_builder_add(&start, "{sv}", "handle_token", g_variant_new_string(token.c_str()));
+	r = g_dbus_connection_call_sync(p->bus, kPortal, kPortalPath, kLocation, "Start",
+			g_variant_new("(osa{sv})", p->session.c_str(), "", &start), G_VARIANT_TYPE("(o)"),
+			G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, &err);
+	if (r == nullptr) {
+		g_clear_error(&err);
+		stop_locate(p, _("The system's location service didn't start. Pick it on the map."));
+		return;
+	}
+	g_variant_unref(r);
+}
 
 /* The map's rectangle in the widget: 2:1, centered. */
 void map_box(GtkWidget *w, double *x, double *y, double *mw, double *mh) {
@@ -222,6 +405,20 @@ GtkWidget *geo_picker_new(std::function<std::optional<Point>()> get,
 	gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(p->search), _("Find a city"));
 	gtk_editable_set_width_chars(GTK_EDITABLE(p->search), 24);
 	gtk_box_append(GTK_BOX(bar), p->search);
+	/* The crosshair: where this is, asked of the system (only on a click). */
+	p->locate = gtk_button_new_from_icon_name("find-location-symbolic");
+	if (portal_has_location(session_bus())) {
+		gtk_widget_set_tooltip_text(p->locate, _("Find Where I Am: asks the system's location "
+				"service, which may ask you first"));
+	} else {
+		gtk_widget_set_sensitive(p->locate, FALSE);
+		gtk_widget_set_tooltip_text(p->locate, _("No location service to ask here (it "
+				"needs GeoClue and xdg-desktop-portal): pick it on the map or by city"));
+	}
+	g_signal_connect(p->locate, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
+		start_locate(static_cast<Picker *>(d));
+	}), p);
+	gtk_box_append(GTK_BOX(bar), p->locate);
 	p->popover = gtk_popover_new();
 	gtk_popover_set_autohide(GTK_POPOVER(p->popover), FALSE);
 	gtk_popover_set_has_arrow(GTK_POPOVER(p->popover), FALSE);
@@ -324,6 +521,14 @@ void geo_picker_find(GtkWidget *picker, const std::string &query) {
 	if (!p->shown.empty())
 		pick(p, p->shown[0]->at);
 	gtk_popover_popdown(GTK_POPOVER(p->popover));
+}
+
+bool geo_picker_locate(GtkWidget *picker) {
+	auto *p = static_cast<Picker *>(g_object_get_data(G_OBJECT(picker), "wb-geo"));
+	if (p == nullptr || !gtk_widget_get_sensitive(p->locate))
+		return false;
+	start_locate(p);
+	return true;
 }
 
 bool geo_picker_use_zone(GtkWidget *picker) {
