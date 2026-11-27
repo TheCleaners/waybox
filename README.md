@@ -192,7 +192,8 @@ Waybox listens on a socket (`$WAYBOX_SOCK`, reachable only by your own
 programs; `<waybox><ipc enabled="no"/>` turns it off) for one JSON object per
 line: list windows, desktops and outputs, run any rc.xml action, and
 subscribe to events (windows opening, closing, focused or retitled; desktop
-switches; outputs; reloads).
+switches; outputs; reloads). A request's `"id"` comes back in its reply; picks answer when
+the click comes, after any requests sent behind them.
 `waybox-msg` does it from the shell:
 
 ```sh
