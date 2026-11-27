@@ -564,8 +564,25 @@ bool toplevel_on_desktop(struct wb_toplevel *toplevel, int desktop) {
 	return toplevel->omnipresent || toplevel->desktop == desktop;
 }
 
+int output_desktop(struct wb_server *server, struct wlr_output *output) {
+	auto *o = output != nullptr ? static_cast<struct wb_output *>(output->data) : nullptr;
+	return o != nullptr ? o->desktop : server->current_desktop;
+}
+
+/* Shown where it is: on the desktop its own monitor shows (with shared
+ * desktops, the one every monitor shows). */
 bool toplevel_on_current_desktop(struct wb_toplevel *toplevel) {
-	return toplevel_on_desktop(toplevel, toplevel->server->current_desktop);
+	return toplevel_on_desktop(toplevel,
+			output_desktop(toplevel->server, get_active_output(toplevel)));
+}
+
+/* Shared desktops: every monitor shows the server's. */
+static void sync_output_desktops(struct wb_server *server) {
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link) {
+		o->desktop = server->current_desktop;
+		o->last_desktop = server->last_desktop;
+	}
 }
 
 /* Windows on other desktops stay mapped (clients keep running and drawing)
@@ -667,6 +684,7 @@ static void switch_desktop(struct wb_server *server, int index, bool refocus) {
 	if (index != server->current_desktop) {
 		server->last_desktop = server->current_desktop;
 		server->current_desktop = index;
+		sync_output_desktops(server);
 		/* A window being dragged comes along (as in Openbox); a resize in
 		 * progress ends. */
 		if (struct wb_toplevel *grabbed = server->grabbed_toplevel) {
@@ -806,6 +824,7 @@ void desktops_reconfigured(struct wb_server *server) {
 	}
 	if (server->last_desktop >= count)
 		server->last_desktop = count - 1;
+	sync_output_desktops(server);
 	if (server->current_desktop >= count) {
 		switch_desktop(server, count - 1, true);
 	} else {

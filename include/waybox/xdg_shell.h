@@ -256,6 +256,8 @@ wb::Rect tile_preview_rect(struct wb_server *server, struct wlr_output *output,
 int desktop_count(struct wb_server *server);
 bool toplevel_on_desktop(struct wb_toplevel *toplevel, int desktop);
 bool toplevel_on_current_desktop(struct wb_toplevel *toplevel);
+/* The desktop `output` shows (#367); the shared one for none. */
+int output_desktop(struct wb_server *server, struct wlr_output *output);
 /* A window asks to be shown (xdg-activation, X11 _NET_ACTIVE_WINDOW):
  * focused, or marked urgent, as <activation> says; `from_user`: made from
  * input (a click, a key), not by the program on its own. */
