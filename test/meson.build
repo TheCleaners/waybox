@@ -424,7 +424,7 @@ if not get_option('tests_only')
   wbconf_test = executable(
     'wbconf_test',
     ['wbconf_test.cpp', 'wb_test_main.cpp', files('../waybox/wbconf.cpp'), startup_src,
-     font_spec_src, app_rule_xml_src,
+     font_spec_src, app_rule_xml_src, xml_edit_src,
      output_rules_src,
      xml_strict_src,
      theme_src],
@@ -433,12 +433,20 @@ if not get_option('tests_only')
     )
   test('wbconf', wbconf_test)
 
+  menu_doc_test = executable(
+    'menu_doc_test',
+    ['menu_doc_test.cpp', 'wb_test_main.cpp', menu_doc_src, xml_edit_src],
+    include_directories: [inc_dir],
+    dependencies: [libxml2],
+    )
+  test('menu_doc', menu_doc_test)
+
   if json_glib.found()
   settings_schema_test = executable(
     'settings_schema_test',
     ['settings_schema_test.cpp', 'wb_test_main.cpp', files('../waybox/settings_schema.cpp',
      '../waybox/wbconf.cpp'), startup_src, xml_strict_src, theme_src, font_spec_src,
-     app_rule_xml_src],
+     app_rule_xml_src, xml_edit_src],
     include_directories: [inc_dir],
     dependencies: [libxml2, json_glib],
     cpp_args: ['-DWB_SOURCE_ROOT="' + meson.project_source_root() + '"'],
