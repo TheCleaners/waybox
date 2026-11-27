@@ -8,6 +8,7 @@
  *                                              action Close window=app_id:foot
  *   waybox-msg identify [OUTPUT]               each monitor's name, on it
  *   waybox-msg pick_color                      the color clicked next
+ *   waybox-msg pick_window                     the window clicked next
  *   waybox-msg restart_program NAME            a startup program, again
  *   waybox-msg subscribe window,desktop,output,config
  *   waybox-msg raw '{"request": ...}'
@@ -37,6 +38,7 @@ int usage() {
 		"       waybox-msg action NAME [key=value ...]   (to=, command=, window=, ...)\n"
 		"       waybox-msg identify [OUTPUT]\n"
 		"       waybox-msg pick_color\n"
+		"       waybox-msg pick_window\n"
 		"       waybox-msg restart_program NAME\n"
 		"       waybox-msg subscribe window,desktop,output,config\n"
 		"       waybox-msg raw JSON\n");
@@ -97,10 +99,10 @@ int main(int argc, char **argv) {
 				return usage();
 			req[kv.substr(0, eq)] = value_of(kv.substr(eq + 1));
 		}
-	} else if (cmd == "pick_color") {
+	} else if (cmd == "pick_color" || cmd == "pick_window") {
 		if (argc != 2)
 			return usage();
-		req["request"] = "pick_color";
+		req["request"] = cmd;
 	} else if (cmd == "restart_program") {
 		if (argc != 3)
 			return usage();

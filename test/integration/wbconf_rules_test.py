@@ -93,6 +93,9 @@ def main():
     rc = os.path.join(cfg, "waybox", "rc.xml")
     with open(rc, "w") as f:
         f.write(RC)
+    # A rules policy (doing nothing): the list says it goes over the rules.
+    with open(os.path.join(cfg, "waybox", "init.lua"), "w") as f:
+        f.write("-- rules from Lua\nwb.policy(\"rules\", function(w) return nil end)\n")
     runtime = os.path.join(workdir, "run")
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
@@ -133,7 +136,27 @@ def main():
         return lines if all_lines else [l for l in lines if l.startswith("rule|")]
 
     failures = []
-    got = run("dump;rules")
+    # Live matches: a foot window titled "scratch pad" open; rule 2 (foot
+    # titled *scratch*) is the one for it; rule 5 (regex foot) matches it
+    # too, but rule 2 comes first. (Skipped without foot.)
+    if shutil.which("foot") is not None:
+        foot = subprocess.Popen(["foot", "-T", "scratch pad"], env=dict(env, WAYLAND_DISPLAY=sock),
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        wbtest.reap_on_exit(foot)
+        time.sleep(2.0)
+        lines = run("dump;rule-matches:2;rule-matches:5;rule-matches:1", all_lines=True)
+        got = [l[len("rule-matches:"):] for l in lines if l.startswith("rule-matches:")]
+        want = ["foot (scratch pad)",
+                "foot (scratch pad), but rule 2 is used first",
+                "No open window."]
+        if got != want:
+            failures.append(f"live matches: {got}")
+        foot.kill()
+        foot.wait()
+    lines = run("dump;rules", all_lines=True)
+    got = [l for l in lines if l.startswith("rule|")]
+    if "rule-dump:init.lua:2" not in lines:
+        failures.append(f"the script's rules policy not said: {[l for l in lines if l.startswith('rule-dump')]}")
     if got != WANT:
         failures.append("rules:\n  " + "\n  ".join(got) + "\nnot:\n  " + "\n  ".join(WANT))
     # Edited, then saved.

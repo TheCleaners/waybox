@@ -201,6 +201,7 @@ waybox-msg action GoToDesktop to=2
 waybox-msg action Close window=app_id:foot
 waybox-msg identify                    # each monitor's name, large, on it
 waybox-msg pick_color                  # the color you click next (Escape cancels)
+waybox-msg pick_window                 # the window you click next: its app id, title, tag
 waybox-msg restart_program mako        # a startup program stopped, then started again
 waybox-msg subscribe window,desktop    # one event per line, as they happen
 waybox-msg subscribe bell              # each ring of the bell, and what it showed

@@ -22,6 +22,14 @@ using ColorPicked = std::function<void(bool ok, const wb::Color &color,
 		const std::string &error)>;
 
 bool color_pick_start(struct wb_server *server, ColorPicked done);
+
+/* The same, picking a window (IPC "pick_window", wbconf's Pick a Window
+ * for a window rule): the next left click names the window under it
+ * (nullptr with an error: none there, cancelled, timed out). One pick,
+ * of either kind, at a time. */
+struct wb_toplevel;
+using WindowPicked = std::function<void(struct wb_toplevel *window, const std::string &error)>;
+bool window_pick_start(struct wb_server *server, WindowPicked done);
 bool color_pick_active(struct wb_server *server);
 /* Ends a pick with an error ("cancelled", the client went...). */
 void color_pick_cancel(struct wb_server *server, const std::string &why);

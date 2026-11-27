@@ -404,6 +404,7 @@ struct Ui {
 	GtkWidget *rules_box = nullptr, *rules_empty = nullptr, *rules_foot = nullptr;
 	GtkSizeGroup *rules_column = nullptr;
 	std::vector<std::shared_ptr<RuleEdit>> rule_edits;
+	std::string rules_script_note;  /* "init.lua:3": a script's rules policy (tests) */
 	/* Keys scripts bind (init.lua and rc.xml's <scripts>), read at load. */
 	std::vector<wb::ScriptKey> script_keys;
 	GtkEventController *capture_keys = nullptr;
@@ -666,6 +667,9 @@ void populate_bindings(Ui *ui, const wb::RcDocument *doc);
 GtkWidget *build_keybindings_block(Ui *ui);
 GtkWidget *build_mousebindings_block(Ui *ui);
 void populate_shortcuts(Ui *ui, const wb::RcDocument *doc);
+/* The scripts Waybox runs (init.lua, rc.xml's <scripts>): each its file's
+ * name and text. */
+std::vector<std::pair<std::string, std::string>> script_sources(const wb::RcDocument *doc);
 /* Window rules (rules_page.cpp). */
 GtkWidget *build_rules_block(Ui *ui);
 void populate_rules(Ui *ui, const wb::RcDocument *doc);

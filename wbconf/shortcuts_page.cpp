@@ -1208,52 +1208,12 @@ std::vector<std::string> split_words(const std::string &s) {
 	return out;
 }
 
-/* The keys the scripts Waybox runs bind: init.lua, then rc.xml's
- * <scripts> (relative to the config folder, or ~/...), as Waybox finds
- * them. */
+/* The keys the scripts Waybox runs bind. */
 std::vector<wb::ScriptKey> read_script_keys(const wb::RcDocument *doc) {
-	const char *xdg = getenv("XDG_CONFIG_HOME");
-	const char *home = getenv("HOME");
-	std::string config = (xdg && *xdg ? std::string(xdg) : std::string(home ? home : "") + "/.config") +
-			"/waybox";
-	std::vector<std::string> paths = {config + "/init.lua"};
-	std::string xml = doc->snapshot({"waybox", "scripts"});
-	/* A commented-out <script> isn't one. */
-	for (size_t c; (c = xml.find("<!--")) != std::string::npos;) {
-		size_t end = xml.find("-->", c);
-		xml.erase(c, end == std::string::npos ? std::string::npos : end + 3 - c);
-	}
-	for (size_t at = 0; (at = xml.find("<script", at)) != std::string::npos;) {
-		size_t open = xml.find('>', at), close = xml.find("</script>", at);
-		if (open == std::string::npos || close == std::string::npos || open > close ||
-				xml.compare(at, 8, "<scripts") == 0) {
-			at += 7;
-			continue;
-		}
-		std::string p = xml.substr(open + 1, close - open - 1);
-		while (!p.empty() && isspace(static_cast<unsigned char>(p.back())))
-			p.pop_back();
-		while (!p.empty() && isspace(static_cast<unsigned char>(p.front())))
-			p.erase(0, 1);
-		if (p.rfind("~/", 0) == 0 && home)
-			p = std::string(home) + p.substr(1);
-		else if (!p.empty() && p[0] != '/')
-			p = config + "/" + p;
-		if (!p.empty())
-			paths.push_back(p);
-		at = close + 9;
-	}
 	std::vector<wb::ScriptKey> out;
-	for (const std::string &p : paths) {
-		std::ifstream in(p);
-		if (!in)
-			continue;
-		std::stringstream text;
-		text << in.rdbuf();
-		std::string name = p.substr(p.rfind('/') + 1);
-		for (wb::ScriptKey &k : wb::script_keys(text.str(), name))
+	for (const auto &[name, text] : script_sources(doc))
+		for (wb::ScriptKey &k : wb::script_keys(text, name))
 			out.push_back(std::move(k));
-	}
 	return out;
 }
 
@@ -1376,6 +1336,53 @@ GtkWidget *list_foot(Ui *ui, GtkWidget *add, bool mouse) {
 }
 
 }  // namespace
+
+/* The scripts Waybox runs, as Waybox finds them: init.lua, then rc.xml's
+ * <scripts> (relative to the config folder, or ~/...); each its file's
+ * name and text. Those that can't be read are left out. */
+std::vector<std::pair<std::string, std::string>> script_sources(const wb::RcDocument *doc) {
+	const char *xdg = getenv("XDG_CONFIG_HOME");
+	const char *home = getenv("HOME");
+	std::string config = (xdg && *xdg ? std::string(xdg) : std::string(home ? home : "") + "/.config") +
+			"/waybox";
+	std::vector<std::string> paths = {config + "/init.lua"};
+	std::string xml = doc->snapshot({"waybox", "scripts"});
+	/* A commented-out <script> isn't one. */
+	for (size_t c; (c = xml.find("<!--")) != std::string::npos;) {
+		size_t end = xml.find("-->", c);
+		xml.erase(c, end == std::string::npos ? std::string::npos : end + 3 - c);
+	}
+	for (size_t at = 0; (at = xml.find("<script", at)) != std::string::npos;) {
+		size_t open = xml.find('>', at), close = xml.find("</script>", at);
+		if (open == std::string::npos || close == std::string::npos || open > close ||
+				xml.compare(at, 8, "<scripts") == 0) {
+			at += 7;
+			continue;
+		}
+		std::string p = xml.substr(open + 1, close - open - 1);
+		while (!p.empty() && isspace(static_cast<unsigned char>(p.back())))
+			p.pop_back();
+		while (!p.empty() && isspace(static_cast<unsigned char>(p.front())))
+			p.erase(0, 1);
+		if (p.rfind("~/", 0) == 0 && home)
+			p = std::string(home) + p.substr(1);
+		else if (!p.empty() && p[0] != '/')
+			p = config + "/" + p;
+		if (!p.empty())
+			paths.push_back(p);
+		at = close + 9;
+	}
+	std::vector<std::pair<std::string, std::string>> out;
+	for (const std::string &p : paths) {
+		std::ifstream in(p);
+		if (!in)
+			continue;
+		std::stringstream text;
+		text << in.rdbuf();
+		out.emplace_back(p.substr(p.rfind('/') + 1), text.str());
+	}
+	return out;
+}
 
 GtkWidget *build_keybindings_block(Ui *ui) {
 	ui->shortcut_keys = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
