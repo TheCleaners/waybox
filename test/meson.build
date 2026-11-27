@@ -886,6 +886,7 @@ if python.found() and not get_option('tests_only')
     ['grouped_binds', 'grouped_binds_test.py', [], 60],
     ['menu_position', 'menu_position_test.py', [], 60],
     ['desktops_per_monitor', 'desktops_per_monitor_test.py', [waybox_msg, workspace_client], 90],
+    ['protocol_inventory', 'protocol_inventory_test.py', [], 60],
     ['mouse_contexts', 'mouse_contexts_test.py', [], 60],
     ['multi_output', 'multi_output_test.py', [layer_client], 60],
     ['output_hotplug', 'output_hotplug_test.py', [layer_client], 60],

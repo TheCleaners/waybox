@@ -13,6 +13,12 @@ namespace wb {
  */
 bool is_privileged_protocol(std::string_view interface_name);
 
+/* Every global Waybox makes, classified: ordinary (for any program),
+ * privileged (not for sandboxed ones), or unknown (one added and not yet
+ * classified: not for sandboxed ones either, and logged, so it's noticed). */
+enum class ProtocolClass { Ordinary, Privileged, Unknown };
+ProtocolClass classify_protocol(std::string_view interface_name);
+
 }  // namespace wb
 
 #endif /* WB_SECURITY_HPP */
