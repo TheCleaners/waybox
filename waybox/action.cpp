@@ -17,7 +17,7 @@ namespace {
 /* The single source of truth for known actions. Adding a row here is all that
  * is needed to register a new action name for parsing; wire its behaviour into
  * run_action() to make it do something. */
-constexpr std::array<ActionSpec, 66> kRegistry = {{
+constexpr std::array<ActionSpec, 76> kRegistry = {{
 	{"Execute",        ActionType::Execute,        true},
 	{"NextWindow",     ActionType::NextWindow,     false},
 	{"PreviousWindow", ActionType::PreviousWindow, false},
@@ -65,6 +65,16 @@ constexpr std::array<ActionSpec, 66> kRegistry = {{
 	{"ToggleAlwaysOnTop",    ActionType::ToggleAlwaysOnTop,    false},
 	{"ToggleAlwaysOnBottom", ActionType::ToggleAlwaysOnBottom, false},
 	{"ShowAbout",      ActionType::ShowAbout,      false},
+	{"DirectionalTargetWindow", ActionType::DirectionalFocus, false},
+	{"DirectionalCycleWindows", ActionType::DirectionalFocus, false},
+	{"DirectionalFocusNorth", ActionType::DirectionalFocus, false, "north"},
+	{"DirectionalFocusNorthEast", ActionType::DirectionalFocus, false, "northeast"},
+	{"DirectionalFocusEast", ActionType::DirectionalFocus, false, "east"},
+	{"DirectionalFocusSouthEast", ActionType::DirectionalFocus, false, "southeast"},
+	{"DirectionalFocusSouth", ActionType::DirectionalFocus, false, "south"},
+	{"DirectionalFocusSouthWest", ActionType::DirectionalFocus, false, "southwest"},
+	{"DirectionalFocusWest", ActionType::DirectionalFocus, false, "west"},
+	{"DirectionalFocusNorthWest", ActionType::DirectionalFocus, false, "northwest"},
 	/* Openbox's geometry actions; MoveToEdgeNorth and the like: Openbox
 	 * 3.4's names, the direction in them. */
 	{"MoveResizeTo", ActionType::MoveResizeTo, false},

@@ -25,6 +25,16 @@ enum class EdgeDir { North, South, East, West };
 /* "north", "up", "south", "down", "east", "right", "west", "left". */
 std::optional<EdgeDir> edge_dir_from_name(std::string_view name);
 
+/* Directional focus's eight directions: "north", ..., "northeast",
+ * "southwest" (also up, down, left, right). */
+enum class Dir8 { North, NorthEast, East, SouthEast, South, SouthWest, West, NorthWest };
+std::optional<Dir8> dir8_from_name(std::string_view name);
+/* The window to go to from `from` in direction `dir`: of `candidates`, one
+ * whose middle lies that way, the nearest (straight ahead counting more
+ * than off to the side); nullopt if none. */
+std::optional<size_t> directional_target(const Rect &from, const std::vector<Rect> &candidates,
+		Dir8 dir);
+
 /* <x> <y> <width> <height>: a number (pixels from the area's left or top,
  * negative from its right or bottom), "center", "N%" (of the area), or
  * "current"; sizes the same, without "center" or negatives. */

@@ -88,6 +88,65 @@ std::optional<EdgeDir> edge_dir_from_name(std::string_view n) {
 	return std::nullopt;
 }
 
+std::optional<Dir8> dir8_from_name(std::string_view n) {
+	static const std::pair<const char *, Dir8> names[] = {
+		{"north", Dir8::North}, {"up", Dir8::North}, {"northeast", Dir8::NorthEast},
+		{"east", Dir8::East}, {"right", Dir8::East}, {"southeast", Dir8::SouthEast},
+		{"south", Dir8::South}, {"down", Dir8::South}, {"southwest", Dir8::SouthWest},
+		{"west", Dir8::West}, {"left", Dir8::West}, {"northwest", Dir8::NorthWest}};
+	for (const auto &[name, d] : names)
+		if (n == name)
+			return d;
+	return std::nullopt;
+}
+
+std::optional<size_t> directional_target(const Rect &from, const std::vector<Rect> &cands,
+		Dir8 dir) {
+	/* Unit vector of the direction (diagonals: both axes). */
+	int ux = 0, uy = 0;
+	switch (dir) {
+	case Dir8::North: uy = -1; break;
+	case Dir8::South: uy = 1; break;
+	case Dir8::East: ux = 1; break;
+	case Dir8::West: ux = -1; break;
+	case Dir8::NorthEast: ux = 1; uy = -1; break;
+	case Dir8::SouthEast: ux = 1; uy = 1; break;
+	case Dir8::SouthWest: ux = -1; uy = 1; break;
+	case Dir8::NorthWest: ux = -1; uy = -1; break;
+	}
+	long cx = from.x + from.width / 2, cy = from.y + from.height / 2;
+	std::optional<size_t> best;
+	long best_score = 0;
+	for (size_t i = 0; i < cands.size(); ++i) {
+		const Rect &c = cands[i];
+		long dx = c.x + c.width / 2 - cx, dy = c.y + c.height / 2 - cy;
+		long ahead, aside;
+		if (ux != 0 && uy != 0) {
+			/* Diagonal: both ways, the nearer the better. */
+			if (dx * ux <= 0 || dy * uy <= 0)
+				continue;
+			ahead = dx * ux + dy * uy;
+			aside = std::labs(dx * ux - dy * uy);
+		} else if (ux != 0) {
+			if (dx * ux <= 0)
+				continue;
+			ahead = dx * ux;
+			aside = std::labs(dy);
+		} else {
+			if (dy * uy <= 0)
+				continue;
+			ahead = dy * uy;
+			aside = std::labs(dx);
+		}
+		long score = ahead + 2 * aside;
+		if (!best || score < best_score) {
+			best = i;
+			best_score = score;
+		}
+	}
+	return best;
+}
+
 Rect move_resize_to(const Rect &f, const Rect &area, const ActionArgs &args) {
 	Rect r = f;
 	r.width = size(arg(args, "width"), area.width, f.width);

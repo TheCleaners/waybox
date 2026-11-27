@@ -646,6 +646,32 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		run_geometry_action(action, server, t);
 		break;
 	}
+	case wb::ActionType::DirectionalFocus: {
+		/* From the focused window (else the pointer) to the nearest window
+		 * that way, among those shown on this desktop. */
+		auto dir = wb::dir8_from_name(action.direction);
+		if (!dir)
+			break;
+		struct wb_toplevel *from = action_target(server);
+		wb::Rect origin = from != nullptr && from->mapped
+				? toplevel_frame(from)
+				: wb::Rect{static_cast<int>(server->cursor->cursor->x),
+						static_cast<int>(server->cursor->cursor->y), 1, 1};
+		std::vector<struct wb_toplevel *> wins;
+		std::vector<wb::Rect> rects;
+		struct wb_toplevel *o;
+		wl_list_for_each(o, &server->toplevels, link)
+			if (o != from && o->mapped && !o->minimized && o->scene_tree != nullptr &&
+					o->scene_tree->node.enabled && toplevel_on_current_desktop(o)) {
+				wins.push_back(o);
+				rects.push_back(toplevel_frame(o));
+			}
+		if (auto i = wb::directional_target(origin, rects, *dir)) {
+			focus_toplevel(wins[*i]);
+			raise_toplevel(wins[*i]);
+		}
+		break;
+	}
 	case wb::ActionType::ShowAbout:
 		server->menu.reset();
 		server->about_card = std::make_unique<wb::AboutCard>(server, wb_osd_style(server),
