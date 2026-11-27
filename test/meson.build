@@ -909,6 +909,8 @@ if python.found() and not get_option('tests_only')
       integration_tests += [['wbconf_page_list', 'wbconf_page_list_test.py',
           [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf', wbconf_lua_exe], 90]]
     endif
+    integration_tests += [['wbconf_provides', 'wbconf_provides_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_problems', 'wbconf_problems_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_changes', 'wbconf_changes_test.py',

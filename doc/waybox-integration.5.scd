@@ -100,6 +100,15 @@ Default=stretch
 	For a Lua page: the programs it may run, by name (found in *PATH*),
 	separated by commas.
 
+*Provides=*
+	What it occupies that only one program can, separated by commas:
+	*wallpaper*, *notifications*, *night-light*, *idle*, *polkit-agent*,
+	*output-profiles*, or a name of your own. Two programs that provide the
+	same thing compete (two wallpaper programs draw over each other), so
+	turning one on in wbconf offers to turn the others off. Wallpaper
+	(Waybox) provides *wallpaper* though it isn't swaybg by name: what it
+	does, not what it's called.
+
 *Reload=*
 	How the program takes its settings again once its page saved them
 	(the page's *wb.reload()*): *command* _program_ _args_ (run as

@@ -1,6 +1,7 @@
 [Integration]
 Name=kanshi
 Category=Displays
+Provides=output-profiles
 Comment=Monitor profiles for docking and undocking (settings in ~/.config/kanshi/config)
 Exec=kanshi
 Manages=outputs

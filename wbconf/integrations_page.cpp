@@ -49,6 +49,69 @@ std::string autostart_text() {
 	return ss.str();
 }
 
+/* What a Provides= name does, said plainly. */
+std::string provides_phrase(const std::string &what) {
+	static const std::map<std::string, const char *> phrases = {
+		{"wallpaper", N_("set the wallpaper")},
+		{"notifications", N_("show notifications")},
+		{"night-light", N_("tint the screen at night")},
+		{"idle", N_("lock and blank the screen when idle")},
+		{"polkit-agent", N_("ask for passwords")},
+		{"output-profiles", N_("arrange the monitors")},
+	};
+	auto it = phrases.find(what);
+	if (it != phrases.end())
+		return _(it->second);
+	char *t = g_strdup_printf(_("provide %s"), what.c_str());
+	std::string s = t;
+	g_free(t);
+	return s;
+}
+
+/* Two programs kept running together though they compete ("Keep Both"):
+ * remembered as "a+b" (sorted) in wbconf's view settings, until either is
+ * turned off. */
+std::string pair_key(const std::string &a, const std::string &b) {
+	return a < b ? a + "+" + b : b + "+" + a;
+}
+
+bool kept_both(const std::string &a, const std::string &b) {
+	std::string all = "," + view_get("kept-both") + ",";
+	return all.find("," + pair_key(a, b) + ",") != std::string::npos;
+}
+
+void set_kept_both(const std::string &a, const std::string &b, bool keep) {
+	std::string key = pair_key(a, b), out;
+	std::istringstream in(view_get("kept-both"));
+	for (std::string k; std::getline(in, k, ',');)
+		if (!k.empty() && k != key)
+			out += (out.empty() ? "" : ",") + k;
+	if (keep)
+		out += (out.empty() ? "" : ",") + key;
+	view_set("kept-both", out);
+}
+
+/* Other programs switched on that provide what this one does (Provides=):
+ * each with what they share. */
+std::vector<std::pair<Ui::ProgramRow *, std::string>> competitors(Ui *ui,
+		Ui::ProgramRow *row) {
+	std::vector<std::pair<Ui::ProgramRow *, std::string>> out;
+	if (row->in == nullptr || row->in->provides.empty())
+		return out;
+	for (auto &o : ui->programs) {
+		if (o.get() == row || o->in == nullptr || o->removed || o->on == nullptr ||
+				!gtk_switch_get_active(o->on))
+			continue;
+		for (const std::string &w : row->in->provides)
+			if (std::find(o->in->provides.begin(), o->in->provides.end(), w) !=
+					o->in->provides.end()) {
+				out.emplace_back(o.get(), w);
+				break;
+			}
+	}
+	return out;
+}
+
 void program_status(Ui *ui, Ui::ProgramRow *row) {
 	if (row->status == nullptr)
 		return;
@@ -78,7 +141,20 @@ void program_status(Ui *ui, Ui::ProgramRow *row) {
 		add(_("also started by your autostart script: it would run twice"));
 	else if (st.from_script)
 		add(_("started by your autostart script"));
-	bool warn = st.twice;
+	/* "competes with swaybg: both set the wallpaper" */
+	bool competing = false;
+	if (gtk_switch_get_active(row->on))
+		for (const auto &[o, what] : competitors(ui, row)) {
+			bool chosen = kept_both(row->in->id, o->in->id);
+			char *t = chosen
+				? g_strdup_printf(_("runs alongside %s, as you chose"), o->in->name.c_str())
+				: g_strdup_printf(_("competes with %s: both %s"), o->in->name.c_str(),
+						provides_phrase(what).c_str());
+			add(t);
+			g_free(t);
+			competing = competing || !chosen;
+		}
+	bool warn = st.twice || competing;
 	gtk_label_set_text(row->status, text.c_str());
 	gtk_widget_set_visible(GTK_WIDGET(row->status), !text.empty());
 	if (warn)
@@ -408,15 +484,90 @@ void stop_moved_programs(Ui *ui) {
 	}
 }
 
+/* The answer: turn the others off, or keep both (remembered, the warning
+ * then a plain note). */
+void answer_competitors(Ui *ui, Ui::ProgramRow *row, const std::vector<Ui::ProgramRow *> &others,
+		bool turn_off) {
+	for (Ui::ProgramRow *o : others) {
+		if (turn_off)
+			gtk_switch_set_active(o->on, FALSE);
+		else
+			set_kept_both(row->in->id, o->in->id, true);
+	}
+	program_status(ui, row);
+	for (Ui::ProgramRow *o : others)
+		program_status(ui, o);
+}
+
+/* Switched on while others providing the same are: turn them off? */
+void ask_competitors(Ui *ui, Ui::ProgramRow *row) {
+	auto others = competitors(ui, row);
+	std::erase_if(others, [row](const auto &o) { return kept_both(row->in->id, o.first->in->id); });
+	if (others.empty())
+		return;
+	std::string names;
+	for (const auto &[o, what] : others)
+		names += (names.empty() ? "" : ", ") + o->in->name;
+	/* Tests: answered at once (WBCONF_TEST_COMPETING=off|keep), said on stderr. */
+	if (const char *t = getenv("WBCONF_TEST_COMPETING"); t != nullptr && *t) {
+		fprintf(stderr, "competing-asked:%s|%s\n", row->in->id.c_str(), names.c_str());
+		std::vector<Ui::ProgramRow *> rows;
+		for (const auto &[o, what] : others)
+			rows.push_back(o);
+		answer_competitors(ui, row, rows, std::string(t) == "off");
+		return;
+	}
+	char *msg = g_strdup_printf(_("Turn off %s?"), names.c_str());
+	char *detail = g_strdup_printf(_("%s and %s both %s: running together, they get in "
+			"each other's way."), row->in->name.c_str(), names.c_str(),
+			provides_phrase(others[0].second).c_str());
+	GtkAlertDialog *dialog = gtk_alert_dialog_new("%s", msg);
+	gtk_alert_dialog_set_detail(dialog, detail);
+	g_free(msg);
+	g_free(detail);
+	std::string off = std::string(_("Turn Off")) + " " + names;
+	const char *buttons[] = {_("Keep Both"), off.c_str(), nullptr};
+	gtk_alert_dialog_set_buttons(dialog, buttons);
+	gtk_alert_dialog_set_cancel_button(dialog, 0);
+	gtk_alert_dialog_set_default_button(dialog, 1);
+	struct Ask {
+		Ui *ui;
+		Ui::ProgramRow *row;
+		std::vector<Ui::ProgramRow *> rows;
+	};
+	auto *ask = new Ask{ui, row, {}};
+	for (const auto &[o, what] : others)
+		ask->rows.push_back(o);
+	gtk_alert_dialog_choose(dialog, GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(row->on))),
+			nullptr, [](GObject *src, GAsyncResult *res, gpointer data) {
+		auto *ask = static_cast<Ask *>(data);
+		int b = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(src), res, nullptr);
+		answer_competitors(ask->ui, ask->row, ask->rows, b == 1);
+		delete ask;
+	}, ask);
+	g_object_unref(dialog);
+}
+
 void on_program_toggled(GObject *, GParamSpec *, gpointer data) {
 	auto *row = static_cast<Ui::ProgramRow *>(data);
 	Ui *ui = static_cast<Ui *>(g_object_get_data(G_OBJECT(row->on), "wb-ui"));
 	gtk_widget_set_visible(row->details, gtk_switch_get_active(row->on));
 	program_status(ui, row);
+	/* Those it competes with: their status says so too. */
+	for (auto &o : ui->programs)
+		if (o.get() != row && o->in != nullptr && !o->in->provides.empty())
+			program_status(ui, o.get());
 	if (!gtk_switch_get_active(row->on)) {
 		row->stop_on_save = false;
+		/* Off: a "Keep Both" with it is forgotten (on again, asked again). */
+		if (ui->ready && row->in != nullptr)
+			for (auto &o : ui->programs)
+				if (o.get() != row && o->in != nullptr && kept_both(row->in->id, o->in->id))
+					set_kept_both(row->in->id, o->in->id, false);
 		return;
 	}
+	if (ui->ready)
+		ask_competitors(ui, row);
 	if (!ui->ready || row->asked || row->listed || ui->script_path.empty())
 		return;
 	/* The script the session runs (the user's, else the default): the

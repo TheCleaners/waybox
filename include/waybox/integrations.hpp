@@ -125,6 +125,9 @@ struct Integration {
 	 * the file; Files= the files it may read and write ("~/..." allowed),
 	 * Runs= the programs it may run, both comma-separated. */
 	std::vector<std::string> files, runs;
+	/* Provides=wallpaper, notifications: what it occupies, that only one
+	 * program can (two that provide the same thing compete). */
+	std::vector<std::string> provides;
 	IntegrationReload reload;
 	/* The directory the file was read from (load_integrations): where a
 	 * Lua page is looked for. */
