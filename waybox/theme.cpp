@@ -305,6 +305,8 @@ Color *color_field_for(Theme &t, std::string_view key) {
 	if (key == "osd.bg.colorTo") return &t.osd.bg.color_to;
 	if (key == "osd.hilight.bg.color") return &t.osd.hilight_bg.color;
 	if (key == "osd.hilight.bg.colorTo") return &t.osd.hilight_bg.color_to;
+	if (key == "osd.unhilight.bg.color") return &t.osd.unhilight_bg.color;
+	if (key == "osd.unhilight.bg.colorTo") return &t.osd.unhilight_bg.color_to;
 	if (key == "osd.label.text.color" || key == "osd.inactive.label.text.color")
 		return &t.osd.text;
 	if (key == "osd.active.label.text.color") return &t.osd.active_text;
@@ -393,12 +395,19 @@ void apply_key(Theme &t, std::string_view key, std::string_view value) {
 		t.osd.hilight_set = true;
 		return;
 	}
+	if (key == "osd.unhilight.bg") {
+		apply_texture_type(value, t.osd.unhilight_bg);
+		t.osd.unhilight_set = true;
+		return;
+	}
 	/* An osd colour that parses (one that doesn't sets nothing). */
 	if (key.rfind("osd.", 0) == 0 && parse_color(trim(value)).has_value()) {
 		if (key == "osd.bg.color" || key == "osd.bg.colorTo")
 			t.osd.bg_set = true;
 		else if (key == "osd.hilight.bg.color" || key == "osd.hilight.bg.colorTo")
 			t.osd.hilight_set = true;
+		else if (key == "osd.unhilight.bg.color" || key == "osd.unhilight.bg.colorTo")
+			t.osd.unhilight_set = true;
 		else if (key == "osd.label.text.color" || key == "osd.inactive.label.text.color")
 			t.osd.text_set = true;
 		else if (key == "osd.active.label.text.color")

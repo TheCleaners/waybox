@@ -80,6 +80,10 @@ struct SwitcherStyle {
 	Surface panel;
 	ControlStyle item;
 	TextStyle item_text;
+	/* The desktop popup's squares (Openbox's pager): the shown desktop's
+	 * (osd.hilight.bg), the others' (osd.unhilight.bg, else the panel's),
+	 * each bordered in the panel's border colour. */
+	Paint pager_on, pager_off;
 	SwitcherOrientation orientation = SwitcherOrientation::Vertical;
 	OsdPosition position = OsdPosition::Center;
 	bool show_thumbnails = false;  /* reserved */
