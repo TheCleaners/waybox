@@ -196,7 +196,15 @@ def main():
         time.sleep(0.3)
 
     try:
-        time.sleep(0.5)
+        # Waited for, not slept on: the spawned commands' callbacks and the
+        # timers come when they come on a busy machine (CI). Up to 10 s.
+        awaited = ("wb-script: spawn list out=", "wb-script: spawn shell out=",
+                   "wb-script: timer once", "wb-script: every done 3")
+        for _ in range(100):
+            time.sleep(0.1)
+            text = logtext()
+            if "wb-scripts loaded" in text and all(a in text for a in awaited):
+                break
         text = logtext()
         if "wb-scripts loaded" not in text:
             print("SKIP: Waybox was built without Lua", file=sys.stderr)
