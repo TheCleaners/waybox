@@ -112,6 +112,32 @@ std::vector<std::pair<Ui::ProgramRow *, std::string>> competitors(Ui *ui,
 	return out;
 }
 
+/* The XDG autostart entry that starts `binary` at login (enabled, meant
+ * for this desktop, its switch in Started Elsewhere still on), or null. */
+const wb::AutostartEntry *xdg_starter(Ui *ui, const std::string &binary) {
+	for (const wb::AutostartEntry &e : ui->xdg_entries) {
+		if (!e.enabled || !e.for_here || e.program != binary)
+			continue;
+		bool switched_off = false;
+		for (auto &r : ui->source_rows)
+			if (!r->script && r->file == e.file && r->on != nullptr &&
+					!gtk_switch_get_active(r->on))
+				switched_off = true;
+		if (!switched_off)
+			return &e;
+	}
+	return nullptr;
+}
+
+/* "the system's autostart (nm-applet.desktop)", "your autostart folder (…)" */
+std::string xdg_where(const wb::AutostartEntry &e) {
+	char *t = g_strdup_printf(e.user ? _("your autostart folder (%s)")
+			: _("the system's autostart (%s)"), e.file.c_str());
+	std::string s = t;
+	g_free(t);
+	return s;
+}
+
 void program_status(Ui *ui, Ui::ProgramRow *row) {
 	if (row->status == nullptr)
 		return;
@@ -141,6 +167,18 @@ void program_status(Ui *ui, Ui::ProgramRow *row) {
 		add(_("also started by your autostart script: it would run twice"));
 	else if (st.from_script)
 		add(_("started by your autostart script"));
+	bool xdg_twice = false;
+	/* XDG autostart starts it too: from where; with the switch on, twice. */
+	if (row->in != nullptr)
+		if (const wb::AutostartEntry *xe = xdg_starter(ui, binary)) {
+			bool on = gtk_switch_get_active(row->on);
+			char *t = g_strdup_printf(on ? _("also started by %s: it would run twice")
+					: _("started by %s"), xdg_where(*xe).c_str());
+			add(t);
+			g_free(t);
+			if (on)
+				xdg_twice = true;
+		}
 	/* "competes with swaybg: both set the wallpaper" */
 	bool competing = false;
 	if (gtk_switch_get_active(row->on))
@@ -154,7 +192,7 @@ void program_status(Ui *ui, Ui::ProgramRow *row) {
 			g_free(t);
 			competing = competing || !chosen;
 		}
-	bool warn = st.twice || competing;
+	bool warn = st.twice || competing || xdg_twice;
 	gtk_label_set_text(row->status, text.c_str());
 	gtk_widget_set_visible(GTK_WIDGET(row->status), !text.empty());
 	if (warn)
@@ -548,6 +586,64 @@ void ask_competitors(Ui *ui, Ui::ProgramRow *row) {
 	g_object_unref(dialog);
 }
 
+/* The answer: the entry switched off (written on save, a Hidden copy in
+ * ~/.config/autostart) and its running copies stopped then; or the row
+ * left off, as it was. */
+void answer_xdg_move(Ui *ui, Ui::ProgramRow *row, const std::string &file, bool take) {
+	if (take) {
+		for (auto &r : ui->source_rows)
+			if (!r->script && r->file == file && r->on != nullptr)
+				gtk_switch_set_active(r->on, FALSE);
+		std::vector<pid_t> running = running_copies(program_binary(row));
+		row->stop_on_save = !running.empty();
+		row->stop_pids = running;
+	} else {
+		row->stop_on_save = false;
+		row->stop_pids.clear();
+		gtk_switch_set_active(row->on, FALSE);
+	}
+	program_status(ui, row);
+	refresh_save_state(ui);
+}
+
+void ask_xdg_move(Ui *ui, Ui::ProgramRow *row, const wb::AutostartEntry &e) {
+	std::string name = row->in->name;
+	/* Tests: answered at once (WBCONF_TEST_XDG=take|cancel), said on stderr. */
+	if (const char *t = getenv("WBCONF_TEST_XDG"); t != nullptr && *t) {
+		fprintf(stderr, "xdg-asked:%s|%s\n", row->in->id.c_str(), e.file.c_str());
+		answer_xdg_move(ui, row, e.file, std::string(t) == "take");
+		return;
+	}
+	char *msg = g_strdup_printf(_("Let Waybox start %s?"), name.c_str());
+	char *detail = g_strdup_printf(_("It's already started at login by %s: with both, it "
+			"would run twice. Waybox can start it instead: that entry is turned off (%s), and "
+			"the running copy stopped when you save."), xdg_where(e).c_str(),
+			e.user ? _("in your autostart folder")
+			       : _("a hidden copy in ~/.config/autostart; the system's file is left alone"));
+	GtkAlertDialog *dialog = gtk_alert_dialog_new("%s", msg);
+	gtk_alert_dialog_set_detail(dialog, detail);
+	g_free(msg);
+	g_free(detail);
+	const char *buttons[] = {_("Cancel"), _("Let Waybox Start It"), nullptr};
+	gtk_alert_dialog_set_buttons(dialog, buttons);
+	gtk_alert_dialog_set_cancel_button(dialog, 0);
+	gtk_alert_dialog_set_default_button(dialog, 1);
+	struct Ask {
+		Ui *ui;
+		Ui::ProgramRow *row;
+		std::string file;
+	};
+	auto *ask = new Ask{ui, row, e.file};
+	gtk_alert_dialog_choose(dialog, GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(row->on))),
+			nullptr, [](GObject *src, GAsyncResult *res, gpointer data) {
+		auto *ask = static_cast<Ask *>(data);
+		int b = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(src), res, nullptr);
+		answer_xdg_move(ask->ui, ask->row, ask->file, b == 1);
+		delete ask;
+	}, ask);
+	g_object_unref(dialog);
+}
+
 void on_program_toggled(GObject *, GParamSpec *, gpointer data) {
 	auto *row = static_cast<Ui::ProgramRow *>(data);
 	Ui *ui = static_cast<Ui *>(g_object_get_data(G_OBJECT(row->on), "wb-ui"));
@@ -568,6 +664,14 @@ void on_program_toggled(GObject *, GParamSpec *, gpointer data) {
 	}
 	if (ui->ready)
 		ask_competitors(ui, row);
+	/* XDG autostart starts it: let Waybox instead (that entry off, the
+	 * running copy stopped when saving), or leave it to the autostart. */
+	if (ui->ready && !row->asked && !row->listed && row->in != nullptr)
+		if (const wb::AutostartEntry *xe = xdg_starter(ui, program_binary(row))) {
+			row->asked = true;
+			ask_xdg_move(ui, row, *xe);
+			return;
+		}
 	if (!ui->ready || row->asked || row->listed || ui->script_path.empty())
 		return;
 	/* The script the session runs (the user's, else the default): the
