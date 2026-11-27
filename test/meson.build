@@ -128,6 +128,12 @@ key_label_test = executable(
   include_directories: [inc_dir],
   )
 test('key_label', key_label_test)
+binding_clash_test = executable(
+  'binding_clash_test',
+  ['binding_clash_test.cpp', 'wb_test_main.cpp', binding_clash_src, key_label_src],
+  include_directories: [inc_dir],
+  )
+test('binding_clash', binding_clash_test)
 
 action_catalog_test = executable(
   'action_catalog_test',
@@ -949,6 +955,9 @@ if python.found() and not get_option('tests_only')
     endif
     integration_tests += [['wbconf_provides', 'wbconf_provides_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_shortcut_clash', 'wbconf_shortcut_clash_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf',
+         meson.project_source_root() / 'data' / 'rc.xml'], 60]]
     integration_tests += [['wbconf_shortcuts', 'wbconf_shortcuts_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_problems', 'wbconf_problems_test.py',

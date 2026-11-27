@@ -18,7 +18,11 @@
 #include <algorithm>
 #include <map>
 
+#include <fstream>
+#include <sstream>
+
 #include "waybox/action_catalog.hpp"
+#include "waybox/binding_clash.hpp"
 #include "waybox/key_label.hpp"
 
 namespace wbconf {
@@ -36,6 +40,9 @@ struct ShortcutEdit {
 	GtkWidget *head = nullptr;
 	GtkWidget *undo = nullptr;
 	GtkWidget *revealer = nullptr;
+	/* Never runs: why, and the fix offered. */
+	GtkWidget *warn = nullptr, *warn_label = nullptr, *warn_fix = nullptr;
+	ShortcutEdit *clash_by = nullptr;  /* the binding that takes its keys */
 	/* Keys. */
 	GtkWidget *keys_button = nullptr;
 	GtkWidget *keys_hint = nullptr;
@@ -296,9 +303,12 @@ void refresh_keys(ShortcutEdit *e) {
 			e->now->chain.size() < 4);
 }
 
+void refresh_clashes(Ui *ui);
+
 void changed(ShortcutEdit *e) {
 	refresh_head(e);
 	refresh_keys(e);
+	refresh_clashes(e->ui);
 	refresh_save_state(e->ui);
 }
 
@@ -657,18 +667,14 @@ void forget(ShortcutEdit *e) {
 			[e](const auto &p) { return p.get() == e; });
 	if (it != ui->shortcut_edits.end())
 		ui->shortcut_edits.erase(it);  /* e is gone from here on */
+	refresh_clashes(ui);
 	refresh_save_state(ui);
 }
 
+void drop(ShortcutEdit *e);
+
 void on_remove(GtkButton *, gpointer data) {
-	auto *e = static_cast<ShortcutEdit *>(data);
-	set_open(e, false);
-	if (!was_saved(e)) {
-		forget(e);  /* never saved: nothing to keep */
-		return;
-	}
-	remove_now(e);
-	changed(e);
+	drop(static_cast<ShortcutEdit *>(data));
 }
 
 /* The editor's fields as the binding is now. */
@@ -800,6 +806,117 @@ GtkWidget *build_editor(ShortcutEdit *e) {
 	return box;
 }
 
+/* Gone from the list: removed (until saved), or never saved. */
+void drop(ShortcutEdit *e) {
+	set_open(e, false);
+	if (!was_saved(e)) {
+		forget(e);
+		return;
+	}
+	remove_now(e);
+	changed(e);
+}
+
+/* "Replace It": the other goes, this one runs; "Remove This One": a
+ * binding that can't run, gone. */
+void on_clash_fix(GtkButton *, gpointer data) {
+	auto *e = static_cast<ShortcutEdit *>(data);
+	if (e->clash_by == nullptr)
+		return;
+	if (dirty(e))
+		drop(e->clash_by);
+	else
+		drop(e);
+}
+
+/* Where a binding stands once saved: as it is in rc.xml, unless its keys
+ * (or place) changed or it's new: then it's written after the others. */
+bool moves_to_end(const ShortcutEdit *e) {
+	if (!was_saved(e))
+		return true;
+	if (!present(e))
+		return false;
+	if (e->mouse)
+		return e->mnow->context != e->mwas->context || e->mnow->button != e->mwas->button ||
+				e->mnow->event != e->mwas->event;
+	return e->now->chain != e->was->chain;
+}
+
+void show_clash(ShortcutEdit *e, ShortcutEdit *by, const std::string &text, bool fix) {
+	e->clash_by = by;
+	gtk_label_set_text(GTK_LABEL(e->warn_label), text.c_str());
+	gtk_widget_set_visible(e->warn, TRUE);
+	gtk_widget_set_visible(e->warn_fix, fix);
+	gtk_button_set_label(GTK_BUTTON(e->warn_fix),
+			dirty(e) ? _("Replace It") : _("Remove This One"));
+	gtk_widget_set_tooltip_text(e->warn_fix, dirty(e)
+			? _("Remove the other binding, so this one runs")
+			: _("Remove this binding: it can't run"));
+}
+
+void refresh_clashes(Ui *ui) {
+	for (bool mouse : {false, true}) {
+		/* In the order they'll be in once saved. */
+		std::vector<ShortcutEdit *> order;
+		for (bool at_end : {false, true})
+			for (auto &p : ui->shortcut_edits)
+				if (p->mouse == mouse && moves_to_end(p.get()) == at_end)
+					order.push_back(p.get());
+		for (ShortcutEdit *e : order) {
+			e->clash_by = nullptr;
+			gtk_widget_set_visible(e->warn, FALSE);
+		}
+		if (mouse) {
+			std::vector<wb::MousePlace> places;
+			for (ShortcutEdit *e : order)
+				places.push_back(e->mnow ? wb::MousePlace{e->mnow->context, e->mnow->button,
+						e->mnow->event} : wb::MousePlace{"", "", ""});
+			auto clashes = wb::mouse_clashes(places);
+			for (size_t i = 0; i < order.size(); ++i) {
+				if (!clashes[i] || !order[i]->mnow || !order[*clashes[i]]->mnow)
+					continue;
+				ShortcutEdit *by = order[*clashes[i]];
+				std::string text = std::string(_("Never runs: “")) +
+						wb::describe_actions(by->mnow->actions) +
+						_("” has the same place, button and click.");
+				show_clash(order[i], by, text, order[i]->editable && by->editable);
+			}
+			continue;
+		}
+		std::vector<std::vector<std::string>> chains;
+		for (ShortcutEdit *e : order)
+			chains.push_back(e->now ? e->now->chain : std::vector<std::string>{});
+		auto clashes = wb::key_clashes(chains, ui->script_keys);
+		for (size_t i = 0; i < order.size(); ++i) {
+			if (!clashes[i])
+				continue;
+			const wb::Clash &c = *clashes[i];
+			ShortcutEdit *e = order[i];
+			std::string keys = chain_caps_text(c.keys);
+			char *t;
+			if (c.script) {
+				t = g_strdup_printf(_("Never runs: %s is bound in %s (line %d), and scripts come first."),
+						keys.c_str(), c.script->file.c_str(), c.script->line);
+				show_clash(e, nullptr, t, false);
+				g_free(t);
+				continue;
+			}
+			ShortcutEdit *by = order[*c.by];
+			std::string does = wb::describe_actions(by->now->actions);
+			if (c.by_chain)
+				t = g_strdup_printf(_("Never runs: %s starts the chain %s (“%s”)."), keys.c_str(),
+						chain_caps_text(by->now->chain).c_str(), does.c_str());
+			else if (c.keys.size() < e->now->chain.size())
+				t = g_strdup_printf(_("Never runs: %s is taken by “%s”, so the chain never starts."),
+						keys.c_str(), does.c_str());
+			else
+				t = g_strdup_printf(_("Never runs: %s is taken by “%s”."), keys.c_str(), does.c_str());
+			show_clash(e, by, t, e->editable && by->editable);
+			g_free(t);
+		}
+	}
+}
+
 /* A binding's row: a button that opens its editor underneath, or for one
  * only rc.xml edits, a quiet line saying so. */
 ShortcutEdit *add_row(Ui *ui, std::shared_ptr<ShortcutEdit> e, GtkSizeGroup *column) {
@@ -845,6 +962,24 @@ ShortcutEdit *add_row(Ui *ui, std::shared_ptr<ShortcutEdit> e, GtkSizeGroup *col
 	g_signal_connect(e->undo, "clicked", G_CALLBACK(on_undo), e.get());
 	gtk_box_append(GTK_BOX(bar), e->undo);
 	gtk_box_append(GTK_BOX(e->outer), bar);
+
+	e->warn = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+	gtk_widget_add_css_class(e->warn, "wb-shortcut-warn");
+	GtkWidget *icon = gtk_image_new_from_icon_name("dialog-warning-symbolic");
+	gtk_widget_set_valign(icon, GTK_ALIGN_CENTER);
+	gtk_box_append(GTK_BOX(e->warn), icon);
+	e->warn_label = gtk_label_new("");
+	gtk_label_set_xalign(GTK_LABEL(e->warn_label), 0);
+	gtk_label_set_wrap(GTK_LABEL(e->warn_label), TRUE);
+	gtk_widget_set_hexpand(e->warn_label, TRUE);
+	gtk_box_append(GTK_BOX(e->warn), e->warn_label);
+	e->warn_fix = gtk_button_new_with_label("");
+	gtk_widget_add_css_class(e->warn_fix, "flat");
+	gtk_widget_set_valign(e->warn_fix, GTK_ALIGN_CENTER);
+	g_signal_connect(e->warn_fix, "clicked", G_CALLBACK(on_clash_fix), e.get());
+	gtk_box_append(GTK_BOX(e->warn), e->warn_fix);
+	gtk_widget_set_visible(e->warn, FALSE);
+	gtk_box_append(GTK_BOX(e->outer), e->warn);
 
 	e->revealer = gtk_revealer_new();
 	gtk_revealer_set_transition_type(GTK_REVEALER(e->revealer),
@@ -940,18 +1075,24 @@ std::string fold(const std::string &s) {
 	return out;
 }
 
-/* Every word of the query somewhere in what the row says. */
+/* Every word of the query somewhere in what the row says; a one-letter
+ * word only as a whole key ("super e" finds Super+E, not every "e"). */
 bool row_matches(const ShortcutEdit *e, const std::vector<std::string> &words) {
+	std::vector<std::string> caps_seen;
 	std::string hay;
 	if (e->mouse) {
 		const wb::MouseBinding &m = e->mnow ? *e->mnow : *e->mwas;
 		hay = mouse_text(m) + " " + m.context + " " + m.button;
+		for (const std::string &c : wb::button_caps(m.button))
+			caps_seen.push_back(fold(c));
 	} else {
 		const auto &chain = e->now ? e->now->chain : e->was->chain;
 		hay = chain_caps_text(chain) + " " + chain_text(chain);
 		for (const std::string &k : chain)
-			for (const std::string &c : wb::key_caps(k))
+			for (const std::string &c : wb::key_caps(k)) {
 				hay += " " + c;
+				caps_seen.push_back(fold(c));
+			}
 	}
 	const auto &a = shown_acts(e);
 	hay += " " + wb::describe_actions(a) + " " + category_of(a);
@@ -959,9 +1100,14 @@ bool row_matches(const ShortcutEdit *e, const std::vector<std::string> &words) {
 		if (const wb::ActionInfo *info = wb::action_info(b.name))
 			hay += " " + info->label + " " + info->name;
 	hay = fold(hay);
-	for (const std::string &w : words)
-		if (hay.find(w) == std::string::npos)
+	for (const std::string &w : words) {
+		if (g_utf8_strlen(w.c_str(), -1) == 1) {
+			if (std::find(caps_seen.begin(), caps_seen.end(), w) == caps_seen.end())
+				return false;
+		} else if (hay.find(w) == std::string::npos) {
 			return false;
+		}
+	}
 	return true;
 }
 
@@ -969,7 +1115,7 @@ std::vector<std::string> words_of(const std::string &q) {
 	std::vector<std::string> out;
 	std::string f = fold(q), w;
 	for (char c : f + " ") {
-		if (c == ' ') {
+		if (c == ' ' || c == '+') {
 			if (!w.empty())
 				out.push_back(w);
 			w.clear();
@@ -1024,10 +1170,15 @@ void suggest(Ui *ui, const std::vector<std::string> &words) {
 }
 
 ShortcutEdit *find_edit(Ui *ui, const std::string &id) {
+	ShortcutEdit *removed = nullptr;
 	for (auto &e : ui->shortcut_edits)
-		if (id_of(e.get()) == id)
-			return e.get();
-	return nullptr;
+		if (id_of(e.get()) == id) {
+			if (present(e.get()))
+				return e.get();
+			if (removed == nullptr)
+				removed = e.get();
+		}
+	return removed;
 }
 
 std::vector<std::string> split_words(const std::string &s) {
@@ -1043,6 +1194,164 @@ std::vector<std::string> split_words(const std::string &s) {
 		}
 	}
 	return out;
+}
+
+/* The keys the scripts Waybox runs bind: init.lua, then rc.xml's
+ * <scripts> (relative to the config folder, or ~/...), as Waybox finds
+ * them. */
+std::vector<wb::ScriptKey> read_script_keys(const wb::RcDocument *doc) {
+	const char *xdg = getenv("XDG_CONFIG_HOME");
+	const char *home = getenv("HOME");
+	std::string config = (xdg && *xdg ? std::string(xdg) : std::string(home ? home : "") + "/.config") +
+			"/waybox";
+	std::vector<std::string> paths = {config + "/init.lua"};
+	std::string xml = doc->snapshot({"waybox", "scripts"});
+	for (size_t at = 0; (at = xml.find("<script", at)) != std::string::npos;) {
+		size_t open = xml.find('>', at), close = xml.find("</script>", at);
+		if (open == std::string::npos || close == std::string::npos || open > close ||
+				xml.compare(at, 8, "<scripts") == 0) {
+			at += 7;
+			continue;
+		}
+		std::string p = xml.substr(open + 1, close - open - 1);
+		while (!p.empty() && isspace(static_cast<unsigned char>(p.back())))
+			p.pop_back();
+		while (!p.empty() && isspace(static_cast<unsigned char>(p.front())))
+			p.erase(0, 1);
+		if (p.rfind("~/", 0) == 0 && home)
+			p = std::string(home) + p.substr(1);
+		else if (!p.empty() && p[0] != '/')
+			p = config + "/" + p;
+		if (!p.empty())
+			paths.push_back(p);
+		at = close + 9;
+	}
+	std::vector<wb::ScriptKey> out;
+	for (const std::string &p : paths) {
+		std::ifstream in(p);
+		if (!in)
+			continue;
+		std::stringstream text;
+		text << in.rdbuf();
+		std::string name = p.substr(p.rfind('/') + 1);
+		for (wb::ScriptKey &k : wb::script_keys(text.str(), name))
+			out.push_back(std::move(k));
+	}
+	return out;
+}
+
+/* Reset to Defaults: the lists made Waybox's own, as changes not saved
+ * yet (each undoable; nothing written until Save & Apply). Bindings with
+ * If and the like stay, as only rc.xml edits those. */
+void reset_to_defaults(Ui *ui, bool mouse) {
+	end_capture(ui);
+	std::string err;
+	wb::LoadError le;
+	auto defaults = wb::RcDocument::load_file(system_rc_path(), &le);
+	if (!defaults) {
+		set_status(ui, _("Waybox's default rc.xml couldn't be read."));
+		return;
+	}
+	std::vector<ShortcutEdit *> rows;
+	for (auto &p : ui->shortcut_edits)
+		if (p->mouse == mouse)
+			rows.push_back(p.get());
+	if (mouse) {
+		std::vector<wb::MouseBinding> want = defaults->mousebindings();
+		std::vector<bool> used(want.size(), false);
+		for (ShortcutEdit *e : rows) {
+			if (!e->editable)
+				continue;
+			const wb::MouseBinding &m = e->mwas ? *e->mwas : *e->mnow;
+			bool kept = false;
+			for (size_t i = 0; i < want.size() && !kept; ++i)
+				if (!used[i] && want[i].context == m.context && want[i].event == m.event &&
+						wb::canonical_key(want[i].button) == wb::canonical_key(m.button)) {
+					used[i] = true;
+					e->mnow = want[i];
+					kept = true;
+				}
+			if (!kept)
+				e->mnow.reset();
+		}
+		for (size_t i = 0; i < want.size(); ++i)
+			if (!used[i])
+				mouse_row(ui, std::nullopt, want[i]);
+	} else {
+		std::vector<wb::KeyBinding> want = defaults->keybindings();
+		std::vector<bool> used(want.size(), false);
+		auto same = [](const std::vector<std::string> &a, const std::vector<std::string> &b) {
+			if (a.size() != b.size())
+				return false;
+			for (size_t i = 0; i < a.size(); ++i)
+				if (wb::canonical_key(a[i]) != wb::canonical_key(b[i]))
+					return false;
+			return true;
+		};
+		for (ShortcutEdit *e : rows) {
+			if (!e->editable)
+				continue;
+			const wb::KeyBinding &k = e->was ? *e->was : *e->now;
+			bool kept = false;
+			for (size_t i = 0; i < want.size() && !kept; ++i)
+				if (!used[i] && same(want[i].chain, k.chain)) {
+					used[i] = true;
+					e->now = want[i];
+					kept = true;
+				}
+			if (!kept)
+				e->now.reset();
+		}
+		for (size_t i = 0; i < want.size(); ++i)
+			if (!used[i] && !any_advanced(want[i].actions))
+				key_row(ui, std::nullopt, want[i]);
+	}
+	/* New rows never saved and now not wanted: gone. */
+	std::vector<ShortcutEdit *> gone;
+	for (auto &p : ui->shortcut_edits)
+		if (p->mouse == mouse && !was_saved(p.get()) && !present(p.get()))
+			gone.push_back(p.get());
+	for (ShortcutEdit *e : gone)
+		forget(e);
+	/* The rows added: above the Add button. */
+	GtkWidget *list = mouse ? ui->shortcut_mouse : ui->shortcut_keys;
+	GtkWidget *add = mouse ? ui->shortcut_mouse_add : ui->shortcut_add;
+	for (auto &p : ui->shortcut_edits)
+		if (p->mouse == mouse && gtk_widget_get_parent(p->outer) == nullptr)
+			gtk_box_insert_child_after(GTK_BOX(list), p->outer, gtk_widget_get_prev_sibling(add));
+	for (auto &p : ui->shortcut_edits)
+		if (p->mouse == mouse) {
+			show_in_editor(p.get());
+			refresh_head(p.get());
+		}
+	refresh_clashes(ui);
+	refresh_save_state(ui);
+}
+
+/* The list's foot: Add, and Reset to Defaults. */
+GtkWidget *list_foot(Ui *ui, GtkWidget *add, bool mouse) {
+	GtkWidget *foot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+	gtk_widget_set_margin_top(foot, 8);
+	gtk_widget_set_margin_top(add, 0);
+	gtk_box_append(GTK_BOX(foot), add);
+	GtkWidget *gap = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_set_hexpand(gap, TRUE);
+	gtk_box_append(GTK_BOX(foot), gap);
+	GtkWidget *reset = gtk_button_new_with_label(_("Reset to Defaults"));
+	gtk_widget_add_css_class(reset, "flat");
+	gtk_widget_set_tooltip_text(reset, mouse
+			? _("Waybox's own mouse bindings, as changes you can undo or save")
+			: _("Waybox's own shortcuts, as changes you can undo or save"));
+	if (mouse)
+		g_signal_connect(reset, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
+			reset_to_defaults(static_cast<Ui *>(d), true);
+		}), ui);
+	else
+		g_signal_connect(reset, "clicked", G_CALLBACK(+[](GtkButton *, gpointer d) {
+			reset_to_defaults(static_cast<Ui *>(d), false);
+		}), ui);
+	gtk_box_append(GTK_BOX(foot), reset);
+	return foot;
 }
 
 }  // namespace
@@ -1062,6 +1371,7 @@ void populate_shortcuts(Ui *ui, const wb::RcDocument *doc) {
 		return;
 	end_capture(ui);
 	ui->shortcut_edits.clear();
+	ui->script_keys = read_script_keys(doc);
 	if (ui->shortcut_keys != nullptr) {
 		clear(ui->shortcut_keys);
 		if (ui->shortcut_column != nullptr)
@@ -1076,7 +1386,7 @@ void populate_shortcuts(Ui *ui, const wb::RcDocument *doc) {
 		gtk_box_append(GTK_BOX(ui->shortcut_keys), ui->shortcut_suggest);
 		fill(ui->shortcut_keys, groups);
 		ui->shortcut_add = add_button(ui, _("Add a Shortcut"), false);
-		gtk_box_append(GTK_BOX(ui->shortcut_keys), ui->shortcut_add);
+		gtk_box_append(GTK_BOX(ui->shortcut_keys), list_foot(ui, ui->shortcut_add, false));
 	}
 	if (ui->shortcut_mouse != nullptr) {
 		clear(ui->shortcut_mouse);
@@ -1088,13 +1398,22 @@ void populate_shortcuts(Ui *ui, const wb::RcDocument *doc) {
 			groups[category_of(m.actions)].push_back(mouse_row(ui, m, m));
 		fill(ui->shortcut_mouse, groups);
 		ui->shortcut_mouse_add = add_button(ui, _("Add a Mouse Binding"), true);
-		gtk_box_append(GTK_BOX(ui->shortcut_mouse), ui->shortcut_mouse_add);
+		gtk_box_append(GTK_BOX(ui->shortcut_mouse), list_foot(ui, ui->shortcut_mouse_add, true));
 	}
+	refresh_clashes(ui);
 }
 
 bool shortcuts_filter(Ui *ui, const std::string &widget, const std::string &q, bool whole) {
 	bool mouse = widget == "mousebindings";
 	std::vector<std::string> words = words_of(q);
+	/* Rows that match come first: the whole list only when none does but
+	 * the setting itself is what's searched for ("hotkey"). */
+	if (whole && !words.empty()) {
+		bool rows = false;
+		for (auto &e : ui->shortcut_edits)
+			rows = rows || (e->mouse == mouse && was_saved(e.get()) && row_matches(e.get(), words));
+		whole = !rows;
+	}
 	bool any = false;
 	std::map<GtkWidget *, bool> headings;
 	for (auto &e : ui->shortcut_edits) {
@@ -1174,12 +1493,15 @@ void shortcut_changes(Ui *ui, const std::string &widget, const std::string &wher
 }
 
 void shortcut_dump(Ui *ui) {
+	fprintf(stderr, "shortcut-dump:\n");  /* where each dump starts */
 	for (bool mouse : {false, true})
 		for (auto &e : ui->shortcut_edits) {
 			if (e->mouse != mouse)
 				continue;
 			const auto &a = shown_acts(e.get());
 			std::string state = !present(e.get()) ? "|removed" : dirty(e.get()) ? "|changed" : "";
+			if (gtk_widget_get_visible(e->warn))
+				state += "|never:" + (e->clash_by ? id_of(e->clash_by) : std::string("script"));
 			fprintf(stderr, "shortcut:%s|%s|%s|%s%s\n", mouse ? "mouse" : "key",
 					id_of(e.get()).c_str(), wb::describe_actions(a).c_str(),
 					category_of(a).c_str(), state.c_str());
@@ -1218,6 +1540,16 @@ void shortcut_test_step(Ui *ui, const std::string &step) {
 				sugg += (sugg.empty() ? "" : ",") +
 						std::string(static_cast<const char *>(g_object_get_data(G_OBJECT(b), "wb-action")));
 		fprintf(stderr, "shortcut-visible:%s|suggest:%s\n", out.c_str(), sugg.c_str());
+		return;
+	}
+	if (verb == "shortcut-reset") {
+		reset_to_defaults(ui, arg == "mouse");
+		return;
+	}
+	if (verb == "shortcut-fix") {
+		if (ShortcutEdit *e = find_edit(ui, arg))
+			if (gtk_widget_get_visible(e->warn_fix))
+				on_clash_fix(nullptr, e);
 		return;
 	}
 	if (verb == "shortcut-suggest") {

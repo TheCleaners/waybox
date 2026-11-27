@@ -38,6 +38,9 @@ const char *kCss = R"(
 .wb-shortcut-editor { margin: 2px 0 10px 6px; padding: 12px 14px; border-radius: 8px;
   background-color: alpha(currentColor, 0.035); border: 1px solid alpha(currentColor, 0.10); }
 .wb-keys-button { padding: 4px 8px; min-height: 30px; }
+.wb-shortcut-warn { margin: 0 6px 6px 6px; padding: 6px 10px; border-radius: 6px;
+  background-color: alpha(@warning_color, 0.12); }
+.wb-shortcut-warn image { color: @warning_color; }
 .wb-remove { color: mix(@error_color, @theme_fg_color, 0.3); }
 .wb-mod-toggle { padding: 2px 10px; min-height: 26px; font-size: 0.95em; }
 .wb-keys-button.wb-capturing { outline: 2px solid @theme_selected_bg_color; outline-offset: 1px;
