@@ -571,6 +571,10 @@ void lua_page_command_changed(const std::shared_ptr<void> &page);
  * remembered in $XDG_CONFIG_HOME/waybox/wbconf-view; setting it opens or
  * folds those shown. */
 bool lua_pages_open();
+/* wbconf's own view settings ($XDG_CONFIG_HOME/waybox/wbconf-view, one
+ * KEY=VALUE a line): "" when not set. */
+std::string view_get(const std::string &key);
+void view_set(const std::string &key, const std::string &value);
 std::string lua_page_fold(Ui *ui, const std::string &id);  /* tests: open|folded|hidden */
 void set_lua_pages_open(Ui *ui, bool open);
 /* `command`: the program's command line as its row has it now (its options

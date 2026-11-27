@@ -27,6 +27,10 @@ const char *kCss = R"(
 .wb-toc row label { font-size: 0.95em; }
 .wb-toc .wb-toc-arrow { opacity: 0.6; -gtk-icon-size: 12px; }
 .wb-toc .wb-toc-section { margin-left: 18px; }
+.wb-toc-toolbar button { min-width: 22px; min-height: 22px; padding: 0; margin: 0;
+  border-radius: 5px; opacity: 0.55; -gtk-icon-size: 14px; }
+.wb-toc-toolbar button:hover, .wb-toc-toolbar button:checked { opacity: 1; }
+.wb-toc-toolbar menubutton > button { min-width: 22px; min-height: 22px; padding: 0; }
 .wb-problem-icon { color: @warning_color; }
 .wb-toc .wb-problem-icon { -gtk-icon-size: 12px; }
 .wb-problem { background: alpha(@warning_color, 0.12); border-radius: 6px; padding: 6px 8px; }
@@ -643,6 +647,32 @@ void show_tree(Ui *ui) {
 	}
 }
 
+std::string toc_text(GtkWidget *row);
+
+/* An entry's key, kept across runs: "CATEGORY-ID/Section title" (or
+ * "CATEGORY-ID" for the category itself). */
+std::string entry_key(Ui *ui, const Ui::TocEntry &e) {
+	std::string k = ui->categories[e.category].id;
+	return e.section ? k + "/" + toc_text(e.row) : k;
+}
+
+/* What the sidebar shows, remembered as it changes, if asked to (the
+ * sidebar's ⋯ menu): the page read, the categories opened. */
+void remember_page(Ui *ui, const Ui::TocEntry &e) {
+	if (view_get("reopen-last") == "1")
+		view_set("last-page", entry_key(ui, e));
+}
+
+void remember_tree(Ui *ui) {
+	if (view_get("remember-tree") != "1")
+		return;
+	std::string open;
+	for (const Ui::CategoryView &c : ui->categories)
+		if (c.open_by_user)
+			open += (open.empty() ? "" : ",") + c.id;
+	view_set("tree-open", open);
+}
+
 const Ui::TocEntry *entry_of(Ui *ui, GtkListBoxRow *row) {
 	for (const Ui::TocEntry &e : ui->toc_entries)
 		if (e.row == GTK_WIDGET(row))
@@ -700,6 +730,7 @@ void on_toc_activated(GtkListBox *, GtkListBoxRow *row, gpointer data) {
 		bool here = gtk_list_box_get_selected_row(ui->toc) == row;
 		c.open_by_user = !(open && here);
 		c.open_for_now = false;
+		remember_tree(ui);
 	} else {
 		/* A section: its category open (for now, as being read). */
 		for (Ui::CategoryView &o : ui->categories)
@@ -708,6 +739,7 @@ void on_toc_activated(GtkListBox *, GtkListBoxRow *row, gpointer data) {
 	scroll_to(ui, e->heading);
 	gtk_list_box_select_row(ui->toc, row);
 	show_tree(ui);
+	remember_page(ui, *e);
 }
 
 /* While scrolling, the sidebar follows: the last heading (section or
@@ -732,8 +764,106 @@ void on_scrolled(GtkAdjustment *adj, gpointer data) {
 		for (size_t i = 0; i < ui->categories.size(); ++i)
 			ui->categories[i].open_for_now = static_cast<int>(i) == current->category;
 	show_tree(ui);
-	if (GTK_LIST_BOX_ROW(current->row) != gtk_list_box_get_selected_row(ui->toc))
+	if (GTK_LIST_BOX_ROW(current->row) != gtk_list_box_get_selected_row(ui->toc)) {
 		gtk_list_box_select_row(ui->toc, GTK_LIST_BOX_ROW(current->row));
+		if (!searching)
+			remember_page(ui, *current);
+	}
+}
+
+/* The sidebar's toolbar: open or close every category; and its ⋯ menu,
+ * what's kept across runs. */
+void set_all_open(Ui *ui, bool open) {
+	for (Ui::CategoryView &c : ui->categories) {
+		c.open_by_user = open;
+		if (!open)
+			c.open_for_now = false;
+	}
+	show_tree(ui);
+	remember_tree(ui);
+}
+
+GtkWidget *view_check(Ui *ui, const char *label, const char *key, const char *tip) {
+	GtkWidget *b = gtk_check_button_new_with_label(label);
+	gtk_widget_set_tooltip_text(b, tip);
+	gtk_check_button_set_active(GTK_CHECK_BUTTON(b), view_get(key) == "1");
+	g_object_set_data_full(G_OBJECT(b), "wb-key", g_strdup(key), g_free);
+	g_signal_connect(b, "toggled", G_CALLBACK(+[](GtkCheckButton *b, gpointer d) {
+		auto *ui = static_cast<Ui *>(d);
+		std::string key = static_cast<const char *>(g_object_get_data(G_OBJECT(b), "wb-key"));
+		bool on = gtk_check_button_get_active(b);
+		if (key == "pages-open") {
+			set_lua_pages_open(ui, on);
+			return;
+		}
+		view_set(key, on ? "1" : "0");
+		if (key == "remember-tree")
+			remember_tree(ui);
+		if (key == "reopen-last" && on)
+			if (GtkListBoxRow *row = gtk_list_box_get_selected_row(ui->toc))
+				if (const Ui::TocEntry *e = entry_of(ui, row))
+					remember_page(ui, *e);
+	}), ui);
+	return b;
+}
+
+GtkWidget *toc_toolbar(Ui *ui) {
+	GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_add_css_class(bar, "wb-toc-toolbar");
+	gtk_widget_set_halign(bar, GTK_ALIGN_END);
+	gtk_widget_set_margin_top(bar, 3);
+	gtk_widget_set_margin_end(bar, 6);
+	auto icon_button = [&bar](const char *icon, const char *tip) {
+		GtkWidget *b = gtk_button_new_from_icon_name(icon);
+		gtk_widget_add_css_class(b, "flat");
+		gtk_widget_set_tooltip_text(b, tip);
+		gtk_box_append(GTK_BOX(bar), b);
+		return b;
+	};
+	g_signal_connect(icon_button("wbconf-expand-all-symbolic", _("Expand All")), "clicked",
+			G_CALLBACK(+[](GtkButton *, gpointer d) { set_all_open(static_cast<Ui *>(d), true); }),
+			ui);
+	g_signal_connect(icon_button("wbconf-collapse-all-symbolic", _("Collapse All")), "clicked",
+			G_CALLBACK(+[](GtkButton *, gpointer d) { set_all_open(static_cast<Ui *>(d), false); }),
+			ui);
+	GtkWidget *more = gtk_menu_button_new();
+	gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(more), "view-more-horizontal-symbolic");
+	gtk_menu_button_set_has_frame(GTK_MENU_BUTTON(more), FALSE);
+	gtk_widget_set_tooltip_text(more, _("View Options"));
+	GtkWidget *pop = gtk_popover_new();
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+	gtk_box_append(GTK_BOX(box), view_check(ui, _("Open at the Last Page"), "reopen-last",
+			_("Start where you left off, rather than at the top")));
+	gtk_box_append(GTK_BOX(box), view_check(ui, _("Remember Expanded Sections"),
+			"remember-tree", _("Keep the sidebar's categories opened or closed as you left them")));
+	gtk_box_append(GTK_BOX(box), view_check(ui, _("Keep Program Settings Open"), "pages-open",
+			_("Show programs' settings pages unfolded")));
+	gtk_popover_set_child(GTK_POPOVER(pop), box);
+	gtk_menu_button_set_popover(GTK_MENU_BUTTON(more), pop);
+	gtk_box_append(GTK_BOX(bar), more);
+	return bar;
+}
+
+/* At start: the categories opened as left, and the page left on. */
+void restore_view(Ui *ui) {
+	if (view_get("remember-tree") == "1") {
+		std::string open = "," + view_get("tree-open") + ",";
+		for (Ui::CategoryView &c : ui->categories)
+			c.open_by_user = open.find("," + c.id + ",") != std::string::npos;
+		show_tree(ui);
+	}
+	if (view_get("reopen-last") != "1")
+		return;
+	std::string want = view_get("last-page");
+	for (const Ui::TocEntry &e : ui->toc_entries)
+		if (!want.empty() && entry_key(ui, e) == want && gtk_widget_get_visible(e.heading)) {
+			for (Ui::CategoryView &o : ui->categories)
+				o.open_for_now = &o == &ui->categories[e.category];
+			scroll_to(ui, e.heading);
+			gtk_list_box_select_row(ui->toc, GTK_LIST_BOX_ROW(e.row));
+			show_tree(ui);
+			break;
+		}
 }
 
 /* ---- Search ---- */
@@ -856,7 +986,12 @@ GtkWidget *build_settings_view(Ui *ui) {
 	ui->toc = GTK_LIST_BOX(toc);
 	g_signal_connect(toc, "row-activated", G_CALLBACK(on_toc_activated), ui);
 	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(toc_scroller), toc);
-	gtk_box_append(GTK_BOX(paned), toc_scroller);
+	gtk_widget_set_vexpand(toc_scroller, TRUE);
+	GtkWidget *side = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_widget_add_css_class(side, "view");  /* one background with the list */
+	gtk_box_append(GTK_BOX(side), toc_toolbar(ui));
+	gtk_box_append(GTK_BOX(side), toc_scroller);
+	gtk_box_append(GTK_BOX(paned), side);
 	gtk_box_append(GTK_BOX(paned), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
 
 	GtkWidget *scroller = gtk_scrolled_window_new();
@@ -969,6 +1104,8 @@ GtkWidget *build_settings_view(Ui *ui) {
 		gtk_list_box_select_row(ui->toc, GTK_LIST_BOX_ROW(ui->categories.front().toc));
 	}
 	show_tree(ui);
+	/* Once laid out: as left last time, if asked to. */
+	g_timeout_add_once(200, [](gpointer d) { restore_view(static_cast<Ui *>(d)); }, ui);
 	return paned;
 }
 
@@ -1014,6 +1151,8 @@ gboolean toc_step(gpointer data) {
 				out += "*";
 		}
 		fprintf(stderr, "%s\n", out.c_str());
+	} else if (step == "expand-all" || step == "collapse-all") {
+		set_all_open(ui, step == "expand-all");
 	} else if (step.rfind("click:", 0) == 0) {
 		for (const Ui::TocEntry &e : ui->toc_entries)
 			if (toc_text(e.row) == step.substr(6)) {

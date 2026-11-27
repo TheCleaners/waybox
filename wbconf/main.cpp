@@ -280,14 +280,6 @@ void build_window(GtkApplication *app, Ui *ui) {
 			G_CALLBACK(on_reload), ui, pop));
 	gtk_box_append(GTK_BOX(pbox), menu_button_item(_("Reset All to Defaults"),
 			G_CALLBACK(on_reset_all), ui, pop));
-	/* Program settings pages folded (the default) or kept open. */
-	GtkWidget *keep_open = gtk_check_button_new_with_label(_("Keep Program Settings Open"));
-	gtk_check_button_set_active(GTK_CHECK_BUTTON(keep_open), lua_pages_open());
-	gtk_widget_set_margin_start(keep_open, 6);
-	g_signal_connect(keep_open, "toggled", G_CALLBACK(+[](GtkCheckButton *b, gpointer d) {
-		set_lua_pages_open(static_cast<Ui *>(d), gtk_check_button_get_active(b));
-	}), ui);
-	gtk_box_append(GTK_BOX(pbox), keep_open);
 	/* Which builds these are (git describe), for bug reports. */
 	gtk_box_append(GTK_BOX(pbox), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
 	std::string running = running_waybox_version();
@@ -408,6 +400,13 @@ void build_window(GtkApplication *app, Ui *ui) {
 }
 
 void on_activate(GtkApplication *app, gpointer data) {
+	/* wbconf's own icons where installed (a prefix the theme may not
+	 * search), or $WBCONF_ICONS_DIR (run from the build: data/icons). */
+	if (GdkDisplay *display = gdk_display_get_default()) {
+		GtkIconTheme *icons = gtk_icon_theme_get_for_display(display);
+		const char *dev = getenv("WBCONF_ICONS_DIR");
+		gtk_icon_theme_add_search_path(icons, dev != nullptr && *dev ? dev : WB_ICONS_DIR);
+	}
 	auto *ui = static_cast<Ui *>(data);
 	/* wbconf runs once: launching it again brings the open window to the
 	 * front (building a second one over the same state broke the first). */
