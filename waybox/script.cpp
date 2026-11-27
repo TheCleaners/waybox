@@ -994,6 +994,7 @@ int wb_show_menu(lua_State *L) {
 		}
 		if (ok) {
 			server->menu = std::move(widget);
+			server->preview_menu.reset();  /* (the old widget, gone, may have shown it) */
 			server->menu_target = target;
 		}
 	}

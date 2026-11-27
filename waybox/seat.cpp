@@ -262,11 +262,18 @@ void wb_show_client_menu(struct wb_server *server) {
 	}
 	if (widget->open(wb::kClientMenuId, x, y)) {
 		server->menu = std::move(widget);
+		server->preview_menu.reset();  /* (the old widget, gone, may have shown it) */
 		server->menu_target = t;
 	}
 }
 
 void wb_run_menu_actions(struct wb_server *server, std::vector<wb::Action> actions) {
+	/* The menu that closed was a preview: what was chosen isn't run. */
+	if (server->preview_menu != nullptr) {
+		server->preview_menu.reset();
+		server->menu_target = nullptr;
+		return;
+	}
 	struct wb_toplevel *target = server->menu_target;
 	server->menu_target = nullptr;
 	if (target != nullptr) {
@@ -657,6 +664,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		int y = static_cast<int>(server->cursor->cursor->y);
 		if (widget->open(action.command, x, y)) {
 			server->menu = std::move(widget);
+		server->preview_menu.reset();  /* (the old widget, gone, may have shown it) */
 			server->menu_target = nullptr;
 		}
 		break;

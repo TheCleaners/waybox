@@ -158,6 +158,10 @@ struct wb_server {
 	 * (nullptr = at the root, awaiting the first chord). */
 	const wb::KeyBinding *active_keychain = nullptr;
 
+	/* A menu shown as a preview (IPC preview_menu, wbconf's menu editor):
+	 * its own copy, its entries' actions left out. Before `menu`, which
+	 * may refer to it, so it goes after it. */
+	std::unique_ptr<wb::MenuFile> preview_menu;
 	/* The open root/context menu (a compositor-drawn input grab), or null. */
 	std::unique_ptr<wb::MenuWidget> menu;
 	/* The window menu's contents (built each time it opens; the widget
