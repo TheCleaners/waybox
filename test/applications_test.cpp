@@ -126,3 +126,22 @@ WB_TEST(regex_patterns) {
 	WB_CHECK(wb::app_rule_pattern_error(bad).rfind("title: ", 0) == 0);
 	WB_CHECK(wb::app_rule_pattern_error(rule(P::Regex, "a+b")).empty());
 }
+
+WB_TEST(openbox_positions) {
+	/* An area from 100, 1000 long; a window 200 long. */
+	WB_CHECK(wb::resolve_position("50", 100, 1000, 200) == 150);
+	WB_CHECK(wb::resolve_position("-50", 100, 1000, 200) == 850);   /* far edge 50 from the end */
+	WB_CHECK(wb::resolve_position("center", 100, 1000, 200) == 500);
+	WB_CHECK(wb::resolve_position("25%", 100, 1000, 200) == 350);
+	WB_CHECK(wb::resolve_position("-10%", 100, 1000, 200) == 800);
+	WB_CHECK(wb::resolve_position("0", 100, 1000, 200) == 100);
+	WB_CHECK(!wb::resolve_position("left", 100, 1000, 200));
+	WB_CHECK(!wb::resolve_position("", 100, 1000, 200));
+	WB_CHECK(!wb::resolve_position("5px", 100, 1000, 200));
+	WB_CHECK(wb::position_spec_ok("-3%") && !wb::position_spec_ok("%"));
+	AppRule r;
+	r.x_spec = "center";
+	r.y = 40;
+	r.monitor = "2";
+	WB_CHECK(wb::app_rule_effects(r) == (std::vector<std::string>{"At center, 40", "On monitor 2"}));
+}

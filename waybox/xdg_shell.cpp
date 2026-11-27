@@ -824,6 +824,32 @@ struct wlr_output *get_active_output(struct wb_toplevel *toplevel) {
 	return wlr_output_layout_output_at(toplevel->server->output_layout, closest_x, closest_y);
 }
 
+/* A window rule's <monitor>: a number (1, the first, in the order they
+ * came), "mouse" (the pointer's), "active" (the focused window's),
+ * "primary" (the first); nullptr when there's no such one. */
+static struct wlr_output *rule_output(struct wb_server *server, const std::string &spec) {
+	if (spec == "mouse")
+		return wlr_output_layout_output_at(server->output_layout, server->cursor->cursor->x,
+				server->cursor->cursor->y);
+	if (spec == "active") {
+		struct wlr_surface *s = server->seat->seat->keyboard_state.focused_surface;
+		struct wb_toplevel *t = s != nullptr ? toplevel_from_surface(server, s) : nullptr;
+		if (t != nullptr)
+			return get_active_output(t);
+		return wlr_output_layout_output_at(server->output_layout, server->cursor->cursor->x,
+				server->cursor->cursor->y);
+	}
+	int want = spec == "primary" ? 1 : atoi(spec.c_str());
+	if (want < 1)
+		return nullptr;
+	int n = 0;
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link)
+		if (o->wlr_output->enabled && ++n == want)
+			return o->wlr_output;
+	return nullptr;
+}
+
 /* Focus the most-recently-focused mapped toplevel other than `except`, e.g.
  * after the active window is unmapped or minimised. Walks the MRU focus order. */
 static void focus_next_after(struct wb_server *server, struct wb_toplevel *except) {
@@ -1072,6 +1098,19 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 		rule = &merged;
 	}
 
+	/* A rule's monitor: placed in its usable area (the one with the pointer
+	 * otherwise, as above). */
+	if (rule != nullptr && !rule->monitor.empty()) {
+		if (struct wlr_output *out = rule_output(toplevel->server, rule->monitor)) {
+			struct wlr_box u = output_usable_area(toplevel->server, out);
+			area = wb::Rect{u.x, u.y, u.width, u.height};
+			if (config)
+				area = wb::apply_strut(area, wb::Strut{config->margins.left,
+						config->margins.top, config->margins.right,
+						config->margins.bottom});
+		}
+	}
+
 	/* New windows open on the desktop being shown, unless a rule says
 	 * otherwise. */
 	struct wb_server *server = toplevel->server;
@@ -1125,7 +1164,8 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 			config ? config->placement_policy : wb::PlacementPolicy::Smart;
 	wb::Rect placed;
 	std::optional<wb::Rect> restored;
-	if (restore && !(rule != nullptr && (rule->x || rule->y)))
+	if (restore && !(rule != nullptr && (rule->x || rule->y || !rule->x_spec.empty() ||
+			!rule->y_spec.empty() || !rule->monitor.empty())))
 		restored = wb::restored_rect(*restore, xdg_session_outputs(server));
 	if (restored) {
 		placed = {restored->x, restored->y, width, height};
@@ -1148,12 +1188,17 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 		break;
 	}
 
-	/* Position overrides are relative to the placement area. */
+	/* Position overrides are relative to the placement area; Openbox's
+	 * other forms ("center", "50%", "-10") resolved in it. */
 	if (rule != nullptr) {
 		if (rule->x)
 			placed.x = area.x + *rule->x;
+		else if (auto x = wb::resolve_position(rule->x_spec, area.x, area.width, placed.width))
+			placed.x = *x;
 		if (rule->y)
 			placed.y = area.y + *rule->y;
+		else if (auto y = wb::resolve_position(rule->y_spec, area.y, area.height, placed.height))
+			placed.y = *y;
 	}
 	/* A script's placement (wb.policy "place") has the last word. */
 	if (auto p = script_place(toplevel->server, info, area, placed))

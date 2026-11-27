@@ -54,17 +54,10 @@ std::optional<bool> parse_bool(const std::optional<std::string> &s) {
 	return std::nullopt;
 }
 
-/* A plain integer ("-12", "40"), as Waybox reads a coordinate. */
+/* A plain number ("40"): from the area's start. ("-12" is Openbox's
+ * from the far edge: a spec, resolve_position's.) */
 bool plain_int(const std::string &s) {
-	if (s.empty())
-		return false;
-	size_t i = s[0] == '-' ? 1 : 0;
-	if (i >= s.size())
-		return false;
-	for (; i < s.size(); ++i)
-		if (s[i] < '0' || s[i] > '9')
-			return false;
-	return true;
+	return !s.empty() && s.find_first_not_of("0123456789") == std::string::npos;
 }
 
 /* Waybox's own settings in a rule (all else is kept as written). */
@@ -191,16 +184,29 @@ AppRuleXml read_app_rule(xmlNode *app) {
 			r.desktop = n - 1;
 	}
 	if (xmlNode *pos = child(app, "position")) {
-		auto x = text_of(pos, "x"), y = text_of(pos, "y");
-		if (x)
-			r.x = atoi(x->c_str());
-		if (y)
-			r.y = atoi(y->c_str());
-		bool plain = (!x || plain_int(*x)) && (!y || plain_int(*y)) && pos->properties == nullptr;
+		/* A plain number, or Openbox's other forms ("center", "50%",
+		 * "-10"); force= means nothing here (Waybox always places it). */
+		bool read = true;
+		auto coord = [&](const char *name, std::optional<int> &n, std::string &spec) {
+			auto t = text_of(pos, name);
+			if (!t)
+				return;
+			if (plain_int(*t))
+				n = atoi(t->c_str());
+			else if (position_spec_ok(*t))
+				spec = *t;
+			else
+				read = false;
+		};
+		coord("x", r.x, r.x_spec);
+		coord("y", r.y, r.y_spec);
+		if (auto m = text_of(pos, "monitor"))
+			r.monitor = *m;
 		for (xmlNode *c = pos->children; c != nullptr; c = c->next)
-			if (c->type == XML_ELEMENT_NODE && !is_element(c, "x") && !is_element(c, "y"))
-				plain = false;  /* <monitor> */
-		out.position_kept = !plain;
+			if (c->type == XML_ELEMENT_NODE && !is_element(c, "x") && !is_element(c, "y") &&
+					!is_element(c, "monitor"))
+				read = false;
+		out.position_kept = !read;
 	}
 	if (xmlNode *size = child(app, "size")) {
 		/* A size below 1 means nothing: ignored. */
@@ -239,12 +245,17 @@ void write_app_rule(xmlNode *app, const AppRule &r, bool position_kept) {
 	set_text(app, "fullscreen", yes_no(r.fullscreen));
 	set_text(app, "iconic", yes_no(r.iconic));
 	if (!position_kept) {
-		if (r.x || r.y) {
+		auto coord = [](const std::optional<int> &n, const std::string &spec) {
+			return n ? number(n) : spec.empty() ? std::nullopt : std::optional<std::string>(spec);
+		};
+		if (r.x || r.y || !r.x_spec.empty() || !r.y_spec.empty() || !r.monitor.empty()) {
 			xmlNode *pos = child(app, "position");
 			if (pos == nullptr)
 				pos = add_child(app, "position");
-			set_text(pos, "x", number(r.x));
-			set_text(pos, "y", number(r.y));
+			set_text(pos, "x", coord(r.x, r.x_spec));
+			set_text(pos, "y", coord(r.y, r.y_spec));
+			set_text(pos, "monitor", r.monitor.empty() ? std::nullopt
+					: std::optional<std::string>(r.monitor));
 		} else {
 			set_text(app, "position", std::nullopt);
 		}
