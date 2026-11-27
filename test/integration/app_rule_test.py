@@ -6,9 +6,14 @@ size and position, launches foot, and checks the compositor's geometry log
 shows the window mapped at exactly that geometry. Exercises rule parsing +
 glob matching + override application in the map handler.
 
+With "regex": the rule's pattern is a regular expression (match="iregex",
+"^FO+T$", so case is ignored and the whole id anchored), after a rule
+whose regex doesn't compile (never matches, and is logged) and one that
+doesn't match.
+
 Skips (exit 77) when foot or a headless display are unavailable.
 
-Usage: app_rule_test.py <waybox-binary>
+Usage: app_rule_test.py <waybox-binary> [regex]
 """
 import os
 import re
@@ -35,10 +40,19 @@ RC_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 def main():
-    if len(sys.argv) != 2:
+    if len(sys.argv) not in (2, 3):
         print(__doc__)
         sys.exit(2)
     waybox = sys.argv[1]
+    regex = len(sys.argv) == 3 and sys.argv[2] == "regex"
+    rc_xml = RC_XML
+    if regex:
+        rc_xml = RC_XML.replace('<application class="foot">',
+                                '<application match="regex" class="(unclosed">'
+                                '<size><width>300</width><height>300</height></size></application>'
+                                '<application match="regex" class="^bar$">'
+                                '<size><width>301</width><height>301</height></size></application>'
+                                '<application match="iregex" class="^FO+T$">')
     if shutil.which("foot") is None:
         print("SKIP: foot not found", file=sys.stderr)
         sys.exit(SKIP)
@@ -47,7 +61,7 @@ def main():
     cfg = os.path.join(workdir, "waybox")
     os.makedirs(cfg, exist_ok=True)
     with open(os.path.join(cfg, "rc.xml"), "w") as f:
-        f.write(RC_XML)
+        f.write(rc_xml)
     runtime = os.path.join(workdir, "run")
     os.makedirs(runtime, exist_ok=True)
     os.chmod(runtime, 0o700)
@@ -124,6 +138,10 @@ def main():
         print(f"FAIL: rule not applied: got {w}x{h}+{x}+{y}, want 500x400+120+90",
               file=sys.stderr)
         sys.stderr.write(contents)
+        return 1
+
+    if regex and "isn't a regular expression" not in contents:
+        print("FAIL: the rule whose regex doesn't compile wasn't logged", file=sys.stderr)
         return 1
 
     shutil.rmtree(workdir, ignore_errors=True)

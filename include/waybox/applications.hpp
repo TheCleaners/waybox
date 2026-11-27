@@ -19,7 +19,13 @@ namespace wb {
  */
 
 struct AppRule {
-	/* Glob patterns ("*"/"?"); an empty pattern means "match anything". */
+	/* How its patterns are read: globs ("*"/"?", the whole text; Openbox's),
+	 * or, opt-in with match="regex" / "iregex", POSIX extended regular
+	 * expressions as egrep reads them (anywhere in the text unless anchored
+	 * with ^...$; iregex ignoring case). */
+	enum class Patterns { Glob, Regex, IRegex };
+	Patterns patterns = Patterns::Glob;
+	/* The patterns; an empty pattern means "match anything". */
 	std::string class_pattern;  /* vs app_id (Openbox class) */
 	std::string name_pattern;   /* vs app_id (Openbox name) */
 	std::string title_pattern;  /* vs title */
@@ -46,6 +52,11 @@ struct AppRule {
  * ("Full screen", "On desktop 2", "900 × 600", "At 200, 120"), in a fixed
  * order; empty when it sets nothing. */
 std::vector<std::string> app_rule_effects(const AppRule &rule);
+
+/* For a regex rule, why a pattern doesn't compile ("title: unmatched
+ * parentheses"); empty when they all do, and for globs. Such a pattern
+ * never matches. */
+std::string app_rule_pattern_error(const AppRule &rule);
 
 /* Glob match supporting '*' (any run) and '?' (any one char). Case-sensitive. */
 bool glob_match(std::string_view pattern, std::string_view text);

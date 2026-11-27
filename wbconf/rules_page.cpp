@@ -59,6 +59,14 @@ GtkWidget *match_widget(const wb::AppRule &r) {
 		gtk_widget_add_css_class(l, "wb-rule-every");
 		gtk_box_append(GTK_BOX(box), l);
 	}
+	if (r.patterns != wb::AppRule::Patterns::Glob) {
+		GtkWidget *l = dim(r.patterns == wb::AppRule::Patterns::IRegex ? _("regex, any case")
+				: _("regex"));
+		gtk_widget_add_css_class(l, "wb-rule-kind");
+		gtk_widget_set_tooltip_text(l, _("Its patterns are regular expressions, as egrep reads "
+				"them: anywhere in the text unless anchored with ^ and $"));
+		gtk_box_append(GTK_BOX(box), l);
+	}
 	return box;
 }
 
@@ -122,6 +130,14 @@ void populate_rules(Ui *ui, const wb::RcDocument *doc) {
 		if (effects.empty())
 			gtk_widget_add_css_class(l, "dim-label");
 		gtk_box_append(GTK_BOX(right), l);
+		if (std::string err = wb::app_rule_pattern_error(e.rule); !err.empty()) {
+			GtkWidget *w = gtk_label_new((std::string(_("Never matches: a pattern isn't a regular "
+					"expression (")) + err + ")").c_str());
+			gtk_label_set_xalign(GTK_LABEL(w), 0);
+			gtk_label_set_wrap(GTK_LABEL(w), TRUE);
+			gtk_widget_add_css_class(w, "wb-rule-error");
+			gtk_box_append(GTK_BOX(right), w);
+		}
 		if (!e.kept.empty() || e.position_kept) {
 			std::vector<std::string> kept = e.kept;
 			if (e.position_kept)
@@ -137,7 +153,10 @@ void populate_rules(Ui *ui, const wb::RcDocument *doc) {
 		gtk_box_append(GTK_BOX(row), right);
 		gtk_box_append(GTK_BOX(ui->rules_box), row);
 
-		std::string kept_text = join(e.kept, ",") + (e.position_kept ? "|position" : "");
+		std::string kept_text = join(e.kept, ",") + (e.position_kept ? "|position" : "") +
+				(e.rule.patterns == wb::AppRule::Patterns::Regex ? "|regex"
+				 : e.rule.patterns == wb::AppRule::Patterns::IRegex ? "|iregex" : "") +
+				(wb::app_rule_pattern_error(e.rule).empty() ? "" : "|never");
 		ui->rule_lines.push_back("rule|" + e.rule.class_pattern + "|" + e.rule.title_pattern + "|" +
 				join(effects, ";") + "|" + kept_text);
 	}

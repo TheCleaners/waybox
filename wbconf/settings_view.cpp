@@ -44,6 +44,8 @@ const char *kCss = R"(
 .wb-rule-pattern { font-family: monospace; border-bottom-width: 1px; background-color: transparent; }
 .wb-rule-every { font-style: italic; }
 .wb-rule-kept { font-size: 0.92em; }
+.wb-rule-kind { font-size: 0.9em; font-style: italic; }
+.wb-rule-error { color: mix(@error_color, @theme_fg_color, 0.3); }
 .wb-shortcut-warn { margin: 0 6px 6px 6px; padding: 6px 10px; border-radius: 6px;
   background-color: alpha(@warning_color, 0.12); }
 .wb-shortcut-warn image { color: @warning_color; }

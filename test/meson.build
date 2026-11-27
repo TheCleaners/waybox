@@ -824,6 +824,7 @@ if python.found() and not get_option('tests_only')
   integration_tests = [
     ['alt_tab', 'alt_tab_test.py', [default_rc], 60],
     ['app_rule', 'app_rule_test.py', [], 60],
+    ['app_rule_regex', 'app_rule_test.py', ['regex'], 60],
     ['bell', 'bell_test.py', [bell_client, vpointer_client], 60],
     ['bell_styles', 'bell_styles_test.py', [bell_client, waybox_msg], 60],
     ['cursor_theme', 'cursor_theme_test.py', [], 60],

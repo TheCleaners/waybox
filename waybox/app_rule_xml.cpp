@@ -159,9 +159,14 @@ AppRuleXml read_app_rule(xmlNode *app) {
 	r.name_pattern = attr(app, "name");
 	r.title_pattern = attr(app, "title");
 	r.tag_pattern = attr(app, "tag");
+	/* Waybox's opt-in: the patterns as regular expressions. */
+	if (std::string m = attr(app, "match"); m == "regex")
+		r.patterns = AppRule::Patterns::Regex;
+	else if (m == "iregex")
+		r.patterns = AppRule::Patterns::IRegex;
 	for (xmlAttr *a = app->properties; a != nullptr; a = a->next) {
 		std::string_view n = reinterpret_cast<const char *>(a->name);
-		if (n != "class" && n != "name" && n != "title" && n != "tag")
+		if (n != "class" && n != "name" && n != "title" && n != "tag" && n != "match")
 			out.kept.emplace_back(n);  /* role, type, groupname... */
 	}
 	r.maximized = parse_bool(text_of(app, "maximized"));
@@ -221,6 +226,8 @@ void write_app_rule(xmlNode *app, const AppRule &r, bool position_kept) {
 	set_attr("name", r.name_pattern);
 	set_attr("title", r.title_pattern);
 	set_attr("tag", r.tag_pattern);
+	set_attr("match", r.patterns == AppRule::Patterns::Regex ? "regex"
+			: r.patterns == AppRule::Patterns::IRegex ? "iregex" : "");
 	set_text(app, "desktop", r.desktop ? std::optional<std::string>(
 			*r.desktop == AppRule::kAllDesktops ? "all" : std::to_string(*r.desktop + 1))
 			: std::nullopt);
