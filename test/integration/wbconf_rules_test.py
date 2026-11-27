@@ -35,6 +35,8 @@ RC = """<?xml version="1.0" encoding="UTF-8"?>
       <desktop>all</desktop>
     </application>
     <application title="Picture-in-Picture"><layer>above</layer></application>
+    <application match="regex" class="^(foot|alacritty)$"><desktop>2</desktop></application>
+    <application match="iregex" title="(unclosed"><iconic>yes</iconic></application>
   </applications>
 </openbox_config>
 """
@@ -44,6 +46,8 @@ WANT = [
     "rule|foot|*scratch*|At 200, 120;900 \u00d7 600;No title bar|role,shade",
     "rule|gimp||On every desktop;At 0, auto||position",
     "rule||Picture-in-Picture|Always on top|",
+    "rule|^(foot|alacritty)$||On desktop 2||regex",
+    "rule||(unclosed|Starts minimized||iregex|never",
 ]
 
 

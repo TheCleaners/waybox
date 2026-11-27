@@ -329,6 +329,10 @@ static void parse_app_rules(struct wb_config *config, xmlXPathContextPtr ctxt) {
 
 			/* The reader wbconf's editor shares: one meaning for both. */
 			wb::AppRule rule = wb::read_app_rule(app).rule;
+			if (std::string err = wb::app_rule_pattern_error(rule); !err.empty())
+				wlr_log(WLR_ERROR, "rc.xml: window rule %zu: a pattern isn't a regular "
+						"expression (%s): the rule never matches",
+						config->app_rules.size() + 1, err.c_str());
 			config->app_rules.push_back(std::move(rule));
 		}
 	}

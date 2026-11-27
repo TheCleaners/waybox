@@ -95,3 +95,34 @@ WB_TEST(app_rule_in_words) {
 	WB_CHECK(app_rule_effects(s) == (V{"On desktop 2", "Starts minimized", "400 × auto",
 			"Always on top", "Not focused when it opens"}));
 }
+
+WB_TEST(regex_patterns) {
+	using P = AppRule::Patterns;
+	auto rule = [](P kind, std::string cls, std::string title = "") {
+		AppRule r;
+		r.patterns = kind;
+		r.class_pattern = std::move(cls);
+		r.title_pattern = std::move(title);
+		return r;
+	};
+	/* As egrep: anywhere in the text, unless anchored. */
+	std::vector<AppRule> rules = {rule(P::Regex, "^(foot|alacritty)$")};
+	WB_CHECK(wb::match_app_rule(rules, "foot", "") == &rules[0]);
+	WB_CHECK(wb::match_app_rule(rules, "alacritty", "") == &rules[0]);
+	WB_CHECK(wb::match_app_rule(rules, "footclient", "") == nullptr);
+	rules = {rule(P::Regex, "", "scratch|notes")};
+	WB_CHECK(wb::match_app_rule(rules, "foot", "my notes") == &rules[0]);
+	WB_CHECK(wb::match_app_rule(rules, "foot", "Notes") == nullptr);  /* case matters */
+	rules = {rule(P::IRegex, "", "notes")};
+	WB_CHECK(wb::match_app_rule(rules, "foot", "Notes") == &rules[0]);
+	/* A glob's "*" is a regex's "any run of the char before": not the same. */
+	rules = {rule(P::Glob, "foo*")};
+	WB_CHECK(wb::match_app_rule(rules, "football", "") == &rules[0]);
+	WB_CHECK(wb::app_rule_pattern_error(rules[0]).empty());
+	/* Doesn't compile: never matches, and says why. */
+	AppRule bad = rule(P::Regex, "foot", "(unclosed");
+	rules = {bad};
+	WB_CHECK(wb::match_app_rule(rules, "foot", "(unclosed") == nullptr);
+	WB_CHECK(wb::app_rule_pattern_error(bad).rfind("title: ", 0) == 0);
+	WB_CHECK(wb::app_rule_pattern_error(rule(P::Regex, "a+b")).empty());
+}

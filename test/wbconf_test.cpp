@@ -1112,6 +1112,25 @@ WB_TEST(app_rules_read_and_edit) {
 	WB_CHECK(rules.size() == 3 && rules[0].rule.class_pattern == "foot");
 	WB_CHECK(!doc->set_app_rule(7, std::nullopt));
 
+	/* Regex patterns: read, written, not counted as kept. */
+	auto rx = wb::RcDocument::from_string(
+			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"><applications>"
+			"<application match=\"iregex\" class=\"^foot$\"><decor>no</decor></application>"
+			"</applications></openbox_config>");
+	WB_CHECK(rx.has_value());
+	if (rx) {
+		auto r = rx->app_rules();
+		WB_CHECK(r.size() == 1 && r[0].rule.patterns == wb::AppRule::Patterns::IRegex &&
+				r[0].kept.empty());
+		wb::AppRule glob = r[0].rule;
+		glob.patterns = wb::AppRule::Patterns::Glob;
+		WB_CHECK(rx->set_app_rule(0, glob));
+		WB_CHECK(rx->to_string().find("match=") == std::string::npos);
+		glob.patterns = wb::AppRule::Patterns::Regex;
+		WB_CHECK(rx->set_app_rule(0, glob));
+		WB_CHECK(rx->to_string().find("match=\"regex\"") != std::string::npos);
+	}
+
 	/* A file with none: <applications> made for the first. */
 	auto empty = wb::RcDocument::from_string(
 			"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"></openbox_config>");
