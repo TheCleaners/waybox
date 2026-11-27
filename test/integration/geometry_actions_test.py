@@ -14,7 +14,8 @@ Two undecorated windows (a rule), so a window's frame is its geometry.
 7. Desktops: AddDesktop adds one at the end; b sent to desktop 2, shown,
    RemoveDesktopCurrent: one fewer, desktop 1 shown, b moved to it; a on
    desktop 2, AddDesktop <where>current</where> from desktop 1: a now on 3.
-8. Unfocus leaves nothing focused; FocusFallback focuses a again. Kill on b ends its process (SIGTERM).
+8. b minimized, sent to desktop 2: moved, still minimized. Unfocus leaves
+   nothing focused; FocusFallback focuses a again. Kill on b ends its process (SIGTERM).
    (Decorate and the shading ones: window_layers_test, with foot's frame.)
 Skips (exit 77) without a headless display.
 
@@ -194,6 +195,10 @@ def main():
         expect((desktops(), on("a")), ((n0 + 1, 1), 3), "AddDesktop after the current")
         do(action="SendToDesktop", to="1", follow=False, window="app_id:a")
 
+        # A minimized window is sent too, and stays minimized.
+        act("Iconify", "b")
+        do(action="SendToDesktop", to="2", follow=False, window="app_id:b")
+        expect((on("b"), "b" in minimized()), (2, True), "a minimized window sent")
         act("Focus", "a")
         act("Unfocus", "a")
         expect(focused(), [], "Unfocus")
