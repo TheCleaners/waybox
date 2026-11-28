@@ -103,7 +103,8 @@
       <arg name="call" type="a{sv}"/>
     </signal>
 
-    <!-- The latest @count calls (capped at 100), metadata only: as CallEnded. -->
+    <!-- The latest @count calls (capped: the RecentCallsMax tunable), metadata
+         only: as CallEnded. -->
     <method name="RecentCalls">
       <arg name="count" type="u" direction="in"/>
       <arg name="calls" type="aa{sv}" direction="out"/>
@@ -122,6 +123,20 @@
       the hub.) Agents stay connected, at their levels.
     -->
     <method name="Stop"/>
+
+    <!--
+      Ask the compositor to show the confirmation for a change that raises
+      power. It only asks: the user's physical answer decides, so calling it
+      grants nothing. Rate-limited (ProposeRate) and logged. Returns at once;
+      the outcome shows in the state (and in the audit).
+      change: "kind" (s: "provider" with "id"; "binding" with "profile",
+      "label", or "connection" (s, an agent's id) to bind that one; "level"
+      to ask again for values the user's file raised; "resume" after a
+      stop).
+    -->
+    <method name="Propose">
+      <arg name="change" type="a{sv}" direction="in"/>
+    </method>
 
     <!-- Refuse a provider (pending or approved): offered to no agent until
          approved again. Approving isn't here: it takes the compositor's

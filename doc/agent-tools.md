@@ -118,13 +118,16 @@ claim first.
 
 **The hub's lifetime:**
 - **The compositor supervises it:** restarted with a growing delay; after
-  3 crashes in a minute, not again, and the user is told (a notice and
-  the indicator).
+  too many crashes in a short time (a tunable), not again, and the user is
+  told (a notice and the indicator).
 - **When the hub's socket closes,** the compositor closes every open
   question, ends capture and input, and lowers the indicator: all safe
   even if the hub was in a bad state.
 - **What survives a restart:** the settings, approvals, bindings and the
   audit (files). Grants and open questions don't: they end, the safe way.
+- **Sandboxed agents** (through the portal) can't reconnect by themselves:
+  their socket closes, and they call `ConnectAgent` again; with their
+  `restore_token`, without a question.
 - **Shims reconnect by themselves,** redo the MCP handshake with the new
   hub, and tell the agent its tools changed; calls that were running get
   "the desktop's hub restarted; call again".
@@ -574,7 +577,7 @@ control and bidirectional characters, are cut to a fixed length, and are shown
 as literal code, visibly apart from the compositor's own words.
 
 **The dialog resists rushed or tricked answers:**
-- input is ignored for about half a second after it appears, so a click
+- input is ignored for a moment after it appears (a tunable), so a click
   meant for something else can't land on "Allow";
 - **Deny** is the default, so Enter never allows;
 - questions are rate-limited per agent;
@@ -620,7 +623,11 @@ the session bus (`doc/dbus/org.waybox.AgentHub1.xml` until renamed; see
 - `Stop()`: what the stop key does, from a panel button
 - `RefuseProvider(id)`
 - `RecentCalls(count)`: the latest calls, metadata only, with `count`
-  capped at 100
+  capped (a tunable)
+- `Propose(change)`: ask the compositor to show the confirmation for a
+  change that raises power (approve a provider, bind an agent, raise a
+  level, resume after a stop). It only asks: the user's physical answer
+  decides, so calling it grants nothing. Rate-limited and logged.
 
 **Who may call:**
 - **Methods:** callable by any process of the user (the session bus already
@@ -629,7 +636,8 @@ the session bus (`doc/dbus/org.waybox.AgentHub1.xml` until renamed; see
   profiles happen only through the compositor's confirmations. A panel can
   show and take away, never give.
 - **Fail-safe abuse only:** a program spamming `Stop` or `RevokeAll` can only
-  make things safer. Such calls are rate-limited and logged.
+  make things safer; one spamming `Propose` can only show the user
+  questions, up to the rate limit, each of which defaults to no. Such calls are rate-limited and logged.
 
 **No arguments on D-Bus.** Properties, signals and `RecentCalls` carry who
 called what, when, and the outcome, never the arguments. The session bus
@@ -681,10 +689,11 @@ The hub appends one JSON line per event to
   `locked`.
 - **Arguments** with secrets redacted (each tool's `Secret`; synthetic
   input into password fields as its length only); a string longer than
-  4 KiB is cut, marked so.
+  the audit's cut length (a tunable) is cut, marked so.
 - **For `capture`:** what was captured (window or output, size); **for
   `input`:** what was typed.
-- **Rotation:** at 10 MiB the file becomes `audit.log.1` (three kept).
+- **Rotation:** past a size (a tunable) the file becomes `audit.log.1`,
+  a few kept (a tunable).
   Unknown fields are ignored by readers; `v` changes only for a change that
   breaks them.
 
@@ -890,7 +899,7 @@ can take over the kinds they do better.
 **The hub's part:**
 - **Routing:** requests go to the provider the user chose for their kind.
 - **Providers always answer:** with an error if they fail. One that doesn't
-  answer within a few seconds is treated as failed. The hub then uses the
+  answer within the UI provider timeout (a tunable) is treated as failed. The hub then uses the
   next provider for that kind (Waybox's built-in ones last), and the agent
   gets a plain error, never a hang.
 - **Order:** a queue per agent, and timeouts.
@@ -997,6 +1006,174 @@ are marked as untrusted content, for agents that understand the marking
 - **Activated providers' `Exec`** is parsed with the same quoting rules as
   `.desktop` files, and run without a shell.
 
+## Tunables
+
+Durations and limits are the implementation's to set, and a distribution's
+to change for the experience it wants to give: the values here are
+suggestions. Each says what it trades, so lowering one that guards
+something is an informed choice. Format rules that clients depend on (tool
+names: their characters, 48 at most) aren't tunables: changing them breaks
+interoperability, not taste.
+
+- **Where they're set:** system defaults in
+  `$XDG_CONFIG_DIRS/agent-tools/settings.ini` (`[Tunables]`, from the
+  distribution), the user's in their own settings file. A user's change
+  that weakens a guard (a shorter pause, a higher rate limit) counts as
+  raising power and needs the compositor's confirmation, as any raise does;
+  a distribution's defaults (written as root) don't.
+
+| Tunable | Suggested | Trades |
+|---|---|---|
+| `InputPause` | 500 ms | input ignored after a question or confirmation appears: shorter answers faster, but a click or keypress meant for something else can land on it |
+| `CallTimeout` | 30 s, reset by each progress notification | how long a provider may take before the call fails: longer suits slow tools, but an agent waits that long on a stuck one |
+| `QuestionTimeout` | 2 min | an unanswered question closes as denied: longer leaves room to decide, but the agent waits |
+| `UiTimeout` | 5 s | a UI provider that doesn't answer gives way to the next one |
+| `MaxResult` | 1 MiB | a provider's result larger than this is refused: larger allows big outputs, but floods the agent's context and memory |
+| `QuestionRate` | 6 a minute per agent | more questions than this are refused unasked: higher suits busy agents, but lets one wear the user down |
+| `ProposeRate` | 3 a minute | `Propose` calls shown, the rest refused |
+| `CallRate` | 600 a minute per agent | calls beyond this are refused |
+| `HubRestarts` | 3 in 1 min | crashes before the compositor stops restarting the hub |
+| `RecentCallsMax` | 100 | what `RecentCalls` returns at most |
+| `AuditCut` | 4 KiB | longer strings in the audit are cut, marked so |
+| `AuditRotate` | 10 MiB, 3 kept | when the audit file rotates, and how many are kept |
+
+## Flows
+
+Each step names the interface it uses. "Audit" means a line in the audit
+log; "state" means the hub's D-Bus state (`PropertiesChanged`).
+
+### A call allowed by its level
+
+1. The agent calls `waybar__get_battery` (MCP `tools/call`); the shim
+   passes it on.
+2. The hub finds the provider and the tool: approved and reachable, or the
+   call fails ("no such tool", as if it weren't there).
+3. The hub decides: the connection's level for the tool (its profile, its
+   `lower`, the provider's and the tool's own levels); then the guards: the
+   screen locked (the compositor's `Locked`), rate limits, the flow guard,
+   the stopped state. Here: allowed.
+4. The hub starts the call: `CallStarted`, `Active` (state),
+   `SetActivity` (compositor); it passes the call to the provider under an
+   id of its own.
+5. The provider answers within `CallTimeout` (each progress notification
+   starts it again), or the call fails and the provider is sent MCP's
+   cancellation.
+6. The hub checks the answer (`MaxResult`, its shape), adds `_meta`
+   (provenance; untrusted where it carries application text), and records
+   the sensitivity in the connection's flow record.
+7. The answer goes to the agent; `CallEnded` (state); audit.
+
+### A call that asks first
+
+1. As above, to step 3: the level is `ask`.
+2. A grant that covers it (this connection, this tool or sensitivity, this
+   target, not expired): it runs, as an allowed call, the grant named in
+   the audit.
+3. None: the same question already waiting (the same connection, tool and
+   target): the call waits on that one. Otherwise the hub asks: `Ask`
+   (compositor), the question in `Pending` (state); audit (`question`).
+   Beyond `QuestionRate`, refused unasked.
+4. Meanwhile the hub goes on: other calls, other agents, the stop key.
+5. `Answered`:
+   - **deny:** the call ends with a tool result marked `isError`, "the user
+     declined", so the model understands; "stop asking" denies this tool
+     for the rest of the connection.
+   - **once:** it runs.
+   - **session, timed:** a grant is made for the connection (`Grants`,
+     state), and it runs.
+6. Unanswered within `QuestionTimeout`: `CloseQuestion`, denied, said so in
+   the audit. The agent cancelling the call: `CloseQuestion` at once.
+
+### The stop key
+
+1. The compositor sees the key before anything else (bindings, clients),
+   with or without the hub.
+2. It ends all capture and input (closes the EIS connections it handed
+   out), closes its questions and confirmations, and shows that the
+   assistants are stopped.
+3. It sends `Stopped` (if the hub is there).
+4. The hub cancels running calls (the agents get "stopped by the user",
+   the providers MCP's cancellation), revokes every grant, empties
+   `Pending`; audit (`stop`).
+5. **Every connected agent is now stopped:** only `read` and `content`
+   calls go through; the rest are refused, "stopped by the user". The
+   compositor's indicator shows it. Agents connecting later start as
+   usual.
+6. **Resuming** is a click on the compositor's indicator: a confirmation
+   drawn by the compositor (it raises power again), or `Propose` from a
+   surface, which shows the same confirmation.
+
+### A new provider
+
+1. A manifest appears (installed, or a provider registers with an `Id`
+   the hub hasn't seen), or an approved one changes.
+2. The hub lists it as `pending` (`Providers`, state); audit (`provider`);
+   it's offered to no agent. A notice says a program wants to offer tools,
+   with "Review".
+3. "Review", or Approve in the settings: `Propose` (kind `provider`).
+4. The compositor shows `Confirm`: the provider's full id, its executable,
+   each tool with its description (the user's language) and sensitivity.
+5. Yes: the hub pins the manifest's content (`Pin=`), marks it approved,
+   and offers its tools; agents get MCP's `tools/list_changed`. No: it
+   stays pending, until the manifest changes or the user asks again.
+
+### Binding an agent to a profile
+
+- **Ahead of time:** in the settings, "Add assistant": a profile and a
+  label. `Propose` (kind `binding`); the compositor's confirmation shows the
+  profile and the label. Yes: the hub mints a token, writes it to a file
+  (mode 0600) under `$XDG_CONFIG_HOME/agent-tools/tokens/`, records its
+  hash, and the settings show the agent configuration naming that file.
+- **From an agent connected as "safe":** "Bind this assistant" on its row.
+  The confirmation also shows its executable and script (shown, not
+  trusted). Yes: as above; the agent uses its binding from its next start.
+- **Revoking:** removing the binding in the settings lowers power: at
+  once, no confirmation; that agent's connections drop to "safe".
+
+### A level raised by editing the settings
+
+1. The hub notices the file changed.
+2. Lowered values apply at once and become the confirmed ones.
+3. Raised values stay at the confirmed ones; the hub asks once for the
+   edit (`Confirm`, kind `level`: each raised value a line).
+4. Yes: they apply and become the confirmed ones. No: the file is left as
+   it is (the hub never rewrites the user's file); the settings show those
+   values "not confirmed", with a button to ask again (`Propose`).
+
+### An agent leaving
+
+1. The shim's socket closes (the agent quit, crashed or timed out).
+2. The hub closes that connection's questions (`CloseQuestion`), cancels
+   its calls (MCP's cancellation to the providers), and drops its grants.
+3. `Agents`, `Pending`, `Grants` (state); audit (`disconnect`).
+
+### The hub restarting
+
+1. The hub's socket closes on the compositor's side: it closes every
+   question, ends capture and input, lowers the indicator.
+2. The compositor starts the hub again (within `HubRestarts`), with new
+   sockets; `Hello`.
+3. The hub reads the settings (confirmed values) and the providers; audit
+   (`hub`).
+4. Host shims reconnect, redo MCP's handshake, and tell their agents the
+   tools changed; calls that were running got "the desktop's hub
+   restarted; call again".
+5. Sandboxed agents call `ConnectAgent` again; with their `restore_token`,
+   no question.
+
+### A sandboxed agent through the portal
+
+1. The app calls `CreateSession`, then `Start` (role `agent`).
+2. The portal frontend knows the app's id and calls the hub's backend
+   (`org.freedesktop.impl.portal.Agent`).
+3. A binding for that app id, remembered: answered at once with its
+   profile. Otherwise the compositor asks (`Confirm`, kind `portal`): the
+   app's name and id, the profile it would get, "remember". Yes, and
+   remembered: the binding is written (`[Binding app:…]`), and a
+   `restore_token` returned.
+4. `ConnectAgent` returns a socket; MCP flows as for any agent, the hub
+   knowing its app id and profile without a handshake.
+
 ## Future-proofing
 
 What's fixed once others build on it is the interfaces and the formats,
@@ -1068,6 +1245,15 @@ Also decided in the second pass:
   portals; MCP's tool annotations implied by sensitivities; `McpName`
   linking a manifest to its `server.json`; unknown sensitivities `off`;
   windows named by `ext-foreign-toplevel-list`; the Agent portal.
+- **Sixth pass:** durations and limits are tunables (suggested values,
+  what each trades; a user weakening a guard confirms it, a distribution's
+  defaults don't); the flows written out; the compositor's `Locked`;
+  questions shared by identical calls, closed when unanswered or when the
+  call is cancelled; a denial reaching the model as a tool error; the
+  stopped state after the stop key, resumed by a confirmation; `Propose`
+  for the settings and surfaces to ask for a confirmation; binding ahead
+  of time or from a connected agent; the hub never rewriting the user's
+  file; the portal backend and its confirmation kind.
 - **Fifth pass:** the shim's handshake (the token from a file, never the
   command line; `lower`; `label`); the settings file's format under
   `$XDG_CONFIG_HOME/agent-tools/`, raises held at the confirmed values

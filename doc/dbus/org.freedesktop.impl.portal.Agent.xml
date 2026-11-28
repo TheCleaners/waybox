@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<!--
+  org.freedesktop.impl.portal.Agent (proposed): the Agent portal's backend,
+  implemented by the agent hub (doc/agent-tools.md, "The Agent portal").
+  The frontend (xdg-desktop-portal) calls it with the caller's app id, which
+  it knows for certain; the hub asks the user through the compositor
+  (AgentCompositor1.Confirm, kind "portal") and keeps remembered answers as
+  bindings by app id.
+
+  Follows the portal backends' conventions: "handle" is the request object
+  the frontend created, "session_handle" the session's; "response" is 0
+  (yes), 1 (the user said no), 2 (another reason).
+-->
+<node>
+  <interface name="org.freedesktop.impl.portal.Agent">
+    <property name="version" type="u" access="read"/>
+
+    <method name="CreateSession">
+      <arg name="handle" type="o" direction="in"/>
+      <arg name="session_handle" type="o" direction="in"/>
+      <arg name="app_id" type="s" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="response" type="u" direction="out"/>
+      <arg name="results" type="a{sv}" direction="out"/>
+    </method>
+
+    <!-- options: "role" (s: "agent", "provider"), "restore_token" (s),
+         "persist" (b). results: "profile" (s), "restore_token" (s). -->
+    <method name="Start">
+      <arg name="handle" type="o" direction="in"/>
+      <arg name="session_handle" type="o" direction="in"/>
+      <arg name="app_id" type="s" direction="in"/>
+      <arg name="parent_window" type="s" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="response" type="u" direction="out"/>
+      <arg name="results" type="a{sv}" direction="out"/>
+    </method>
+
+    <!-- A socket to the hub for the session's agent (role "agent"). -->
+    <method name="ConnectAgent">
+      <arg name="session_handle" type="o" direction="in"/>
+      <arg name="app_id" type="s" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="socket" type="h" direction="out"/>
+    </method>
+
+    <!-- A socket for the session's provider (role "provider"); options:
+         "manifest" (s, its Id, which must be app_id). -->
+    <method name="RegisterProvider">
+      <arg name="session_handle" type="o" direction="in"/>
+      <arg name="app_id" type="s" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="socket" type="h" direction="out"/>
+    </method>
+  </interface>
+</node>

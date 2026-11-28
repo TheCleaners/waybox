@@ -16,10 +16,14 @@
     <!-- This interface's version (1). -->
     <property name="version" type="u" access="read"/>
 
+    <!-- Whether the screen is locked (changes come as PropertiesChanged): the
+         hub refuses reads and actions while it is, where that guard is on. -->
+    <property name="Locked" type="b" access="read"/>
+
     <!--
       Hello: each side's version and what it supports. hub: "version" (s, the
       hub's own), "agents" (u, connected). Returned: "name" (s, the
-      compositor), "capture" (b), "input" (b), "indicator" (b), "stop_key"
+      compositor), "capture" (b), "input" (b), "indicator" (b), "locked" (b), "stop_key"
       (s, its binding as shown to the user). The hub offers only what the
       compositor says it supports.
     -->
@@ -33,7 +37,8 @@
     <!--
       Ask: a question about a call, drawn by the compositor, answered by
       physical input only (virtual keyboards and pointers ignored), input
-      ignored for about half a second after it appears, Deny the default.
+      ignored for a moment after it appears (the InputPause tunable), Deny the
+      default.
       Returns at once; the answer comes as Answered.
       question: "profile" (s), "agent_claim" (s, the agent's self-declared
       name, shown as a claim), "provider" (s, its approved Name), "tool" (s),
@@ -65,7 +70,9 @@
     <!--
       Confirm: a change that raises power, shown in full, drawn and answered
       as Ask's questions are. change: "kind" (s: "level", "guard", "audit",
-      "provider", "binding"), "title" (s), "lines" (as, what changes, one
+      "provider", "binding", "resume" (after the stop key), "portal" (a
+      sandboxed app through the Agent portal: "app_id", "app_name",
+      "role", "remember" (b))), "title" (s), "lines" (as, what changes, one
       per line), and per kind: for "provider", "id", "name", "exec" (s) and
       "tools" (aa{sv}: name, description, sensitivity); for "binding",
       "profile" (s), "exec" and "script" (s, shown, not trusted), "remote"
