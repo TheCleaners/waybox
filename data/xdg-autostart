@@ -87,6 +87,13 @@ condition_holds() {
 # True if the desktop entry $1 should be started.
 should_start() {
 	[ "$(entry_key "$1" Hidden)" = "true" ] && return 1
+	# GeoClue's demo agent says yes to every app without asking; with
+	# Waybox's agent there (which asks), it isn't started: only one agent
+	# answers, and it registers after Waybox's.
+	case "$1" in
+	*/geoclue-demo-agent.desktop)
+		command -v waybox-location-agent >/dev/null 2>&1 && return 1 ;;
+	esac
 	[ "$(entry_key "$1" X-GNOME-Autostart-enabled)" = "false" ] && return 1
 
 	if [ "$desktops" != "all" ]; then

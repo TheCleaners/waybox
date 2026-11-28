@@ -332,6 +332,14 @@ atomic_file_test = executable(
   )
 test('atomic_file', atomic_file_test, suite: 'unit')
 
+# The location agent's decisions (accuracy names, kept answers).
+location_agent_test = executable(
+  'location_agent_test',
+  ['location_agent_test.cpp', 'wb_test_main.cpp', location_agent_src],
+  include_directories: [inc_dir],
+  )
+test('location_agent', location_agent_test, suite: 'unit')
+
 # Whether only the system could have changed a file (pages run unasked).
 trust_test = executable(
   'trust_test',
@@ -1058,6 +1066,8 @@ if python.found() and not get_option('tests_only')
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_save_status', 'wbconf_save_status_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 90]]
+    integration_tests += [['location_agent', 'location_agent_test.py',
+        [location_agent_exe], 90]]
     integration_tests += [['wbconf_color_burst', 'wbconf_color_burst_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_toc', 'wbconf_toc_test.py',

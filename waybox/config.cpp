@@ -1010,6 +1010,20 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	}
 	parse_mouse_bindings(config, ctxt);
 	parse_app_rules(config, ctxt);
+	/* Built in, after rc.xml's (first match wins: a rule of the user's for
+	 * it goes first): the location agent's card above the windows, in
+	 * the middle of the monitor in use, not taking the keyboard from what's
+	 * being typed (a click or Tab reaches it). */
+	{
+		wb::AppRule card;
+		card.class_pattern = "org.waybox.LocationAgent";
+		card.focus = false;
+		card.layer = 1;
+		card.x_spec = "center";
+		card.y_spec = "center";
+		card.monitor = "active";
+		config->app_rules.push_back(std::move(card));
+	}
 	parse_desktops(config, ctxt);
 
 	if (char *policy = parse_xpath_expr("//ob:placement/ob:policy", ctxt)) {
