@@ -844,6 +844,13 @@ void send_event(struct wb_server *server, const std::string &type, Object body) 
 
 }  // namespace
 
+/* For the compositor's tools (agent_tools_provider.cpp): the same JSON. */
+wb::json::Value ipc_window_json(struct wb_toplevel *t) { return window_json(t); }
+wb::json::Value ipc_desktop_json(struct wb_server *server, int index) {
+	return desktop_json(server, index);
+}
+wb::json::Value ipc_monitors_json(struct wb_server *server) { return monitors_json(server); }
+
 void ipc_reconfigured(struct wb_server *server) {
 	bool want = server->config != nullptr && server->config->ipc_enabled;
 	if (want && server->ipc == nullptr)

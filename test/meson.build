@@ -456,6 +456,18 @@ mcp_agent_test = executable(
   )
 test('mcp_agent', mcp_agent_test, suite: 'unit')
 
+# What the hub offers (manifests, names, levels), its MCP client toward
+# providers, and the server's tool sources (pure).
+agent_catalog_test = executable(
+  'agent_catalog_test',
+  ['agent_catalog_test.cpp', 'wb_test_main.cpp', json_src, ini_doc_src,
+   meson.project_source_root() / 'agent' / 'catalog.cpp',
+   meson.project_source_root() / 'agent' / 'mcp_client.cpp',
+   meson.project_source_root() / 'agent' / 'mcp_agent.cpp'],
+  include_directories: [inc_dir],
+  )
+test('agent_catalog', agent_catalog_test, suite: 'unit')
+
 # Code that depends on the system names each one, and says so on any
 # other (include/waybox/platform.hpp).
 test('platform_branches', find_program('python3'),
@@ -1032,6 +1044,8 @@ if python.found() and not get_option('tests_only')
     ['agent_hub', 'agent_hub_test.py', [agent_hub_exe, lock_client], 90],
     ['agent_shim', 'agent_shim_test.py', [agent_hub_exe, agent_shim_exe], 90],
     ['agent_backpressure', 'agent_backpressure_test.py', [agent_hub_exe, agent_shim_exe], 120],
+    ['agent_tools', 'agent_tools_test.py', [agent_hub_exe, agent_shim_exe, activate_client, lock_client,
+        meson.project_source_root()], 90],
     ['menu_icon_cache', 'menu_icon_cache_test.py', [], 60],
     ['session_lock', 'session_lock_test.py', [lock_client], 60],
     ['session_lock_virtual_always', 'session_lock_test.py', [lock_client, 'always'], 60],

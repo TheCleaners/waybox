@@ -24,6 +24,9 @@ bool agents_listen(const std::string &path, const std::string &hub_version,
 		const Tunables &t);
 /* Closes every agent's connection and the socket. */
 void agents_stop();
+/* The screen is locked (or not): calls are refused meanwhile (the
+ * WhileLocked guard). */
+void agents_set_locked(bool locked);
 
 }  // namespace wb::agent
 

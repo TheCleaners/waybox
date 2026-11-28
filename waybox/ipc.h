@@ -4,6 +4,7 @@
 #include <string>
 
 #include "waybox/server.h"
+#include "waybox/json.hpp"
 
 struct wb_toplevel;
 
@@ -30,6 +31,10 @@ struct wb_toplevel;
  */
 /* Start or stop it as the settings say (startup and Reconfigure). */
 void ipc_reconfigured(struct wb_server *server);
+/* The JSON the requests answer with, for the compositor's agent tools. */
+wb::json::Value ipc_window_json(struct wb_toplevel *t);
+wb::json::Value ipc_desktop_json(struct wb_server *server, int index);
+wb::json::Value ipc_monitors_json(struct wb_server *server);
 void ipc_finish(struct wb_server *server);
 
 void ipc_window_event(struct wb_toplevel *toplevel, const char *change);
