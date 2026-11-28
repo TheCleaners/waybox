@@ -474,6 +474,7 @@ act=ask
 
 # Each on unless "off"
 [Guards]
+# on; or, with no questions: deny (ask acts as off) or allow (ask acts as allow)
 Consent=on
 GrantLimits=on
 RateLimits=on
@@ -557,12 +558,21 @@ model: full" and "cloud assistant: safe".
   agent choosing a higher profile by name.
 
 **Guards, all switchable in the settings, all on by default:**
-- consent prompts (`ask`). Turned off, every `ask` (per sensitivity, per
-  provider, per tool) acts as `allow`, and questions that only a guard
-  raises (the flow guard, `ui` in "safe") are answered "allow" too; the
-  confirmation for turning it off lists exactly which sensitivities and
-  tools that lets through unasked. (To be asked about nothing *and* allow
-  nothing, set the levels to `off` instead.)
+- consent prompts (`ask`). Whoever turns them off chooses what `ask`
+  becomes, since either answer is reasonable and they mean opposite
+  things (`Consent=on`, `deny` or `allow`):
+  - **deny:** every `ask` (per sensitivity, per provider, per tool) acts
+    as `off`, and questions only a guard raises (the flow guard, `ui` in
+    "safe") are answered "deny". Nothing at `ask` happens; it applies at
+    once, being a lowering.
+  - **allow:** every `ask` acts as `allow`, and guard-raised questions are
+    answered "allow". A raise: its confirmation lists exactly which
+    sensitivities and tools it lets through unasked.
+
+  The settings offer the two side by side, worded for what each does
+  ("Don't ask me: deny all of these" / "Don't ask me: allow all of
+  these"). Per sensitivity, a level set to `off` or `allow` says the same
+  for one kind of call.
 - grant time limits;
 - rate limits;
 - excluding private windows (a window rule) from capture;
@@ -1645,7 +1655,9 @@ Also decided in the second pass:
   intent lines synced before high-impact calls; one question per call,
   approved with its exact arguments (shown in full, a digest dispatched);
   confirmations applying exactly what they showed; consent switched off
-  making `ask` act as `allow`, listed in its confirmation; `StopAssistants`
+  with the user choosing what `ask` becomes (`Consent=deny`: as `off`, at
+  once; `Consent=allow`: as `allow`, confirmed, listing what it lets
+  through); `StopAssistants`
   for a panel's Stop; the stop key ending the compositor's own commands
   and saying what it can't guarantee; the indicator's states and their
   order; questions closed when the user goes away, Review never granting
