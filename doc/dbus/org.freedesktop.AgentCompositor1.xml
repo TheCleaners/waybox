@@ -136,16 +136,23 @@
     </method>
 
     <!--
-      AgentProcess: a connected host agent's process (from the shim's
-      parent), so the compositor can hold the programs it starts to its
-      levels. "conn" is the hub's id for the connection; "info": "scope"
-      (s, the systemd scope the hub moved it into, on Linux), "profile" (s).
-      Called again with an empty pidfd-less info when the agent leaves.
+      AgentProcess: a connected host agent's process (from the shim's parent),
+      so the compositor can hold the programs it starts to its levels. "conn"
+      is the hub's id for the connection; "info": "pidfd" (h, where the
+      system has pidfds), else "pid" (u) and "start_time" (t, so a reused
+      process id is told apart); "scope" (s, the systemd scope it runs in,
+      on Linux); "tracked" (s: "from-start" when it was launched in its
+      scope, "from-connect" when moved there at the handshake, "parent-chain"
+      without a scope); "profile" (s).
     -->
     <method name="AgentProcess">
       <arg name="conn" type="s" direction="in"/>
-      <arg name="process" type="h" direction="in"/>
       <arg name="info" type="a{sv}" direction="in"/>
+    </method>
+
+    <!-- The agent left: the compositor drops its process policy. -->
+    <method name="ForgetAgent">
+      <arg name="conn" type="s" direction="in"/>
     </method>
 
     <!--

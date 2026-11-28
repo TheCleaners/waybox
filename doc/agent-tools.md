@@ -586,6 +586,11 @@ model: full" and "cloud assistant: safe".
 - **Bound with a token:** each binding of an agent to a profile has a
   token, minted when the user confirms the binding in a compositor-drawn
   confirmation.
+  - **What it is:** 256 bits from the system's cryptographic random source
+    (`getrandom`), written in base64url; never derived from a label, a
+    process id, a time or an app id. The hub keeps its SHA-256 and
+    compares hashes in constant time. A revoked binding's token stops
+    working at once; binding again mints a new one.
   - **Where it goes:** into a file of its own (mode 0600), which that
     agent's MCP configuration names: `waybox-mcp --token-file PATH`. Never
     on the command line: every user of the machine can read command lines
@@ -1036,9 +1041,12 @@ in, and the levels confine them only as far as they're otherwise confined
 (see "The limits"). The Agent portal is for sandboxed agents, and for
 whoever wants an agent truly confined.
 
-**Recommended:** an agent's own command tool off, or the agent sandboxed,
-wherever the work allows it; the settings offer it when adding an
-assistant, through its integration file (`ShellOff=`, below).
+**Recommended:** the agent sandboxed wherever the work allows it, or at
+least its own command tool off (`ShellOff=` in its integration file, which
+the settings offer when adding it). Turning the command tool off closes one
+way around the hub, not all: the agent may still write files that
+something later runs, use other MCP servers, reach the network, or run a
+skill's scripts. Only a sandbox makes the hub its only way out.
 
 **Their models may be anywhere:** on the machine, on the network (a model
 server on the LAN), or a cloud service. Only the agent's client talks to
@@ -1150,13 +1158,28 @@ clients of the compositor, so the compositor can tell that they act for
 the agent, and hold them to its levels.
 
 - **The hub tells the compositor the agent's process:** at the handshake
-  (from the shim's parent), `AgentProcess(conn, pidfd)`.
-- **On Linux, the agent's processes are kept together:** the hub asks the
-  user's service manager to move the running agent into a scope of its own
-  (systemd's `StartTransientUnit` with the agent's process); everything it
-  starts stays in that scope, even once its parent exits. The compositor
-  reads a client's scope from its process. **Elsewhere,** the parent chain
-  (weaker: a process whose parent exits is adopted by another).
+  (from the shim's parent), `AgentProcess(conn, info)`: a pidfd where the
+  system has them, otherwise the process id with its start time (so a
+  reused id is told apart); `ForgetAgent(conn)` when it leaves.
+- **On Linux, the agent's processes are kept together in a scope,** which
+  the compositor reads from a client's process. Moving a running process
+  into a scope doesn't move the children it already has: only what it
+  starts afterwards follows it. So:
+  - **Started in its scope (tracked from the start):** the agent is
+    launched inside a scope of its own from the beginning, by its
+    integration (`agents-run LABEL -- COMMAND`, which asks the user's
+    service manager for the scope, then starts the agent in it: what
+    desktop entries and the settings' snippets use). The hub checks at
+    the handshake that the agent is in such a scope.
+  - **Already running (tracked from connecting):** the hub moves the agent
+    into a new scope (systemd's `StartTransientUnit` with its process);
+    helpers it started before are outside it. Best effort, and said so:
+    the agent is listed (`Agents`, the indicator's details) as "tracked
+    from connecting".
+  - **No scope possible** (no user service manager): the parent chain,
+    best effort, listed so.
+- **Elsewhere,** the parent chain (weaker: a process whose parent exits is
+  adopted by another), listed as best effort.
 - **What the compositor holds to the agent's levels,** for clients in its
   scope: screen capture protocols (`capture`), virtual keyboards and
   pointers (`input`), clipboard and window management protocols (`content`,
@@ -1190,6 +1213,17 @@ agent with real limits, not only the way for sandboxed apps.
 - **`RegisterProvider(o session, a{sv} options) → h socket`:** the same for
   a sandboxed provider (or an Agent UI provider), its manifest's `Id` its
   app id.
+- **A session has one role,** fixed by its first `Start` (`agent` or
+  `provider`): starting it again, or asking for the other socket, is
+  refused. Remembered answers and restore tokens are per app id *and*
+  role: an approval to use tools never lets an app offer them, nor the
+  reverse (and a provider still needs its manifest approved).
+- **Sockets end with their session:** each socket the portal hands out
+  belongs to its session, and the hub closes it (cancelling its calls, as
+  for any agent leaving) when the session is closed, when the caller's bus
+  connection goes, when the user revokes the app's remembered answer, or,
+  for a provider, when it's refused. A sandboxed app holds the socket only
+  as long as the portal would answer it.
 
 **Identity:** the portal knows a sandboxed app's id for certain (Flatpak
 and Snap both make it known, and every portal relies on it), and passes it
@@ -1200,6 +1234,15 @@ to copy.
 portal frontend checks the caller and hands the hub the app id; the
 compositor asks the question, through the compositor interface, as for
 any other.
+- **Only the portal frontend may call the backend:** the hub accepts a
+  backend call only from the bus connection that owns
+  `org.freedesktop.portal.Desktop` (xdg-desktop-portal, a host process),
+  checked on each call; the `app_id` it passes is trusted because of who
+  passes it, never because it was passed.
+- **Separate connections:** the backend, the hub's state (`AgentHub1`) and
+  the interim frontend (below) each sit on a bus connection of their own.
+  Bus permissions are per connection: a sandbox allowed to talk to one
+  name may reach every name and object its owner's connection has.
 
 **Manifests from inside a sandbox:** an app ships its manifest in
 `share/agents/tools/`, and Flatpak exports it as it exports desktop files,
@@ -1386,12 +1429,18 @@ What this design gives, said plainly:
   caught by the compositor (see "The agent's processes"). Not caught: an
   agent set on escaping (starting work through the user's service manager),
   signals (`kill`), files and the network.
-- **A confined agent** (its shell off, or a sandbox whose only way out is
-  the hub): the levels are everything it can do.
+- **A confined agent:** one in a sandbox with no way out but the hub (no
+  host files beyond what it's given, no network unless through a
+  provider, no other IPC, no running host programs): the levels are
+  everything it can do. Only that is called confined.
+- **An agent with its command tool off** isn't confined: one way around the
+  hub is closed, others remain (writing files something later runs, other
+  MCP servers, the network, a skill's scripts), unless its configuration
+  closes those too. The settings say "command tool off", never
+  "confined", for it.
 
-For real confinement, run the agent so: in a sandbox where the hub's
-socket (or the Agent portal) is the only way out, or with its own command
-tool turned off.
+For real confinement, run the agent in a sandbox where the hub's socket
+(or the Agent portal) is the only way out.
 
 **Data can flow between providers through the agent.** Content read from
 one tool (an accessibility tree, notification text) can be passed as
@@ -1667,10 +1716,14 @@ The spec uses the names proposed for sharing: `org.freedesktop.AgentHub1`,
   (and Agent UI as `org.waybox.AgentUI1`), with the same members, until the
   names are agreed; renaming then changes nothing else.
 - **The portal** lives in xdg-desktop-portal's frontend, so it needs that
-  project's agreement. Until then the hub offers the same interface at
-  `org.waybox.portal.Agent`, which a sandboxed agent reaches with one
-  `--talk-name`; the portal frontend's checks (the caller's app id) are
-  done by the hub itself, as the frontend does.
+  project's agreement. Until then a small interim frontend offers the
+  same interface at `org.waybox.portal.Agent`, which a sandboxed agent
+  reaches with one `--talk-name`. It is a bus connection of its own (a
+  process of its own, or a connection the hub opens only for it),
+  owning only that name and exporting only that interface, so the
+  `--talk-name` reaches nothing else of the hub's. It does the portal
+  frontend's checks itself (see "How the caller's app id is known") and
+  talks to the hub privately, not over the bus.
 
 ## Decisions on the first pass's questions
 
@@ -1706,6 +1759,16 @@ Also decided in the second pass:
   portals; MCP's tool annotations implied by sensitivities; `McpName`
   linking a manifest to its `server.json`; unknown sensitivities `off`;
   windows named by `ext-foreign-toplevel-list`; the Agent portal.
+- **Review 22, batch B:** `AgentProcess(conn, info)` with a pidfd or a
+  process id and start time, `ForgetAgent(conn)`; agents launched in their
+  scope from the start (`agents-run`), an already running agent tracked
+  only from connecting, said so; "confined" only for a sandbox with no
+  other way out, the command tool off said as such; the interim portal
+  frontend on a bus connection of its own, backend calls accepted only
+  from xdg-desktop-portal's connection, the state and backend on
+  separate connections; portal sockets ending with their session; a
+  session's role fixed, remembered answers per app id and role; tokens
+  of 256 random bits, compared by hash in constant time.
 - **Review 22, finding 39:** MCP revisions: the hub a full endpoint on
   each side speaking both eras (2025-06-18 and 2025-11-25 with
   `initialize`; 2026-07-28 stateless), told apart per connection;
