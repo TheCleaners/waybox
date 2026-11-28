@@ -70,6 +70,7 @@ wb_src = [
     'seat.cpp',
     'server.cpp',
     'threads.cpp',
+    'glib_thread.cpp',
     'agent_compositor.cpp',
     'session_lock.cpp',
     'switcher_widget.cpp',

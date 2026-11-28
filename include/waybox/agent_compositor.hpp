@@ -7,11 +7,11 @@
  * (doc/agent-tools.md, doc/dbus/org.freedesktop.AgentCompositor1.xml).
  *
  * Peer-to-peer D-Bus on a socket Waybox hands the hub at launch (fd 3,
- * named by AGENT_COMPOSITOR_FD): no bus daemon, no bus name. Served from a
- * thread of its own running GLib's loop (threads.hpp): calls that need the
- * compositor go through the main thread's queue; properties are answered
- * from a snapshot the main thread keeps current, so the D-Bus thread never
- * waits on the main one.
+ * named by AGENT_COMPOSITOR_FD): no bus daemon, no bus name. Served on the
+ * shared GLib thread (glib_thread.hpp), never one of its own: calls that
+ * need the compositor go through the main thread's queue; properties are
+ * answered from a snapshot the main thread keeps current, so the GLib
+ * thread never waits on the main one.
  *
  * So far: Hello, and the Locked, Away and AssistantsStopped properties
  * with their changes; the other members answer "not supported" until the

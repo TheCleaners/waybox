@@ -12,7 +12,10 @@
 #include <stdlib.h>
 #include <cstdint>
 #include <memory>
+#include <set>
 #include "waybox/threads.hpp"
+#include "waybox/async.hpp"
+#include "waybox/glib_thread.hpp"
 #include "waybox/icon_loader.hpp"
 #include <vector>
 
@@ -214,6 +217,13 @@ struct wb_server {
 	/* Icons kept across menu openings (cleared on reconfigure). */
 	std::unique_ptr<wb::IconCache> icon_cache;
 	std::unique_ptr<wb::Workers> workers;
+	/* Where async work runs (async.hpp): the compositor's thread (with
+	 * timers on its event loop), the worker pool, the shared GLib thread. */
+	std::unique_ptr<wb::MainScheduler> main_sched;
+	std::unique_ptr<wb::WorkerScheduler> worker_sched;
+	std::unique_ptr<wb::GLibThread> glib;
+	/* main_sched's timers not fired yet (freed at shutdown). */
+	std::set<struct wb_main_timer *> main_timers;
 	struct wl_event_source *main_queue_source = nullptr;
 	/* wbconf's Test for the on-screen display: settings not saved yet. */
 	std::unique_ptr<wb::DesktopPopup> osd_preview;
@@ -274,5 +284,9 @@ bool wb_test_renderer_lost(struct wb_server *server);
 /* Read rc.xml again and apply it. False (with why, if asked) when it
  * can't be read: the current settings are kept. */
 bool wb_reconfigure(struct wb_server *server, std::string *problem = nullptr);
+/* main_sched's timers (async.hpp's sleep_for on the main scheduler). */
+void wb_main_timer_add(struct wb_server *server, std::chrono::milliseconds delay,
+		std::function<void()> work);
+void wb_main_timer_free(struct wb_server *server, struct wb_main_timer *t);
 
 #endif /* server.h */

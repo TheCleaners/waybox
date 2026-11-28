@@ -229,56 +229,44 @@ cairo_surface_t *IconCache::get(const std::string &name, const std::string &them
 }
 
 void IconCache::clear() {
+	scope_ = std::make_unique<TaskScope>();  /* loads under way: dropped */
 	for (auto &[key, surf] : icons_)
 		if (surf != nullptr)
 			cairo_surface_destroy(surf);
 	icons_.clear();
-	++*generation_;
+}
+
+Task<void> IconCache::load_one(std::string name, std::string theme, int size,
+		std::shared_ptr<const std::vector<std::string>> dirs, Scheduler &pool, Scheduler &main,
+		std::shared_ptr<size_t> left, size_t total, std::function<void(size_t)> done) {
+	co_await on(pool);
+	/* On a worker: only this task's own data. */
+	cairo_surface_t *loaded = load_themed_icon(name, theme, size, *dirs);
+	co_await on(main);
+	/* Back on the main thread, the cache alive (or this task was dropped). */
+	if (!icons_.emplace(key(name, theme, size), loaded).second && loaded != nullptr)
+		cairo_surface_destroy(loaded);
+	if (--*left == 0 && done)
+		done(total);
 }
 
 void IconCache::preload(const std::vector<std::string> &names, const std::string &theme,
-		int size, Workers &workers, const std::shared_ptr<MainQueue> &queue,
-		std::function<void(size_t)> done) {
+		int size, Scheduler &pool, Scheduler &main, std::function<void(size_t)> done) {
 	std::vector<std::string> todo;
 	for (const std::string &n : names)
 		if (!n.empty() && !icons_.count(key(n, theme, size)) &&
 				std::find(todo.begin(), todo.end(), n) == todo.end())
 			todo.push_back(n);
-	auto left = std::make_shared<size_t>(todo.size());
 	if (todo.empty()) {
 		if (done)
-			queue->post([done] { done(0); });
+			done(0);
 		return;
 	}
-	size_t total = todo.size();
-	/* The search folders read here, on the main thread; the workers only
-	 * get data. The cache itself is touched only on the main thread. */
+	/* The search folders read here, on the main thread; tasks get data. */
 	auto dirs = std::make_shared<const std::vector<std::string>>(icon_search_dirs());
-	uint64_t gen = *generation_;
-	std::weak_ptr<uint64_t> alive = generation_;
-	for (const std::string &n : todo) {
-		std::weak_ptr<MainQueue> q = queue;
-		workers.submit([this, n, theme, size, dirs, gen, alive, q, left, done, total](std::stop_token) {
-			cairo_surface_t *loaded = load_themed_icon(n, theme, size, *dirs);
-			auto queue = q.lock();
-			if (queue == nullptr) {
-				if (loaded != nullptr)
-					cairo_surface_destroy(loaded);
-				return;
-			}
-			queue->post([this, n, theme, size, gen, alive, left, done, total, loaded] {
-				auto g = alive.lock();
-				if (g != nullptr && *g == gen &&
-						icons_.emplace(key(n, theme, size), loaded).second) {
-					/* kept */
-				} else if (loaded != nullptr) {
-					cairo_surface_destroy(loaded);
-				}
-				if (--*left == 0 && done && g != nullptr && *g == gen)
-					done(total);
-			});
-		});
-	}
+	auto left = std::make_shared<size_t>(todo.size());
+	for (const std::string &n : todo)
+		scope_->spawn(load_one(n, theme, size, dirs, pool, main, left, todo.size(), done));
 }
 
 }  // namespace wb

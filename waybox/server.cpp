@@ -78,6 +78,34 @@ void wb_spawn(const char *cmd) {
 	waitpid(pid, NULL, 0);
 }
 
+/* main_sched's timers: one-shot, on the compositor's event loop. */
+struct wb_main_timer {
+	struct wb_server *server;
+	struct wl_event_source *source;
+	std::function<void()> work;
+};
+
+void wb_main_timer_free(struct wb_server *server, struct wb_main_timer *t) {
+	server->main_timers.erase(t);
+	wl_event_source_remove(t->source);
+	delete t;  /* its work dropped, not run */
+}
+
+void wb_main_timer_add(struct wb_server *server, std::chrono::milliseconds delay,
+		std::function<void()> work) {
+	auto *t = new wb_main_timer{server, nullptr, std::move(work)};
+	t->source = wl_event_loop_add_timer(wl_display_get_event_loop(server->wl_display),
+			[](void *data) {
+				auto *t = static_cast<struct wb_main_timer *>(data);
+				std::function<void()> work = std::move(t->work);
+				wb_main_timer_free(t->server, t);
+				work();
+				return 0;
+			}, t);
+	server->main_timers.insert(t);
+	wl_event_source_timer_update(t->source, std::max<int>(1, static_cast<int>(delay.count())));
+}
+
 bool wb_reconfigure(struct wb_server *server, std::string *problem) {
 	wb::StallScope timing("reconfigure");
 	/* Read the new config first: a broken rc.xml keeps everything as it is. */
@@ -518,6 +546,12 @@ bool wb_start_server(struct wb_server* server) {
 				return 0;
 			}, server->main_queue.get());
 	server->workers = std::make_unique<wb::Workers>();
+	server->worker_sched = std::make_unique<wb::WorkerScheduler>(*server->workers);
+	server->main_sched = std::make_unique<wb::MainScheduler>(server->main_queue);
+	server->main_sched->timer = [server](std::chrono::milliseconds d, std::function<void()> work) {
+		wb_main_timer_add(server, d, std::move(work));
+	};
+	server->glib = std::make_unique<wb::GLibThread>();
 	server->icon_cache = std::make_unique<wb::IconCache>();
 	/* Fonts warmed once Waybox is idle after starting: their first use costs
 	 * fontconfig's and pango's setup (some 15 ms), which would otherwise
@@ -578,7 +612,10 @@ bool wb_terminate(struct wb_server* server) {
 	workspace_finish(server);
 	finish_shortcuts_inhibit(server);
 	finish_xwayland(server);  /* X11 windows still use the seat and cursor */
-	agent_compositor_finish(server);  /* its thread posts to the queue */
+	/* Async work ends here, in order; whatever is still pending at each
+	 * step is dropped, which destroys the tasks waiting on it. */
+	agent_compositor_finish(server);  /* (waits for its end on the GLib thread) */
+	server->glib.reset();
 	server->menu.reset();  /* (before the icons it holds references to) */
 	server->icon_cache.reset();
 	/* First: the workers finish (or give up) and stop, then results still
@@ -589,6 +626,10 @@ bool wb_terminate(struct wb_server* server) {
 	server->main_queue_source = nullptr;
 	if (server->main_queue)
 		server->main_queue->close();
+	for (struct wb_main_timer *t : std::set<struct wb_main_timer *>(server->main_timers))
+		wb_main_timer_free(server, t);
+	server->main_sched.reset();
+	server->worker_sched.reset();
 	finish_pointer_constraints(server);
 	finish_input_method(server);
 

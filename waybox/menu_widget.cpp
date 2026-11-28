@@ -757,7 +757,7 @@ int menu_icon_size(const MenuStyle &style) {
 }  // namespace wb
 
 void menu_preload_icons(struct wb_server *server) {
-	if (server->config == nullptr || !server->icon_cache || !server->workers ||
+	if (server->config == nullptr || !server->icon_cache || !server->worker_sched ||
 			!server->config->menu_behavior.show_icons)
 		return;
 	std::vector<std::string> names;
@@ -772,7 +772,7 @@ void menu_preload_icons(struct wb_server *server) {
 		return;
 	wb::MenuStyle style = wb::menu_style_from_theme(server->config->theme);
 	server->icon_cache->preload(names, wb::detect_icon_theme(), wb::menu_icon_size(style),
-			*server->workers, server->main_queue, [](size_t n) {
+			*server->worker_sched, *server->main_sched, [](size_t n) {
 				wlr_log(WLR_INFO, "wb-menu icons preloaded %zu", n);
 			});
 }
