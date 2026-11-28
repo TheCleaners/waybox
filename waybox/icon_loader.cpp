@@ -2,6 +2,7 @@
  * Loading icons into Cairo surfaces (see icon_loader.hpp).
  */
 #include "waybox/icon_loader.hpp"
+#include "waybox/stall.hpp"
 #include "waybox/atomic_file.hpp"
 
 #include <algorithm>
@@ -194,6 +195,27 @@ std::string desktop_file_icon(std::string_view app_id) {
 		}
 	}
 	return {};
+}
+
+IconCache::~IconCache() {
+	clear();
+}
+
+cairo_surface_t *IconCache::get(const std::string &name, const std::string &theme, int size) {
+	std::string key = theme + '\n' + std::to_string(size) + '\n' + name;
+	auto it = icons_.find(key);
+	if (it == icons_.end()) {
+		wb::StallScope timing("menu-icon");
+		it = icons_.emplace(key, load_themed_icon(name, theme, size)).first;
+	}
+	return it->second != nullptr ? cairo_surface_reference(it->second) : nullptr;
+}
+
+void IconCache::clear() {
+	for (auto &[key, surf] : icons_)
+		if (surf != nullptr)
+			cairo_surface_destroy(surf);
+	icons_.clear();
 }
 
 }  // namespace wb
