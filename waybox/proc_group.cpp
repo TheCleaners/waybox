@@ -1,4 +1,5 @@
 #include "waybox/proc_group.hpp"
+#include "waybox/platform.hpp"
 
 #include <cstdlib>
 #include <string>
@@ -8,7 +9,7 @@
 #include <vector>
 #include <sys/sysctl.h>
 #include <sys/user.h>
-#else
+#elif defined(__linux__)
 #include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -41,7 +42,7 @@ bool group_has_others(pid_t pgid, pid_t except) {
 	return false;
 }
 
-#else
+#elif defined(__linux__)
 
 bool group_has_others(pid_t pgid, pid_t except) {
 	DIR *d = opendir("/proc");
@@ -86,6 +87,13 @@ bool group_has_others(pid_t pgid, pid_t except) {
 	}
 	closedir(d);
 	return found;
+}
+
+#else
+
+bool group_has_others(pid_t, pid_t) {
+	WB_PLATFORM_FALLBACK("a program's other processes (startup programs end with their leader)");
+	return false;
 }
 
 #endif

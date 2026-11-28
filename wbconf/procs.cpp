@@ -7,6 +7,8 @@
 #include "wbconf_ui.hpp"
 
 #include <optional>
+#include "waybox/platform.hpp"
+
 #include <csignal>
 #include <iterator>
 #include <sstream>
@@ -62,7 +64,7 @@ std::vector<ProcessInfo> list_processes() {
 				static_cast<unsigned long long>(kp->ki_start.tv_sec) * 1000000ull +
 						static_cast<unsigned long long>(kp->ki_start.tv_usec)});
 	}
-#else
+#elif defined(__linux__)
 	DIR *d = opendir("/proc");
 	if (d == nullptr)
 		return out;
@@ -103,6 +105,8 @@ std::vector<ProcessInfo> list_processes() {
 		out.push_back({static_cast<pid_t>(pid), st.st_uid, cut(comm), ppid, start});
 	}
 	closedir(d);
+#else
+	WB_PLATFORM_FALLBACK("listing processes (wbconf's running programs)");
 #endif
 	return out;
 }
@@ -148,9 +152,11 @@ std::vector<std::string> process_args(pid_t pid) {
 	if (sysctl(mib, 4, raw.data(), &len, nullptr, 0) != 0)
 		return {};
 	raw.resize(len);
-#else
+#elif defined(__linux__)
 	std::ifstream f("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);
 	raw.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+#else
+	WB_PLATFORM_FALLBACK("another process's command line");
 #endif
 	std::vector<std::string> out;
 	size_t start = 0;
@@ -175,11 +181,14 @@ std::optional<std::string> process_env(pid_t pid, const std::string &name) {
 	if (sysctl(mib, 4, raw.data(), &len, nullptr, 0) != 0)
 		return std::nullopt;
 	raw.resize(len);
-#else
+#elif defined(__linux__)
 	std::ifstream f("/proc/" + std::to_string(pid) + "/environ", std::ios::binary);
 	if (!f)
 		return std::nullopt;
 	raw.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+#else
+	WB_PLATFORM_FALLBACK("another process's environment (which session it's in)");
+	return std::nullopt;  /* unreadable: not this session's */
 #endif
 	std::string prefix = name + "=";
 	size_t start = 0;
@@ -214,11 +223,14 @@ std::string process_name(pid_t pid) {
 	if (sysctl(mib, 4, &kp, &len, nullptr, 0) != 0 || len < sizeof(kp))
 		return "";
 	return cut(kp.ki_comm);
-#else
+#elif defined(__linux__)
 	std::ifstream comm("/proc/" + std::to_string(pid) + "/comm");
 	std::string name;
 	std::getline(comm, name);
 	return cut(name);
+#else
+	WB_PLATFORM_FALLBACK("another process's name");
+	return "";
 #endif
 }
 
