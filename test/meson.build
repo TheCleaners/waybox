@@ -340,6 +340,16 @@ location_agent_test = executable(
   )
 test('location_agent', location_agent_test, suite: 'unit')
 
+# The main thread's mailbox and the worker pool (run under ThreadSanitizer
+# with -Dtsan=true).
+threads_test = executable(
+  'threads_test',
+  ['threads_test.cpp', 'wb_test_main.cpp', threads_src],
+  include_directories: [inc_dir],
+  dependencies: [threads_dep],
+  )
+test('threads', threads_test, suite: 'unit')
+
 # Whether only the system could have changed a file (pages run unasked).
 trust_test = executable(
   'trust_test',

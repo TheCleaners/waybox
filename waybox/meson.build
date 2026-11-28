@@ -69,6 +69,7 @@ wb_src = [
     'confirm_card.cpp',
     'seat.cpp',
     'server.cpp',
+    'threads.cpp',
     'session_lock.cpp',
     'switcher_widget.cpp',
     'view.cpp',
@@ -80,6 +81,7 @@ wb_src = [
   ]
 
 wb_dep = [
+  threads_dep,
   cairo,
   libevdev,
   libinput,

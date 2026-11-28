@@ -91,3 +91,28 @@ jobs:
                 ninja -C build-asan
                 ccache -s
                 meson test -C build-asan --print-errorlogs
+
+    # The same unit tests under ThreadSanitizer: the worker pool and the
+    # main thread's mailbox (threads.hpp), and anything else run on threads.
+    thread-sanitized-tests:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+            - name: ccache
+              uses: actions/cache@v6
+              with:
+                  path: .ccache
+                  key: ccache-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  restore-keys: ccache-${{ github.job }}-
+            - name: packages
+              run: |
+                sudo apt-get update
+                sudo apt-get install -y ccache meson ninja-build g++ python3
+            - name: build-and-test
+              run: |
+                export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache"
+                ccache -z
+                CC="ccache gcc" CXX="ccache g++" meson setup build-tsan -Dtests_only=true -Dtsan=true
+                ninja -C build-tsan
+                ccache -s
+                meson test -C build-tsan --print-errorlogs

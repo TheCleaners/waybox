@@ -20,6 +20,7 @@
 #include "bell.h"
 #include "color_pick.h"
 #include "stall_watch.h"
+#include "waybox/threads.hpp"
 #include "script.h"
 #include "startup_supervisor.h"
 #include "waybox/workspace.h"
@@ -502,6 +503,15 @@ bool wb_start_server(struct wb_server* server) {
 	init_xdg_session(server);  /* session restore */
 	init_bell(server);
 	init_stall_watch(server);
+	/* Threads: before what may hand work to them (scripts, menus). */
+	server->main_queue = std::make_shared<wb::MainQueue>();
+	server->main_queue_source = wl_event_loop_add_fd(
+			wl_display_get_event_loop(server->wl_display), server->main_queue->fd(),
+			WL_EVENT_READABLE, [](int, uint32_t, void *data) {
+				static_cast<wb::MainQueue *>(data)->run();
+				return 0;
+			}, server->main_queue.get());
+	server->workers = std::make_unique<wb::Workers>();
 	init_input_method(server);
 	init_scripts(server);  /* last: they may act on all of the above */
 
@@ -547,6 +557,14 @@ bool wb_terminate(struct wb_server* server) {
 	workspace_finish(server);
 	finish_shortcuts_inhibit(server);
 	finish_xwayland(server);  /* X11 windows still use the seat and cursor */
+	/* First: the workers finish (or give up) and stop, then results still
+	 * waiting are dropped, before what they'd have been applied to goes. */
+	server->workers.reset();
+	if (server->main_queue_source != nullptr)
+		wl_event_source_remove(server->main_queue_source);
+	server->main_queue_source = nullptr;
+	if (server->main_queue)
+		server->main_queue->close();
 	finish_pointer_constraints(server);
 	finish_input_method(server);
 
