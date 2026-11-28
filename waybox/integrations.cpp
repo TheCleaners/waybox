@@ -223,8 +223,8 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 				if (lua && value.find('/') != std::string::npos)
 					warn(n, "Page=" + value + ": a page's script is beside the file, named "
 							"without a folder");
-				else if (!lua && value != "wallpaper")
-					warn(n, "Page=" + value + ": not a known page (wallpaper) or a .lua "
+				else if (!lua && value != "wallpaper" && value != "location")
+					warn(n, "Page=" + value + ": not a known page (wallpaper, location) or a .lua "
 							"script; none shown");
 			}
 			else if (key == "Files") in.files = comma_list(value);
@@ -343,7 +343,7 @@ IntegrationCheck check_integration(std::string_view id, std::string_view text) {
 					"shouldn't need it");
 	/* A page edits a file its command names only once the user sets it: one
 	 * its own Exec= names isn't (it belongs in Files=, shown and checked). */
-	if (!in.page.empty() && in.page != "wallpaper") {
+	if (!in.page.empty() && in.page != "wallpaper" && in.page != "location") {
 		auto named = read_options(in, in.exec);
 		for (const IntegrationOption &o : in.options)
 			if ((o.type == OptionType::File || o.type == OptionType::Folder) &&

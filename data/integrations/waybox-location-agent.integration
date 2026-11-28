@@ -4,6 +4,7 @@ Category=Location
 Provides=location-agent
 Comment=Asks before an app learns where you are (GeoClue's agent)
 Exec=waybox-location-agent
+Page=location
 
 [Option policy]
 Label=Apps with no remembered answer

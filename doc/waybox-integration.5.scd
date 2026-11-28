@@ -89,7 +89,8 @@ Default=stretch
 
 *Page=*
 	A page wbconf has for this kind of program, shown with its options.
-	Known: *wallpaper* (thumbnails, a preview). Or _NAME_*.lua*: a page
+	Known: *wallpaper* (thumbnails, a preview); *location* (the location agent's
+	remembered answers, each forgotten). Or _NAME_*.lua*: a page
 	written in Lua, beside the file (see *LUA PAGES*).
 
 *Files=*
