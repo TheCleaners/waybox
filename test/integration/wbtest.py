@@ -16,6 +16,9 @@ import sys
 # Waybox's where it needs them).
 os.environ.pop("WAYBOX_SOCK", None)
 os.environ.pop("WAYBOX_PID", None)
+# Nor the session's D-Bus (a test's config errors would notify the user's
+# desktop): tests that need a bus start a private one.
+os.environ["DBUS_SESSION_BUS_ADDRESS"] = "disabled:"
 
 _procs = []
 
