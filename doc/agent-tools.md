@@ -1055,10 +1055,17 @@ hub itself for the interim bus name, the same way xdg-desktop-portal does:
 - **Snap:** the process's security label from the bus's credentials
   (`snap.<name>.…`).
 - **Not sandboxed:** refused; a host agent uses the shim.
-- **Every session and restore token is bound** to that app id and to the
-  sender's unique bus name; a call from another sender, or another app id,
-  with a session handle or a restore token it didn't get, is refused and
-  logged. A provider's manifest `Id` must be that app id.
+- **A live session is bound to its sender:** the session handle belongs to
+  the verified app id and to the sender's unique bus name, which names one
+  bus connection; a call on it from any other sender is refused and logged.
+- **A restore token is bound to the app, not to a connection:** to the
+  verified app id and its remembered answer (the `agent` permission record),
+  since the app's unique name changes whenever it reconnects. Redeeming
+  one, the hub verifies the new sender's app id the same way, checks that
+  the record still allows it (not revoked in the settings), and issues a
+  new session handle bound to that sender. A token presented by another
+  app id is refused and logged.
+- A provider's manifest `Id` must be that app id.
 
 If the hub can't establish this for the interim name on a system (no
 pidfds in the bus's credentials, say), it offers no sandboxed agents there
@@ -1512,7 +1519,9 @@ Also decided in the second pass:
   for new and reconnecting agents and across hub restarts; the caller's app
   id established from the D-Bus sender's pidfd (Flatpak's `.flatpak-info`,
   Snap's label), sessions and restore tokens bound to it, the interim
-  name's `--talk-name` stated as the exception; `list_windows` without
+  name's `--talk-name` stated as the exception (a live session bound to
+  its sender, a restore token to the app id and its permission record,
+  redeemed for a new session bound to the new sender); `list_windows` without
   titles and `window_titles` (content); `Reach=local|outside` apart from
   sensitivity, giving `openWorldHint` and keying the flow guard; picked
   files reaching sandboxed agents through the document portal; grants

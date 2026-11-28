@@ -33,6 +33,11 @@
       "restore_token" (s, from a remembered answer), "persist" (b, ask to be
       remembered). Response results: "profile" (s), "restore_token" (s, when
       remembered).
+      A session handle is bound to the caller's app id and its sender (one
+      bus connection); a restore_token to the app id and its remembered
+      answer only, so it survives the app reconnecting: redeemed, it is
+      checked against the new sender's verified app id and gives a new
+      session bound to that sender.
     -->
     <method name="Start">
       <arg name="session_handle" type="o" direction="in"/>
