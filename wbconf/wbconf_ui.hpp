@@ -627,6 +627,11 @@ bool installed(const std::string &binary);
  * or it doesn't suit the options. */
 GtkWidget *build_integration_page(Ui *ui, Ui::ProgramRow *row);
 GtkWidget *build_wallpaper_page(Ui *ui, Ui::ProgramRow *row);
+/* Page=location (pages/location.cpp): the location answers kept always,
+ * each forgotten; for the tests, a step ("dump", "forget:APP",
+ * "forget-all") on the page showing, "dump" giving what it lists. */
+GtkWidget *build_location_page(Ui *ui, Ui::ProgramRow *row);
+std::string location_page_test(const std::string &step);
 /* Page=NAME.lua (lua_page.cpp): run by wbconf-lua, drawn here; its
  * changes listed and saved with the rest. */
 GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row);

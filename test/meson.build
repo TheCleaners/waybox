@@ -1052,6 +1052,9 @@ if python.found() and not get_option('tests_only')
     integration_tests += [['wbconf_geo', 'wbconf_geo_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf',
          meson.project_source_root()], 60]]
+    integration_tests += [['wbconf_location', 'wbconf_location_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf',
+         meson.project_source_root()], 60]]
     integration_tests += [['wbconf_menu', 'wbconf_menu_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 90]]
     integration_tests += [['wbconf_rules', 'wbconf_rules_test.py',

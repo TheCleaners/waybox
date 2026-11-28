@@ -59,6 +59,7 @@ std::string provides_phrase(const std::string &what) {
 		{"idle", N_("lock and blank the screen when idle")},
 		{"polkit-agent", N_("ask for passwords")},
 		{"output-profiles", N_("arrange the monitors")},
+		{"location-agent", N_("answer apps asking where you are")},
 	};
 	auto it = phrases.find(what);
 	if (it != phrases.end())
@@ -740,6 +741,8 @@ GtkWidget *build_integration_page(Ui *ui, Ui::ProgramRow *row) {
 		return nullptr;
 	if (row->in->page == "wallpaper")
 		return build_wallpaper_page(ui, row);
+	if (row->in->page == "location")
+		return build_location_page(ui, row);
 	if (!wb::lua_page_path(*row->in).empty())
 		return build_lua_page(ui, row);
 	return nullptr;
@@ -861,7 +864,9 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 		 * its settings, folded as a page is. */
 		GtkWidget *options_parent = nullptr;  /* (set on both ways below) */
 		GtkWidget *expander = nullptr;
-		if (!in->page.empty()) {
+		/* (The location page goes under its options, in their fold: they're
+		 * few, and what it's about.) */
+		if (!in->page.empty() && in->page != "location") {
 			expander = gtk_expander_new(_("All options"));
 			options_parent = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
 			gtk_expander_set_child(GTK_EXPANDER(expander), options_parent);
@@ -906,6 +911,10 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 				gtk_widget_set_margin_bottom(row->geo, 6);
 				gtk_box_prepend(GTK_BOX(options_parent), row->geo);
 			}
+		}
+		if (expander == nullptr && in->page == "location") {
+			if (GtkWidget *page = build_integration_page(ui, row.get()))
+				gtk_box_append(GTK_BOX(options_parent), page);
 		}
 		if (expander != nullptr) {
 			if (GtkWidget *page = build_integration_page(ui, row.get()))

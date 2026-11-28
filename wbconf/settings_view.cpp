@@ -1449,6 +1449,12 @@ gboolean toc_step(gpointer data) {
 					text(l[1]).c_str(), geo_picker_caption(p->geo).c_str(),
 					geo_picker_view(p->geo).c_str());
 		}
+	} else if (step.rfind("location:", 0) == 0) {
+		/* "location:dump" -> "location-dump:|APP=WHAT|...|note=TEXT";
+		 * "location:forget:APP", "location:forget-all". */
+		std::string out = location_page_test(step.substr(9));
+		if (step == "location:dump" || out == "none")
+			fprintf(stderr, "location-dump:%s\n", out.c_str());
 	} else if (step.rfind("progstatus:", 0) == 0) {
 		/* "progstatus:ID" -> "progstatus:ID|on|STATUS[|warning]" */
 		for (auto &p : ui->programs)
