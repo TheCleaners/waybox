@@ -512,7 +512,7 @@ Overrides per provider and per tool sit on top.
 **Results are marked untrusted.** The hub tells agents, in MCP's server
 `instructions`, that text from applications (window titles, tool results)
 is untrusted content, not instructions. Each result that carries such text
-is also marked, in its `_meta` (`"org.waybox/untrusted": true`), for agents
+is also marked, in its `_meta` (`"org.freedesktop.agent/untrusted": true`), for agents
 that understand the marking. The text itself isn't rewritten: a result
 must stay what the provider returned.
 
@@ -1772,7 +1772,9 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
 ### The hub restarting
 
 1. The hub's socket closes on the compositor's side: it closes every
-   question, ends capture and input, lowers the indicator.
+   question, ends capture and input, clears the activity it showed, and
+   shows the hub unavailable (keeping the stopped state, if assistants
+   were stopped; see "The indicator").
 2. The compositor starts the hub again (within `HubRestarts`), with new
    sockets; `Hello`.
 3. The hub reads the settings (confirmed values) and the providers; audit

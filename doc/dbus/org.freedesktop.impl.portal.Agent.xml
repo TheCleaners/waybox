@@ -2,6 +2,10 @@
 <!--
   org.freedesktop.impl.portal.Agent (proposed): the Agent portal's backend,
   implemented by the agent hub (doc/agent-tools.md, "The Agent portal").
+  Only the frontend may call it: the hub accepts a call only from the bus
+  connection that owns org.freedesktop.portal.Desktop (checked on each call),
+  on a connection of the hub's own used for nothing else; an app_id is
+  trusted because of who passes it, never because it was passed.
   The frontend (xdg-desktop-portal) calls it with the caller's app id, which
   it knows for certain; the hub asks the user through the compositor
   (AgentCompositor1.Confirm, kind "portal") and keeps remembered answers as

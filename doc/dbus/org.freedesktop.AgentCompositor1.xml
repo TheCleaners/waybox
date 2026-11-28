@@ -50,7 +50,8 @@
       default.
       Returns at once; the answer comes as Answered.
       question: "profile" (s), "agent_claim" (s, the agent's self-declared
-      name, shown as a claim), "provider" (s, its approved Name), "tool" (s),
+      name, shown as a claim), "provider" (s, its approved Name), "provider_id" (s, its full Id,
+      shown under the Name, copyable), "tool" (s),
       "sensitivity" (s), "summary" (as, lines summarizing the arguments,
       already sanitized; shown as literal text, anything cut marked so),
       "arguments" (s, the full canonical arguments, escaped, secrets as
@@ -89,7 +90,8 @@
       sandboxed app through the Agent portal: "app_id", "app_name",
       "role", "remember" (b))), "title" (s), "lines" (as, what changes, one
       per line), and per kind: for "provider", "id", "name", "exec" (s) and
-      "tools" (aa{sv}: name, description, sensitivity); "digest" (s, of what
+      "tools" (aa{sv}: name, description, sensitivity, reach, untrusted (b),
+      arguments (s, the input schema shown readably)); "digest" (s, of what
       is shown: the values, the manifest, the profile; a yes applies exactly
       that); for "binding",
       "profile" (s), "exec" and "script" (s, shown, not trusted), "remote"

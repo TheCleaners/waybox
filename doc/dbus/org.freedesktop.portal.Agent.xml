@@ -29,7 +29,10 @@
       The user's answer, asked by the compositor: "App wants to use your
       desktop's tools as an assistant" (role "agent") or "App wants to offer
       tools to assistants" (role "provider"), with the profile it would get.
-      options: "handle_token" (s), "role" (s: "agent", "provider"),
+      options: "handle_token" (s), "role" (s: "agent", "provider"; fixed by the
+      session's first Start: starting it again, or asking for the other
+      role's socket, is refused; remembered answers and restore tokens are
+      per app id and role),
       "restore_token" (s, from a remembered answer), "persist" (b, ask to be
       remembered). Response results: "profile" (s), "restore_token" (s, when
       remembered).
