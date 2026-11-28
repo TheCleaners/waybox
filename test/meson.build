@@ -512,6 +512,9 @@ python = find_program('python3', required: false)
 # render test does) for every integration test.
 integration_env = {
   'LSAN_OPTIONS': 'suppressions=' + meson.current_source_dir() / 'lsan.supp',
+  # Under -Dtsan=true: races inside libraries not built with ThreadSanitizer
+  # (pango's fontconfig thread, GDBus's worker) aren't Waybox's to see.
+  'TSAN_OPTIONS': 'halt_on_error=1 suppressions=' + meson.current_source_dir() / 'tsan.supp',
   # When the tests run inside a Waybox session, the session script's exported
   # config paths would override each test's own rc.xml/menu.xml (waybox
   # ignores them when empty).

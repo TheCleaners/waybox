@@ -2,6 +2,8 @@
  * Loading icons into Cairo surfaces (see icon_loader.hpp).
  */
 #include "waybox/icon_loader.hpp"
+
+#include <mutex>
 #include "waybox/stall.hpp"
 #include "waybox/atomic_file.hpp"
 
@@ -103,7 +105,11 @@ std::string detect_icon_theme() {
  * (null if none). Cached for the process: themes rarely change while running. */
 static const IconThemeIndex *theme_index(const std::vector<std::string> &bases,
 		std::string_view theme) {
+	/* Shared by the main thread and the workers preloading icons. (Entries
+	 * are never removed, so a pointer handed out stays valid.) */
+	static std::mutex mutex;
 	static std::map<std::string, std::unique_ptr<IconThemeIndex>, std::less<>> cache;
+	std::lock_guard lock(mutex);
 	if (auto it = cache.find(theme); it != cache.end())
 		return it->second.get();
 	std::unique_ptr<IconThemeIndex> index;
@@ -121,15 +127,22 @@ static const IconThemeIndex *theme_index(const std::vector<std::string> &bases,
 	return result;
 }
 
-cairo_surface_t *load_themed_icon(const std::string &name, const std::string &theme,
-		int size) {
-	if (name.empty() || size <= 0)
-		return nullptr;
+std::vector<std::string> icon_search_dirs() {
 	const char *home = getenv("HOME");
 	const char *xdh = getenv("XDG_DATA_HOME");
 	const char *xdd = getenv("XDG_DATA_DIRS");
-	std::vector<std::string> bases = icon_base_dirs(home ? home : "",
-			xdh ? xdh : "", xdd ? xdd : "");
+	return icon_base_dirs(home ? home : "", xdh ? xdh : "", xdd ? xdd : "");
+}
+
+cairo_surface_t *load_themed_icon(const std::string &name, const std::string &theme,
+		int size) {
+	return load_themed_icon(name, theme, size, icon_search_dirs());
+}
+
+cairo_surface_t *load_themed_icon(const std::string &name, const std::string &theme,
+		int size, const std::vector<std::string> &bases) {
+	if (name.empty() || size <= 0)
+		return nullptr;
 	auto index_of = [&bases](std::string_view t) { return theme_index(bases, t); };
 	for (const std::string &path : icon_search_paths(name, theme, size, bases, index_of)) {
 		/* Most candidates don't exist: check cheaply before loading. Only
@@ -201,8 +214,12 @@ IconCache::~IconCache() {
 	clear();
 }
 
+std::string IconCache::key(const std::string &name, const std::string &theme, int size) {
+	return theme + '\n' + std::to_string(size) + '\n' + name;
+}
+
 cairo_surface_t *IconCache::get(const std::string &name, const std::string &theme, int size) {
-	std::string key = theme + '\n' + std::to_string(size) + '\n' + name;
+	std::string key = IconCache::key(name, theme, size);
 	auto it = icons_.find(key);
 	if (it == icons_.end()) {
 		wb::StallScope timing("menu-icon");
@@ -216,6 +233,52 @@ void IconCache::clear() {
 		if (surf != nullptr)
 			cairo_surface_destroy(surf);
 	icons_.clear();
+	++*generation_;
+}
+
+void IconCache::preload(const std::vector<std::string> &names, const std::string &theme,
+		int size, Workers &workers, const std::shared_ptr<MainQueue> &queue,
+		std::function<void(size_t)> done) {
+	std::vector<std::string> todo;
+	for (const std::string &n : names)
+		if (!n.empty() && !icons_.count(key(n, theme, size)) &&
+				std::find(todo.begin(), todo.end(), n) == todo.end())
+			todo.push_back(n);
+	auto left = std::make_shared<size_t>(todo.size());
+	if (todo.empty()) {
+		if (done)
+			queue->post([done] { done(0); });
+		return;
+	}
+	size_t total = todo.size();
+	/* The search folders read here, on the main thread; the workers only
+	 * get data. The cache itself is touched only on the main thread. */
+	auto dirs = std::make_shared<const std::vector<std::string>>(icon_search_dirs());
+	uint64_t gen = *generation_;
+	std::weak_ptr<uint64_t> alive = generation_;
+	for (const std::string &n : todo) {
+		std::weak_ptr<MainQueue> q = queue;
+		workers.submit([this, n, theme, size, dirs, gen, alive, q, left, done, total](std::stop_token) {
+			cairo_surface_t *loaded = load_themed_icon(n, theme, size, *dirs);
+			auto queue = q.lock();
+			if (queue == nullptr) {
+				if (loaded != nullptr)
+					cairo_surface_destroy(loaded);
+				return;
+			}
+			queue->post([this, n, theme, size, gen, alive, left, done, total, loaded] {
+				auto g = alive.lock();
+				if (g != nullptr && *g == gen &&
+						icons_.emplace(key(n, theme, size), loaded).second) {
+					/* kept */
+				} else if (loaded != nullptr) {
+					cairo_surface_destroy(loaded);
+				}
+				if (--*left == 0 && done && g != nullptr && *g == gen)
+					done(total);
+			});
+		});
+	}
 }
 
 }  // namespace wb

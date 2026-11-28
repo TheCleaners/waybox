@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Integration test: menu icons are loaded once, not at every opening.
+"""Integration test: menu icons are loaded once, in the background, not
+at every opening.
 
 A root menu with three items, two icons (absolute paths to PNGs this test
-writes), one of them used twice. Opening it twice loads each icon once
-(get_stalls' "menu-icon" count: 2, not 4 or 6); after a Reconfigure (the
-theme may have changed) they're loaded again, once. Fonts are warmed once
-Waybox is idle after starting ("font-warmup": 1).
+writes), one of them used twice. Once Waybox is idle after starting, fonts
+are warmed ("font-warmup": 1) and the menu's two icons preloaded on worker
+threads ("wb-menu icons preloaded 2"); opening the menu twice then loads
+none on the main thread (get_stalls' "menu-icon": 0). A Reconfigure clears
+the cache (the theme may have changed) and preloads them again (2 more,
+not 0), and an opening after it loads none either.
 
 Skips (exit 77) without a headless display.
 
@@ -102,7 +105,16 @@ def main():
                     return s["count"]
             return 0
 
-        time.sleep(0.5)
+        def preloaded():
+            with open(os.path.join(work, "waybox.log")) as f:
+                return [l.split("wb-menu icons preloaded ")[1].strip()
+                        for l in f if "wb-menu icons preloaded " in l]
+        for _ in range(50):
+            if preloaded():
+                break
+            time.sleep(0.1)
+        if preloaded() != ["2"]:
+            failures.append(f"preloaded at startup: {preloaded()} (want ['2'])")
         if count("font-warmup") != 1:
             failures.append(f"fonts warmed {count('font-warmup')} times, not once")
         for _ in range(2):
@@ -110,14 +122,19 @@ def main():
             if not r.get("ok"):
                 failures.append(f"ShowMenu: {r}")
             time.sleep(0.2)
-        if count("menu-icon") != 2:
-            failures.append(f"two openings loaded {count('menu-icon')} icons, not 2 (each once)")
+        if count("menu-icon") != 0:
+            failures.append(f"two openings loaded {count('menu-icon')} icons themselves, not 0")
         ipc({"request": "reconfigure"})
-        time.sleep(0.3)
+        for _ in range(50):
+            if len(preloaded()) >= 2:
+                break
+            time.sleep(0.1)
+        if preloaded() != ["2", "2"]:
+            failures.append(f"after Reconfigure: {preloaded()} (want ['2', '2']: cleared, loaded again)")
         ipc({"request": "action", "action": "ShowMenu", "command": "root-menu"})
         time.sleep(0.2)
-        if count("menu-icon") != 4:
-            failures.append(f"after Reconfigure, {count('menu-icon')} loads in all, not 4 (each again, once)")
+        if count("menu-icon") != 0:
+            failures.append(f"after Reconfigure, an opening loaded {count('menu-icon')} icons itself")
     finally:
         proc.terminate()
         try:

@@ -146,6 +146,7 @@ bool wb_reconfigure(struct wb_server *server, std::string *problem) {
 	scripts_reload(server);    /* scripts are loaded afresh */
 	startup_apply(server);     /* <startup>: start, stop what changed */
 	idle_reconfigured(server); /* <idle>: the new timeout counts from now */
+	menu_preload_icons(server);  /* the cache was cleared: the menus' icons again */
 	wlr_log(WLR_INFO, "%s", _("Reconfigured"));
 	seat_recheck_keyboard(server);  /* <virtualInput> may have changed */
 	return true;
@@ -525,8 +526,11 @@ bool wb_start_server(struct wb_server* server) {
 		auto *server = static_cast<struct wb_server *>(data);
 		if (server->config == nullptr)
 			return;
-		wb::StallScope timing("font-warmup");
-		wb::measure_text("Ag", wb::menu_style_from_theme(server->config->theme).item_text.font);
+		{
+			wb::StallScope timing("font-warmup");
+			wb::measure_text("Ag", wb::menu_style_from_theme(server->config->theme).item_text.font);
+		}
+		menu_preload_icons(server);
 	}, server);
 	agent_compositor_init(server);
 	init_input_method(server);

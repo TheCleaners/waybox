@@ -1,0 +1,18 @@
+# ThreadSanitizer suppressions for running the compositor under -Dtsan=true.
+# Libraries not built with ThreadSanitizer: it can't see their own locking,
+# so their internal threads (pango starts one to set up fontconfig; GDBus
+# runs a worker) show as races against whoever else uses them. Races in
+# Waybox's own code are never suppressed here.
+called_from_lib:libglib-2.0.so
+called_from_lib:libgobject-2.0.so
+called_from_lib:libgio-2.0.so
+called_from_lib:libpango-1.0.so
+called_from_lib:libpangocairo-1.0.so
+called_from_lib:libpangoft2-1.0.so
+called_from_lib:libfontconfig.so
+called_from_lib:libharfbuzz.so
+called_from_lib:libcairo.so
+race:libglib-2.0.so
+race:libgio-2.0.so
+race:libpango-1.0.so
+race:libfontconfig.so

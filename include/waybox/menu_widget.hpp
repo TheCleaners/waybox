@@ -152,6 +152,16 @@ private:
 	int root_x_ = 0, root_y_ = 0;
 };
 
+/* The size a menu draws its icons at, for `style`: as MenuWidget works it
+ * out (so icons preloaded at it are the ones a menu asks for). */
+int menu_icon_size(const MenuStyle &style);
+
 }  // namespace wb
+
+/* Loads, in the background, the icons the configured menus show (fixed
+ * items: not pipe or applications menus), so even a menu's first opening
+ * finds them cached. After startup and each Reconfigure. */
+void menu_preload_icons(struct wb_server *server);
+
 
 #endif /* WB_MENU_WIDGET_HPP */

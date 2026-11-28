@@ -78,8 +78,7 @@ MenuWidget::MenuWidget(struct wb_server *server, const MenuFile &menus,
 
 	/* Icons are square, sized to the row's text height; the column also gets a
 	 * little padding to the right of the icon. */
-	icon_size_ = style_.icon_column_width > 0 ? style_.icon_column_width
-			: text_height_ + 2;
+	icon_size_ = menu_icon_size(style_);
 	icon_theme_ = detect_icon_theme();
 
 	tree_ = wlr_scene_tree_create(&server_->scene->tree);
@@ -749,4 +748,32 @@ bool MenuWidget::on_key(xkb_keysym_t sym) {
 	}
 }
 
+int menu_icon_size(const MenuStyle &style) {
+	if (style.icon_column_width > 0)
+		return style.icon_column_width;
+	return measure_text("Ag", style.item_text.font).height + 2;
+}
+
 }  // namespace wb
+
+void menu_preload_icons(struct wb_server *server) {
+	if (server->config == nullptr || !server->icon_cache || !server->workers ||
+			!server->config->menu_behavior.show_icons)
+		return;
+	std::vector<std::string> names;
+	for (const wb::Menu &menu : server->config->menu.menus) {
+		if (!menu.execute.empty() || !menu.type.empty())
+			continue;  /* their items come when they open */
+		for (const wb::MenuItem &item : menu.items)
+			if (!item.icon.empty())
+				names.push_back(item.icon);
+	}
+	if (names.empty())
+		return;
+	wb::MenuStyle style = wb::menu_style_from_theme(server->config->theme);
+	server->icon_cache->preload(names, wb::detect_icon_theme(), wb::menu_icon_size(style),
+			*server->workers, server->main_queue, [](size_t n) {
+				wlr_log(WLR_INFO, "wb-menu icons preloaded %zu", n);
+			});
+}
+
