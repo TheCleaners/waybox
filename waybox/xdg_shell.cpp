@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <set>
 #include <unistd.h>
 #include "script.h"
 #include "bell.h"
@@ -1624,6 +1625,21 @@ static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 
 /* ---- Window capture ---- */
 
+/* Tests only: WAYBOX_TEST_FAIL=capture,toplevel makes that step fail,
+ * once each, as an allocation that fails would. */
+bool wb_test_fail_once(const char *what) {
+	static std::set<std::string> failed;
+	const char *spec = getenv("WAYBOX_TEST_FAIL");
+	if (spec == nullptr || failed.count(what))
+		return false;
+	std::string all = std::string(",") + spec + ",";
+	if (all.find(std::string(",") + what + ",") == std::string::npos)
+		return false;
+	failed.insert(what);
+	wlr_log(WLR_INFO, "wb-test-fail %s", what);
+	return true;
+}
+
 void drop_window_capture(struct wb_toplevel *toplevel) {
 	if (toplevel->capture_scene != nullptr) {
 		/* Takes the capture source along; capturing clients see it end. */
@@ -1640,22 +1656,32 @@ void drop_window_capture(struct wb_toplevel *toplevel) {
 static struct wlr_ext_image_capture_source_v1 *window_capture_source(
 		struct wb_toplevel *t) {
 	struct wb_server *server = t->server;
-	if (t->capture_scene == nullptr) {
-		struct wlr_surface *surface = view_surface(t);
-		if (surface == nullptr)
-			return nullptr;
-		t->capture_scene = wlr_scene_create();
-		if (t->capture_scene == nullptr)
-			return nullptr;
-		if (t->kind == wb_view_kind::Xdg)
-			wlr_scene_xdg_surface_create(&t->capture_scene->tree, t->xdg_toplevel->base);
-		else
-			wlr_scene_subsurface_tree_create(&t->capture_scene->tree, surface);
-		t->capture_source = wlr_ext_image_capture_source_v1_create_with_scene_node(
-				&t->capture_scene->tree.node, server->wl_event_loop,
-				server->allocator, server->renderer);
+	if (t->capture_scene != nullptr)
+		return t->capture_source;
+	struct wlr_surface *surface = view_surface(t);
+	if (surface == nullptr)
+		return nullptr;
+	/* Made whole, or not kept: one that failed partway is asked for again
+	 * next time, not kept failed. */
+	struct wlr_scene *scene = wlr_scene_create();
+	if (scene == nullptr)
+		return nullptr;
+	struct wlr_scene_tree *tree = t->kind == wb_view_kind::Xdg
+			? wlr_scene_xdg_surface_create(&scene->tree, t->xdg_toplevel->base)
+			: wlr_scene_subsurface_tree_create(&scene->tree, surface);
+	struct wlr_ext_image_capture_source_v1 *source =
+			tree == nullptr || wb_test_fail_once("capture") ? nullptr
+			: wlr_ext_image_capture_source_v1_create_with_scene_node(&scene->tree.node,
+					server->wl_event_loop, server->allocator, server->renderer);
+	if (source == nullptr) {
+		wlr_log(WLR_ERROR, "window capture: no capture source for %s",
+				view_app_id(t) ? view_app_id(t) : "");
+		wlr_scene_node_destroy(&scene->tree.node);
+		return nullptr;
 	}
-	return t->capture_source;
+	t->capture_scene = scene;
+	t->capture_source = source;
+	return source;
 }
 #endif
 
@@ -2272,6 +2298,8 @@ static void handle_new_xdg_popup(struct wb_server *server, void *data) {
 			[popup](void *data) { xdg_popup_destroy(popup, data); });
 }
 
+static void unregister_toplevel(struct wb_toplevel *toplevel);
+
 static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 	struct wlr_xdg_toplevel *xdg_toplevel = static_cast<struct wlr_xdg_toplevel *>(data);
 
@@ -2280,7 +2308,21 @@ static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 	toplevel->server = server;
 	toplevel->kind = wb_view_kind::Xdg;
 	toplevel->xdg_toplevel = xdg_toplevel;
-	register_toplevel(toplevel);
+	if (!register_toplevel(toplevel)) {
+		delete toplevel;
+		wl_resource_post_no_memory(xdg_toplevel->resource);
+		return;
+	}
+	/* Its surface in the frame container (below); without it, no window
+	 * either: undone before anything is listened to. */
+	toplevel->surface_tree = wlr_scene_xdg_surface_create(
+		toplevel->scene_tree, xdg_toplevel->base);
+	if (toplevel->surface_tree == nullptr) {
+		unregister_toplevel(toplevel);
+		delete toplevel;
+		wl_resource_post_no_memory(xdg_toplevel->resource);
+		return;
+	}
 
 	/* Connect each event to its handler. The handlers take the wb_toplevel
 	 * directly; the lambda supplies it from the capture. */
@@ -2300,8 +2342,6 @@ static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 	 * decoration nodes). For now the surface sits at the container origin: with
 	 * no decorations the insets are zero, so this is identical to attaching the
 	 * surface directly. */
-	toplevel->surface_tree = wlr_scene_xdg_surface_create(
-		toplevel->scene_tree, xdg_toplevel->base);
 	/* Tag both the container and the surface tree so a click on a decoration
 	 * node (which is a child of the container, not the surface) still resolves
 	 * to this toplevel via the scene walk-up. */
@@ -2320,18 +2360,36 @@ static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 			xdg_toplevel_ping_timeout);
 }
 
-void register_toplevel(struct wb_toplevel *toplevel) {
+bool register_toplevel(struct wb_toplevel *toplevel) {
 	struct wb_server *server = toplevel->server;
+	/* The frame container: holds the client surface tree and, with
+	 * server-side decorations, the frame nodes. Without it, no window. */
+	toplevel->scene_tree = wb_test_fail_once("toplevel") ? nullptr
+			: wlr_scene_tree_create(toplevel_layer_tree(server, 0));
+	if (toplevel->scene_tree == nullptr) {
+		wlr_log(WLR_ERROR, "%s", "a new window: no scene tree for it (out of memory?)");
+		return false;
+	}
 	toplevel->foreign_toplevel_handle = wlr_ext_foreign_toplevel_handle_v1_create(
 			server->foreign_toplevel_list, &toplevel->foreign_toplevel_state);
-	/* The frame container: holds the client surface tree and, with
-	 * server-side decorations, the frame nodes. */
-	toplevel->scene_tree = wlr_scene_tree_create(toplevel_layer_tree(server, 0));
 	assign_scene_descriptor(&toplevel->scene_tree->node,
 			WB_SCENE_DESC_TOPLEVEL, toplevel);
 	toplevel->desktop = server->current_desktop;
 	wl_list_insert(&server->toplevels, &toplevel->link);
 	wl_list_insert(&server->focus_order, &toplevel->focus_link);
+	return true;
+}
+
+/* register_toplevel undone (setup failed after it). */
+static void unregister_toplevel(struct wb_toplevel *toplevel) {
+	wl_list_remove(&toplevel->link);
+	wl_list_remove(&toplevel->focus_link);
+	if (toplevel->foreign_toplevel_handle != nullptr)
+		wlr_ext_foreign_toplevel_handle_v1_destroy(toplevel->foreign_toplevel_handle);
+	toplevel->foreign_toplevel_handle = nullptr;
+	if (toplevel->scene_tree != nullptr)
+		wlr_scene_node_destroy(&toplevel->scene_tree->node);
+	toplevel->scene_tree = nullptr;
 }
 
 void init_xdg_shell(struct wb_server *server) {

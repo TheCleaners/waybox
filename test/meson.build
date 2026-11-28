@@ -895,6 +895,8 @@ if python.found() and not get_option('tests_only')
     ['cycle_outline', 'cycle_outline_test.py', [], 60],
     ['switcher_close', 'switcher_close_test.py', [], 60],
     ['exit_prompt', 'exit_prompt_test.py', [], 60],
+    ['setup_failure', 'setup_failure_test.py', [], 60],
+    ['render_reset_output', 'render_reset_output_test.py', [], 60],
     ['osd_look', 'osd_look_test.py', [waybox_msg], 60],
     ['python_ipc', 'python_ipc_test.py', [touch_client, python_src_dir], 60],
     ['desktop_context', 'desktop_context_test.py', [desktop_client, vpointer_client], 60],
