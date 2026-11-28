@@ -242,6 +242,9 @@ Description=Play or pause the current media player
   `openWorldHint`, and the flow guard keys on it.
 - **Secret:** argument names whose values are redacted in the audit
   (`Secret=password,token`).
+- **Untrusted:** `yes` (the default) or `no`: whether its results can carry
+  text an application or another party controls; the flow guard keys on
+  it (see "Where data comes from").
 
 **Why a manifest at all, when MCP lists tools:**
 - **Before the provider runs.** The user sees and approves a provider and
@@ -249,6 +252,16 @@ Description=Play or pause the current media player
 - **A declaration, checked at runtime.** It is the provider's promise, and
   the hub holds it to that: a tool not in the manifest, or one whose MCP
   annotations contradict the manifest, is refused and logged.
+- **The whole model-facing definition is pinned,** not only the
+  description: at approval the hub takes each tool's definition from the
+  provider (its input and output schemas with every text in them: titles,
+  descriptions, examples, enum values, property names), shows the
+  arguments in the confirmation, and pins a digest of it with the
+  manifest. Agents get the pinned definition (with the manifest's
+  description), never the live one; a provider whose live definition
+  differs is pending again until approved anew. Arguments are checked
+  against the pinned input schema before a call is dispatched, and a call
+  that doesn't fit is refused.
 - **Trust in code, not labels.** A third-party provider runs as the user, so
   a tool declared `read` can do anything inside the provider's own process.
   Sensitivities protect the user from an agent misusing a *trusted*
@@ -321,16 +334,23 @@ names are:
   client's prefix;
 - **`__` only as the separator:** a short name or a tool name containing
   `__` has it collapsed to `_`, so the name splits back without doubt;
-- **short names at most 16 characters;** a name still too long has its
-  tool part cut and 4 characters of a hash of the full name added, so it
-  stays unique and the same from one session to the next.
+- **short names at most 16 characters,** taken from the last part of the
+  `Id`, lowercased, other characters as `_` (`org.waybar.Waybar` →
+  `waybar`);
+- **a name too long** has its tool part cut and 8 characters of a hash
+  (base32 of SHA-256) of the full `Id` and tool name added.
 
 The audit and the questions always show the full names (the provider's
 `Id` and the tool's own name), never the shortened one.
 - **Reserved:** the compositor's short name (`waybox`) belongs to the
   compositor's provider.
-- **Unique:** short names are unique; a second provider whose `Id` would
-  shorten to a name in use gets its full id.
+- **Names are settled at approval, not at discovery:** the hub works out a
+  provider's names when it's approved and records them with the approval
+  (`Names=`); they stay the same whatever order providers are found in.
+  Short names whose `Id`s collide all get the hashed form (8 characters of
+  a hash of the full `Id` added), not only the second; a name that would
+  still clash with one already recorded is refused, and the approval asks
+  the user to rename it. Nothing depends on a hash being unique by luck.
 - **No impersonation:** `com.evil.Waybox` can't appear as `waybox__close_window`.
 
 ### Transport
@@ -499,12 +519,14 @@ must stay what the provider returned.
 
 | | read | content | act | destroy | exec | capture | input | ui |
 |---|---|---|---|---|---|---|---|---|
-| safe (default) | allow | allow\* | off | off | off | off | off | ask\*\* |
+| safe (default) | allow | off\* | off | off | off | off | off | ask\*\* |
 | trusted | allow | allow | allow | ask | ask | ask | off | allow |
 | full | allow | allow | allow | allow | allow | allow | allow | allow |
 
-\* In "safe": the accessibility provider (`atspi`) is `off` by name; other
-`content` tools (window titles) are allowed.
+\* In "safe", `content` is `off` except for one tool, allowed by name:
+`waybox__window_titles`. A new provider's `content` tools aren't allowed
+in "safe" because of what they are: the user allows them, per tool, as a
+raise.
 
 \*\* In "safe", an agent's first `ui` request is asked about once, for that
 agent's connection: Agent UI never takes focus and is always marked, but a
@@ -544,7 +566,10 @@ Away=read
 
 [Provider org.waybar.Waybar]
 State=approved
+# The manifest and each tool's definition (schemas included), as approved
 Pin=sha256:…
+# The names settled at approval
+Names=waybar
 act=allow
 
 [Tool org.waybar.Waybar media_play_pause]
@@ -648,9 +673,17 @@ tools that reach out.
 - **Every result says where it came from:** `_meta`
   `org.freedesktop.agent/provenance` gives the provider, the tool and the
   sensitivity.
+- **Untrusted text is tracked apart from privacy.** A result may carry text
+  an application or another party controls whatever its sensitivity: a
+  window's app id (an app sets its own) in a `read` list, a title, a web
+  page. Each tool says so in its manifest (`Untrusted=yes`, the default for
+  other providers' tools; the compositor's own mark theirs: window titles
+  and app ids yes, a battery level no), and results carrying it are marked
+  (`_meta` `org.freedesktop.agent/untrusted`).
 - **The hub remembers, per agent connection,** which sensitivities and
-  providers it has had data from.
-- **The flow guard:** once a connection has had `content` or `capture` data,
+  providers it has had data from, and whether it has had untrusted text.
+- **The flow guard:** once a connection has had untrusted text, or `content`
+  or `capture` data,
   its calls to tools that reach out (`Reach=outside`, which `exec` and
   `input` always are) are asked about even where the level is `allow`; the question
   says why ("this assistant has read window contents").
@@ -730,7 +763,9 @@ answer are listed in the state (`Pending`). The stop key closes them
 - **The agent's name** is self-declared, so it's shown as a claim: "an
   assistant calling itself “Claude”". In a dialog people trust, it must not
   read as verified.
-- **The provider's Name** from its approved manifest is shown, not its id.
+- **The provider's Name** from its approved manifest is shown first, with
+  its full `Id` under it (copyable), so two providers that chose the same
+  Name stay apart; the tool's own name likewise, under its shortened one.
 - **The arguments** are summarized, so the user agrees to *this* command, not
   to "commands".
 
@@ -1008,7 +1043,7 @@ portal has most of `OpenInput` already.
 | `check_config` | read | Waybox's parser on a proposed rc.xml, without applying it |
 | `focus_window`, `move_window`, `resize_window`, `set_window_state`, `send_to_desktop`, `switch_desktop` | act | as their actions do |
 | `close_window` | destroy | asks the window to close, as its close button |
-| `kill_window` | destroy | ends a window's process (Waybox's Kill), for one that doesn't answer |
+| `kill_window` | destroy | ends the process that owns a window (Waybox's Kill), for one that doesn't answer: every window of that process goes, with any unsaved work; the question names them. A first call asks the process to end (`SIGTERM`); calling it again within a few seconds forces it (`SIGKILL`), which always asks afresh, whatever grant covered the first |
 | `run_action` | exec | any rc.xml action by name (Execute among them) |
 | `run_command` | exec | a command, as Execute runs it |
 | `write_config` | exec | rc.xml replaced (backed up, checked first, then Reconfigure): it can run commands |
@@ -1024,12 +1059,17 @@ and the audit would only see "raw".
 
 ## Scripts as providers
 
-Waybox's Lua scripts offer tools with `wb.mcp_tool(...)`. To the hub,
-the `waybox` provider simply has more tools, each declaring its sensitivity
-in the script.
-
-A policy hook, `wb.policy("mcp", fn)`, sees every call routed through the
-compositor provider, and can refuse it.
+Waybox's Lua scripts offer tools with `wb.mcp_tool(...)`, each declaring
+its sensitivity, reach and schema in the script.
+- **Each script's tools are a provider of their own** (`Id`
+  `<compositor>.script.<script name>`), approved like any other: the
+  compositor builds its manifest from the script's declarations, and the
+  approval pins a digest of that manifest and of the script's file. A
+  script whose tools or file changed is pending again; its tools are
+  offered to no agent until the user approves what they now are.
+- **A policy hook,** `wb.policy("mcp", fn)`, sees every call routed through
+  the compositor (its own tools and scripts' tools) after the hub has
+  allowed it, and can refuse it; it can't allow what the hub refused.
 
 ## Agents in practice
 
@@ -1409,7 +1449,8 @@ injected instructions into it. The rules:
 | Attacker | Example | Defended by |
 |---|---|---|
 | **A prompt-injected agent** (the main threat) | a web page or window title telling the model to run commands | levels, consent, grants scoped to the agent, the stop key, the audit |
-| **A malicious or compromised provider** | a tool that changes its description to steer the model | approval of the manifest, pinned descriptions, reserved and unique names |
+| **A provider tampering with its tools' definitions** | a tool that changes its description or schema to steer the model | the pinned definition (manifest and schemas), reserved names settled at approval |
+| **A malicious or compromised provider's code** | an approved provider, or an update of it, reading files or sending data out | nothing in this design: approving a provider trusts its code, as installing it does; its sensitivities and `Reach` are its promise, and the audit shows what it was called for |
 | **Another program of the user** | an app trying to grant itself access | nothing it can do *through this design* gives it more than it had; see below |
 | **A sandboxed app** | a Flatpak with session bus access | no arguments on D-Bus, nothing that grants over D-Bus, no access to the compositor's private connection |
 | **An agent phishing the user** | a form asking for a password, styled like the system's | agent UI always looks like agent UI, secret fields warn, no focus stealing |
@@ -1759,6 +1800,15 @@ Also decided in the second pass:
   portals; MCP's tool annotations implied by sensitivities; `McpName`
   linking a manifest to its `server.json`; unknown sensitivities `off`;
   windows named by `ext-foreign-toplevel-list`; the Agent portal.
+- **Review 22, batch C:** tools' whole model-facing definitions pinned
+  (schemas too), arguments checked against them; names settled at
+  approval, colliding short names all hashed, 8-character hashes, clashes
+  refused; "safe" with `content` off but `waybox__window_titles`;
+  untrusted text tracked apart from sensitivity (`Untrusted=`), the flow
+  guard keying on it; the provider's `Id` under its Name in questions;
+  `kill_window` named process-wide, forcing always asking; each Lua
+  script's tools a provider of their own, pinned with the script's file;
+  the threat model splitting definition tampering from a provider's code.
 - **Review 22, batch B:** `AgentProcess(conn, info)` with a pidfd or a
   process id and start time, `ForgetAgent(conn)`; agents launched in their
   scope from the start (`agents-run`), an already running agent tracked
