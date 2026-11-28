@@ -1,10 +1,9 @@
 # Agent tools: a desktop broker for AI assistants
 
-*Draft, third pass: Waybox's implementation target, written as the
-standard we propose. Interface names are the proposed shared ones
-(`org.freedesktop.*`); see "Names" for what ships before they're agreed. It supersedes the
-plan in #196; the decisions on the first pass's questions are at the end,
-with the order it's built in.*
+*A proposed standard for letting AI assistants use the desktop safely,
+across compositors and desktops. Waybox is its first implementation.
+Interface names are the proposed shared ones (`org.freedesktop.*`); see
+"Names" for what's used until they're agreed.*
 
 ## Why
 
@@ -626,8 +625,7 @@ model: full" and "cloud assistant: safe".
     the settings.
   - **Why not the executable:** most assistants are interpreted. Claude
     Code runs as `node`, many others as `python3`, so the executable the hub
-    sees is the interpreter, which every script shares. (The prototype
-    logged its agent as `/usr/bin/python3.14`.)
+    sees is the interpreter, which every script shares.
   - **What the confirmation shows:** the executable and the script from the
     command line (`node …/cli.js`), so the user knows what they're binding.
     The hub records them for display and the audit, never as authority.
@@ -925,7 +923,7 @@ properties and signals above.
 
 **Waybar needs no change to be a surface.** A custom module runs a small
 script that follows the hub and prints Waybar's JSON. Click is `Stop`,
-right-click is `RevokeAll`. The prototype's `surface.py` is such a script.
+right-click is `RevokeAll`.
 
 **Short calls are too brief to show.** Most calls start and end within
 milliseconds, so `Active` flickers: an indicator follows `Watching`
@@ -1052,7 +1050,10 @@ portal has most of `OpenInput` already.
 - **the indicator,** with its states (see "The indicator"). Switchable; a
   surface may show one too.
 
-### The `waybox` provider's tools
+### A compositor's own tools: Waybox's
+
+What a compositor offers as its own provider is its own choice; Waybox's,
+as an example:
 
 | Tool | Sensitivity | What it does |
 |---|---|---|
@@ -1486,8 +1487,9 @@ injected instructions into it. The rules:
   as a notice or a waiting entry the user chooses to open. Otherwise it
   would catch the keystrokes of someone typing elsewhere.
   - **The compositor enforces it.** A provider can't keep the compositor
-    from focusing its new window (the prototype's question opened focused,
-    its text selected). So the compositor decides by who opened it, not by
+    from focusing its new window, and a question that opens focused, its
+    text selected, catches whatever the user types next. So the compositor
+    decides by who opened it, not by
     what the window says: the hub tells it a UI provider's process while
     that provider has a request open (`UiRequest(conn, info)` on the
     compositor interface, as `AgentProcess`), and any window that process
@@ -1507,8 +1509,8 @@ injected instructions into it. The rules:
   whether it was answered.
   - **Answers aren't logged:** they're the user's input to that agent, given
     knowingly, and may be private.
-  - **A secret question's prompt isn't secret** and is logged. The prototype
-    first redacted it, which hid what a phishing attempt had asked.
+  - **A secret question's prompt isn't secret** and is logged: redacting it
+    would hide what a phishing attempt asked.
   - **Files:** a file picked in the chooser goes to the agent because the
     user picked it.
 
@@ -1561,8 +1563,8 @@ are the defence. Rules about where data may flow are out of scope for now.
 
 **Read results can carry injections.** Window titles and other text from
 applications reach the model, and are allowed even in "safe". Results
-are marked as untrusted content, for agents that understand the marking
-(decision 2); for those that don't, the hub's instructions say so.
+are marked as untrusted content, for agents that understand the marking;
+for those that don't, the hub's instructions say so.
 
 ### Rules that close specific holes
 
@@ -1924,182 +1926,16 @@ exact name. So when the shared names are agreed:
   in the release notes; the old names are then removed in a release that
   says so.
 
-## Decisions on the first pass's questions
+## Open questions
 
-1. **Sensitivity is self-declared.** The hub doesn't classify tools itself
-   for now: approving a provider is where the user decides whether to
-   believe what it declares.
-2. **Content reaching the model.** Marked: in the hub's instructions, and
-   in each result's `_meta` (see "Sensitivity and levels"); never
-   rewritten.
-3. **Who starts the hub.** Under Waybox, Waybox, with the private
-   connection. Elsewhere a systemd user unit, documented but not built, and
-   limited to `read` and `content` (no trusted consent without a
-   compositor).
-4. **Sandboxed agents.** In scope (third pass): the Agent portal, which is
-   also the recommended way to confine an agent.
-5. **Resource streams.** Tools only at first; resources and subscriptions
-   later.
-6. **The name.** The spec uses the proposed shared names; what ships before
-   they're agreed is under "Names".
-7. **The consent route on other desktops.** The compositor interface
-   (third pass): every compositor draws its own questions, as Waybox does;
-   no portal Access backend is used.
-8. **Agent UI as a standard of its own.** Later, likewise.
-
-Also decided in the second pass:
-- **Settings** in a file of their own (`agents/tools/settings.ini`), not rc.xml.
-- **`ui` at `ask` in "safe"**, once per agent connection.
-- **The stop key:** Super+Escape by default, changeable, never unbound.
-- **Third pass:** the hub desktop-neutral, the compositor interface
-  (peer-to-peer D-Bus) for consent, capture, input and the stop key; the
-  compositor's tools as an ordinary provider; capture as files and input
-  through libei (EIS), not through the ScreenCast and RemoteDesktop
-  portals; MCP's tool annotations implied by sensitivities; `McpName`
-  linking a manifest to its `server.json`; unknown sensitivities `off`;
-  windows named by `ext-foreign-toplevel-list`; the Agent portal.
-- **Review 22, finding 40:** moving to the shared names: the hub's state
-  under both names and paths for at least twelve months, surfaces trying
-  the shared one first, the old marked `Deprecated`; the portal in
-  xdg-desktop-portal tried first, the interim frontend kept alone on its
-  connection meanwhile, remembered answers carried over; Agent UI with no
-  bus name to migrate.
-- **Review 22, batch D:** capture and input the hub's own tools (the
-  reserved `desktop` provider), each step's owner named; UI providers
-  reached over their registration's private socket, never a well-known
-  name; one live prompt per request, closed before falling back; the
-  no-focus rule by the provider's process (`UiRequest`), the tag only a
-  description; `notify` and `pick_file` never a UI provider's; saving
-  through `AddNamedFull`; typed text never in the audit by default
-  (`AuditInput=full` with a warning); long commands and Lua kept in full
-  beside the audit; `CallEnded` with fixed codes, no provider text;
-  `MaxFrame` enforced before parsing.
-- **Review 22, batch C:** tools' whole model-facing definitions pinned
-  (schemas too), arguments checked against them; names settled at
-  approval, colliding short names all hashed, 8-character hashes, clashes
-  refused; "safe" with `content` off but `waybox__window_titles`;
-  untrusted text tracked apart from sensitivity (`Untrusted=`), the flow
-  guard keying on it; the provider's `Id` under its Name in questions;
-  `kill_window` named process-wide, forcing always asking; each Lua
-  script's tools a provider of their own, pinned with the script's file;
-  the threat model splitting definition tampering from a provider's code.
-- **Review 22, batch B:** `AgentProcess(conn, info)` with a pidfd or a
-  process id and start time, `ForgetAgent(conn)`; agents launched in their
-  scope from the start (`agents-run`), an already running agent tracked
-  only from connecting, said so; "confined" only for a sandbox with no
-  other way out, the command tool off said as such; the interim portal
-  frontend on a bus connection of its own, backend calls accepted only
-  from xdg-desktop-portal's connection, the state and backend on
-  separate connections; portal sockets ending with their session; a
-  session's role fixed, remembered answers per app id and role; tokens
-  of 256 random bits, compared by hash in constant time.
-- **Review 22, finding 39:** MCP revisions: the hub a full endpoint on
-  each side speaking both eras (2025-06-18 and 2025-11-25 with
-  `initialize`; 2026-07-28 stateless), told apart per connection;
-  `server/discover` toward providers; the hub's connection the socket, not
-  an MCP session; tool lists per agent identity, `cacheScope` private;
-  sampling and elicitation declined in either era's form; shims replaying
-  `initialize` or `subscriptions/listen` after a hub restart; tasks later.
-- **Review 22, batch A:** one set of call states ("Calls"): dispatched
-  calls end completed or outcome unknown, never "call again", MCP
-  cancellation a request; an absolute `CallDeadline`, `MaxInFlight`;
-  intent lines synced before high-impact calls; one question per call,
-  approved with its exact arguments (shown in full, a digest dispatched);
-  confirmations applying exactly what they showed; consent switched off
-  with the user choosing what `ask` becomes (`Consent=deny`: as `off`, at
-  once; `Consent=allow`: as `allow`, confirmed, listing what it lets
-  through); `StopAssistants`
-  for a panel's Stop; the stop key ending the compositor's own commands
-  and saying what it can't guarantee; the indicator's states and their
-  order; questions closed when the user goes away, Review never granting
-  after the fact; a revoked binding taking its questions, grants and
-  disallowed calls with it.
-- **Tenth pass (review 21):** the stopped state the compositor's, holding
-  for new and reconnecting agents and across hub restarts; the caller's app
-  id established from the D-Bus sender's pidfd (Flatpak's `.flatpak-info`,
-  Snap's label), sessions and restore tokens bound to it, the interim
-  name's `--talk-name` stated as the exception (a live session bound to
-  its sender, a restore token to the app id and its permission record,
-  redeemed for a new session bound to the new sender); `list_windows` without
-  titles and `window_titles` (content); `Reach=local|outside` apart from
-  sensitivity, giving `openWorldHint` and keying the flow guard; picked
-  files reaching sandboxed agents through the document portal; grants
-  naming their connection; the audit's durability (`AuditSync`).
-- **Ninth pass:** the agent's processes held to its levels by the
-  compositor (a systemd scope on Linux, the parent chain elsewhere:
-  capture, virtual input, clipboard, window management and IPC from
-  programs the agent starts; `AgentProcess`, `ClientCall`); the limits
-  said plainly for unconfined and confined agents; agents' own command
-  tools off or sandboxed recommended (`ShellOff=` in integration files);
-  the review's gaps: `Resumed()`, `Bindings`, `Unconfirmed`.
-- **Eighth pass:** one `agents/` folder per XDG location (`tools/`,
-  `clients/`, beside Agent Skills' `skills/`); existing MCP servers as
-  providers, a dispatching tool at its worst case's sensitivity; the
-  desktop's skill shipped with the hub; skills that act going through the
-  hub's tools.
-- **Seventh pass:** the flow guard keeps window titles (they carry
-  injections) but asks about the flow once, "for this session" offered
-  whatever the sensitivity; agents in practice (host agents first);
-  agent integration files for adding the hub to an agent's configuration;
-  unattended agents (no questions while away, denied with a notice on
-  return; `Away=` levels in a profile); progress sent while a question
-  waits, a client's cancel closing it; how this relates to ACP's
-  permission requests, and the `asks` hint for frontends.
-- **Sixth pass:** durations and limits are tunables (suggested values,
-  what each trades; a user weakening a guard confirms it, a distribution's
-  defaults don't); the flows written out; the compositor's `Locked`;
-  questions shared by identical calls, closed when unanswered or when the
-  call is cancelled; a denial reaching the model as a tool error; the
-  stopped state after the stop key, resumed by a confirmation; `Propose`
-  for the settings and surfaces to ask for a confirmation; binding ahead
-  of time or from a connected agent; the hub never rewriting the user's
-  file; the portal backend and its confirmation kind.
-- **Fifth pass:** the shim's handshake (the token from a file, never the
-  command line; `lower`; `label`); the settings file's format under
-  `$XDG_CONFIG_HOME/agents/tools/`, raises held at the confirmed values
-  until confirmed; the audit's line format and rotation; the state
-  interface's signals as `PropertiesChanged`.
-- **Fourth pass:** tool names `<provider>__<tool>`, lowercase, at most 48
-  characters; the hub supervised by the compositor (what survives a
-  restart, what doesn't); sampling and elicitation not passed on (later,
-  sensitivities of their own); translations in manifests, the agent
-  always getting the approved untranslated text; provenance on every
-  result and the flow guard; no network listener, remote clients through
-  a local bridge marked `remote`.
-- **From #196:** AT-SPI (`content`), `check_config` (`read`),
-  `write_config`, `run_action` and `run_lua` (`exec`), and the process
-  tools for a stuck window (`read`; Kill as `destroy`). Raw IPC is dropped.
-
-## The order it's built in
-
-One pull request each, each useful on its own; tests on private buses
-and a headless Waybox, never the user's session.
-
-1. **The hub and the shim, started by Waybox:** the two sockets (the
-   compositor interface's `Hello`; the compositor's tools as MCP); the
-   `waybox` provider's `read` and `content` tools (the process id and
-   whether a window answers in its list); the audit log. Every agent gets
-   "safe", with `ask` acting as `off` until step 2.
-2. **Consent and the stop key:** questions drawn by Waybox (physical input
-   only, a pause before input counts, Deny the default); grants per
-   connection; the D-Bus state for surfaces; `act` and `destroy` tools at
-   `ask`.
-3. **Settings, profiles and tokens:** `agents/tools/settings.ini`, the confirmation
-   for anything that raises power, wbconf's page.
-4. **Config and command tools:** `check_config`, `write_config`,
-   `run_command`, `run_action`.
-5. **Providers of other programs:** manifests, activated and registering
-   providers, approval and pinning.
-6. **The Agent portal:** sandboxed agents and providers, at
-   `org.waybox.portal.Agent` until the shared portal is agreed.
-7. **The accessibility provider** (`atspi`).
-8. **Scripts:** `wb.mcp_tool`, `wb.policy("mcp")`, `run_lua`.
-9. **Agent UI:** the `ui` tools, Waybox's fallbacks, the `agent-ui` rule.
-10. **Capture and input** (`Capture`, `OpenInput` with EIS), with the
-    indicator.
-
-## Still open
-
-- **When to propose this outside Waybox,** and as what: the hub's D-Bus
-  state, Agent UI and a consent portal are each candidates. After it has
-  been in use for a while.
+- **What else the hub carries:** it offers tools only. MCP's resources and
+  prompts, its tasks extension, and remote MCP servers as providers are
+  left for a later version, each once it can be held to the same levels,
+  consent and call states as tools.
+- **Classifying tools:** a provider declares its own sensitivity, and
+  approving it is where the user decides whether to believe that. Whether
+  the hub should also recognize well-known kinds of tools itself is open.
+- **Where to propose it, and in what parts:** the hub's state interface,
+  the compositor interface, the Agent portal and Agent UI could each be
+  proposed on its own; Agent UI in particular is useful without the rest.
+  Best done once this has been in use for a while.
