@@ -3,6 +3,7 @@
 #include <unistd.h>
 
 #include "script.h"
+#include "waybox/agent_compositor.hpp"
 #include "waybox/server.h"
 #include "version.h"
 #include "idle.h"
@@ -51,6 +52,7 @@ static int handle_signal(int sig, void *data) {
 		case SIGCHLD:
 			startup_reap(srv);
 			scripts_reap(srv);
+			agent_compositor_reap(srv);
 			break;
 	}
 	return 0;

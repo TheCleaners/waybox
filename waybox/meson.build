@@ -70,6 +70,7 @@ wb_src = [
     'seat.cpp',
     'server.cpp',
     'threads.cpp',
+    'agent_compositor.cpp',
     'session_lock.cpp',
     'switcher_widget.cpp',
     'view.cpp',
@@ -80,8 +81,17 @@ wb_src = [
   ),
   ]
 
+# The compositor interface's description, served as the spec defines it.
+agent_compositor_xml_h = configure_file(
+  input: 'agent_compositor_xml.h.in',
+  output: 'agent_compositor_xml.h',
+  configuration: {'AGENT_COMPOSITOR_XML':
+      import('fs').read(meson.project_source_root() / 'doc' / 'dbus' / 'org.freedesktop.AgentCompositor1.xml')},
+)
+
 wb_dep = [
   threads_dep,
+  dependency('gio-2.0'),
   cairo,
   libevdev,
   libinput,
