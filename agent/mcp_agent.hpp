@@ -52,15 +52,48 @@ inline constexpr size_t kMaxListens = 8;
 const std::vector<std::string> &older_revisions();
 inline constexpr const char *kStatelessRevision = "2026-07-28";
 
-class AgentEndpoint {
+class McpServer;
+
+/* Where an McpServer's tools come from: the hub's providers, or a
+ * provider's own tools. */
+class ToolSource {
+public:
+	virtual ~ToolSource() = default;
+	/* The tool definitions, as clients get them. */
+	virtual json::Array list_tools() = 0;
+	/* Calls a tool; the source answers with server.complete() or
+	 * server.fail(), now or later. */
+	virtual void call(McpServer &server, const json::Value &id, const std::string &name,
+			const json::Object &args) = 0;
+	/* The client cancelled a call still under way (no answer is sent for
+	 * it from now). */
+	virtual void cancel(const json::Value &id) { (void)id; }
+};
+
+/* An MCP server endpoint, either era: lines in, lines out. */
+class McpServer {
 public:
 	enum class Era { Unknown, Older, Stateless };
 
-	AgentEndpoint(std::string server_name, std::string server_version,
-			size_t max_listens = kMaxListens);
+	McpServer(std::string server_name, std::string server_version,
+			size_t max_listens = kMaxListens, ToolSource *tools = nullptr,
+			std::string instructions = {});
 
-	/* A line from the agent (no newline); the lines to send back. */
+	/* A line from the client (no newline); the lines to send back (answers
+	 * a tool source gave meanwhile among them). */
 	std::vector<std::string> receive(std::string_view line);
+
+	/* A call's answer: a tool result (content, structuredContent, isError),
+	 * or an error. Nothing is sent for a call not under way (cancelled,
+	 * answered already). The lines go out with take_output(). */
+	void complete(const json::Value &id, json::Object result);
+	void fail(const json::Value &id, int code, const std::string &message);
+	/* Lines answered since the last receive() or take_output(). */
+	std::vector<std::string> take_output();
+	/* The tool list changed: the client is told (older era: a
+	 * notification; stateless: on listen streams that asked). */
+	void tools_changed();
+	size_t calls_under_way() const { return calls_.size(); }
 
 	Era era() const { return era_; }
 	/* The revision in use (the older era: as negotiated). */
@@ -77,6 +110,11 @@ public:
 private:
 	std::string server_name_, server_version_;
 	size_t max_listens_;
+	ToolSource *tools_;
+	std::string instructions_;
+	std::vector<json::Value> calls_;        /* calls under way, by id */
+	std::vector<json::Value> tool_listens_; /* listens that asked for tool changes */
+	std::vector<std::string> outbox_;
 	Era era_ = Era::Unknown;
 	std::string revision_, claimed_;
 	bool initialized_ = false;
@@ -84,6 +122,7 @@ private:
 	std::vector<std::string> notes_;
 
 	void claim(const json::Value *client_info);
+	json::Value begin_call(const json::Value &id, const json::Value *params);
 	json::Value request(const std::string &method, const json::Value &id,
 			const json::Value *params, std::vector<std::string> &extra);
 	json::Object finish(json::Object result) const;

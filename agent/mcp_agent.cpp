@@ -156,16 +156,50 @@ const std::vector<std::string> &older_revisions() {
 	return v;
 }
 
-AgentEndpoint::AgentEndpoint(std::string server_name, std::string server_version,
-		size_t max_listens)
+McpServer::McpServer(std::string server_name, std::string server_version,
+		size_t max_listens, ToolSource *tools, std::string instructions)
 	: server_name_(std::move(server_name)), server_version_(std::move(server_version)),
-	  max_listens_(max_listens) {}
+	  max_listens_(max_listens), tools_(tools), instructions_(std::move(instructions)) {}
 
-std::vector<std::string> AgentEndpoint::take_notes() {
+void McpServer::complete(const json::Value &id, json::Object result) {
+	auto it = std::find(calls_.begin(), calls_.end(), id);
+	if (it == calls_.end())
+		return;
+	calls_.erase(it);
+	outbox_.push_back(json::dump(result_response(id, finish(std::move(result)))));
+}
+
+void McpServer::fail(const json::Value &id, int code, const std::string &message) {
+	auto it = std::find(calls_.begin(), calls_.end(), id);
+	if (it == calls_.end())
+		return;
+	calls_.erase(it);
+	outbox_.push_back(json::dump(error_response(id, code, message)));
+}
+
+std::vector<std::string> McpServer::take_output() {
+	return std::exchange(outbox_, {});
+}
+
+void McpServer::tools_changed() {
+	if (era_ == Era::Older && initialized_) {
+		outbox_.push_back(json::dump(json::Object{
+			{"jsonrpc", "2.0"}, {"method", "notifications/tools/list_changed"}}));
+	} else if (era_ == Era::Stateless) {
+		for (const json::Value &id : tool_listens_)
+			outbox_.push_back(json::dump(json::Object{
+				{"jsonrpc", "2.0"},
+				{"method", "notifications/tools/list_changed"},
+				{"params", json::Object{{"_meta", json::Object{{kSubscriptionKey, id}}}}},
+			}));
+	}
+}
+
+std::vector<std::string> McpServer::take_notes() {
 	return std::exchange(notes_, {});
 }
 
-std::vector<std::string> AgentEndpoint::close_listens() {
+std::vector<std::string> McpServer::close_listens() {
 	std::vector<std::string> out;
 	for (const json::Value &id : listens_) {
 		json::Object result = finish(json::Object{});
@@ -175,10 +209,11 @@ std::vector<std::string> AgentEndpoint::close_listens() {
 		out.push_back(json::dump(result_response(id, std::move(result))));
 	}
 	listens_.clear();
+	tool_listens_.clear();
 	return out;
 }
 
-void AgentEndpoint::claim(const json::Value *client_info) {
+void McpServer::claim(const json::Value *client_info) {
 	if (client_info == nullptr)
 		return;
 	std::string name = client_info->str("name");
@@ -192,7 +227,7 @@ void AgentEndpoint::claim(const json::Value *client_info) {
 }
 
 /* A stateless result carries resultType and the hub's name. */
-json::Object AgentEndpoint::finish(json::Object result) const {
+json::Object McpServer::finish(json::Object result) const {
 	if (era_ == Era::Stateless) {
 		result["resultType"] = "complete";
 		json::Object meta;
@@ -205,7 +240,7 @@ json::Object AgentEndpoint::finish(json::Object result) const {
 	return result;
 }
 
-std::vector<std::string> AgentEndpoint::receive(std::string_view line) {
+std::vector<std::string> McpServer::receive(std::string_view line) {
 	std::vector<std::string> out;
 	auto msg = json::parse(line);
 	if (!msg) {
@@ -230,8 +265,17 @@ std::vector<std::string> AgentEndpoint::receive(std::string_view line) {
 		 * the agent ends (and, as cancelled, gets no response). */
 		if (*method->string() == "notifications/cancelled")
 			if (const json::Value *p = msg->get("params"))
-				if (const json::Value *rid = p->get("requestId"))
+				if (const json::Value *rid = p->get("requestId")) {
 					std::erase(listens_, *rid);
+					std::erase(tool_listens_, *rid);
+					/* A call cancelled: no answer from now. */
+					auto it = std::find(calls_.begin(), calls_.end(), *rid);
+					if (it != calls_.end()) {
+						calls_.erase(it);
+						if (tools_ != nullptr)
+							tools_->cancel(*rid);
+					}
+				}
 		return out;
 	}
 	std::vector<std::string> extra;
@@ -240,10 +284,30 @@ std::vector<std::string> AgentEndpoint::receive(std::string_view line) {
 		out.push_back(std::move(e));
 	if (!response.is_null())
 		out.push_back(json::dump(response));
+	/* (answers a tool source gave at once) */
+	for (std::string &o : take_output())
+		out.push_back(std::move(o));
 	return out;
 }
 
-json::Value AgentEndpoint::request(const std::string &method, const json::Value &id,
+/* A tools/call: handed to the tool source, which answers now or later. */
+json::Value McpServer::begin_call(const json::Value &id, const json::Value *params) {
+	const json::Value *name = params != nullptr ? params->get("name") : nullptr;
+	if (name == nullptr || name->string() == nullptr)
+		return error_response(id, kInvalidParams, "no tool name");
+	const json::Value *args = params->get("arguments");
+	if (args != nullptr && args->object() == nullptr)
+		return error_response(id, kInvalidParams, "arguments aren't an object");
+	if (std::find(calls_.begin(), calls_.end(), id) != calls_.end())
+		return error_response(id, kInvalidRequest, "a call with this id is under way");
+	if (tools_ == nullptr)
+		return error_response(id, kInvalidParams, "unknown tool: " + *name->string());
+	calls_.push_back(id);
+	tools_->call(*this, id, *name->string(), args != nullptr ? *args->object() : json::Object{});
+	return nullptr;  /* (answered through complete or fail) */
+}
+
+json::Value McpServer::request(const std::string &method, const json::Value &id,
 		const json::Value *params, std::vector<std::string> &extra) {
 	const json::Value *meta = meta_of(params);
 	const json::Value *asked = meta != nullptr ? meta->get(kVersionKey) : nullptr;
@@ -284,22 +348,24 @@ json::Value AgentEndpoint::request(const std::string &method, const json::Value 
 					? want : known.back();
 			initialized_ = true;
 			claim(params->get("clientInfo"));
-			return result_response(id, json::Object{
+			json::Object r{
 				{"protocolVersion", revision_},
 				{"capabilities", json::Object{{"tools", json::Object{{"listChanged", true}}}}},
 				{"serverInfo", json::Object{{"name", server_name_}, {"version", server_version_}}},
-			});
+			};
+			if (!instructions_.empty())
+				r["instructions"] = instructions_;
+			return result_response(id, std::move(r));
 		}
 		if (method == "ping")
 			return result_response(id, json::Object{});
 		if (!initialized_)
 			return error_response(id, kInvalidRequest, "not initialized");
 		if (method == "tools/list")
-			return result_response(id, json::Object{{"tools", json::Array{}}});
-		if (method == "tools/call") {
-			std::string name = params != nullptr ? params->str("name") : "";
-			return error_response(id, kInvalidParams, "unknown tool: " + name);
-		}
+			return result_response(id, json::Object{
+					{"tools", tools_ != nullptr ? tools_->list_tools() : json::Array{}}});
+		if (method == "tools/call")
+			return begin_call(id, params);
 		return error_response(id, kMethodNotFound, "not supported: " + method);
 	}
 
@@ -313,25 +379,27 @@ json::Value AgentEndpoint::request(const std::string &method, const json::Value 
 						{"requested", *asked->string()}});
 	revision_ = kStatelessRevision;
 	claim(meta->get(kClientInfoKey));
-	if (method == "server/discover")
-		return result_response(id, finish(json::Object{
+	if (method == "server/discover") {
+		json::Object r{
 			{"supportedVersions", json::Array{kStatelessRevision}},
 			{"capabilities", json::Object{{"tools", json::Object{{"listChanged", true}}}}},
 			{"ttlMs", kToolsTtlMs},
 			{"cacheScope", "private"},
-		}));
+		};
+		if (!instructions_.empty())
+			r["instructions"] = instructions_;
+		return result_response(id, finish(std::move(r)));
+	}
 	if (method == "ping")
 		return result_response(id, finish(json::Object{}));
 	if (method == "tools/list")
 		return result_response(id, finish(json::Object{
-			{"tools", json::Array{}},
+			{"tools", tools_ != nullptr ? tools_->list_tools() : json::Array{}},
 			{"ttlMs", kToolsTtlMs},
 			{"cacheScope", "private"},
 		}));
-	if (method == "tools/call") {
-		std::string name = params != nullptr ? params->str("name") : "";
-		return error_response(id, kInvalidParams, "unknown tool: " + name);
-	}
+	if (method == "tools/call")
+		return begin_call(id, params);
 	if (method == "subscriptions/listen") {
 		/* Acknowledged with what's honored (tool-list changes only); the
 		 * stream stays open: its response comes only when it ends. */
@@ -346,6 +414,8 @@ json::Value AgentEndpoint::request(const std::string &method, const json::Value 
 		if (listens_.size() >= max_listens_)
 			return error_response(id, kInvalidRequest, "too many open listen streams (MaxListens)");
 		listens_.push_back(id);
+		if (honored.count("toolsListChanged"))
+			tool_listens_.push_back(id);
 		extra.push_back(json::dump(json::Object{
 			{"jsonrpc", "2.0"},
 			{"method", "notifications/subscriptions/acknowledged"},

@@ -40,6 +40,14 @@ install_data(
   install_mode: 'rw-r--r--',
   )
 
+# The compositor's agent tools: their manifest, where the hub reads them
+# (doc/agent-tools.md, "The manifest").
+install_data(
+  'agents' / 'tools' / 'org.waybox.Waybox.ini',
+  install_dir: get_option('prefix') / get_option('datadir') / 'agents' / 'tools',
+  install_mode: 'rw-r--r--',
+  )
+
 install_data(
   'waybox.svg',
   install_dir: get_option('prefix') / get_option('datadir') / 'icons',

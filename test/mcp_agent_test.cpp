@@ -3,11 +3,11 @@
 #include "../agent/mcp_agent.hpp"
 
 using namespace wb;
-using agent::AgentEndpoint;
+using agent::McpServer;
 
 namespace {
 
-json::Value one(AgentEndpoint &ep, const std::string &line) {
+json::Value one(McpServer &ep, const std::string &line) {
 	auto out = ep.receive(line);
 	if (out.size() != 1)
 		return json::Value(nullptr);
@@ -63,17 +63,17 @@ WB_TEST(handshake_refused) {
 }
 
 WB_TEST(older_era) {
-	AgentEndpoint ep("waybox-agent-hub", "0.3");
+	McpServer ep("waybox-agent-hub", "0.3");
 	/* Before initialize: refused. */
 	WB_CHECK(code_of(one(ep, req(1, "tools/list"))) == -32600);
-	WB_CHECK(ep.era() == AgentEndpoint::Era::Unknown);
+	WB_CHECK(ep.era() == McpServer::Era::Unknown);
 	auto init = one(ep, req(2, "initialize",
 			R"({"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"claude-code","version":"2"}})"));
 	const json::Value *r = result_of(init);
 	WB_CHECK(r != nullptr && r->str("protocolVersion") == "2025-11-25");
 	WB_CHECK(r->get("capabilities")->get("tools")->get("listChanged") != nullptr);
 	WB_CHECK(r->get("serverInfo")->str("name") == "waybox-agent-hub");
-	WB_CHECK(ep.era() == AgentEndpoint::Era::Older && ep.claimed_name() == "claude-code");
+	WB_CHECK(ep.era() == McpServer::Era::Older && ep.claimed_name() == "claude-code");
 	/* The id comes back as sent. */
 	WB_CHECK(init.get("id")->number() && *init.get("id")->number() == 2);
 	/* initialized is a notification: no answer. */
@@ -90,28 +90,28 @@ WB_TEST(older_era) {
 
 WB_TEST(older_revisions_negotiated) {
 	{
-		AgentEndpoint ep("h", "1");
+		McpServer ep("h", "1");
 		auto r = one(ep, req(1, "initialize", R"({"protocolVersion":"2025-06-18"})"));
 		WB_CHECK(result_of(r) && result_of(r)->str("protocolVersion") == "2025-06-18");
 	}
 	{
 		/* Newer than known, not stateless: the newest older one. */
-		AgentEndpoint ep("h", "1");
+		McpServer ep("h", "1");
 		auto r = one(ep, req(1, "initialize", R"({"protocolVersion":"2026-01-15"})"));
 		WB_CHECK(result_of(r) && result_of(r)->str("protocolVersion") == "2025-11-25");
 	}
 	{
 		/* Not a revision at all: refused, never taken as a newer one. */
 		for (const char *bad : {"zzz", "latest", "2025-11-25x", "2025/11/25", ""}) {
-			AgentEndpoint ep("h", "1");
+			McpServer ep("h", "1");
 			auto r = one(ep, req(1, "initialize",
 					std::string(R"({"protocolVersion":")") + bad + "\"}"));
-			WB_CHECK(code_of(r) == -32602 && ep.era() == AgentEndpoint::Era::Unknown);
+			WB_CHECK(code_of(r) == -32602 && ep.era() == McpServer::Era::Unknown);
 		}
 	}
 	{
 		/* Too old: refused, naming the supported ones; it may try again. */
-		AgentEndpoint ep("h", "1");
+		McpServer ep("h", "1");
 		auto r = one(ep, req(1, "initialize", R"({"protocolVersion":"2024-11-05"})"));
 		WB_CHECK(code_of(r) == -32602);
 		const json::Value *sup = r.get("error")->get("data")->get("supported");
@@ -123,10 +123,10 @@ WB_TEST(older_revisions_negotiated) {
 }
 
 WB_TEST(stateless_era) {
-	AgentEndpoint ep("waybox-agent-hub", "0.3");
+	McpServer ep("waybox-agent-hub", "0.3");
 	auto d = one(ep, req(1, "server/discover", "{" + kMeta2026 + "}"));
 	const json::Value *r = result_of(d);
-	WB_CHECK(r != nullptr && ep.era() == AgentEndpoint::Era::Stateless);
+	WB_CHECK(r != nullptr && ep.era() == McpServer::Era::Stateless);
 	WB_CHECK(r->str("resultType") == "complete" && r->str("cacheScope") == "private");
 	WB_CHECK(r->get("ttlMs") != nullptr && r->get("supportedVersions")->array()->size() == 1);
 	WB_CHECK(r->get("_meta")->get("io.modelcontextprotocol/serverInfo")->str("name") ==
@@ -147,7 +147,7 @@ WB_TEST(stateless_era) {
 }
 
 WB_TEST(stateless_listen_acknowledged) {
-	AgentEndpoint ep("h", "1");
+	McpServer ep("h", "1");
 	auto out = ep.receive(R"({"jsonrpc":"2.0","id":"listen-1","method":"subscriptions/listen","params":{)" +
 			kMeta2026 + R"(,"notifications":{"toolsListChanged":true,"promptsListChanged":true}}})");
 	/* The acknowledgement only: the stream stays open, no response. */
@@ -163,16 +163,16 @@ WB_TEST(stateless_listen_acknowledged) {
 }
 
 WB_TEST(first_request_settles_nothing_else) {
-	AgentEndpoint ep("h", "1");
+	McpServer ep("h", "1");
 	/* Neither initialize nor a revision in _meta. */
 	WB_CHECK(code_of(one(ep, req(1, "tools/list"))) == -32600);
 	WB_CHECK(code_of(one(ep, "not json")) == -32700);
 	WB_CHECK(code_of(one(ep, R"({"id":1,"method":"ping"})")) == -32600);
-	WB_CHECK(ep.era() == AgentEndpoint::Era::Unknown);
+	WB_CHECK(ep.era() == McpServer::Era::Unknown);
 }
 
 WB_TEST(claimed_name_kept) {
-	AgentEndpoint ep("h", "1");
+	McpServer ep("h", "1");
 	one(ep, req(1, "server/discover", "{" + kMeta2026 + "}"));
 	std::string other = kMeta2026;
 	other.replace(other.find("\"pi\""), 4, "\"other\"");
@@ -184,7 +184,7 @@ WB_TEST(claimed_name_kept) {
 }
 
 WB_TEST(listen_lifecycle) {
-	AgentEndpoint ep("h", "1");
+	McpServer ep("h", "1");
 	auto listen = [&](const std::string &id) {
 		return ep.receive(R"({"jsonrpc":"2.0","id":")" + id +
 				R"(","method":"subscriptions/listen","params":{)" + kMeta2026 +

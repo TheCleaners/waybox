@@ -45,6 +45,7 @@ def main():
     os.makedirs(tools)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
                XDG_RUNTIME_DIR=run, XDG_CONFIG_HOME=os.path.join(work, "config"),
+               XDG_DATA_HOME=os.path.join(work, "data"), XDG_DATA_DIRS=os.path.join(work, "data-dirs"),
                XDG_CONFIG_DIRS=os.path.join(work, "etc"),
                WB_RC_XML="", WB_MENU_XML="", WAYBOX_AGENT_HUB=hub)
     for k in ("WAYLAND_DISPLAY", "DISPLAY", "WAYBOX_SOCK", "WAYBOX_PID", "AGENT_TOOLS_SOCKET",

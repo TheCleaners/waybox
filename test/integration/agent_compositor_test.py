@@ -49,6 +49,7 @@ def main():
         f.write("[Agent Tools]\nEnabled=true\n")
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
                XDG_RUNTIME_DIR=run, XDG_CONFIG_HOME=os.path.join(work, "config"),
+               XDG_DATA_HOME=os.path.join(work, "data"), XDG_DATA_DIRS=os.path.join(work, "data-dirs"),
                WB_RC_XML="", WB_MENU_XML="", STANDIN_OUT=out,
                WAYBOX_AGENT_HUB=f"{sys.executable} {os.path.join(HERE, 'agent_hub_standin.py')}")
     for k in ("WAYLAND_DISPLAY", "DISPLAY", "WAYBOX_SOCK", "WAYBOX_PID"):

@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "agents.hpp"
+#include "providers.hpp"
 #include "tunables.hpp"
 
 namespace {
@@ -35,6 +36,7 @@ struct Hub {
 	GMainLoop *loop = nullptr;
 	GDBusConnection *compositor = nullptr;
 	bool locked = false, away = false, stopped = false;
+	std::string provider;  /* the compositor's tools' manifest, from Hello */
 };
 
 void say(const char *fmt, ...) G_GNUC_PRINTF(1, 2);
@@ -47,9 +49,10 @@ void say(const char *fmt, ...) {
 	g_free(text);
 }
 
-/* The compositor's fd from the environment, which children don't inherit. */
-int compositor_fd() {
-	const char *v = getenv("AGENT_COMPOSITOR_FD");
+/* An fd the compositor handed over, named in the environment (which
+ * children don't inherit). */
+int inherited_fd(const char *var) {
+	const char *v = getenv(var);
 	if (v == nullptr || *v == '\0')
 		return -1;
 	char *end = nullptr;
@@ -57,7 +60,7 @@ int compositor_fd() {
 	long fd = strtol(v, &end, 10);
 	if (errno != 0 || *end != '\0' || fd < 0 || fd > 65535)
 		return -1;
-	unsetenv("AGENT_COMPOSITOR_FD");
+	unsetenv(var);
 	if (fcntl(static_cast<int>(fd), F_SETFD, FD_CLOEXEC) < 0)
 		return -1;
 	return static_cast<int>(fd);
@@ -129,8 +132,10 @@ void on_changed(GDBusConnection *, const char *, const char *, const char *, con
 			if (!g_variant_is_of_type(value, G_VARIANT_TYPE_BOOLEAN))
 				continue;
 			bool b = g_variant_get_boolean(value);
-			if (g_strcmp0(name, "Locked") == 0)
+			if (g_strcmp0(name, "Locked") == 0) {
 				hub->locked = b;
+				wb::agent::agents_set_locked(b);
+			}
 			else if (g_strcmp0(name, "Away") == 0)
 				hub->away = b;
 			else if (g_strcmp0(name, "AssistantsStopped") == 0)
@@ -190,6 +195,9 @@ bool start(Hub &hub, int fd) {
 	g_variant_get(r, "(u@a{sv})", &version, &info);
 	const char *name = "?";
 	g_variant_lookup(info, "name", "&s", &name);
+	const char *provider = nullptr;
+	if (g_variant_lookup(info, "provider", "&s", &provider) && provider != nullptr)
+		hub.provider = provider;
 	say("connected to %s (compositor interface %u)", name, version);
 	g_variant_unref(info);
 	g_variant_unref(r);
@@ -231,7 +239,8 @@ wb::agent::Tunables read_tunables() {
 }  // namespace
 
 int main() {
-	int fd = compositor_fd();
+	int fd = inherited_fd("AGENT_COMPOSITOR_FD");
+	int tools_fd = inherited_fd("AGENT_COMPOSITOR_TOOLS_FD");
 	if (fd < 0) {
 		say("no compositor interface (AGENT_COMPOSITOR_FD): the compositor starts the hub");
 		return 2;
@@ -242,11 +251,20 @@ int main() {
 	Hub hub;
 	hub.loop = g_main_loop_new(nullptr, FALSE);
 	int status = 0;
-	if (start(hub, fd) && wb::agent::agents_listen(dir + "/agent", WB_HUB_VERSION, read_tunables()))
+	wb::agent::Tunables tunables = read_tunables();
+	if (start(hub, fd) && wb::agent::agents_listen(dir + "/agent", WB_HUB_VERSION, tunables)) {
+		wb::agent::agents_set_locked(hub.locked);
+		/* The compositor's own tools, if it offers any. */
+		if (tools_fd >= 0 && !hub.provider.empty())
+			wb::agent::providers_start_compositor(tools_fd, hub.provider, WB_HUB_VERSION, tunables);
+		else if (tools_fd >= 0)
+			close(tools_fd);
 		g_main_loop_run(hub.loop);
-	else
+	} else {
 		status = 1;
+	}
 	wb::agent::agents_stop();
+	wb::agent::providers_stop();
 	if (hub.compositor != nullptr) {
 		g_dbus_connection_close_sync(hub.compositor, nullptr, nullptr);
 		g_object_unref(hub.compositor);

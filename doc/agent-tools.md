@@ -100,8 +100,10 @@ The hub is one per session, **started by the compositor**:
   own (a socket inherited at launch), carrying the compositor interface. It
   is the only channel through which consent, capture and input are
   requested; nothing else can reach them.
-- **The compositor's tools** come over a second inherited socket, as MCP:
-  the compositor is a provider like the others, with an installed manifest.
+- **The compositor's tools** come over a second inherited socket, as MCP
+  (named by `AGENT_COMPOSITOR_TOOLS_FD`): the compositor is a provider like
+  the others, with an installed manifest (`Mode=compositor`), whose `Id`
+  it names in `Hello` (`provider`).
 - **Where shims find the hub:** `$XDG_RUNTIME_DIR/agents/tools/agent`, in
   a directory only the user can enter, made so by the hub; a desktop that
   puts it elsewhere names it in the session's environment
@@ -206,8 +208,9 @@ from a package) or `$XDG_DATA_HOME/agents/tools/` (the user's):
 [Provider]
 Id=org.waybar.Waybar
 Name=Waybar
-# How the hub reaches it: started by the hub (activated), or a program
-# already running that connects to the hub (registers).
+# How the hub reaches it: started by the hub (activated), a program
+# already running that connects to the hub (registers), or the
+# compositor's own tools, on the socket it hands the hub (compositor).
 Mode=registers
 Exec=/usr/bin/waybar
 Description=Battery, network, audio and media state from the panel
@@ -367,9 +370,9 @@ The audit and the questions always show the full names (the provider's
 **Agent to hub:** the shim passes MCP lines both ways.
 - **The agent is done sending:** the shim half-closes its side of the hub
   socket and keeps passing on answers still to come.
-- **The hub then closes,** once answers are sent. An agent that leaves with
-  calls in flight is normal: its open questions are closed, and nothing
-  waits on it.
+- **The hub then closes,** once answers are sent, the answers to calls
+  still out with a provider included. An agent that leaves with calls in
+  flight is normal: its open questions are closed, and nothing waits on it.
 
 **The shim's handshake.** Before any MCP (within `HandshakeWait`), the shim
 sends one line, and the hub answers one:

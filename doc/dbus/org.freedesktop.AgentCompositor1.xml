@@ -33,7 +33,9 @@
       Hello: each side's version and what it supports. hub: "version" (s, the
       hub's own), "agents" (u, connected). Returned: "name" (s, the
       compositor), "capture" (b), "input" (b), "indicator" (b), "locked" (b), "stop_key"
-      (s, its binding as shown to the user). The hub offers only what the
+      (s, its binding as shown to the user), "provider" (s: the manifest Id of
+      the compositor's own tools, served as MCP on the second socket it hands
+      the hub, AGENT_COMPOSITOR_TOOLS_FD; absent: it offers none). The hub offers only what the
       compositor says it supports.
     -->
     <method name="Hello">

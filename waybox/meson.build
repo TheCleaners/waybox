@@ -72,6 +72,8 @@ wb_src = [
     'threads.cpp',
     'glib_thread.cpp',
     'agent_compositor.cpp',
+    'agent_tools_provider.cpp',
+    '../agent/mcp_agent.cpp',
     'session_lock.cpp',
     'switcher_widget.cpp',
     'view.cpp',

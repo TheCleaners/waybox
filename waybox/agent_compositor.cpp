@@ -27,6 +27,7 @@ extern char **environ;
 #include "agent_compositor_xml.h"
 #include "waybox/server.h"
 #include "waybox/session_lock.h"
+#include "waybox/agent_tools_provider.hpp"
 #include "waybox/async.hpp"
 #include "waybox/glib_thread.hpp"
 #include "waybox/threads.hpp"
@@ -71,6 +72,7 @@ struct AgentCompositor {
 	pid_t hub = -1;
 	std::shared_ptr<Snapshot> snap = std::make_shared<Snapshot>();
 	std::shared_ptr<Conn> conn;
+	AgentToolsProvider *tools = nullptr;  /* this hub's: the compositor's tools */
 	std::deque<std::chrono::steady_clock::time_point> crashes;
 	bool given_up = false;
 	wb::TaskScope restarts;  /* a restart waiting its delay (dropped with this) */
@@ -98,6 +100,8 @@ void on_method(GDBusConnection *, const char *, const char *, const char *,
 		g_variant_builder_add(&b, "{sv}", "input", bool_prop(false));
 		g_variant_builder_add(&b, "{sv}", "indicator", bool_prop(false));
 		g_variant_builder_add(&b, "{sv}", "locked", bool_prop(locked));
+		/* The manifest of the compositor's own tools (AGENT_COMPOSITOR_TOOLS_FD). */
+		g_variant_builder_add(&b, "{sv}", "provider", g_variant_new_string(kCompositorProviderId));
 		g_dbus_method_invocation_return_value(invocation,
 				g_variant_new("(ua{sv})", kVersion, &b));
 		return;
@@ -287,17 +291,27 @@ void start_hub(AgentCompositor *ac) {
 	 * only async-signal-safe calls (Waybox has threads). */
 	std::vector<std::string> env_store;
 	for (char **e = environ; *e != nullptr; ++e)
-		if (std::string(*e).rfind("AGENT_COMPOSITOR_FD=", 0) != 0)
+		if (std::string(*e).rfind("AGENT_COMPOSITOR_FD=", 0) != 0 &&
+				std::string(*e).rfind("AGENT_COMPOSITOR_TOOLS_FD=", 0) != 0)
 			env_store.emplace_back(*e);
 	env_store.emplace_back("AGENT_COMPOSITOR_FD=3");
+	env_store.emplace_back("AGENT_COMPOSITOR_TOOLS_FD=4");
 	std::vector<char *> envp;
 	for (auto &e : env_store)
 		envp.push_back(e.data());
 	envp.push_back(nullptr);
 	const char *argv[] = {"sh", "-c", ac->command.c_str(), nullptr};
-	int sv[2];
+	/* Two sockets: the compositor interface (fd 3) and the compositor's
+	 * tools (fd 4). */
+	int sv[2], tv[2];
 	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) != 0) {
 		wlr_log_errno(WLR_ERROR, "agent tools: socketpair");
+		return;
+	}
+	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, tv) != 0) {
+		wlr_log_errno(WLR_ERROR, "agent tools: socketpair");
+		close(sv[0]);
+		close(sv[1]);
 		return;
 	}
 	pid_t pid = fork();
@@ -305,6 +319,8 @@ void start_hub(AgentCompositor *ac) {
 		wlr_log_errno(WLR_ERROR, "agent tools: fork");
 		close(sv[0]);
 		close(sv[1]);
+		close(tv[0]);
+		close(tv[1]);
 		return;
 	}
 	if (pid == 0) {
@@ -313,18 +329,21 @@ void start_hub(AgentCompositor *ac) {
 		sigset_t none;
 		sigemptyset(&none);
 		sigprocmask(SIG_SETMASK, &none, nullptr);
-		if (sv[1] == 3) {
-			if (fcntl(3, F_SETFD, 0) < 0)  /* (dup2 to itself keeps CLOEXEC) */
-				_exit(127);
-		} else if (dup2(sv[1], 3) < 0) {
+		/* Out of the way first (either could be 3 or 4), then into
+		 * place: dup2's copies aren't close-on-exec. */
+		int a = fcntl(sv[1], F_DUPFD_CLOEXEC, 10);
+		int b = fcntl(tv[1], F_DUPFD_CLOEXEC, 10);
+		if (a < 0 || b < 0 || dup2(a, 3) < 0 || dup2(b, 4) < 0)
 			_exit(127);
-		}
 		execve("/bin/sh", const_cast<char *const *>(argv), envp.data());
 		_exit(127);
 	}
 	setpgid(pid, pid);
 	close(sv[1]);
+	close(tv[1]);
 	ac->hub = pid;
+	agent_tools_provider_stop(ac->tools);
+	ac->tools = agent_tools_provider_start(ac->server, tv[0]);
 	auto c = std::make_shared<Conn>();
 	c->snap = ac->snap;
 	c->queue = ac->server->main_queue;
@@ -347,6 +366,8 @@ void start_hub(AgentCompositor *ac) {
 /* The current connection ended on the GLib thread (waited for, when
  * `wait`: nothing of it outlives the call). */
 void end_conn(AgentCompositor *ac, bool wait) {
+	agent_tools_provider_stop(ac->tools);
+	ac->tools = nullptr;
 	if (!ac->conn)
 		return;
 	std::shared_ptr<Conn> c = std::move(ac->conn);
