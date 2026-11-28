@@ -389,6 +389,10 @@ sends one line, and the hub answers one:
   shim sends what its command line asks (`--lower exec=off`, repeated).
 - **`label`** is the user's own name for this agent, shown beside its
   self-declared one (`--label`).
+- **What agents say of themselves** (a label, a claimed name) is shown
+  escaped wherever it's shown, the audit and questions included: control
+  characters, bidirectional overrides and broken UTF-8 escaped, and at most
+  64 characters, so it can't forge a line or reorder what's read.
 - **`ask`** (optional): the one-time ticket of an assistant started to ask
   about a window (see "Asking about a window"), from `AGENT_TOOLS_ASK` in
   the shim's environment.
@@ -454,8 +458,15 @@ hints and metadata anyway), so it speaks both:
   `notifications/cancelled`.
 - **Tasks** (an extension in 2026-07-28) come later: the hub offers no
   task support until it can hold tasks to the same states as calls.
-- **A newer revision** than the hub knows: refused with the supported
-  list, until the hub learns it; the hub never guesses.
+- **A revision the hub doesn't know:** with `initialize`, a newer date gets
+  the newest older revision the hub speaks, as MCP's negotiation has it
+  (the agent then goes on or leaves); something that isn't a revision
+  (not a date) is refused with the supported list. Stateless, any revision
+  but the ones spoken is refused with MCP's unsupported-version error and
+  the list. The hub never takes a revision for one it isn't.
+- **Listen streams** (2026-07-28) end when the agent cancels them, and
+  get their closing result when the connection ends gracefully; an id
+  already open is refused, and an agent holds at most `MaxListens`.
 
 ### Requests from providers: sampling and elicitation
 
@@ -1749,6 +1760,9 @@ interoperability, not taste.
 | `RecentCallsMax` | 100 | what `RecentCalls` returns at most |
 | `AuditCut` | 4 KiB | longer strings in the audit are cut, marked so |
 | `AuditKeepMax` | 1 MiB | the largest command or Lua code kept in full beside the audit |
+| `MaxAgents` | 32 | connections to the agent socket at once, ones still owing their handshake included; more are refused |
+| `MaxQueued` | 8 MiB | answers waiting for an agent to read them; past this the hub takes no more of its requests until it reads (never drops them), so one agent can't make the hub hold more |
+| `MaxListens` | 8 | open listen streams (2026-07-28) per agent |
 | `HandshakeWait` | 10 s | how long a connection to the hub may take to send its handshake before it's closed |
 | `MaxFrame` | 4 MiB | the largest MCP message the hub reads from an agent or a provider; a longer one, or a line not ended within it, closes that connection |
 | `AskTicket` | 1 min | how long a started assistant has to connect with its ask ticket: longer suits slow starts, but a ticket waits that long to be used |

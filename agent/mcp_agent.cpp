@@ -4,6 +4,8 @@
 #include "mcp_agent.hpp"
 
 #include <algorithm>
+#include <cstdint>
+#include <cstdio>
 #include <utility>
 
 namespace wb::agent {
@@ -98,16 +100,82 @@ std::string handshake_answer(const Handshake &hs, const std::string &profile,
 	return json::dump(a);
 }
 
+std::string display_name(std::string_view s, size_t max) {
+	std::string out;
+	size_t shown = 0;
+	char esc[16];
+	for (size_t i = 0; i < s.size();) {
+		if (shown == max) {
+			out += "\xe2\x80\xa6";  /* … */
+			break;
+		}
+		unsigned char b = static_cast<unsigned char>(s[i]);
+		/* One UTF-8 character, or an escaped byte where it isn't one. */
+		size_t len = b < 0x80 ? 1 : (b >> 5) == 0x6 ? 2 : (b >> 4) == 0xe ? 3 : (b >> 3) == 0x1e ? 4 : 0;
+		uint32_t cp = 0;
+		bool valid = len != 0 && i + len <= s.size();
+		if (valid) {
+			cp = len == 1 ? b : b & (0xff >> (len + 1));
+			for (size_t k = 1; k < len; ++k) {
+				unsigned char cb = static_cast<unsigned char>(s[i + k]);
+				if ((cb & 0xc0) != 0x80) {
+					valid = false;
+					break;
+				}
+				cp = (cp << 6) | (cb & 0x3f);
+			}
+			/* Overlong forms, surrogates and past Unicode: not characters. */
+			static const uint32_t least[] = {0, 0, 0x80, 0x800, 0x10000};
+			if (valid && (cp < least[len] || (cp >= 0xd800 && cp <= 0xdfff) || cp > 0x10ffff))
+				valid = false;
+		}
+		if (!valid) {
+			snprintf(esc, sizeof(esc), "\\x%02x", b);
+			out += esc;
+			++i;
+			++shown;
+			continue;
+		}
+		bool control = cp < 0x20 || cp == 0x7f || (cp >= 0x80 && cp <= 0x9f);
+		bool bidi = cp == 0x061c || cp == 0x200e || cp == 0x200f ||
+				(cp >= 0x202a && cp <= 0x202e) || (cp >= 0x2066 && cp <= 0x2069);
+		if (control || bidi) {
+			snprintf(esc, sizeof(esc), cp < 0x100 ? "\\x%02x" : "\\u%04x", static_cast<unsigned>(cp));
+			out += esc;
+		} else {
+			out.append(s.substr(i, len));
+		}
+		i += len;
+		++shown;
+	}
+	return out;
+}
+
 const std::vector<std::string> &older_revisions() {
 	static const std::vector<std::string> v = {"2025-06-18", "2025-11-25"};
 	return v;
 }
 
-AgentEndpoint::AgentEndpoint(std::string server_name, std::string server_version)
-	: server_name_(std::move(server_name)), server_version_(std::move(server_version)) {}
+AgentEndpoint::AgentEndpoint(std::string server_name, std::string server_version,
+		size_t max_listens)
+	: server_name_(std::move(server_name)), server_version_(std::move(server_version)),
+	  max_listens_(max_listens) {}
 
 std::vector<std::string> AgentEndpoint::take_notes() {
 	return std::exchange(notes_, {});
+}
+
+std::vector<std::string> AgentEndpoint::close_listens() {
+	std::vector<std::string> out;
+	for (const json::Value &id : listens_) {
+		json::Object result = finish(json::Object{});
+		json::Object meta = *result["_meta"].object();
+		meta[kSubscriptionKey] = id;
+		result["_meta"] = std::move(meta);
+		out.push_back(json::dump(result_response(id, std::move(result))));
+	}
+	listens_.clear();
+	return out;
 }
 
 void AgentEndpoint::claim(const json::Value *client_info) {
@@ -119,7 +187,8 @@ void AgentEndpoint::claim(const json::Value *client_info) {
 	if (claimed_.empty())
 		claimed_ = name;
 	else if (name != claimed_)
-		notes_.push_back("claims another name (\"" + name + "\"), kept as \"" + claimed_ + "\"");
+		notes_.push_back("claims another name (\"" + display_name(name) + "\"), kept as \"" +
+				display_name(claimed_) + "\"");
 }
 
 /* A stateless result carries resultType and the hub's name. */
@@ -156,8 +225,15 @@ std::vector<std::string> AgentEndpoint::receive(std::string_view line) {
 			out.push_back(json::dump(error_response(nullptr, kInvalidRequest, "no method")));
 		return out;
 	}
-	if (id == nullptr || !(id->string() != nullptr || id->number() != nullptr))
-		return out;  /* a notification (initialized, cancelled): nothing to answer */
+	if (id == nullptr || !(id->string() != nullptr || id->number() != nullptr)) {
+		/* A notification: nothing to answer. A listen stream cancelled by
+		 * the agent ends (and, as cancelled, gets no response). */
+		if (*method->string() == "notifications/cancelled")
+			if (const json::Value *p = msg->get("params"))
+				if (const json::Value *rid = p->get("requestId"))
+					std::erase(listens_, *rid);
+		return out;
+	}
 	std::vector<std::string> extra;
 	json::Value response = request(*method->string(), *id, msg->get("params"), extra);
 	for (std::string &e : extra)
@@ -191,7 +267,14 @@ json::Value AgentEndpoint::request(const std::string &method, const json::Value 
 				return error_response(id, kInvalidRequest, "already initialized");
 			std::string want = params != nullptr ? params->str("protocolVersion") : "";
 			const auto &known = older_revisions();
-			if (want.empty() || want < known.front()) {
+			/* A revision is a date; an older one than spoken is refused. A
+			 * newer date gets the newest spoken, as MCP's initialize has it:
+			 * the agent then goes on or leaves. */
+			bool date = want.size() == 10 && want[4] == '-' && want[7] == '-' &&
+					std::all_of(want.begin(), want.end(), [](char ch) {
+						return ch == '-' || (ch >= '0' && ch <= '9');
+					});
+			if (!date || want < known.front()) {
 				era_ = Era::Unknown;  /* (it may try again) */
 				return error_response(id, kInvalidParams, "unsupported protocol version",
 						json::Object{{"supported", strings(known)}, {"requested", want}});
@@ -258,6 +341,10 @@ json::Value AgentEndpoint::request(const std::string &method, const json::Value 
 			if (const json::Value *t = wanted->get("toolsListChanged"))
 				if (t->boolean() != nullptr && *t->boolean())
 					honored["toolsListChanged"] = true;
+		if (std::find(listens_.begin(), listens_.end(), id) != listens_.end())
+			return error_response(id, kInvalidRequest, "a listen stream with this id is open");
+		if (listens_.size() >= max_listens_)
+			return error_response(id, kInvalidRequest, "too many open listen streams (MaxListens)");
 		listens_.push_back(id);
 		extra.push_back(json::dump(json::Object{
 			{"jsonrpc", "2.0"},

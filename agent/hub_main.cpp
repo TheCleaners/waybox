@@ -19,8 +19,10 @@
 #include <cstdarg>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 #include "agents.hpp"
+#include "tunables.hpp"
 
 namespace {
 
@@ -200,6 +202,32 @@ bool start(Hub &hub, int fd) {
 	return true;
 }
 
+/* The tunables: suggested values, then the distribution's settings
+ * (each system folder, the least preferred first), then the user's. */
+wb::agent::Tunables read_tunables() {
+	wb::agent::Tunables t;
+	std::vector<std::string> notes;
+	auto apply = [&](const std::string &dir, bool system) {
+		std::string path = dir + "/agents/tools/settings.ini";
+		gchar *text = nullptr;
+		gsize len = 0;
+		if (!g_file_get_contents(path.c_str(), &text, &len, nullptr))
+			return;
+		std::vector<std::string> mine;
+		wb::agent::apply_tunables(t, std::string_view(text, len), system, mine);
+		g_free(text);
+		for (const std::string &n : mine)
+			say("%s: %s", path.c_str(), n.c_str());
+	};
+	std::vector<std::string> system;
+	for (const char *const *d = g_get_system_config_dirs(); *d != nullptr; ++d)
+		system.emplace_back(*d);
+	for (auto it = system.rbegin(); it != system.rend(); ++it)
+		apply(*it, true);
+	apply(g_get_user_config_dir(), false);
+	return t;
+}
+
 }  // namespace
 
 int main() {
@@ -214,7 +242,7 @@ int main() {
 	Hub hub;
 	hub.loop = g_main_loop_new(nullptr, FALSE);
 	int status = 0;
-	if (start(hub, fd) && wb::agent::agents_listen(dir + "/agent", WB_HUB_VERSION))
+	if (start(hub, fd) && wb::agent::agents_listen(dir + "/agent", WB_HUB_VERSION, read_tunables()))
 		g_main_loop_run(hub.loop);
 	else
 		status = 1;

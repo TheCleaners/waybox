@@ -372,6 +372,19 @@ if glib_for_tests.found()
   test('glib_thread', glib_thread_test, suite: 'unit')
 endif
 
+# The icon cache's preload as tasks: kept, cleared mid-way, dropped (its
+# decoded icons freed: LeakSanitizer). Needs cairo: not tests_only.
+if not get_option('tests_only')
+  icon_cache_test = executable(
+    'icon_cache_test',
+    ['icon_cache_test.cpp', 'wb_test_main.cpp', threads_src, icon_src, stall_src, atomic_file_src,
+     meson.project_source_root() / 'waybox' / 'icon_loader.cpp'],
+    include_directories: [inc_dir],
+    dependencies: [threads_dep, cairo, rsvg, glib_for_tests],
+    )
+  test('icon_cache', icon_cache_test, suite: 'unit')
+endif
+
 # Whether only the system could have changed a file (pages run unasked).
 trust_test = executable(
   'trust_test',
@@ -436,8 +449,9 @@ test('json', json_test, suite: 'unit')
 # The hub's MCP endpoint toward agents and the shim's handshake (pure).
 mcp_agent_test = executable(
   'mcp_agent_test',
-  ['mcp_agent_test.cpp', 'wb_test_main.cpp', json_src,
-   meson.project_source_root() / 'agent' / 'mcp_agent.cpp'],
+  ['mcp_agent_test.cpp', 'tunables_test.cpp', 'wb_test_main.cpp', json_src, ini_doc_src,
+   meson.project_source_root() / 'agent' / 'mcp_agent.cpp',
+   meson.project_source_root() / 'agent' / 'tunables.cpp'],
   include_directories: [inc_dir],
   )
 test('mcp_agent', mcp_agent_test, suite: 'unit')
@@ -1017,6 +1031,7 @@ if python.found() and not get_option('tests_only')
     ['agent_compositor', 'agent_compositor_test.py', [lock_client], 60],
     ['agent_hub', 'agent_hub_test.py', [agent_hub_exe, lock_client], 90],
     ['agent_shim', 'agent_shim_test.py', [agent_hub_exe, agent_shim_exe], 90],
+    ['agent_backpressure', 'agent_backpressure_test.py', [agent_hub_exe, agent_shim_exe], 120],
     ['menu_icon_cache', 'menu_icon_cache_test.py', [], 60],
     ['session_lock', 'session_lock_test.py', [lock_client], 60],
     ['session_lock_virtual_always', 'session_lock_test.py', [lock_client, 'always'], 60],

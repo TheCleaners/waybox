@@ -26,15 +26,13 @@
 #include <memory>
 
 #include "mcp_agent.hpp"
+#include "tunables.hpp"
 #include "waybox/platform.hpp"
 
 namespace wb::agent {
 
 namespace {
 
-/* Tunables (doc/agent-tools.md, "Tunables"). */
-constexpr size_t kMaxFrame = 4 * 1024 * 1024;
-constexpr guint kHandshakeWaitS = 10;
 constexpr gsize kReadChunk = 64 * 1024;
 
 void say(const char *fmt, ...) G_GNUC_PRINTF(1, 2);
@@ -56,7 +54,10 @@ struct Conn {
 	bool done_reading = false;
 	guint deadline = 0;
 	std::deque<std::shared_ptr<std::string>> outq;
+	size_t queued = 0;     /* bytes in outq and being written */
 	bool writing = false;
+	bool paused = false;   /* past MaxQueued: requests wait unread */
+	bool listens_closed = false;
 	std::unique_ptr<AgentEndpoint> endpoint;
 	std::string who;  /* for the log: "agent 3" */
 	~Conn() {
@@ -72,6 +73,7 @@ struct Conn {
 };
 
 struct Agents {
+	Tunables t;
 	GSocketService *service = nullptr;
 	std::string path, hub_version;
 	unsigned next_id = 1;
@@ -97,10 +99,12 @@ void close_conn(unsigned id, const char *why) {
 
 void read_more(Conn *c);
 void write_next(Conn *c);
+bool take_lines(Conn *c);
 
 /* What the agent is told: after the handshake, or MCP. */
 void send(Conn *c, std::string line) {
 	line += '\n';
+	c->queued += line.size();
 	c->outq.push_back(std::make_shared<std::string>(std::move(line)));
 	if (!c->writing)
 		write_next(c);
@@ -111,11 +115,32 @@ struct WriteOp {
 	std::shared_ptr<std::string> data;  /* kept until the write ends */
 };
 
+/* The agent is done sending and every request is answered: open listen
+ * streams get their closing results (a graceful end), then, once all is
+ * written, the hub closes. */
+bool finishing(Conn *c) {
+	if (!c->done_reading || c->paused)
+		return false;
+	if (!c->listens_closed) {
+		c->listens_closed = true;
+		if (c->endpoint)
+			for (std::string &line : c->endpoint->close_listens()) {
+				line += '\n';
+				c->queued += line.size();
+				c->outq.push_back(std::make_shared<std::string>(std::move(line)));
+			}
+	}
+	return true;
+}
+
 void write_next(Conn *c) {
+	if (c->outq.empty() && finishing(c) && c->outq.empty()) {
+		c->writing = false;
+		close_conn(c->id, "done");
+		return;
+	}
 	if (c->outq.empty()) {
 		c->writing = false;
-		if (c->done_reading)
-			close_conn(c->id, "done");
 		return;
 	}
 	c->writing = true;
@@ -137,6 +162,15 @@ void write_next(Conn *c) {
 				if (!ok) {
 					close_conn(op->id, "its socket closed");
 					return;
+				}
+				c->queued -= op->data->size();
+				/* Read again once the agent has caught up. */
+				if (c->paused && c->queued < g_agents->t.max_queued / 2) {
+					c->paused = false;
+					if (!take_lines(c))
+						return;
+					if (!c->paused && !c->done_reading)
+						read_more(c);
 				}
 				write_next(c);
 			}, op);
@@ -247,9 +281,10 @@ void on_line(Conn *c, std::string_view line) {
 			return;
 		}
 		c->handshaken = true;
-		c->endpoint = std::make_unique<AgentEndpoint>("waybox-agent-hub", g_agents->hub_version);
+		c->endpoint = std::make_unique<AgentEndpoint>("waybox-agent-hub", g_agents->hub_version,
+				g_agents->t.max_listens);
 		if (!hs.label.empty())
-			c->who += " (" + hs.label + ")";
+			c->who += " (" + display_name(hs.label) + ")";
 		say("%s: profile %s%s", c->who.c_str(), profile.c_str(),
 				hs.token ? " (a token no binding has)" : "");
 		return;
@@ -261,7 +296,7 @@ void on_line(Conn *c, std::string_view line) {
 		say("%s: speaks MCP %s%s", c->who.c_str(),
 				c->endpoint->era() == AgentEndpoint::Era::Stateless ? "2026-07-28" : "with initialize",
 				c->endpoint->claimed_name().empty() ? ""
-						: (" as \"" + c->endpoint->claimed_name() + "\"").c_str());
+						: (" as \"" + display_name(c->endpoint->claimed_name()) + "\"").c_str());
 	for (const std::string &n : c->endpoint->take_notes())
 		say("%s: %s", c->who.c_str(), n.c_str());
 }
@@ -286,35 +321,58 @@ void on_read(GObject *src, GAsyncResult *res, gpointer data) {
 	const char *p = static_cast<const char *>(g_bytes_get_data(bytes, &n));
 	if (n == 0) {
 		g_bytes_unref(bytes);
-		/* Done sending: what's still to answer goes out, then the hub
-		 * closes. */
+		/* Done sending: what's still to answer goes out (open listen
+		 * streams closed, as a graceful end), then the hub closes. */
 		c->done_reading = true;
+		if (!take_lines(c))
+			return;
 		if (!c->writing)
-			close_conn(id, "done");
+			write_next(c);  /* (finishes, if nothing waits) */
 		return;
 	}
 	c->buf.append(p, n);
 	g_bytes_unref(bytes);
+	if (!take_lines(c))
+		return;
+	if (!c->paused && !c->done_reading)
+		read_more(c);
+}
+
+/* The whole lines read so far, taken in turn, until the agent's answers
+ * pass MaxQueued (the rest wait, unread). False if the connection closed. */
+bool take_lines(Conn *c) {
+	unsigned id = c->id;
 	size_t start = 0;
-	for (size_t nl; (nl = c->buf.find('\n', start)) != std::string::npos; start = nl + 1) {
+	bool ok = true;
+	for (size_t nl; (nl = c->buf.find('\n', start)) != std::string::npos;) {
+		if (c->queued >= g_agents->t.max_queued) {
+			c->paused = true;
+			break;
+		}
 		std::string_view line(c->buf.data() + start, nl - start);
+		start = nl + 1;
 		if (!line.empty() && line.back() == '\r')
 			line.remove_suffix(1);
-		if (line.size() > kMaxFrame) {
+		if (line.size() > g_agents->t.max_frame) {
 			close_conn(id, "a message longer than MaxFrame");
-			return;
+			return false;
 		}
 		if (!line.empty())
 			on_line(c, line);
-		if (find(id) == nullptr || c->done_reading)
-			return;
+		if (find(id) == nullptr)
+			return false;
+		if (!c->handshaken && c->done_reading) {
+			ok = true;  /* refused: nothing more is read */
+			c->buf.clear();
+			return true;
+		}
 	}
 	c->buf.erase(0, start);
-	if (c->buf.size() > kMaxFrame) {
+	if (c->buf.size() > g_agents->t.max_frame && c->buf.find('\n') == std::string::npos) {
 		close_conn(id, "a message longer than MaxFrame");
-		return;
+		return false;
 	}
-	read_more(c);
+	return ok;
 }
 
 void read_more(Conn *c) {
@@ -326,13 +384,18 @@ void read_more(Conn *c) {
 gboolean on_incoming(GSocketService *, GSocketConnection *sc, GObject *, gpointer) {
 	if (g_agents == nullptr)
 		return FALSE;
+	if (g_agents->conns.size() >= g_agents->t.max_agents) {
+		say("an agent refused: %zu connected already (MaxAgents)", g_agents->conns.size());
+		return TRUE;  /* (closed: not kept) */
+	}
 	auto c = std::make_unique<Conn>();
 	c->id = g_agents->next_id++;
 	c->sc = G_SOCKET_CONNECTION(g_object_ref(sc));
 	c->who = "agent " + std::to_string(c->id);
 	if (!identify(c.get()))
 		return TRUE;  /* (closed with c) */
-	c->deadline = g_timeout_add_seconds(kHandshakeWaitS, [](gpointer data) -> gboolean {
+	c->deadline = g_timeout_add(static_cast<guint>(g_agents->t.handshake_wait.count()),
+			[](gpointer data) -> gboolean {
 		unsigned id = GPOINTER_TO_UINT(data);
 		if (Conn *c = find(id)) {
 			c->deadline = 0;
@@ -348,8 +411,10 @@ gboolean on_incoming(GSocketService *, GSocketConnection *sc, GObject *, gpointe
 
 }  // namespace
 
-bool agents_listen(const std::string &path, const std::string &hub_version) {
+bool agents_listen(const std::string &path, const std::string &hub_version,
+		const Tunables &t) {
 	auto *a = new Agents;
+	a->t = t;
 	a->path = path;
 	a->hub_version = hub_version;
 	unlink(path.c_str());  /* a stale one, in the hub's own folder */

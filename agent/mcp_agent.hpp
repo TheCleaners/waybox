@@ -39,6 +39,15 @@ Handshake read_handshake(std::string_view line);
 std::string handshake_answer(const Handshake &hs, const std::string &profile,
 		const std::string &hub);
 
+/* What an agent says of itself (a label, a claimed name), for a log line or
+ * the screen: control characters, bidirectional overrides and broken UTF-8
+ * escaped, at most `max` characters ("…" past that). Agents choose these
+ * strings: shown raw, they could forge log lines or reorder what's read. */
+std::string display_name(std::string_view s, size_t max = 64);
+
+/* Open subscriptions/listen streams an agent may hold (MaxListens). */
+inline constexpr size_t kMaxListens = 8;
+
 /* The revisions spoken (oldest first), and the stateless one. */
 const std::vector<std::string> &older_revisions();
 inline constexpr const char *kStatelessRevision = "2026-07-28";
@@ -47,7 +56,8 @@ class AgentEndpoint {
 public:
 	enum class Era { Unknown, Older, Stateless };
 
-	AgentEndpoint(std::string server_name, std::string server_version);
+	AgentEndpoint(std::string server_name, std::string server_version,
+			size_t max_listens = kMaxListens);
 
 	/* A line from the agent (no newline); the lines to send back. */
 	std::vector<std::string> receive(std::string_view line);
@@ -59,9 +69,14 @@ public:
 	const std::string &claimed_name() const { return claimed_; }
 	/* Notes for the hub's log since the last call (a second name claimed). */
 	std::vector<std::string> take_notes();
+	/* The connection ends gracefully: each open listen stream's closing
+	 * result (2026-07-28), to send before closing. */
+	std::vector<std::string> close_listens();
+	size_t open_listens() const { return listens_.size(); }
 
 private:
 	std::string server_name_, server_version_;
+	size_t max_listens_;
 	Era era_ = Era::Unknown;
 	std::string revision_, claimed_;
 	bool initialized_ = false;
