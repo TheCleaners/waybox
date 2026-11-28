@@ -12,11 +12,13 @@
  *
  * Tests: WAYBOX_LOCATION_TEST_ANSWER="allow:once" (or deny; once,
  * session, always; "every" too) answers each card as shown, after printing
- * its wording ("card: ..." on stderr); "@FILE": read from FILE each time.
+ * its wording ("card: ..." on stderr); "@FILE": read from FILE each time;
+ * "wait": not answered (GeoClue stopping meanwhile, say).
  */
 #include <gio/gdesktopappinfo.h>
 #include <gtk/gtk.h>
 
+#include <cmath>
 #include <ctime>
 #include <deque>
 #include <map>
@@ -24,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "geo_map.hpp"
 #include "waybox/location_agent.hpp"
 
 namespace loc = wb::location;
@@ -51,7 +54,8 @@ constexpr const char *kCss =
 		"  box-shadow: 0 4px 16px alpha(black, 0.30); }"
 		".wb-location-title { font-size: 1.25em; }"
 		".wb-location-near { opacity: 0.75; }"
-		".wb-location-note { opacity: 0.6; font-size: 0.9em; }";
+		".wb-location-note { opacity: 0.6; font-size: 0.9em; }"
+		".wb-location-map { opacity: 0.85; }";
 
 struct Request {
 	std::string app;
@@ -212,7 +216,95 @@ AppLook app_look(const std::string &id) {
 	return look;
 }
 
-gboolean on_key(GtkEventControllerKey *, guint keyval, guint, GdkModifierType, gpointer) {
+/* ---- The map: how near, around the time zone's city ---- */
+
+/* How far off an answer at `level` may be, in km, as GeoClue's levels go
+ * (a city ~15 km, a neighborhood ~1 km, a street ~100 m); 0 for exact. */
+double radius_km(uint32_t level) {
+	if (level >= loc::kExact)
+		return 0;
+	if (level >= loc::kStreet)
+		return 0.1;
+	if (level >= loc::kNeighborhood)
+		return 1;
+	return 15;
+}
+
+/* Drawn from what's here (the time zone's place, Natural Earth's map),
+ * before anything is looked up: the country lit (a country's worth), a
+ * circle a city's size, or a pin (nearer). */
+void draw_map(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer level_p) {
+	auto level = static_cast<uint32_t>(GPOINTER_TO_UINT(level_p));
+	const wbconf::GeoData &d = wbconf::geo_data();
+	if (!d.zone_at)
+		return;
+	GtkWidget *w = GTK_WIDGET(area);
+	wb::geo::Point at = *d.zone_at;
+	bool country = level < loc::kCity;
+	wbconf::MapView view;
+	view.center = at;
+	view.lon_scale = std::max(0.2, std::cos(at.lat * M_PI / 180));
+	/* A country: some 30 degrees across; nearer: a degree high (about
+	 * 110 km), the city's neighbors around it. */
+	view.px_per_deg = country ? width / (30.0 * view.lon_scale) : height / 1.0;
+	double r = 8;
+	cairo_new_path(cr);
+	cairo_arc(cr, r, r, r, M_PI, 1.5 * M_PI);
+	cairo_arc(cr, width - r, r, r, 1.5 * M_PI, 2 * M_PI);
+	cairo_arc(cr, width - r, height - r, r, 0, 0.5 * M_PI);
+	cairo_arc(cr, r, height - r, r, 0.5 * M_PI, M_PI);
+	cairo_close_path(cr);
+	cairo_clip(cr);
+	wbconf::draw_geo_map(cr, w, 0, 0, width, height, view, !country);
+
+	GdkRGBA accent;
+	gdk_rgba_parse(&accent, "#3584e4");
+	double x = view.x(at, 0, width), y = view.y(at, 0, height);
+	if (country) {
+		if (const auto *ring = wbconf::ring_at(at)) {
+			cairo_move_to(cr, view.x((*ring)[0], 0, width), view.y((*ring)[0], 0, height));
+			for (const auto &pt : *ring)
+				cairo_line_to(cr, view.x(pt, 0, width), view.y(pt, 0, height));
+			cairo_close_path(cr);
+			cairo_set_source_rgba(cr, accent.red, accent.green, accent.blue, 0.30);
+			cairo_fill_preserve(cr);
+			cairo_set_line_width(cr, 1.2);
+			cairo_set_source_rgba(cr, accent.red, accent.green, accent.blue, 0.9);
+			cairo_stroke(cr);
+		}
+		return;
+	}
+	double radius = radius_km(level) / 111.0 * view.px_per_deg;
+	if (radius >= 5) {
+		cairo_arc(cr, x, y, radius, 0, 2 * M_PI);
+		cairo_set_source_rgba(cr, accent.red, accent.green, accent.blue, 0.22);
+		cairo_fill_preserve(cr);
+		cairo_set_line_width(cr, 1.5);
+		cairo_set_source_rgba(cr, accent.red, accent.green, accent.blue, 0.9);
+		cairo_stroke(cr);
+		return;
+	}
+	/* Nearer than the map can show: a pin, exactly there. */
+	cairo_arc(cr, x, y, 7, 0, 2 * M_PI);
+	cairo_set_source_rgba(cr, accent.red, accent.green, accent.blue, 0.25);
+	cairo_fill(cr);
+	cairo_arc(cr, x, y, 4, 0, 2 * M_PI);
+	cairo_set_source_rgba(cr, accent.red, accent.green, accent.blue, 1);
+	cairo_fill_preserve(cr);
+	cairo_set_line_width(cr, 1.5);
+	cairo_set_source_rgba(cr, 1, 1, 1, 0.9);
+	cairo_stroke(cr);
+}
+
+/* A card that's only saying GeoClue went: its keys and closing answer
+ * nothing (a new card may be showing). */
+bool saying_gone(GtkWidget *w) {
+	return g_object_get_data(G_OBJECT(w), "wb-gone") != nullptr;
+}
+
+gboolean on_key(GtkEventControllerKey *c, guint keyval, guint, GdkModifierType, gpointer) {
+	if (saying_gone(gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(c))))
+		return FALSE;
 	if (keyval == GDK_KEY_Escape) {
 		answer(false);  /* Escape: Deny; Return decides nothing */
 		return TRUE;
@@ -274,6 +366,25 @@ void show_card(const Request &r) {
 	gtk_box_append(GTK_BOX(head), text);
 	gtk_box_append(GTK_BOX(card), head);
 
+	/* How near, on a map around the time zone's city (none known: no map). */
+	if (const wbconf::GeoData &geo = wbconf::geo_data(); geo.zone_at) {
+		GtkWidget *map = gtk_drawing_area_new();
+		gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(map), 120);
+		gtk_widget_set_hexpand(map, TRUE);
+		gtk_widget_add_css_class(map, "wb-location-map");
+		gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(map), draw_map,
+				GUINT_TO_POINTER(r.level), nullptr);
+		gtk_box_append(GTK_BOX(card), map);
+		std::string where = "Around " + geo.zone_city +
+				", your time zone's city. Nothing is looked up before you answer.";
+		GtkWidget *cap = gtk_label_new(where.c_str());
+		gtk_label_set_wrap(GTK_LABEL(cap), TRUE);
+		gtk_label_set_xalign(GTK_LABEL(cap), 0);
+		gtk_widget_add_css_class(cap, "wb-location-note");
+		gtk_widget_set_margin_top(cap, -8);
+		gtk_box_append(GTK_BOX(card), cap);
+	}
+
 	/* How long the answer holds; then the buttons. */
 	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
 	const char *holds[] = {"Just this time", "For this session", "Always", nullptr};
@@ -305,7 +416,9 @@ void show_card(const Request &r) {
 	g_signal_connect(keys, "key-pressed", G_CALLBACK(on_key), nullptr);
 	gtk_widget_add_controller(win, keys);
 	g_signal_connect(win, "close-request",
-			G_CALLBACK(+[](GtkWindow *, gpointer) -> gboolean {
+			G_CALLBACK(+[](GtkWindow *self, gpointer) -> gboolean {
+				if (saying_gone(GTK_WIDGET(self)))
+					return FALSE;
 				answer(false);  /* closed: as Deny, this time */
 				return TRUE;
 			}),
@@ -330,6 +443,8 @@ void show_card(const Request &r) {
 			spec = text != nullptr ? g_strstrip(text) : "";
 			g_free(text);
 		}
+		if (spec == "wait")
+			return;
 		bool yes = spec.rfind("allow", 0) == 0;
 		guint hold = spec.find("always") != std::string::npos ? 2
 				: spec.find("session") != std::string::npos ? 1 : 0;
@@ -378,6 +493,40 @@ GVariant *on_get(GDBusConnection *, const char *, const char *, const char *, co
 	if (g_strcmp0(prop, "MaxAccuracyLevel") == 0)
 		return g_variant_new_uint32(loc::kExact);
 	return nullptr;
+}
+
+/* GeoClue went (stopped, restarted): no one waits for the answers
+ * asked; the card says so, then goes. */
+void geoclue_gone() {
+	std::string name;
+	if (!g.queue.empty())
+		name = app_look(g.queue.front().app).name;
+	for (Request &r : g.queue)
+		if (r.invocation != nullptr)
+			g_dbus_method_invocation_return_dbus_error(r.invocation,
+					"org.freedesktop.DBus.Error.NoReply", "GeoClue stopped");
+	g.queue.clear();
+	if (g.card == nullptr)
+		return;
+	GtkWindow *win = g.card;
+	g.card = nullptr;
+	g_object_set_data(G_OBJECT(win), "wb-gone", GINT_TO_POINTER(1));
+	GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+	gtk_widget_add_css_class(card, "wb-location-card");
+	gtk_widget_set_size_request(card, 420, -1);
+	GtkWidget *t = gtk_label_new("The location service stopped");
+	gtk_widget_add_css_class(t, "wb-location-title");
+	gtk_label_set_xalign(GTK_LABEL(t), 0);
+	gtk_box_append(GTK_BOX(card), t);
+	std::string why = name + " no longer waits for an answer: it learns nothing.";
+	GtkWidget *n = gtk_label_new(why.c_str());
+	gtk_label_set_wrap(GTK_LABEL(n), TRUE);
+	gtk_label_set_xalign(GTK_LABEL(n), 0);
+	gtk_widget_add_css_class(n, "wb-location-near");
+	gtk_box_append(GTK_BOX(card), n);
+	gtk_window_set_child(win, card);
+	g_printerr("card: closed, GeoClue stopped|%s\n", why.c_str());
+	g_timeout_add_seconds_once(4, [](gpointer w) { gtk_window_destroy(GTK_WINDOW(w)); }, win);
 }
 
 /* AddAgent with our own ID; refused (not on GeoClue's list), with the
@@ -436,7 +585,8 @@ void activate(GtkApplication *app, gpointer) {
 	g.watch = g_bus_watch_name_on_connection(g.system, "org.freedesktop.GeoClue2",
 			G_BUS_NAME_WATCHER_FLAGS_AUTO_START,
 			[](GDBusConnection *, const char *, const char *, gpointer) { add_agent(); },
-			nullptr, nullptr, nullptr);
+			[](GDBusConnection *, const char *, gpointer) { geoclue_gone(); }, nullptr,
+			nullptr);
 }
 
 }  // namespace
