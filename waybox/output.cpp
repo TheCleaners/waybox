@@ -438,8 +438,29 @@ void wb_output::on_frame(void *data) {
 			output->tearing = false;
 			wlr_log(WLR_INFO, "wb-tearing %s off", output->wlr_output->name);
 		}
-		if (wlr_scene_output_commit(scene_output, NULL))
-			session_lock_output_frame(output);
+		/* What wlr_scene_output_commit does, in its two halves, each timed:
+		 * building the frame (the scene walked, rendered) and committing it. */
+		if (!wlr_scene_output_needs_frame(scene_output))
+			goto frame_done;
+		struct wlr_output_state state;
+		wlr_output_state_init(&state);
+		if (output->stall_build.empty()) {
+			output->stall_build = std::string("frame-build:") + output->wlr_output->name;
+			output->stall_commit = std::string("frame-commit:") + output->wlr_output->name;
+		}
+		bool built;
+		{
+			wb::StallScope build_timing("frame-build");
+			wb::StallScope build_output_timing(output->stall_build.c_str());
+			built = wlr_scene_output_build_state(scene_output, &state, NULL);
+		}
+		if (built) {
+			wb::StallScope commit_timing("frame-commit");
+			wb::StallScope commit_output_timing(output->stall_commit.c_str());
+			if (wlr_output_commit_state(output->wlr_output, &state))
+				session_lock_output_frame(output);
+		}
+		wlr_output_state_finish(&state);
 	}
 frame_done:
 

@@ -1,6 +1,7 @@
 #ifndef _WB_OUTPUT_H
 #define _WB_OUTPUT_H
 
+#include <string>
 #include <time.h>
 
 #include "waybox/server.h"
@@ -31,6 +32,9 @@ struct wb_output {
 	/* Flipping without waiting for refresh now (a fullscreen game asked). */
 	bool tearing = false;
 	bool tearing_wanted = false;  /* allowed and asked for (logged on change) */
+	/* get_stalls' names for this output's frames ("frame-build:DP-4"): kept
+	 * here, as StallScope keeps only a pointer. */
+	std::string stall_build, stall_commit;
 	struct wlr_box geometry = {};
 	struct wlr_box usable_area = {};
 	/* The desktop this monitor shows, and the one before (#367: desktops
