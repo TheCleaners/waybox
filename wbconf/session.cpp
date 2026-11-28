@@ -117,23 +117,25 @@ int signal_waybox_reload(bool *several) {
 	if (const char *env = getenv("WAYBOX_PID")) {
 		long pid = strtol(env, nullptr, 10);
 		if (pid > 1 && is_waybox(pid))
-			return kill(static_cast<pid_t>(pid), SIGUSR2) == 0 ? 1 : 0;
+			if (std::optional<ProcessInfo> p = process_info(static_cast<pid_t>(pid)))
+				return signal_process(*p, SIGUSR2) ? 1 : 0;
 	}
 	if (pid_t pid = session_compositor(); pid > 0 && is_waybox(pid))
-		return kill(pid, SIGUSR2) == 0 ? 1 : 0;
+		if (std::optional<ProcessInfo> p = process_info(pid))
+			return signal_process(*p, SIGUSR2) ? 1 : 0;
 	/* Outside a session: the user's Waybox if there's only one (with
 	 * several, which is meant can't be told: none rather than all). */
 	uid_t me = getuid();
-	std::vector<pid_t> ours;
+	std::vector<ProcessInfo> ours;
 	for (const ProcessInfo &p : list_processes())
 		if (p.name == "waybox" && p.uid == me)
-			ours.push_back(p.pid);
+			ours.push_back(p);
 	if (ours.size() > 1) {
 		if (several != nullptr)
 			*several = true;
 		return 0;
 	}
-	return !ours.empty() && kill(ours[0], SIGUSR2) == 0 ? 1 : 0;
+	return !ours.empty() && signal_process(ours[0], SIGUSR2) ? 1 : 0;
 }
 
 ReloadResult reload_waybox() {

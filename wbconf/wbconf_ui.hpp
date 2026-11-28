@@ -56,6 +56,16 @@
 
 namespace wbconf {
 
+/* A process, as listed (procs.cpp): `start` tells it from a later one
+ * given the same id (Linux: clock ticks after boot; the BSDs: µs). */
+struct ProcessInfo {
+	pid_t pid;
+	uid_t uid;
+	std::string name;  /* at most 15 characters */
+	pid_t ppid = 0;
+	unsigned long long start = 0;
+};
+
 namespace fs = std::filesystem;
 
 /* ---- Monitors, as wlr-randr --json reports them ----------------------- */
@@ -368,7 +378,7 @@ struct Ui {
 		 * once; with "stop it", its running copies go when saving. */
 		bool asked = false;
 		bool stop_on_save = false;
-		std::vector<pid_t> stop_pids;  /* the copies shown when asked */
+		std::vector<ProcessInfo> stop_pids;  /* the copies shown when asked */
 		bool via_function = false;  /* the script starts it from a function */
 	};
 	std::vector<wb::Integration> integrations;
@@ -592,12 +602,13 @@ void preview_draw(GtkDrawingArea *, cairo_t *cr, int width, int height,
 		gpointer data);
 void preview_refresh(Ui *ui);
 void thumb_draw(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data);
-struct ProcessInfo {
-	pid_t pid;
-	uid_t uid;
-	std::string name;  /* at most 15 characters */
-	pid_t ppid = 0;
-};
+/* Signal `p` only if it's still that process: the same start time and
+ * owner (a process id can be reused, by a program of the same name too).
+ * With a pidfd (Linux): checked through it, then signalled through it,
+ * nothing reused in between. False if it's gone or another. */
+bool signal_process(const ProcessInfo &p, int sig);
+/* One process now (nullopt: gone, or a zombie). */
+std::optional<ProcessInfo> process_info(pid_t pid);
 std::vector<ProcessInfo> list_processes();
 std::string process_name(pid_t pid);
 /* Its arguments (argv), or none if it's gone or not ours to read. */

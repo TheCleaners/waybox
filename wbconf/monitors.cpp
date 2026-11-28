@@ -597,13 +597,13 @@ namespace {
 
 /* Our own running copies of `binary` (by process name), in this session
  * only: never another session's, which the notice isn't about. */
-std::vector<pid_t> own_copies(const std::string &binary) {
-	std::vector<pid_t> out;
+std::vector<ProcessInfo> own_copies(const std::string &binary) {
+	std::vector<ProcessInfo> out;
 	uid_t me = getuid();
 	std::string name = binary.substr(0, 15);
 	for (const ProcessInfo &p : list_processes())
 		if (p.uid == me && p.name == name && p.pid > 1 && in_this_session(p.pid))
-			out.push_back(p.pid);
+			out.push_back(p);
 	return out;
 }
 
@@ -616,8 +616,8 @@ Ui::ProgramRow *startup_row(Ui *ui, const wb::Integration &in) {
 }
 
 void stop_copies(Ui *ui, const wb::Integration *in) {
-	for (pid_t pid : own_copies(in->binary))
-		kill(pid, SIGTERM);
+	for (const ProcessInfo &p : own_copies(in->binary))
+		signal_process(p, SIGTERM);
 	char *t = g_strdup_printf(_("Stopped %s for this session."), in->name.c_str());
 	set_status(ui, t);
 	g_free(t);

@@ -443,7 +443,7 @@ struct LuaPage {
 			for (const ProcessInfo &pi : list_processes())
 				if (pi.uid == getuid() && pi.name == name && name != "waybox" &&
 						pi.pid != getpid() && in_this_session(pi.pid) &&
-						kill(pi.pid, sig) == 0)
+						signal_process(pi, sig))
 					++sent;
 			reloaded = "signal:" + std::to_string(sent);
 		} else if (r.kind == K::Restart) {
