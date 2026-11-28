@@ -146,10 +146,31 @@ claim first.
 
 ## Providers
 
+### Where things are
+
+Everything for agents sits under one `agents/` folder in each XDG
+location, beside Agent Skills' (`agents/skills/`: Fedora installs skills to
+`/usr/share/agents/skills/`, and the Agent Skills proposals point the same
+way):
+
+| | System (`$XDG_DATA_DIRS`, `$XDG_CONFIG_DIRS`) | The user's |
+|---|---|---|
+| Provider manifests | `/usr/share/agents/tools/` | `$XDG_DATA_HOME/agents/tools/` |
+| Agent integration files | `/usr/share/agents/clients/` | `$XDG_DATA_HOME/agents/clients/` |
+| Skills (Agent Skills) | `/usr/share/agents/skills/` | `$XDG_DATA_HOME/agents/skills/` |
+| Settings, tunables | `/etc/xdg/agents/tools/settings.ini` | `$XDG_CONFIG_HOME/agents/tools/settings.ini` |
+| Token files | | `$XDG_CONFIG_HOME/agents/tools/tokens/` |
+| Audit, confirmed settings | | `$XDG_STATE_HOME/agents/tools/` |
+| The hub's sockets | | `$XDG_RUNTIME_DIR/agents/tools/` |
+
+The user's entries win over the system's, file by file, as XDG has it.
+The spec backs XDG paths for skills too, so an agent finds the desktop's
+skill (below) and the distribution's where it finds its own.
+
 ### The manifest
 
-A provider installs a manifest in `$XDG_DATA_DIRS/agent-tools/` (system,
-from a package) or `$XDG_DATA_HOME/agent-tools/` (the user's):
+A provider installs a manifest in `$XDG_DATA_DIRS/agents/tools/` (system,
+from a package) or `$XDG_DATA_HOME/agents/tools/` (the user's):
 
 ```ini
 [Provider]
@@ -204,6 +225,22 @@ Description=Play or pause the current media player
   a tool declared `read` can do anything inside the provider's own process.
   Sensitivities protect the user from an agent misusing a *trusted*
   provider. Approving a provider means trusting its code.
+
+### Existing MCP servers as providers
+
+Any MCP server can be put behind the hub unchanged: an activated provider
+whose `Exec` starts it, and a manifest declaring each of its tools'
+sensitivity and description. It then gets the compositor's consent and
+the audit, where it had only whatever its client did (or a skill's
+checklist in prose).
+- **A tool that dispatches to others** (one that runs any "ability" or
+  command by name) takes the sensitivity of the most dangerous thing it can
+  reach: a manifest can't make it safer than its worst case. Split it into
+  tools of their own where the server allows.
+- **A server whose tools change at runtime** offers only those its
+  manifest names; the rest are refused and logged, as for any provider.
+- **Later:** remote MCP servers over HTTP as providers (`Url=`, signed in
+  their own way), the hub connecting out to them.
 
 ### Identity
 
@@ -311,7 +348,7 @@ app's id and its profile.
   changes (media playing, battery).
 - **Activated providers** get the socket as their standard input and
   output, or as a passed file descriptor.
-- **Registering providers** connect to `$XDG_RUNTIME_DIR/agent-tools/hub`.
+- **Registering providers** connect to `$XDG_RUNTIME_DIR/agents/tools/hub`.
 
 ### Requests from providers: sampling and elicitation
 
@@ -388,7 +425,7 @@ must stay what the provider returned.
 agent's connection: Agent UI never takes focus and is always marked, but a
 prompt-injected agent could still use it to phish.
 
-**Where the settings live:** `$XDG_CONFIG_HOME/agent-tools/settings.ini`, a
+**Where the settings live:** `$XDG_CONFIG_HOME/agents/tools/settings.ini`, a
 file of its own (not the compositor's config: settings tools and scripts
 edit that all the time, while this file's raises count only after the
 compositor's confirmation, below). Lowering takes effect at once.
@@ -440,7 +477,7 @@ Profile=safe
 ```
 
 **How raises wait for a confirmation:** the hub keeps the settings as last
-confirmed (`$XDG_STATE_HOME/agent-tools/confirmed.ini`). On reading the
+confirmed (`$XDG_STATE_HOME/agents/tools/confirmed.ini`). On reading the
 settings, each value that's more permissive than the confirmed one
 counts as the confirmed one until the compositor's confirmation says yes;
 values that are less permissive apply at once and become the confirmed
@@ -677,7 +714,7 @@ program wants to offer tools), so the user notices and decides.
 ## The audit log
 
 The hub appends one JSON line per event to
-`$XDG_STATE_HOME/agent-tools/audit.log`:
+`$XDG_STATE_HOME/agents/tools/audit.log`:
 
 ```json
 {"v":1,"time":"2026-11-28T10:01:02.123Z","event":"call",
@@ -830,7 +867,7 @@ hub to an agent is described by an **agent integration file**, which the
 settings use for "Add assistant" (bind it, then write its configuration):
 
 ```ini
-# $XDG_DATA_DIRS/agent-tools/agents/openclaw.ini
+# $XDG_DATA_DIRS/agents/clients/openclaw.ini
 [Agent]
 Version=1
 Name=OpenClaw
@@ -844,7 +881,7 @@ McpRemove=openclaw mcp remove desktop
 ```
 
 - **Who ships them:** the agent's package, the distribution, or the
-  desktop; the user's own go in `$XDG_DATA_HOME/agent-tools/agents/`.
+  desktop; the user's own go in `$XDG_DATA_HOME/agents/clients/`.
 - **The shim's command** (`%s`) is the desktop's (`waybox-mcp --token-file
   …`), so one file serves every desktop.
 - **A JSON file is edited in place,** the rest of it left as it was, and
@@ -890,6 +927,22 @@ a tool (`session/request_permission`: allow or reject, once or always).
   hub (`_meta` `org.freedesktop.agent/asks`), so a frontend may skip its
   own question for them, the compositor asking anyway.
 
+### The desktop's skill, and skills that act
+
+**A skill ships with the hub** (an Agent Skills `SKILL.md`, in
+`/usr/share/agents/skills/desktop/`), teaching any agent how to work here:
+list before acting; a denial means stop, not retry; what "stopped" and
+"the user is away" mean; why the flow guard asks. Agents load it when it's
+relevant, so the tools' own descriptions stay short. It says how to work,
+never what's allowed: levels and grants come only from the hub.
+
+**Skills that change things on the desktop** should do it through the
+hub's tools, not their own scripts: the change is then asked about and
+audited. A skill's scripts run with the agent's rights, outside the hub,
+as an agent's shell does (see "The limits"). Consent written into a skill
+as instructions (a checklist the model is told to follow) is a request to
+the model; the hub's is enforced.
+
 ## The Agent portal: sandboxed agents and providers
 
 An agent with a shell can do anything the user can (see "The limits"). An
@@ -923,7 +976,7 @@ compositor asks the question, through the compositor interface, as for
 any other.
 
 **Manifests from inside a sandbox:** an app ships its manifest in
-`share/agent-tools/`, and Flatpak exports it as it exports desktop files,
+`share/agents/tools/`, and Flatpak exports it as it exports desktop files,
 icons and search providers (an addition to Flatpak's exported folders).
 Until Flatpak does, the hub reads installed Flatpaks' manifests from their
 deployments, each `Id` checked against its app's id.
@@ -1109,7 +1162,7 @@ names: their characters, 48 at most) aren't tunables: changing them breaks
 interoperability, not taste.
 
 - **Where they're set:** system defaults in
-  `$XDG_CONFIG_DIRS/agent-tools/settings.ini` (`[Tunables]`, from the
+  `$XDG_CONFIG_DIRS/agents/tools/settings.ini` (`[Tunables]`, from the
   distribution), the user's in their own settings file. A user's change
   that weakens a guard (a shorter pause, a higher rate limit) counts as
   raising power and needs the compositor's confirmation, as any raise does;
@@ -1221,7 +1274,7 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
 - **Ahead of time:** in the settings, "Add assistant": a profile and a
   label. `Propose` (kind `binding`); the compositor's confirmation shows the
   profile and the label. Yes: the hub mints a token, writes it to a file
-  (mode 0600) under `$XDG_CONFIG_HOME/agent-tools/tokens/`, records its
+  (mode 0600) under `$XDG_CONFIG_HOME/agents/tools/tokens/`, records its
   hash, and the settings show the agent configuration naming that file.
 - **From an agent connected as "safe":** "Bind this assistant" on its row.
   The confirmation also shows its executable and script (shown, not
@@ -1334,7 +1387,7 @@ The spec uses the names proposed for sharing: `org.freedesktop.AgentHub1`,
 8. **Agent UI as a standard of its own.** Later, likewise.
 
 Also decided in the second pass:
-- **Settings** in a file of their own (`agent-tools/settings.ini`), not rc.xml.
+- **Settings** in a file of their own (`agents/tools/settings.ini`), not rc.xml.
 - **`ui` at `ask` in "safe"**, once per agent connection.
 - **The stop key:** Super+Escape by default, changeable, never unbound.
 - **Third pass:** the hub desktop-neutral, the compositor interface
@@ -1344,6 +1397,11 @@ Also decided in the second pass:
   portals; MCP's tool annotations implied by sensitivities; `McpName`
   linking a manifest to its `server.json`; unknown sensitivities `off`;
   windows named by `ext-foreign-toplevel-list`; the Agent portal.
+- **Eighth pass:** one `agents/` folder per XDG location (`tools/`,
+  `clients/`, beside Agent Skills' `skills/`); existing MCP servers as
+  providers, a dispatching tool at its worst case's sensitivity; the
+  desktop's skill shipped with the hub; skills that act going through the
+  hub's tools.
 - **Seventh pass:** the flow guard keeps window titles (they carry
   injections) but asks about the flow once, "for this session" offered
   whatever the sensitivity; agents in practice (host agents first);
@@ -1363,7 +1421,7 @@ Also decided in the second pass:
   file; the portal backend and its confirmation kind.
 - **Fifth pass:** the shim's handshake (the token from a file, never the
   command line; `lower`; `label`); the settings file's format under
-  `$XDG_CONFIG_HOME/agent-tools/`, raises held at the confirmed values
+  `$XDG_CONFIG_HOME/agents/tools/`, raises held at the confirmed values
   until confirmed; the audit's line format and rotation; the state
   interface's signals as `PropertiesChanged`.
 - **Fourth pass:** tool names `<provider>__<tool>`, lowercase, at most 48
@@ -1391,7 +1449,7 @@ and a headless Waybox, never the user's session.
    only, a pause before input counts, Deny the default); grants per
    connection; the D-Bus state for surfaces; `act` and `destroy` tools at
    `ask`.
-3. **Settings, profiles and tokens:** `agent-tools/settings.ini`, the confirmation
+3. **Settings, profiles and tokens:** `agents/tools/settings.ini`, the confirmation
    for anything that raises power, wbconf's page.
 4. **Config and command tools:** `check_config`, `write_config`,
    `run_command`, `run_action`.
