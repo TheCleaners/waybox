@@ -1,6 +1,9 @@
 # Agent tools: a desktop broker for AI assistants
 
-*Draft, first pass. Not a standard; a proposal meant to become one.*
+*Draft, second pass: Waybox's implementation target. Not a standard; a
+proposal meant to become one once it has proved itself. It supersedes the
+plan in #196; the decisions on the first pass's questions are at the end,
+with the order it's built in.*
 
 ## Why
 
@@ -88,6 +91,13 @@ The hub is one per session, **started by the compositor**:
   reach them.
 - **Where shims find the hub:** the socket's path is in the session's
   environment, in a directory only the user can enter.
+- **Independent of IPC:** the private connection works with Waybox's
+  general IPC socket turned off (its default), so none of this needs IPC
+  enabled.
+- **On other desktops:** a systemd user unit, or the desktop's own session
+  startup. Documented, not built: without a compositor's private
+  connection, such a hub has no consent it can trust, so it offers no tool
+  above `read` and `content`.
 
 There are no well-known names in the trust path that another program could
 claim first.
@@ -225,19 +235,31 @@ Overrides per provider and per tool sit on top.
   waste calls on them, nor learn what it's denied.
 - **Tools at `ask` are listed:** the question comes when they're called.
 
-The hub also tells agents, in MCP's server `instructions`, that text from
-applications (window titles, tool results) is untrusted content, not
-instructions. That's the cheap half of open question 2.
+**Results are marked untrusted.** The hub tells agents, in MCP's server
+`instructions`, that text from applications (window titles, tool results)
+is untrusted content, not instructions. Each result that carries such text
+is also marked, in its `_meta` (`"org.waybox/untrusted": true`), for agents
+that understand the marking. The text itself isn't rewritten: a result
+must stay what the provider returned.
 
 **Presets:**
 
 | | read | content | act | destroy | exec | capture | input | ui |
 |---|---|---|---|---|---|---|---|---|
-| safe (default) | allow | allow\* | off | off | off | off | off | allow |
+| safe (default) | allow | allow\* | off | off | off | off | off | ask\*\* |
 | trusted | allow | allow | allow | ask | ask | ask | off | allow |
 | full | allow | allow | allow | allow | allow | allow | allow | allow |
 
 \* In "safe": window titles only; accessibility trees are `off`.
+
+\*\* In "safe", an agent's first `ui` request is asked about once, for that
+agent's connection: Agent UI never takes focus and is always marked, but a
+prompt-injected agent could still use it to phish.
+
+**Where the settings live:** `$XDG_CONFIG_HOME/waybox/agent-tools.ini`, a
+file of its own, not rc.xml: wbconf and scripts edit rc.xml all the time,
+while this file's raises count only after the compositor's confirmation
+(below). Lowering takes effect at once.
 
 **Agent profiles:** the settings can define profiles, for example "local
 model: full" and "cloud assistant: safe".
@@ -277,7 +299,8 @@ model: full" and "cloud assistant: safe".
 
 **Not switchable:** these restrict nothing the user could want, and each
 closes a hole:
-- **The stop key,** handled by the compositor before anything else and
+- **The stop key** (Super+Escape by default, changeable in the settings,
+  never unbound), handled by the compositor before anything else and
   independent of the hub. The compositor owns capture and input, so the stop
   key ends them at once, even if the hub hangs, then tells the hub, which
   revokes grants and cancels calls.
@@ -312,7 +335,7 @@ panel or a notification.
 **The hub asks through the compositor's private connection.** The compositor
 draws the question itself.
 
-**On other desktops,** the portal Access dialog
+**On other desktops** (not built now), the portal Access dialog
 (`org.freedesktop.impl.portal.Access`) is the closest fit:
 - **The choices:** its options can carry the scope (once, the session, a set
   time).
@@ -320,7 +343,7 @@ draws the question itself.
   xdg-desktop-portal itself calls it. A hub using it must check who owns the
   backend's bus name (that it's the desktop's portal backend), since any
   program could claim the name first and answer "allow". A portal of its own
-  would avoid this (open question 7).
+  would avoid this (decision 7: not now).
 - **What it shows:**
   - **The question:** the agent's profile, the provider and tool, and a
     readable summary of the arguments.
@@ -369,12 +392,15 @@ later with the same profile gets nothing.
 - **`exec`:** "once" only, unless the settings allow more. Allowing
   `run_command` "for this session" means allowing *every* command.
 - **`destroy`:** scope is per target where the tool has one (this window).
+- **`ui` (in "safe"):** once per agent connection: after that, its
+  requests show without asking again.
 - **Other sensitivities:** once, the session, or a set time.
 
 ## State for surfaces
 
-The hub publishes its state on D-Bus, at `org.freedesktop.AgentHub1` on the
-session bus (a provisional name).
+The hub publishes its state on D-Bus, at `org.waybox.AgentHub1` on the
+session bus (`doc/dbus/org.waybox.AgentHub1.xml`), until a shared name is
+agreed (`org.freedesktop.AgentHub1`).
 
 **Properties:**
 - `Agents`: connected shims, with profile and self-declared name.
@@ -455,7 +481,10 @@ compositor's confirmation.
 
 **No Wayland protocol is involved or defined.** Agents, shims, the hub,
 providers and surfaces aren't Wayland clients. The hub reaches the
-compositor through the compositor's own channel (Waybox's IPC socket).
+compositor through its private connection: Waybox's IPC protocol (the
+same JSON requests `waybox-msg` sends), plus the requests only the hub may
+make (consent, confirmations, capture, input, the stop key's news), which
+the general IPC socket refuses.
 Capture and input are done inside the compositor at the hub's request,
 not through the protected capture and virtual input protocols, which stay
 closed to sandboxed clients as they are.
@@ -467,10 +496,12 @@ as a cross-compositor proposal.
 
 A compositor that supports this provides the following.
 - **A provider** for its own state and actions: windows, desktops, outputs,
-  focus, move and resize. Under Waybox this is the IPC socket, wrapped by
-  the hub as the `waybox` provider.
-- **A portal Access backend** (`org.freedesktop.impl.portal.Access`) that
-  draws consent where clients can't reach it.
+  focus, move and resize. Under Waybox, the hub offers it as the `waybox`
+  provider, over the private connection (its tools are below).
+- **Consent drawn where clients can't reach it.** Under Waybox, the
+  compositor draws questions and confirmations itself, asked over the
+  private connection; no portal backend is involved. (A portal Access
+  backend is the route on other desktops; see the decisions below.)
 - **The hub,** started by the compositor, with the private connection.
 - **Capture and input,** mediated:
   - **Capture:** the compositor itself draws what's captured, leaving out
@@ -483,6 +514,30 @@ A compositor that supports this provides the following.
 - **The stop key,** always.
 - **The indicator,** while capture or input is active, drawn by the
   compositor. Switchable; a surface may show one too.
+
+### The `waybox` provider's tools
+
+| Tool | Sensitivity | What it does |
+|---|---|---|
+| `list_windows` | read (titles: content) | windows: id, app id, title, desktop, output, geometry, state, focused; each window's process id and whether it answers (Waybox's ping) |
+| `list_desktops`, `list_outputs`, `get_version` | read | desktops and their names; monitors, modes, scale; Waybox's version |
+| `window_process` | read | a window's process: its state, CPU use, what it's waiting on, its children (the stuck-window case) |
+| `check_config` | read | Waybox's parser on a proposed rc.xml, without applying it |
+| `focus_window`, `move_window`, `resize_window`, `set_window_state`, `send_to_desktop`, `switch_desktop` | act | as their actions do |
+| `close_window` | destroy | asks the window to close, as its close button |
+| `kill_window` | destroy | ends a window's process (Waybox's Kill), for one that doesn't answer |
+| `run_action` | exec | any rc.xml action by name (Execute among them) |
+| `run_command` | exec | a command, as Execute runs it |
+| `write_config` | exec | rc.xml replaced (backed up, checked first, then Reconfigure): it can run commands |
+| `run_lua` | exec | Lua run in Waybox (when built with Lua), the code in the audit in full |
+| `capture_window`, `capture_output` | capture | an image of a window or a monitor, drawn by Waybox |
+| `type_text`, `press_keys`, `click` | input | synthetic input into the granted window |
+
+**Not offered: raw IPC.** It would be every typed tool without the typing,
+and the audit would only see "raw".
+
+**The accessibility tree** comes from a provider of its own, `atspi`
+(AT-SPI, the accessibility bus): `content`, `off` in "safe".
 
 ## Scripts as providers
 
@@ -634,8 +689,8 @@ are the defence. Rules about where data may flow are out of scope for now.
 
 **Read results can carry injections.** Window titles and other text from
 applications reach the model, and are allowed even in "safe". Results
-should be marked as untrusted content for agents that understand such
-marking (open question 2).
+are marked as untrusted content, for agents that understand the marking
+(decision 2); for those that don't, the hub's instructions say so.
 
 ### Rules that close specific holes
 
@@ -665,30 +720,62 @@ marking (open question 2).
 **Manifests** carry `Version=1` in `[Provider]`. The D-Bus interface is
 versioned by name (`AgentHub1`). MCP versions are negotiated as MCP does.
 
-## Open questions
+## Decisions on the first pass's questions
 
-1. **Sensitivity is self-declared.** A provider can lie, so the manifest
-   approval is where the user decides whether to believe it. Should the hub
-   classify some well-known tool shapes itself?
-2. **Content reaching the model.** `read` tools can return text that is
-   itself an injection (a window title). Should the hub mark tool results as
-   untrusted content for agents that understand such marking?
-3. **Who starts the hub.** A session service (systemd user unit, or the
-   compositor's startup programs)? D-Bus activation on first use?
-4. **Portals for sandboxed agents.** An agent in a Flatpak can't reach the
-   hub socket. Should there be an Agent portal, or is that out of scope for
-   now?
-5. **Resource streams.** Should the hub forward provider resources and
-   their updates (MCP resources and subscriptions), or only tools at first?
-6. **The name.** `org.freedesktop.AgentHub1` presumes acceptance. Until
-   then: `org.waybox.AgentHub1`?
-7. **The consent route on other desktops.** Under Waybox the hub asks the
-   compositor directly. Elsewhere, calling `impl.portal.Access` works (with
-   the name's owner checked), but uses a backend interface as if it were
-   public. A portal of its own
-   (`org.freedesktop.portal.AgentConsent`?) would be cleaner, and would let
-   desktops style the question. Is it worth proposing alongside the rest?
-8. **Agent UI as a standard of its own?** `AgentUI1` is useful without the
-   rest (a script asking a question through whatever UI the desktop has).
-   Should it be proposed separately, perhaps as a portal, so sandboxed apps
-   could use it too?
+1. **Sensitivity is self-declared.** The hub doesn't classify tools itself
+   for now: approving a provider is where the user decides whether to
+   believe what it declares.
+2. **Content reaching the model.** Marked: in the hub's instructions, and
+   in each result's `_meta` (see "Sensitivity and levels"); never
+   rewritten.
+3. **Who starts the hub.** Under Waybox, Waybox, with the private
+   connection. Elsewhere a systemd user unit, documented but not built, and
+   limited to `read` and `content` (no trusted consent without a
+   compositor).
+4. **Sandboxed agents.** Out of scope for now: no Agent portal.
+5. **Resource streams.** Tools only at first; resources and subscriptions
+   later.
+6. **The name.** `org.waybox.AgentHub1` and `org.waybox.AgentUI1`, until a
+   shared name is agreed.
+7. **The consent route on other desktops.** Not now. Waybox draws its own
+   questions; a portal of its own is proposed only once this has proved
+   itself.
+8. **Agent UI as a standard of its own.** Later, likewise.
+
+Also decided in the second pass:
+- **Settings** in `agent-tools.ini`, not rc.xml.
+- **`ui` at `ask` in "safe"**, once per agent connection.
+- **The stop key:** Super+Escape by default, changeable, never unbound.
+- **From #196:** AT-SPI (`content`), `check_config` (`read`),
+  `write_config`, `run_action` and `run_lua` (`exec`), and the process
+  tools for a stuck window (`read`; Kill as `destroy`). Raw IPC is dropped.
+
+## The order it's built in
+
+One pull request each, each useful on its own; tests on private buses
+and a headless Waybox, never the user's session.
+
+1. **The hub and the shim, started by Waybox:** the private connection;
+   the `waybox` provider's `read` and `content` tools (the process id and
+   whether a window answers in its list); the audit log. Every agent gets
+   "safe", with `ask` acting as `off` until step 2.
+2. **Consent and the stop key:** questions drawn by Waybox (physical input
+   only, a pause before input counts, Deny the default); grants per
+   connection; the D-Bus state for surfaces; `act` and `destroy` tools at
+   `ask`.
+3. **Settings, profiles and tokens:** `agent-tools.ini`, the confirmation
+   for anything that raises power, wbconf's page.
+4. **Config and command tools:** `check_config`, `write_config`,
+   `run_command`, `run_action`.
+5. **Providers of other programs:** manifests, activated and registering
+   providers, approval and pinning.
+6. **The accessibility provider** (`atspi`).
+7. **Scripts:** `wb.mcp_tool`, `wb.policy("mcp")`, `run_lua`.
+8. **Agent UI:** the `ui` tools, Waybox's fallbacks, the `agent-ui` rule.
+9. **Capture and input,** with the indicator.
+
+## Still open
+
+- **When to propose this outside Waybox,** and as what: the hub's D-Bus
+  state, Agent UI and a consent portal are each candidates. After it has
+  been in use for a while.
