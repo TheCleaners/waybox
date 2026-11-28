@@ -20,6 +20,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import wbtest
 
@@ -111,7 +112,18 @@ def main():
         client = subprocess.Popen([layer_client], env=dict(env, WAYLAND_DISPLAY=sock),
                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                   text=True)
-        time.sleep(1.5)
+        # What the panel says, as it says it (events waited for, not slept
+        # through: a loaded CI runner is slower than any fixed sleep).
+        said = []
+        threading.Thread(target=lambda: [said.append(l.strip()) for l in client.stdout],
+                         daemon=True).start()
+
+        def wait_said(word, count, timeout=15.0):
+            end = time.time() + timeout
+            while said.count(word) < count and time.time() < end:
+                time.sleep(0.1)
+
+        wait_said("configured", 2)
 
         # The two output windows are top-level children of the Xvfb root.
         root = d.screen().root
@@ -127,12 +139,15 @@ def main():
             window=victim, client_type=proto,
             data=(32, [delete, X.CurrentTime, 0, 0, 0])), event_mask=X.NoEventMask)
         d.flush()
-        time.sleep(2.0)  # the panel keeps redrawing meanwhile
+        wait_said("closed", 1)
+        time.sleep(0.5)  # the panel keeps redrawing meanwhile: still alive after
 
         if proc.poll() is not None:
             failures.append(f"waybox died after the output was destroyed (exit {proc.returncode})")
         client.send_signal(signal.SIGTERM)
-        out = client.communicate(timeout=5)[0].split()
+        client.wait(timeout=5)
+        time.sleep(0.2)  # the reader's last lines
+        out = list(said)
         if out.count("configured") < 2:
             failures.append(f"the panel was not configured on both outputs ({out})")
         if out.count("closed") != 1:
