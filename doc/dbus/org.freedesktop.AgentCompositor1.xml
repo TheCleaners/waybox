@@ -39,7 +39,10 @@
       name, shown as a claim), "provider" (s, its approved Name), "tool" (s),
       "sensitivity" (s), "summary" (as, lines summarizing the arguments,
       already sanitized; shown as literal text), "scopes" (as: "once",
-      "session", "timed"), "window" (s, the target, if any).
+      "session", "timed"), "window" (s, the target, if any), "reason" (s,
+      why it's asked when the level alone wouldn't: the flow guard's "this
+      assistant has read window contents"), "remote" (b, the agent is
+      connected from another device, through a bridge).
     -->
     <method name="Ask">
       <arg name="question" type="a{sv}" direction="in"/>
@@ -65,7 +68,8 @@
       "provider", "binding"), "title" (s), "lines" (as, what changes, one
       per line), and per kind: for "provider", "id", "name", "exec" (s) and
       "tools" (aa{sv}: name, description, sensitivity); for "binding",
-      "profile" (s), "exec" and "script" (s, shown, not trusted).
+      "profile" (s), "exec" and "script" (s, shown, not trusted), "remote"
+      (b, a bridge for an assistant on another device).
     -->
     <method name="Confirm">
       <arg name="change" type="a{sv}" direction="in"/>

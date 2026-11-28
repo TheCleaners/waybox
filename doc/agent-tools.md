@@ -116,6 +116,31 @@ The hub is one per session, **started by the compositor**:
 There are no well-known names in the trust path that another program could
 claim first.
 
+**The hub's lifetime:**
+- **The compositor supervises it:** restarted with a growing delay; after
+  3 crashes in a minute, not again, and the user is told (a notice and
+  the indicator).
+- **When the hub's socket closes,** the compositor closes every open
+  question, ends capture and input, and lowers the indicator: all safe
+  even if the hub was in a bad state.
+- **What survives a restart:** the settings, approvals, bindings and the
+  audit (files). Grants and open questions don't: they end, the safe way.
+- **Shims reconnect by themselves,** redo the MCP handshake with the new
+  hub, and tell the agent its tools changed; calls that were running get
+  "the desktop's hub restarted; call again".
+- **The audit is append-only,** one line a write: a crash loses at most the
+  line being written.
+
+**Agents on another machine:** the hub never listens on the network.
+- **A cloud model with a local client** (Claude Code, a chat app) is a local
+  agent: nothing more is needed.
+- **A client elsewhere** (an assistant on a phone, a web page) reaches the
+  desktop through a **bridge**: a program on this machine that
+  authenticates to the remote side its own way, and connects to the hub
+  as any agent does, bound to a profile like any other. Its binding is
+  marked `remote`, so questions and the indicator say "an assistant
+  connected from another device".
+
 ## Providers
 
 ### The manifest
@@ -148,6 +173,13 @@ Description=Play or pause the current media player
   (`io.github.user/server`), when it's also published for MCP clients:
   the same program then needs only this file to join the hub.
 - **X-...:** keys of a vendor or desktop of its own; others ignore them.
+- **Translations:** `Name[fr]=`, `Description[fr]=` (the provider's and each
+  tool's), as desktop files have them. The user reads their language in
+  the approval, the questions and the settings; agents always get the
+  untranslated description, the one approved, so it doesn't change with
+  the locale. Translations are part of the approved content: a changed one
+  makes the provider pending again, so a provider can't tell the user one
+  thing and the model another.
 
 **Tool fields:**
 - **Description:** what's shown to the user when approving, and the *only*
@@ -209,14 +241,29 @@ pending. It is offered to no agent until the user approves it:
 
 ### Naming
 
-Agents see tools as `<provider>.<tool>`, with the provider's short name
-from its `Id`: `waybar.get_battery`, `waybox.list_windows`. That avoids
+Agents see tools as `<provider>__<tool>`, with the provider's short name
+from its `Id`: `waybar__get_battery`, `waybox__list_windows`. That avoids
 collisions and tells the model, and the audit, whose tool it is.
+
+**Names every client accepts.** MCP allows 1–128 characters of letters,
+digits, `_`, `-` and `.`, but model APIs take fewer (64 characters, no
+dots), and clients add their own prefix (`mcp__<server>__`). So the hub's
+names are:
+- **lowercase `[a-z0-9_-]`**, at most **48 characters**, leaving 16 for a
+  client's prefix;
+- **`__` only as the separator:** a short name or a tool name containing
+  `__` has it collapsed to `_`, so the name splits back without doubt;
+- **short names at most 16 characters;** a name still too long has its
+  tool part cut and 4 characters of a hash of the full name added, so it
+  stays unique and the same from one session to the next.
+
+The audit and the questions always show the full names (the provider's
+`Id` and the tool's own name), never the shortened one.
 - **Reserved:** the compositor's short name (`waybox`) belongs to the
   compositor's provider.
 - **Unique:** short names are unique; a second provider whose `Id` would
   shorten to a name in use gets its full id.
-- **No impersonation:** `com.evil.Waybox` can't appear as `waybox.close_window`.
+- **No impersonation:** `com.evil.Waybox` can't appear as `waybox__close_window`.
 
 ### Transport
 
@@ -233,6 +280,21 @@ collisions and tells the model, and the audit, whose tool it is.
 - **Activated providers** get the socket as their standard input and
   output, or as a passed file descriptor.
 - **Registering providers** connect to `$XDG_RUNTIME_DIR/agent-tools/hub`.
+
+### Requests from providers: sampling and elicitation
+
+MCP lets a server ask its client too: **sampling** (run a prompt on the
+agent's model) and **elicitation** (ask the user something through the
+agent's UI). Through the hub, both would let a provider spend the user's
+model, learn what the agent knows, push text at the model, or question
+the user in the agent's name.
+
+- **Not passed on, by default:** a provider sending either gets "not
+  supported", and the attempt is in the audit.
+- **Later, each its own sensitivity** (`sampling`, `elicit`), `off` in every
+  preset; only requests made during a call the agent made to that provider
+  are considered (MCP's SEP-2260 rule); elicitation is then drawn as Agent
+  UI, with its rules, not by the agent's UI.
 
 ## Sensitivity and levels
 
@@ -332,10 +394,27 @@ model: full" and "cloud assistant: safe".
 - rate limits;
 - excluding private windows (a window rule) from capture;
 - refusing reads and actions while the screen is locked;
+- the flow guard (see "Where data comes from, and where it may go");
 - the on-screen indicator while capture or input is active (turning it off
   warns: the compositor's indicator is the one that can't be faked, see
   below);
 - the audit log.
+
+**Where data comes from, and where it may go.** An agent that holds private
+data, reads untrusted content, and can send things out can be talked into
+leaking (the "lethal trifecta"): here, `content` or `capture` results, and
+tools that reach out.
+- **Every result says where it came from:** `_meta`
+  `org.freedesktop.agent/provenance` gives the provider, the tool and the
+  sensitivity.
+- **The hub remembers, per agent connection,** which sensitivities and
+  providers it has had data from.
+- **The flow guard:** once a connection has had `content` or `capture` data,
+  its calls to tools that reach out (`exec`, and any tool whose hints say
+  open-world) are asked about even where the level is `allow`; the question
+  says why ("this assistant has read window contents").
+- **The record is kept even with no rule using it,** so finer rules (per
+  provider, per destination) can come later without changing any format.
 
 **Not switchable:** these restrict nothing the user could want, and each
 closes a hole:
@@ -659,15 +738,15 @@ provider, with sensitivity `ui`:
 
 | Tool | What the user sees | Returns |
 |---|---|---|
-| `ui.notify(title, body, actions?)` | a notice, with buttons if given | the button chosen, or nothing |
-| `ui.ask(prompt, default?, secret?)` | a one-line question | the text, or cancelled |
-| `ui.choose(prompt, items, multiple?)` | a list to pick from | the item(s), or cancelled |
-| `ui.form(title, schema)` | a form | the values, or cancelled |
-| `ui.output_open(title)`, `ui.output_append(id, text)`, `ui.output_close(id)` | a stream of output (a log, a long answer) | an id |
-| `ui.progress(id, fraction?, text)` | progress on a running task | nothing |
-| `ui.pick_file(prompt, save?, filters?)` | the file chooser | the path, or cancelled |
+| `ui__notify(title, body, actions?)` | a notice, with buttons if given | the button chosen, or nothing |
+| `ui__ask(prompt, default?, secret?)` | a one-line question | the text, or cancelled |
+| `ui__choose(prompt, items, multiple?)` | a list to pick from | the item(s), or cancelled |
+| `ui__form(title, schema)` | a form | the values, or cancelled |
+| `ui__output_open(title)`, `ui__output_append(id, text)`, `ui__output_close(id)` | a stream of output (a log, a long answer) | an id |
+| `ui__progress(id, fraction?, text)` | progress on a running task | nothing |
+| `ui__pick_file(prompt, save?, filters?)` | the file chooser | the path, or cancelled |
 
-`ui.form` takes **MCP elicitation's schema**: a flat object of text,
+`ui__form` takes **MCP elicitation's schema**: a flat object of text,
 number, boolean and choice fields. MCP restricted it to what any UI can
 render, and reusing it keeps one form language across the agent world.
 
@@ -883,6 +962,13 @@ Also decided in the second pass:
   portals; MCP's tool annotations implied by sensitivities; `McpName`
   linking a manifest to its `server.json`; unknown sensitivities `off`;
   windows named by `ext-foreign-toplevel-list`; the Agent portal.
+- **Fourth pass:** tool names `<provider>__<tool>`, lowercase, at most 48
+  characters; the hub supervised by the compositor (what survives a
+  restart, what doesn't); sampling and elicitation not passed on (later,
+  sensitivities of their own); translations in manifests, the agent
+  always getting the approved untranslated text; provenance on every
+  result and the flow guard; no network listener, remote clients through
+  a local bridge marked `remote`.
 - **From #196:** AT-SPI (`content`), `check_config` (`read`),
   `write_config`, `run_action` and `run_lua` (`exec`), and the process
   tools for a stuck window (`read`; Kill as `destroy`). Raw IPC is dropped.
