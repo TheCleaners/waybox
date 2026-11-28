@@ -61,4 +61,7 @@ void apply_output_rules(struct wb_server *server);
 void apply_output_color(struct wb_server *server, struct wlr_output *output,
 		struct wlr_output_state *state);
 
+/* Output management (wlr-randr, wbconf) told how the monitors are now. */
+void output_manager_update_config(struct wb_server *server);
+
 #endif /* output.h */

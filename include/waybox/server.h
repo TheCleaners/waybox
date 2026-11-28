@@ -68,6 +68,10 @@ struct wb_server {
 	struct wlr_output_layout *output_layout;
 	struct wlr_xdg_output_manager_v1 *output_manager;
 	struct wlr_renderer *renderer;
+	/* Renderers (and their allocators) a GPU reset replaced, kept while a
+	 * monitor that couldn't take the new one still points at them (it's
+	 * off; turned on again, it takes the current one). Freed at exit. */
+	std::vector<std::pair<struct wlr_renderer *, struct wlr_allocator *>> old_renderers;
 	/* text-input-v3 / input-method-v2 (see input_method.h). */
 	struct wb_input_method_relay *input_method_relay = nullptr;
 	/* xdg-toplevel-icon: icons clients set for their windows. */

@@ -262,7 +262,12 @@ void new_managed(struct wb_server *server, struct wlr_xwayland_surface *xs) {
 	t->kind = wb_view_kind::Xwayland;
 	t->xsurface = xs;
 	xs->data = t;
-	register_toplevel(t);
+	if (!register_toplevel(t)) {
+		xs->data = nullptr;
+		delete t;
+		wlr_xwayland_surface_close(xs);  /* not managed: asked to go */
+		return;
+	}
 
 	t->associate.connect(&xs->events.associate,
 			[t](void *) { managed_associate(t); });

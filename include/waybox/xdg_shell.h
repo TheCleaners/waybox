@@ -211,7 +211,11 @@ struct wlr_scene_tree *toplevel_layer_tree(struct wb_server *server, int layer);
 void set_toplevel_layer(struct wb_toplevel *toplevel, int layer);
 /* Insert a new toplevel into the server lists and create its scene
  * container (both kinds). */
-void register_toplevel(struct wb_toplevel *toplevel);
+/* Its scene tree, its handle, in the lists; false (nothing done) if its
+ * scene tree can't be made. */
+bool register_toplevel(struct wb_toplevel *toplevel);
+/* Tests only: WAYBOX_TEST_FAIL names steps that fail once each. */
+bool wb_test_fail_once(const char *what);
 /* Window capture (wlroots 0.20+; no-ops otherwise). */
 void init_window_capture(struct wb_server *server);
 void drop_window_capture(struct wb_toplevel *toplevel);
