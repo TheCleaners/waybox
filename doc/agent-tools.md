@@ -543,6 +543,8 @@ compositor's confirmation, below). Lowering takes effect at once.
 Version=1
 Preset=safe
 StopKey=Super+Escape
+# Typed input in the audit: off (kind and size only) or full
+AuditInput=off
 
 # Per sensitivity, over the preset
 [Levels]
@@ -789,7 +791,7 @@ visibly apart from the compositor's own words.
   the agent sends later.
 
 **The dialog resists rushed or tricked answers:**
-- input is ignored for a moment after it appears (a tunable), so a click
+- input is ignored for a moment after it appears (`InputPause`), so a click
   meant for something else can't land on "Allow";
 - **Deny** is the default, so Enter never allows;
 - questions are rate-limited per agent;
@@ -891,11 +893,12 @@ the session bus (`doc/dbus/org.waybox.AgentHub1.xml` until renamed; see
   again changes nothing.
 - `RefuseProvider(id)`
 - `RecentCalls(count)`: the latest calls, metadata only, with `count`
-  capped (a tunable)
+  capped (`RecentCallsMax`)
 - `Propose(change)`: ask the compositor to show the confirmation for a
   change that raises power (approve a provider, bind an agent, raise a
   level, resume after a stop). It only asks: the user's physical answer
-  decides, so calling it grants nothing. Rate-limited and logged.
+  decides, so calling it grants nothing. Rate-limited (`ProposeRate`) and
+  logged.
 
 **Who may call:**
 - **Methods:** callable by any process of the user (the session bus already
@@ -973,8 +976,8 @@ The hub appends one JSON line per event to
   text isn't recorded at all by default. `AuditInput=full` records it, a
   setting the settings show with a plain warning that passwords typed for
   an agent then land in the file.
-- **Rotation:** past a size (a tunable) the file becomes `audit.log.1`,
-  a few kept (a tunable).
+- **Rotation:** past a size (`AuditRotate`) the file becomes
+  `audit.log.1`, a few kept.
   Unknown fields are ignored by readers; `v` changes only for a change that
   breaks them.
 
@@ -1037,12 +1040,16 @@ is the standard for synthetic input, so a compositor that has EIS for the
 portal has most of `OpenInput` already.
 
 **A compositor implementing this provides:**
-- **the compositor interface,** answered only on the hub's socket;
-- **its tools,** as an MCP provider with a manifest;
+- **the compositor interface,** answered only on the hub's socket:
+  capture and input for the hub's own tools, the stopped and away states;
+- **its tools,** as an MCP provider with a manifest (windows, desktops:
+  what's its own);
 - **confirmations and questions,** drawn by itself, answered by physical
   input only;
-- **the stop key,** always;
-- **the indicator,** while capture or input is active. Switchable; a
+- **the stop key,** always, and the stopped state it owns;
+- **the agent's processes** held to their levels (`AgentProcess`), and UI
+  providers' windows kept from taking focus (`UiRequest`);
+- **the indicator,** with its states (see "The indicator"). Switchable; a
   surface may show one too.
 
 ### The `waybox` provider's tools
@@ -1168,8 +1175,8 @@ McpRemove=openclaw mcp remove desktop
 
 Some agents act on their own: on a schedule, or "proactively" (OpenClaw's
 word), while nobody is at the desk.
-- **While the user is away** (idle, or the screen locked; the compositor's
-  `Away`), questions aren't shown: there's no one to answer, and a waiting
+- **While the user is away** (idle past `AwayAfter`, or the screen locked;
+  the compositor's `Away`), questions aren't shown: there's no one to answer, and a waiting
   call would outlast its client's timeout. The call is denied at once with
   a tool error the model understands ("the user is away; nothing was
   done").
@@ -1511,11 +1518,11 @@ injected instructions into it. The rules:
 
 | Attacker | Example | Defended by |
 |---|---|---|
-| **A prompt-injected agent** (the main threat) | a web page or window title telling the model to run commands | levels, consent, grants scoped to the agent, the stop key, the audit |
+| **A prompt-injected agent** (the main threat) | a web page or window title telling the model to run commands | levels, consent, grants scoped to the agent, the flow guard, the stop key, the audit; for programs it starts, the compositor holding them to its levels (best effort, see "The agent's processes") |
 | **A provider tampering with its tools' definitions** | a tool that changes its description or schema to steer the model | the pinned definition (manifest and schemas), reserved names settled at approval |
 | **A malicious or compromised provider's code** | an approved provider, or an update of it, reading files or sending data out | nothing in this design: approving a provider trusts its code, as installing it does; its sensitivities and `Reach` are its promise, and the audit shows what it was called for |
 | **Another program of the user** | an app trying to grant itself access | nothing it can do *through this design* gives it more than it had; see below |
-| **A sandboxed app** | a Flatpak with session bus access | no arguments on D-Bus, nothing that grants over D-Bus, no access to the compositor's private connection |
+| **A sandboxed app** | a Flatpak with session bus access | no arguments on D-Bus, nothing that grants over D-Bus, no access to the compositor's private connection, the interim portal alone on its bus connection, its app id taken from the bus, never from what it says |
 | **An agent phishing the user** | a form asking for a password, styled like the system's | agent UI always looks like agent UI, secret fields warn, no focus stealing |
 
 ### The limits
@@ -1582,7 +1589,8 @@ are marked as untrusted content, for agents that understand the marking
     others, the stop key or the compositor;
   - in-flight calls per agent and provider (`MaxInFlight`);
   - size and rate limits on provider results and notifications;
-  - registrations and questions per agent;
+  - registrations and questions per agent (`QuestionRate`), calls per
+    agent (`CallRate`);
   - the JSON parser's depth limit;
   - `RecentCalls` capped.
 - **Activated providers' `Exec`** is parsed with the same quoting rules as
@@ -1638,19 +1646,24 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
    passes it on.
 2. The hub finds the provider and the tool: approved and reachable, or the
    call fails ("no such tool", as if it weren't there).
-3. The hub decides: the connection's level for the tool (its profile, its
-   `lower`, the provider's and the tool's own levels); then the guards: the
-   screen locked (the compositor's `Locked`), rate limits, the flow guard,
-   the stopped state. Here: allowed.
-4. The hub starts the call: `CallStarted`, `Active` (state),
-   `SetActivity` (compositor); it passes the call to the provider under an
-   id of its own.
+3. The hub checks the arguments against the tool's pinned input schema
+   (refused if they don't fit), then decides: the connection's level for
+   the tool (its profile, its `lower`, the provider's and the tool's own
+   levels); then the guards: the screen locked (the compositor's
+   `Locked`), rate limits and `MaxInFlight`, the flow guard, the stopped
+   state. Here: allowed.
+4. The hub starts the call: for a high-impact one, an intent line in the
+   audit, synced, first; `CallStarted`, `Active` (state), `SetActivity`
+   (compositor); it passes the call to the provider under an id of its
+   own (dispatched).
 5. The provider answers within `CallTimeout` (each progress notification
-   starts it again), or the call fails and the provider is sent MCP's
-   cancellation.
+   starts it again, never past `CallDeadline`): completed. Nothing heard
+   in time: the provider is sent MCP's cancellation, and the call ends
+   outcome unknown (see "Calls").
 6. The hub checks the answer (`MaxResult`, its shape), adds `_meta`
-   (provenance; untrusted where it carries application text), and records
-   the sensitivity in the connection's flow record.
+   (provenance; untrusted where the tool says its results can carry such
+   text), and records in the connection's flow record its sensitivity and
+   whether it carried untrusted text.
 7. The answer goes to the agent; `CallEnded` (state); audit.
 
 ### A call that asks first
@@ -1722,11 +1735,17 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
    it's offered to no agent. A notice says a program wants to offer tools,
    with "Review".
 3. "Review", or Approve in the settings: `Propose` (kind `provider`).
-4. The compositor shows `Confirm`: the provider's full id, its executable,
-   each tool with its description (the user's language) and sensitivity.
-5. Yes: the hub pins the manifest's content (`Pin=`), marks it approved,
-   and offers its tools; agents get MCP's `tools/list_changed`. No: it
-   stays pending, until the manifest changes or the user asks again.
+4. The hub fetches each tool's definition from the provider (its schemas)
+   and works out its names; the compositor shows `Confirm`: the
+   provider's full id, its executable, each tool with its description (the
+   user's language), sensitivity, reach and arguments, with a digest of
+   all of it.
+5. Yes: the hub pins exactly what was shown (`Pin=`: the manifest and the
+   tools' definitions) and the names (`Names=`), marks it approved, and
+   offers its tools; agents get MCP's `tools/list_changed`. If the
+   manifest or a definition changed while the question was up, it stays
+   pending for a new one. No: it stays pending, until it changes or the
+   user asks again.
 
 ### Binding an agent to a profile
 
@@ -1755,8 +1774,10 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
 1. The hub notices the file changed.
 2. Lowered values apply at once and become the confirmed ones.
 3. Raised values stay at the confirmed ones; the hub asks once for the
-   edit (`Confirm`, kind `level`: each raised value a line).
-4. Yes: they apply and become the confirmed ones. No: the file is left as
+   edit (`Confirm`, kind `level`: each raised value a line, with their
+   digest).
+4. Yes: exactly the values shown apply and become the confirmed ones; any
+   the file changed again meanwhile wait for a confirmation of their own. No: the file is left as
    it is (the hub never rewrites the user's file); the held values are in
    `Unconfirmed` (each key, the file's value, the confirmed value in
    force), and the settings show them "not confirmed", with a button to ask
@@ -1766,7 +1787,10 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
 
 1. The shim's socket closes (the agent quit, crashed or timed out).
 2. The hub closes that connection's questions (`CloseQuestion`), cancels
-   its calls (MCP's cancellation to the providers), and drops its grants.
+   its calls (MCP's cancellation to the providers; dispatched ones end
+   cancellation requested, then completed or outcome unknown, in the audit
+   and the state), drops its grants, and tells the compositor
+   (`ForgetAgent`).
 3. `Agents`, `Pending`, `Grants` (state); audit (`disconnect`).
 
 ### The hub restarting
@@ -1776,8 +1800,9 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
    shows the hub unavailable (keeping the stopped state, if assistants
    were stopped; see "The indicator").
 2. The compositor starts the hub again (within `HubRestarts`), with new
-   sockets; `Hello`.
-3. The hub reads the settings (confirmed values) and the providers; audit
+   sockets; `Hello`; the new hub reads `AssistantsStopped`.
+3. The hub reads the settings (confirmed values) and the providers, marks
+   each intent in the audit with no ending as outcome unknown; audit
    (`hub`).
 4. Host shims reconnect, send the agent's `initialize` (older revisions) or
    its open `subscriptions/listen` requests (2026-07-28) to the new hub
@@ -1788,16 +1813,48 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
 
 ### A sandboxed agent through the portal
 
-1. The app calls `CreateSession`, then `Start` (role `agent`).
+1. The app calls `CreateSession`, then `Start` (role `agent`, fixed for the
+   session from now).
 2. The portal frontend knows the app's id and calls the hub's backend
-   (`org.freedesktop.impl.portal.Agent`).
+   (`org.freedesktop.impl.portal.Agent`), which accepts the call only from
+   the frontend's connection.
 3. A binding for that app id, remembered: answered at once with its
    profile. Otherwise the compositor asks (`Confirm`, kind `portal`): the
    app's name and id, the profile it would get, "remember". Yes, and
    remembered: the binding is written (`[Binding app:…]`), and a
    `restore_token` returned.
 4. `ConnectAgent` returns a socket; MCP flows as for any agent, the hub
-   knowing its app id and profile without a handshake.
+   knowing its app id and profile without a handshake. The socket closes
+   with the session: when it's closed, when the app's bus connection goes,
+   or when its remembered answer is revoked.
+
+### A program the agent started
+
+1. At the handshake, the hub learns the agent's process (the shim's
+   parent), checks or makes its scope, and tells the compositor:
+   `AgentProcess(conn, info)`, then `LevelsFor(conn, levels)`.
+2. The agent runs `grim` itself, from its own shell, not through the hub.
+3. `grim` asks the compositor for a screen capture, as any Wayland client.
+4. The compositor finds `grim` in the agent's scope and holds it to that
+   agent's `capture` level: here `ask`, so it asks, the question saying a
+   program the agent started wants it.
+5. Denied: the capture is refused; the compositor tells the hub
+   (`ClientCall`, outcome `asked-denied`), which records it (audit, the
+   connection's flow record).
+
+### A capture through the hub's own tools
+
+1. The agent calls `desktop__capture_window` with a window's id.
+2. The hub checks the arguments, decides (levels, guards, consent as any
+   call), writes the intent line, and calls `Capture(target, options)`
+   (compositor), with `max_size`.
+3. The compositor draws the window (leaving out private windows and the
+   lock screen; refused while locked) into a sealed memfd, and returns it.
+4. The hub reads the PNG, turns it into MCP image content within
+   `MaxResult`, closes the memfd, marks the result (`capture`), and
+   answers the agent; the audit records what was captured and its size.
+   Cancelled or stopped before the compositor returned: the hub closes
+   whatever it got, and the call ends as "Calls" says.
 
 ## Future-proofing
 

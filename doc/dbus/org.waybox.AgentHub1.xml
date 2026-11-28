@@ -24,7 +24,12 @@
 <node>
   <interface name="org.waybox.AgentHub1">
 
-    <!-- 1 for this draft. -->
+    <!-- Only on the old name during a move to the shared ones (see the spec's
+         "Moving to the shared names"): true there, so surfaces know to look
+         for org.freedesktop.AgentHub1. -->
+    <property name="Deprecated" type="b" access="read"/>
+
+        <!-- 1 for this draft. -->
     <property name="Version" type="u" access="read"/>
 
     <!--
