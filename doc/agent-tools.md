@@ -379,6 +379,9 @@ hub answers one:
   connection only; anything that would raise is ignored and logged.
 - **`label`** is the user's own name for this agent, shown beside its
   self-declared one.
+- **`ask`** (optional): the one-time ticket of an assistant started to ask
+  about a window (see "Asking about a window"), from `AGENT_TOOLS_ASK` in
+  the shim's environment.
 - **Who it is, for the record:** the hub reads the shim's credentials from
   the socket (`SO_PEERCRED`, or a pidfd where the system has one), then the
   shim's parent, the agent: its executable and the script on its command
@@ -544,6 +547,8 @@ Preset=safe
 StopKey=Super+Escape
 # Typed input in the audit: off (kind and size only) or full
 AuditInput=off
+# The assistant "Ask AI about this window" starts: a binding's label
+AskWith=laptop
 
 # Per sensitivity, over the preset
 [Levels]
@@ -1161,6 +1166,9 @@ McpRemove=openclaw mcp remove desktop
 # How to turn off the agent's own command tool, where it has a way
 # (a command, as McpAdd), offered by the settings when adding it:
 # ShellOff=…
+# How to start it with a question, for "Ask AI about this window" (a
+# command, as McpAdd; %q: the question, as one word):
+Ask=foot -e openclaw ask %q
 ```
 
 - **Who ships them:** the agent's package, the distribution, or the
@@ -1171,6 +1179,29 @@ McpRemove=openclaw mcp remove desktop
   backed up first; a command is run without a shell.
 - **Unknown agents** still work: the settings show the command to add by
   hand.
+
+### Asking about a window
+
+The window menu (Alt+Space, or the titlebar's) offers "Ask AI about this
+window" when an assistant is set up for it: `AskWith=` names a binding
+whose agent's integration file has `Ask=`. The hub tells the compositor
+so (`SetOffers`, `ask`), and the compositor shows the entry.
+- **The click is the consent,** for that one window: it's physical input
+  in a menu the compositor draws, which is what the spec trusts. The
+  compositor tells the hub (`AskAbout`, with the window's id).
+- **The hub starts the assistant** with `Ask=`, its question naming the
+  window by its id and app id only, never its title: titles are untrusted
+  (a page titled "ignore your instructions…"), so the assistant reads it
+  through the tools, marked untrusted like any other.
+- **A one-time ticket ties the grant to it:** the hub puts a fresh ticket
+  (128 random bits) in the started assistant's environment
+  (`AGENT_TOOLS_ASK`); its shim presents it in the handshake (`ask`). The
+  ticket works once, within a minute.
+- **What it grants, to that connection only:** `content` and `capture`
+  for that window (its title, its accessibility tree, a capture of it) for
+  as long as the connection lasts; nothing else is raised (Kill and the
+  rest follow the profile, at `ask` where they are). Recorded in the
+  audit as a grant made by the menu.
 
 ### Unattended agents
 
@@ -1857,6 +1888,22 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
    answers the agent; the audit records what was captured and its size.
    Cancelled or stopped before the compositor returned: the hub closes
    whatever it got, and the call ends as "Calls" says.
+
+### Asking about a window
+
+1. The user opens the window menu on a window; the compositor shows "Ask
+   AI about this window" (the hub's `SetOffers` said an assistant is set
+   up).
+2. The user clicks it: the compositor sends `AskAbout(window)`.
+3. The hub mints a one-time ticket, and starts the assistant (`Ask=`)
+   with a question naming the window by id and app id, the ticket in its
+   environment; audit (`ask`).
+4. The assistant's shim connects, presenting its token file and the
+   ticket; the hub grants that connection `content` and `capture` for that
+   window, for as long as it lasts; the ticket is spent.
+5. The assistant looks (`window_titles`, `window_process`, a capture of
+   that window): allowed by the grant, no question. Anything else follows
+   its profile (killing the window asks, as `destroy` does).
 
 ## Future-proofing
 
