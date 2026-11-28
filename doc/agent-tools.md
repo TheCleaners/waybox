@@ -178,6 +178,7 @@ way):
 |---|---|---|
 | Provider manifests | `/usr/share/agents/tools/` | `$XDG_DATA_HOME/agents/tools/` |
 | Agent integration files | `/usr/share/agents/clients/` | `$XDG_DATA_HOME/agents/clients/` |
+| Fallback integration files | `/usr/share/agents/clients/fallback/` | |
 | Skills (Agent Skills) | `/usr/share/agents/skills/` | `$XDG_DATA_HOME/agents/skills/` |
 | Settings, tunables | `/etc/xdg/agents/tools/settings.ini` | `$XDG_CONFIG_HOME/agents/tools/settings.ini` |
 | Token files | | `$XDG_CONFIG_HOME/agents/tools/tokens/` |
@@ -1161,10 +1162,13 @@ the hub, so where the model runs doesn't change what the agent may do.
 Each agent keeps its MCP servers in its own place and format: a JSON file
 here, a command there (`openclaw mcp add`, `claude mcp add`). So adding the
 hub to an agent is described by an **agent integration file**, which the
-settings use for "Add assistant" (bind it, then write its configuration):
+settings use for "Add assistant" (bind it, then write its configuration).
+It's named by the agent's app id, its desktop file's (`<app id>.ini`), so
+an integration file and the app it describes can't be confused, and no
+registry of names is needed:
 
 ```ini
-# $XDG_DATA_DIRS/agents/clients/openclaw.ini
+# $XDG_DATA_DIRS/agents/clients/org.example.OpenClaw.ini
 [Agent]
 Version=1
 Name=OpenClaw
@@ -1187,8 +1191,16 @@ Ask=foot -e openclaw ask %q
 AskShared=false
 ```
 
-- **Who ships them:** the agent's package, the distribution, or the
-  desktop; the user's own go in `$XDG_DATA_HOME/agents/clients/`.
+- **Who ships them:** the agent's own package; the user's own go in
+  `$XDG_DATA_HOME/agents/clients/`.
+- **The agent's own description is the authority.** Until an agent ships
+  one, a distribution or desktop may describe it in the fallback folder
+  (`agents/clients/fallback/`), read only for app ids described nowhere
+  else: once the agent ships its own, it's used instead, no package owns
+  the same path twice, and a fallback can't override what the agent says.
+- **Which is used, for an app id:** the user's file; the agent's own
+  (a file from its package, or its desktop file's group, below); a
+  fallback file.
 - **The shim's command** (`%s`) is the desktop's (`waybox-mcp --token-file
   …`), so one file serves every desktop.
 - **A JSON file is edited in place,** the rest of it left as it was, and
@@ -1198,6 +1210,35 @@ AskShared=false
 - **A desktop app** is described the same way: its `McpConfig=` is its own
   config file, and its `Ask=` a URL it handles, such as
   `claude://claude.ai/new?q=%u` with `AskShared=true`.
+
+**In the agent's desktop file:** an agent may carry its description in its
+own desktop file instead, as the Desktop Entry spec's interfaces have it:
+`Implements=org.freedesktop.AgentClient1` in its `[Desktop Entry]`, and the
+same keys in a group named after the interface. That's how a sandboxed
+agent (Flatpak, Snap) announces itself: it can't install into
+`/usr/share/agents/`, but its desktop file is exported, and Flatpak exports
+a group named in `Implements=` as it is.
+
+```ini
+# org.example.Assistant.desktop
+[Desktop Entry]
+Type=Application
+Name=Example Assistant
+Exec=example-assistant
+Implements=org.freedesktop.AgentClient1
+
+[org.freedesktop.AgentClient1]
+Version=1
+Ask=example-assistant://new?q=%u
+AskShared=true
+```
+
+- **A sandboxed agent connects through the Agent portal,** not the shim, so
+  it needs no `McpAdd=` or `McpConfig=`: the settings show it as an
+  assistant that asks to connect.
+- **Its commands run in its sandbox:** the desktop runs a command from
+  the group as the app (for Flatpak, `flatpak run --command=…` with its app
+  id), never on the host; a URL is opened as the desktop opens links.
 
 ### Asking about a window
 
@@ -1394,11 +1435,11 @@ any other.
   Bus permissions are per connection: a sandbox allowed to talk to one
   name may reach every name and object its owner's connection has.
 
-**Manifests from inside a sandbox:** an app ships its manifest in
-`share/agents/tools/`, and Flatpak exports it as it exports desktop files,
-icons and search providers (an addition to Flatpak's exported folders).
-Until Flatpak does, the hub reads installed Flatpaks' manifests from their
-deployments, each `Id` checked against its app's id.
+**Manifests from inside a sandbox:** a sandboxed provider carries its
+manifest in its desktop file, as a sandboxed agent does its integration
+(`Implements=org.freedesktop.AgentProvider1`, and the manifest's keys in a
+group of that name), which Flatpak exports as it is. Its `Id` is its app
+id, and checked against it.
 
 **No static holes:** no `--talk-name`, no socket mounted into the sandbox.
 Portals are reachable from any sandbox, and the user's answer is the
@@ -1970,6 +2011,10 @@ The spec uses the names proposed for sharing: `org.freedesktop.AgentHub1`,
 `org.freedesktop.impl.portal.Agent`, `org.freedesktop.AgentUI1`.
 - **The peer-to-peer interface** (`AgentCompositor1`) has no bus name and
   ships under its proposed name from the start.
+- **The desktop-file interfaces** (`org.freedesktop.AgentClient1`,
+  `org.freedesktop.AgentProvider1`, in `Implements=`) name no bus or
+  object either, and ship under their proposed names from the start: apps
+  write them into their desktop files, which a rename would leave behind.
 - **On the session bus,** the hub ships its state as `org.waybox.AgentHub1`
   until the names are agreed. Agent UI has no bus name (it runs over each
   provider's registration socket), so only its interface name changes: the
