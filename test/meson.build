@@ -504,6 +504,11 @@ integration_env = {
   # so they find the test's own through its WAYLAND_DISPLAY.
   'WAYBOX_SOCK': '',
   'WAYBOX_PID': '',
+  # Nor the session's D-Bus: a test's Waybox reporting a broken rc.xml (as
+  # tests make on purpose) would notify the user's desktop, and anything a
+  # test starts could reach that session's services. Tests that need a
+  # bus start a private one.
+  'DBUS_SESSION_BUS_ADDRESS': 'disabled:',
   # GTK programs under test (wbconf) abort on any critical: a test fails
   # on one rather than letting it scroll by.
   'G_DEBUG': 'fatal-criticals',
