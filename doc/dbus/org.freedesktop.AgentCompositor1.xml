@@ -150,6 +150,19 @@
       <arg name="info" type="a{sv}" direction="in"/>
     </method>
 
+    <!--
+      UiRequest: a UI provider has an Agent UI request open; while it does,
+      any window its process opens is agent UI (never focused when it
+      appears, opened beside the focused window, framed as agent UI),
+      whatever tag the window sets. "conn" is the provider's connection;
+      "info": "pidfd" (h) or "pid" (u) and "start_time" (t), "open" (b,
+      false when its last request closed).
+    -->
+    <method name="UiRequest">
+      <arg name="conn" type="s" direction="in"/>
+      <arg name="info" type="a{sv}" direction="in"/>
+    </method>
+
     <!-- The agent left: the compositor drops its process policy. -->
     <method name="ForgetAgent">
       <arg name="conn" type="s" direction="in"/>

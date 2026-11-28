@@ -342,8 +342,9 @@ names are:
 
 The audit and the questions always show the full names (the provider's
 `Id` and the tool's own name), never the shortened one.
-- **Reserved:** the compositor's short name (`waybox`) belongs to the
-  compositor's provider.
+- **Reserved:** `desktop` and `ui` are the hub's own providers (the tools
+  every desktop has alike: capture, input, Agent UI); the compositor's
+  short name (`waybox`) belongs to the compositor's provider.
 - **Names are settled at approval, not at discovery:** the hub works out a
   provider's names when it's approved and records them with the approval
   (`Names=`); they stay the same whatever order providers are found in.
@@ -875,7 +876,9 @@ the session bus (`doc/dbus/org.waybox.AgentHub1.xml` until renamed; see
 
 **Signals:**
 - `CallStarted(call)`, `CallEnded(call)`: who called what, and the
-  outcome; never the arguments.
+  outcome as a fixed code with a short explanation the hub writes itself;
+  never the arguments, and never a provider's own error text (which may
+  echo them): that goes to the agent, and to the audit, redacted.
 - Property changes come as D-Bus's standard `PropertiesChanged`, so there
   are no signals of its own for providers or grants changing.
 
@@ -955,11 +958,21 @@ The hub appends one JSON line per event to
   id.
 - **`why`:** what decided it: `level`, `grant`, `flow-guard`, `policy`,
   `locked`.
-- **Arguments** with secrets redacted (each tool's `Secret`; synthetic
-  input into password fields as its length only); a string longer than
-  the audit's cut length (a tunable) is cut, marked so.
-- **For `capture`:** what was captured (window or output, size); **for
-  `input`:** what was typed.
+- **Arguments** with secrets redacted (each tool's `Secret`); a string
+  longer than `AuditCut` is cut, marked so (`"cut": true` and its full
+  length).
+- **Kept in full where the spec promises it:** `run_lua`'s code and
+  `run_command`'s command line go into a file of their own beside the
+  audit (`audit.d/<call id>`, mode 0600, at most `AuditKeepMax` each), its
+  SHA-256 in the line; rotated with the audit. One larger than that is
+  kept cut, and the line says the record is incomplete.
+- **For `capture`:** what was captured (window or output, size). **For
+  `input`:** the target window, the kind of input (text, keys, clicks) and
+  how much (characters, keys), never the text typed: the compositor can't
+  tell a password field in another application from any other, so typed
+  text isn't recorded at all by default. `AuditInput=full` records it, a
+  setting the settings show with a plain warning that passwords typed for
+  an agent then land in the file.
 - **Rotation:** past a size (a tunable) the file becomes `audit.log.1`,
   a few kept (a tunable).
   Unknown fields are ignored by readers; `v` changes only for a change that
@@ -1047,9 +1060,35 @@ portal has most of `OpenInput` already.
 | `run_action` | exec | any rc.xml action by name (Execute among them) |
 | `run_command` | exec | a command, as Execute runs it |
 | `write_config` | exec | rc.xml replaced (backed up, checked first, then Reconfigure): it can run commands |
-| `run_lua` | exec | Lua run in Waybox (when built with Lua), the code in the audit in full |
-| `capture_window`, `capture_output` | capture | an image of a window or a monitor, drawn by Waybox |
-| `type_text`, `press_keys`, `click` | input | synthetic input into the granted window |
+| `run_lua` | exec | Lua run in Waybox (when built with Lua), the code kept in full beside the audit (see "The audit log") |
+
+### The hub's own tools: capture and input
+
+Capture and input are the same on every desktop, so they're the hub's own
+tools (the reserved `desktop` provider), built on the compositor
+interface, not the compositor's provider's:
+
+| Tool | Sensitivity | What it does |
+|---|---|---|
+| `desktop__capture_window`, `desktop__capture_output` | capture | an image of a window or a monitor, drawn by the compositor |
+| `desktop__type_text`, `desktop__press_keys`, `desktop__click` | input | synthetic input into the granted window |
+
+One owner for each step:
+- **The hub** checks the arguments against the tool's schema, decides
+  (levels, guards, consent), records the intent, and calls the compositor:
+  `Capture(target, options)` or `OpenInput(target)`.
+- **The compositor** draws the capture (private windows and the lock
+  screen left out) into a sealed memfd, or hands out an EIS connection
+  limited to the target window, and owns ending it: at the stop key, when
+  the window goes, when the screen locks.
+- **The hub** turns a capture into MCP image content (base64 PNG, within
+  `MaxResult`; `max_size` keeps it so) and closes the memfd; for input,
+  it holds the EIS connection, sends the events through libei, and closes
+  it when the call ends, is cancelled, or the grant goes. An EIS
+  connection the compositor closed ends the call as the stop key does.
+- **The audit** records the call as any other, with what was captured and
+  the input's kind and size (see "The audit log").
+
 
 **Not offered: raw IPC.** It would be every typed tool without the typing,
 and the audit would only see "raw".
@@ -1357,25 +1396,37 @@ rather than as separate pop-ups.
 Whatever is running renders the requests; the agent never knows what drew
 anything. A **UI provider** is a desktop component that implements
 `org.waybox.AgentUI1` (`doc/dbus/org.waybox.AgentUI1.xml`) and declares in
-its manifest which kinds it renders:
+its manifest which kinds it renders. It registers with the hub as any
+provider does (its executable checked, or through the Agent portal), and
+gets its requests over that registration's private socket, as
+peer-to-peer D-Bus, never on the session bus by a well-known name: a
+program that took a name first could otherwise receive the questions and
+the user's answers. Its manifest:
 
 ```ini
 [UI]
 Kinds=choose,ask
 ```
 
-The user picks a provider per kind, with fallbacks. Where standards already
-cover a kind, the hub uses them directly:
+The user picks a provider per kind (`ask`, `choose`, `form`, `output`,
+`progress`), with fallbacks. Two kinds are never a UI provider's, since
+standards cover them and one carries the user's consent to share a file;
+the hub uses those directly:
 - **notify:** freedesktop Notifications, with its actions;
 - **pick_file:** the portal FileChooser. It's sandbox-aware, and the user's
   pick is itself the consent to share the file. The chooser grants access
   to its caller, the hub, so what reaches the agent depends on it:
   - **A host agent** gets the path.
   - **A sandboxed agent** (through the Agent portal) gets the file through
-    the document portal: the hub adds it to the document store for the
-    agent's app id only (`AddFull`, read for opening, read and write for
-    saving), and returns the path the app sees inside its sandbox (under
-    `/run/user/…/doc/`). Another app can't use it.
+    the document portal, for its app id only, and the path the app sees
+    inside its sandbox (under `/run/user/…/doc/`). Another app can't use
+    it.
+    - **Opening:** the chosen, existing file is added with `AddFull`,
+      granting read.
+    - **Saving:** the chosen folder and name with `AddNamedFull`, which
+      works for a file that doesn't exist yet, granting read and write to
+      that one file, nothing else in the folder. Replacing an existing file
+      is what the chooser already asked the user about.
   - **Access ends** when that agent's connection closes, the hub revoking
     the app's permissions on the document, unless the user chose to keep
     it in the chooser.
@@ -1392,9 +1443,15 @@ can take over the kinds they do better.
 **The hub's part:**
 - **Routing:** requests go to the provider the user chose for their kind.
 - **Providers always answer:** with an error if they fail. One that doesn't
-  answer within the UI provider timeout (a tunable) is treated as failed. The hub then uses the
-  next provider for that kind (Waybox's built-in ones last), and the agent
-  gets a plain error, never a hang.
+  answer within `UiTimeout` is treated as failed, and the hub then uses the
+  next provider for that kind (Waybox's built-in ones last); the agent gets
+  that one's answer, or a plain error if none answers, never a hang.
+- **One live prompt per request:** each request has an id of the hub's.
+  Before falling back, the hub closes the request on the first provider
+  (`Close`) and waits briefly for it to confirm; an answer arriving later
+  is discarded and logged. A provider that doesn't confirm closing means
+  no fallback for a secret field or a form: the request fails visibly
+  instead of a second prompt collecting the same answer.
 - **Order:** a queue per agent, and timeouts.
 - **Ending:** an agent's open requests close when it disconnects, or at the
   stop key, or when the user mutes it.
@@ -1423,10 +1480,16 @@ injected instructions into it. The rules:
   would catch the keystrokes of someone typing elsewhere.
   - **The compositor enforces it.** A provider can't keep the compositor
     from focusing its new window (the prototype's question opened focused,
-    its text selected). So providers tag their windows `agent-ui`
-    (xdg-toplevel-tag), and the compositor has a built-in rule: windows
-    with that tag never get focus when they appear, and open beside, not
-    over, the focused window.
+    its text selected). So the compositor decides by who opened it, not by
+    what the window says: the hub tells it a UI provider's process while
+    that provider has a request open (`UiRequest(conn, info)` on the
+    compositor interface, as `AgentProcess`), and any window that process
+    opens meanwhile is agent UI: never focused when it appears, opened
+    beside, not over, the focused window, and framed as agent UI. The
+    `agent-ui` tag (xdg-toplevel-tag) is a description only. A provider
+    whose windows can't be told apart from its other ones (a launcher the
+    user also uses itself) gets requests drawn by the compositor's own
+    fallback instead.
   - **Where a provider opens a window,** input is ignored briefly after it
     appears, as with consent.
 - **Keyboard:** Enter submits (once the brief pause is over) and Escape
@@ -1510,6 +1573,14 @@ are marked as untrusted content, for agents that understand the marking
 - **The compositor owns capture and input,** so the stop key works without
   the hub, and the lock screen is out of reach.
 - **Limits everywhere untrusted input arrives:**
+  - **message size, before parsing:** each connection's input is read
+    into a buffer of at most `MaxFrame`; a message longer than that, or
+    one not ended (no newline) within it, closes that connection (its
+    calls ending as for any agent or provider leaving), with nothing
+    parsed or allocated past the limit. Each connection is read
+    independently and without blocking, so one flooding never delays the
+    others, the stop key or the compositor;
+  - in-flight calls per agent and provider (`MaxInFlight`);
   - size and rate limits on provider results and notifications;
   - registrations and questions per agent;
   - the JSON parser's depth limit;
@@ -1551,6 +1622,8 @@ interoperability, not taste.
 | `HubRestarts` | 3 in 1 min | crashes before the compositor stops restarting the hub |
 | `RecentCallsMax` | 100 | what `RecentCalls` returns at most |
 | `AuditCut` | 4 KiB | longer strings in the audit are cut, marked so |
+| `AuditKeepMax` | 1 MiB | the largest command or Lua code kept in full beside the audit |
+| `MaxFrame` | 4 MiB | the largest MCP message the hub reads from an agent or a provider; a longer one, or a line not ended within it, closes that connection |
 | `AuditSync` | important lines | which lines are synced to disk as written (`important`, `all`, `none`): more is safer evidence, at a write's cost each |
 | `AuditRotate` | 10 MiB, 3 kept | when the audit file rotates, and how many are kept |
 
@@ -1800,6 +1873,16 @@ Also decided in the second pass:
   portals; MCP's tool annotations implied by sensitivities; `McpName`
   linking a manifest to its `server.json`; unknown sensitivities `off`;
   windows named by `ext-foreign-toplevel-list`; the Agent portal.
+- **Review 22, batch D:** capture and input the hub's own tools (the
+  reserved `desktop` provider), each step's owner named; UI providers
+  reached over their registration's private socket, never a well-known
+  name; one live prompt per request, closed before falling back; the
+  no-focus rule by the provider's process (`UiRequest`), the tag only a
+  description; `notify` and `pick_file` never a UI provider's; saving
+  through `AddNamedFull`; typed text never in the audit by default
+  (`AuditInput=full` with a warning); long commands and Lua kept in full
+  beside the audit; `CallEnded` with fixed codes, no provider text;
+  `MaxFrame` enforced before parsing.
 - **Review 22, batch C:** tools' whole model-facing definitions pinned
   (schemas too), arguments checked against them; names settled at
   approval, colliding short names all hashed, 8-character hashes, clashes

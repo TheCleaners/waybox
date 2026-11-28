@@ -114,7 +114,8 @@
         call (s), outcome (s): "completed", "refused" (a level, a guard, a
         limit), "denied" (by the user), "cancelled" (before dispatch),
         "cancellation-requested", "outcome-unknown" (see the spec's "Calls")
-        message (s): for refusals and failures
+        message (s): a short explanation the hub writes itself, never a
+        provider's own error text (which may echo the arguments)
     -->
     <signal name="CallEnded">
       <arg name="call" type="a{sv}"/>

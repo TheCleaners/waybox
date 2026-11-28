@@ -5,7 +5,10 @@
   to talk to the user for an agent. Draft; see "Agent UI" in
   doc/agent-tools.md.
 
-  A provider exports it at /org/waybox/AgentUI1 on its own bus name and
+  A provider registers with the hub (its executable checked, or through the
+  Agent portal) and exports this at /org/waybox/AgentUI1 over that
+  registration's private socket, as peer-to-peer D-Bus: never on the session
+  bus by a well-known name, which another program could take first. It
   declares the kinds it renders in its manifest ([UI] Kinds=). The hub calls
   only providers the user approved and chose for a kind.
 
@@ -21,7 +24,9 @@
   Requests follow the portal pattern: a method returns at once with a
   request object path; the answer comes later as Response on that path.
   The hub cancels with Close (the agent went away, the stop key, the user
-  muted it). Response codes: 0 answered, 1 cancelled by the user, 2 closed
+  muted it, or before falling back to another provider after UiTimeout); a
+  provider confirms by sending Response 2 on that request, and an answer
+  after Close is discarded. Response codes: 0 answered, 1 cancelled by the user, 2 closed
   or timed out.
 
   Common options (a{sv}) on every request:
@@ -33,8 +38,8 @@
   <interface name="org.waybox.AgentUI1">
 
     <!-- The kinds this provider renders: "ask", "choose", "form", "output",
-         "progress" ("notify" and "pick_file" go to Notifications and the
-         FileChooser portal unless a provider claims them). -->
+         "progress". "notify" and "pick_file" are never a provider's: the hub
+         uses Notifications and the FileChooser portal for them. -->
     <property name="Kinds" type="as" access="read"/>
 
     <!-- A one-line question. options: default (s), secret (b).
