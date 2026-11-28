@@ -129,8 +129,10 @@ claim first.
 - **Sandboxed agents** (through the portal) can't reconnect by themselves:
   their socket closes, and they call `ConnectAgent` again; with their
   `restore_token`, without a question.
-- **Shims reconnect by themselves,** redo the MCP handshake with the new
-  hub, and tell the agent its tools changed. Calls that were running end
+- **Shims reconnect by themselves** and pick up where the agent was: a
+  shim keeps the agent's `initialize` (older revisions) or its open
+  `subscriptions/listen` requests (2026-07-28) and sends them again to the
+  new hub, then tells the agent its tools changed. Calls that were running end
   as **outcome unknown** (see "Calls"): the shim answers each with "the
   desktop's hub restarted while this ran; it may or may not have taken
   effect: check before doing it again". Never "call again": a command, a
@@ -363,8 +365,11 @@ hub answers one:
   line, shown and audited, never trusted.
 - **A version the hub doesn't speak** gets `{"ok": false, "error": …}`
   naming the versions it does, and the connection closes.
-- After this, MCP flows both ways. The agent's `clientInfo` from MCP's
-  `initialize` is recorded as its claimed name.
+- After this, MCP flows both ways, in whichever revision the agent speaks
+  (see "MCP revisions"). The agent's `clientInfo` (from `initialize` in the
+  older revisions, from each request's `_meta` in 2026-07-28) is recorded
+  as its claimed name: the first one seen; a different one later is
+  logged, never adopted.
 
 The portal's sockets skip the handshake: the portal has told the hub the
 app's id and its profile.
@@ -376,6 +381,49 @@ app's id and its profile.
   output, or as a passed file descriptor.
 - **Registering providers** connect to `$XDG_RUNTIME_DIR/agents/tools/hub`.
 
+### MCP revisions
+
+MCP's 2026-07-28 revision made the protocol stateless: no `initialize`
+handshake (each request carries its version, capabilities and client
+info in `params._meta`), `server/discover` instead, tool-list changes only
+on a `subscriptions/listen` stream, no requests from servers (sampling and
+elicitation come back as "input required" results), and no sessions. A
+client or server of one era can't talk to one of the other. The hub is a
+full MCP endpoint on each side, never a pass-through (it rewrites names,
+hints and metadata anyway), so it speaks both:
+
+| Revisions | Toward agents (the hub serves) | Toward providers (the hub calls) |
+|---|---|---|
+| 2025-06-18, 2025-11-25 (with `initialize`) | yes | yes |
+| 2026-07-28 (stateless) | yes | yes |
+| older | refused: an error naming the supported ones | refused, logged; the provider is listed as unreachable |
+
+- **Telling them apart:** toward an agent, a request beginning with
+  `initialize` selects the older semantics for that connection; one
+  carrying `io.modelcontextprotocol/protocolVersion` in `_meta`, the new.
+  Toward a provider, the hub sends `server/discover` first: an answer, or
+  a modern error, means the new era; any other error or no answer within a
+  moment, the older (`initialize`), as MCP itself recommends.
+- **One model inside:** calls, results, progress, cancellation and tool
+  lists are kept in the hub's own terms and written in each side's
+  revision, so an agent of one era can use a provider of the other.
+- **What the hub's connection is:** the socket between the shim (or the
+  portal) and the hub, not an MCP session. Grants, the flow guard's record
+  and "for this session" belong to it, the same in both eras.
+- **Tool lists** are per agent identity (its binding and levels), stable
+  while those are; in 2026-07-28 they carry `cacheScope` `private` and a
+  short `ttlMs`, and a change goes out as `tools/list_changed` on the
+  agent's `subscriptions/listen` stream (the older revisions: as a plain
+  notification).
+- **Progress and cancellation** are the same in both on stdio: progress
+  needs the agent's `progressToken` on the call (without one, the hub
+  can't send any; see "Clients' timeouts"), and cancellation is
+  `notifications/cancelled`.
+- **Tasks** (an extension in 2026-07-28) come later: the hub offers no
+  task support until it can hold tasks to the same states as calls.
+- **A newer revision** than the hub knows: refused with the supported
+  list, until the hub learns it; the hub never guesses.
+
 ### Requests from providers: sampling and elicitation
 
 MCP lets a server ask its client too: **sampling** (run a prompt on the
@@ -385,7 +433,12 @@ model, learn what the agent knows, push text at the model, or question
 the user in the agent's name.
 
 - **Not passed on, by default:** a provider sending either gets "not
-  supported", and the attempt is in the audit.
+  supported", and the attempt is in the audit. In the older revisions
+  they're requests from the provider: answered with an error. In
+  2026-07-28 they come back as an "input required" result: the hub retries
+  the call once with each input declined (elicitation's "decline", an
+  error for sampling) and gives the agent whatever the provider then
+  answers. (MCP has deprecated sampling, and roots, in 2026-07-28.)
 - **Later, each its own sensitivity** (`sampling`, `elicit`), `off` in every
   preset; only requests made during a call the agent made to that provider
   are considered (MCP's SEP-2260 rule); elicitation is then drawn as Agent
@@ -1051,8 +1104,10 @@ word), while nobody is at the desk.
 Agents give up on a call after their own timeout: from seconds to a day,
 depending on the client and its settings. A question can outlast it.
 - **While a question waits,** the hub sends MCP progress notifications for
-  the call (every `ProgressInterval`); clients that count progress as
-  activity keep waiting.
+  the call (every `ProgressInterval`), where the agent gave the call a
+  `progressToken`; clients that count progress as activity keep waiting.
+  Without a token there's nothing to send, and the client's own timeout
+  decides.
 - **A client that cancels anyway** closes the question (MCP's
   cancellation), and the call counts as cancelled, not denied.
 
@@ -1559,9 +1614,10 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
    sockets; `Hello`.
 3. The hub reads the settings (confirmed values) and the providers; audit
    (`hub`).
-4. Host shims reconnect, redo MCP's handshake, and tell their agents the
-   tools changed; calls that were running got "the desktop's hub
-   restarted; call again".
+4. Host shims reconnect, send the agent's `initialize` (older revisions) or
+   its open `subscriptions/listen` requests (2026-07-28) to the new hub
+   again, and tell their agents the tools changed; calls that were running
+   ended as outcome unknown (see "Calls").
 5. Sandboxed agents call `ConnectAgent` again; with their `restore_token`,
    no question.
 
@@ -1594,8 +1650,9 @@ so each is made to grow without breaking:
 - **Sensitivities** may be added; an unknown one counts as `off`.
 - **Capabilities are negotiated** (the compositor interface's `Hello`), so
   a hub never assumes what a compositor can do, and the reverse.
-- **MCP versions** are negotiated as MCP does; the hub passes on what both
-  ends speak, and its own tools follow MCP's annotations.
+- **MCP revisions** are named, both eras supported, each side spoken to in
+  its own (see "MCP revisions"); an unknown revision is refused, never
+  guessed; the hub's own tools follow MCP's annotations.
 - **Windows are named by a Wayland standard** (`ext-foreign-toplevel-list`),
   not by any compositor's own ids.
 
@@ -1649,6 +1706,13 @@ Also decided in the second pass:
   portals; MCP's tool annotations implied by sensitivities; `McpName`
   linking a manifest to its `server.json`; unknown sensitivities `off`;
   windows named by `ext-foreign-toplevel-list`; the Agent portal.
+- **Review 22, finding 39:** MCP revisions: the hub a full endpoint on
+  each side speaking both eras (2025-06-18 and 2025-11-25 with
+  `initialize`; 2026-07-28 stateless), told apart per connection;
+  `server/discover` toward providers; the hub's connection the socket, not
+  an MCP session; tool lists per agent identity, `cacheScope` private;
+  sampling and elicitation declined in either era's form; shims replaying
+  `initialize` or `subscriptions/listen` after a hub restart; tasks later.
 - **Review 22, batch A:** one set of call states ("Calls"): dispatched
   calls end completed or outcome unknown, never "call again", MCP
   cancellation a request; an absolute `CallDeadline`, `MaxInFlight`;
