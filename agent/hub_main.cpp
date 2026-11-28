@@ -5,9 +5,10 @@
  * AGENT_COMPOSITOR_FD, peer-to-peer D-Bus.
  *
  * So far: Hello, the state the compositor shares (locked, away, stopped)
- * and its changes, and the hub's runtime folder. It ends when the
- * compositor's connection closes. Agents, providers and tools come with
- * the steps that bring them.
+ * and its changes, the hub's runtime folder, and the agent socket there
+ * (agents.hpp), every agent at "safe" with no tools yet. It ends when the
+ * compositor's connection closes. Providers and tools come with the steps
+ * that bring them.
  */
 #include <gio/gio.h>
 #include <errno.h>
@@ -18,6 +19,8 @@
 #include <cstdarg>
 #include <cstdlib>
 #include <string>
+
+#include "agents.hpp"
 
 namespace {
 
@@ -77,15 +80,18 @@ bool private_dir(const std::string &path) {
 	return true;
 }
 
-/* $XDG_RUNTIME_DIR/agents/tools/: where the hub's sockets will be. */
-bool runtime_dir() {
+/* $XDG_RUNTIME_DIR/agents/tools/: where the hub's sockets are; "" if it
+ * can't be. */
+std::string runtime_dir() {
 	const char *run = g_getenv("XDG_RUNTIME_DIR");
 	if (run == nullptr || *run != '/') {
 		say("XDG_RUNTIME_DIR isn't set");
-		return false;
+		return {};
 	}
 	std::string agents = std::string(run) + "/agents";
-	return private_dir(agents) && private_dir(agents + "/tools");
+	if (!private_dir(agents) || !private_dir(agents + "/tools"))
+		return {};
+	return agents + "/tools";
 }
 
 bool get_bool(Hub &hub, const char *name, bool &out) {
@@ -202,15 +208,17 @@ int main() {
 		say("no compositor interface (AGENT_COMPOSITOR_FD): the compositor starts the hub");
 		return 2;
 	}
-	if (!runtime_dir())
+	std::string dir = runtime_dir();
+	if (dir.empty())
 		return 1;
 	Hub hub;
 	hub.loop = g_main_loop_new(nullptr, FALSE);
 	int status = 0;
-	if (start(hub, fd))
+	if (start(hub, fd) && wb::agent::agents_listen(dir + "/agent", WB_HUB_VERSION))
 		g_main_loop_run(hub.loop);
 	else
 		status = 1;
+	wb::agent::agents_stop();
 	if (hub.compositor != nullptr) {
 		g_dbus_connection_close_sync(hub.compositor, nullptr, nullptr);
 		g_object_unref(hub.compositor);

@@ -433,6 +433,15 @@ json_test = executable(
   )
 test('json', json_test, suite: 'unit')
 
+# The hub's MCP endpoint toward agents and the shim's handshake (pure).
+mcp_agent_test = executable(
+  'mcp_agent_test',
+  ['mcp_agent_test.cpp', 'wb_test_main.cpp', json_src,
+   meson.project_source_root() / 'agent' / 'mcp_agent.cpp'],
+  include_directories: [inc_dir],
+  )
+test('mcp_agent', mcp_agent_test, suite: 'unit')
+
 # The waybox Python module, against a fake socket (no compositor needed).
 test('python_module', find_program('python3'),
   args: [files('python/waybox_module_test.py'), python_src_dir], suite: 'unit')
@@ -1002,6 +1011,7 @@ if python.found() and not get_option('tests_only')
     ['sandbox', 'sandbox_test.py', [sandbox_client], 60],
     ['agent_compositor', 'agent_compositor_test.py', [lock_client], 60],
     ['agent_hub', 'agent_hub_test.py', [agent_hub_exe, lock_client], 90],
+    ['agent_shim', 'agent_shim_test.py', [agent_hub_exe, agent_shim_exe], 90],
     ['menu_icon_cache', 'menu_icon_cache_test.py', [], 60],
     ['session_lock', 'session_lock_test.py', [lock_client], 60],
     ['session_lock_virtual_always', 'session_lock_test.py', [lock_client, 'always'], 60],
