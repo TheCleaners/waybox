@@ -197,6 +197,21 @@
          Idempotent. -->
     <method name="StopAssistants"/>
 
+    <!-- What the hub offers that the compositor shows: "ask" (b: an
+         assistant is set up for "Ask AI about this window", so the window
+         menu shows it). Sent at Hello and whenever it changes. -->
+    <method name="SetOffers">
+      <arg name="offers" type="a{sv}" direction="in"/>
+    </method>
+
+    <!-- The user chose "Ask AI about this window" in the window menu (a
+         click: physical input in a menu the compositor draws, the consent
+         for that window). window: its ext-foreign-toplevel-list id. -->
+    <signal name="AskAbout">
+      <arg name="window" type="s"/>
+      <arg name="details" type="a{sv}"/>
+    </signal>
+
     <!-- The user resumed assistants after the stop key (a confirmation the
          compositor drew, from its indicator or after a Propose). -->
     <signal name="Resumed"/>
