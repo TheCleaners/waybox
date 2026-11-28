@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<!--
+  org.freedesktop.portal.Agent (proposed): the door for sandboxed agents and
+  providers (doc/agent-tools.md, "The Agent portal"). After the ScreenCast
+  portal's pattern: a session, the user's answer, then a socket.
+
+  The frontend (xdg-desktop-portal) knows the caller's app id for certain and
+  passes it to the backend, org.freedesktop.impl.portal.Agent, which the agent
+  hub implements. Until the portal is agreed, the hub offers this same
+  interface at org.waybox.portal.Agent, doing the frontend's checks itself.
+
+  Requests and sessions follow the portals' conventions
+  (org.freedesktop.portal.Request, org.freedesktop.portal.Session):
+  "handle_token" and "session_handle_token" in options; the results come in
+  the Request's Response signal.
+-->
+<node>
+  <interface name="org.freedesktop.portal.Agent">
+    <property name="version" type="u" access="read"/>
+
+    <!-- A session. options: "handle_token", "session_handle_token" (s).
+         Response results: "session_handle" (s). -->
+    <method name="CreateSession">
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="handle" type="o" direction="out"/>
+    </method>
+
+    <!--
+      The user's answer, asked by the compositor: "App wants to use your
+      desktop's tools as an assistant" (role "agent") or "App wants to offer
+      tools to assistants" (role "provider"), with the profile it would get.
+      options: "handle_token" (s), "role" (s: "agent", "provider"),
+      "restore_token" (s, from a remembered answer), "persist" (b, ask to be
+      remembered). Response results: "profile" (s), "restore_token" (s, when
+      remembered).
+    -->
+    <method name="Start">
+      <arg name="session_handle" type="o" direction="in"/>
+      <arg name="parent_window" type="s" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="handle" type="o" direction="out"/>
+    </method>
+
+    <!-- A socket speaking MCP to the hub, as a host shim's does. The portal
+         doesn't parse MCP. Only after Start was answered yes, role "agent". -->
+    <method name="ConnectAgent">
+      <arg name="session_handle" type="o" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="socket" type="h" direction="out"/>
+    </method>
+
+    <!-- A socket for a provider's MCP (or an Agent UI provider's), role
+         "provider". The provider's manifest Id must be the app's id.
+         options: "manifest" (s, its Id). -->
+    <method name="RegisterProvider">
+      <arg name="session_handle" type="o" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="socket" type="h" direction="out"/>
+    </method>
+  </interface>
+</node>

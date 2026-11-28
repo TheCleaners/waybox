@@ -1,7 +1,8 @@
 # Agent tools: a desktop broker for AI assistants
 
-*Draft, second pass: Waybox's implementation target. Not a standard; a
-proposal meant to become one once it has proved itself. It supersedes the
+*Draft, third pass: Waybox's implementation target, written as the
+standard we propose. Interface names are the proposed shared ones
+(`org.freedesktop.*`); see "Names" for what ships before they're agreed. It supersedes the
 plan in #196; the decisions on the first pass's questions are at the end,
 with the order it's built in.*
 
@@ -62,19 +63,30 @@ The pieces use what already exists:
 | **Hub** | the per-session broker: aggregates providers, applies policy, keeps the audit, publishes state | `waybox-agent-hub` |
 | **Provider** | offers tools (and resources) to the hub | the compositor, a panel, a launcher, Lua scripts |
 | **Surface** | shows the hub's state, offers stop and revoke | a panel module, a notification |
-| **Consent UI** | asks the user; trusted, drawn by the compositor | a portal backend |
+| **Consent UI** | asks the user; trusted, drawn by the compositor | the compositor, through the compositor interface |
+| **Portal** | the door for sandboxed agents and providers | `org.freedesktop.portal.Agent`, its backend the hub |
 
 The compositor plays three of these roles: a provider (windows, desktops,
 outputs), the consent UI, and the only party able to capture the screen,
 synthesize input, or enforce the stop key.
 
+The hub is desktop-neutral, as xdg-desktop-portal is: what differs from one
+desktop to another is behind **the compositor interface**
+(`org.freedesktop.AgentCompositor1`, below), which each compositor
+implements. Waybox implements it like any other compositor would; the hub
+needs nothing of Waybox's own.
+
 ```
- agent ──stdio MCP── shim ──┐
- agent ──stdio MCP── shim ──┤
-                            hub ── providers (MCP over sockets):
-                             │       compositor, panel, launcher, scripts
-          D-Bus state ───────┤
-          (surfaces)         └── consent (portal Access) ── compositor UI
+ host agent ──stdio MCP── shim ──────────────┐
+ sandboxed agent ── portal (Agent) ──────────┤
+                                             hub ── providers (MCP over sockets):
+                                              │       the compositor's, panel, launcher, scripts,
+          D-Bus state (AgentHub1) ────────────┤       sandboxed ones through the portal
+          (surfaces)                          │
+                                              └── compositor interface (AgentCompositor1,
+                                                   peer-to-peer D-Bus on an inherited socket):
+                                                   consent, confirmations, capture, input,
+                                                   the stop key
 ```
 
 **Why a hub and shims, not one server per agent:**
@@ -86,18 +98,20 @@ synthesize input, or enforce the stop key.
 
 The hub is one per session, **started by the compositor**:
 - **A private connection:** the compositor gives the hub a connection of its
-  own (a socket inherited at launch). It is the only channel through which
-  consent, capture and input are requested. The general IPC socket can't
-  reach them.
+  own (a socket inherited at launch), carrying the compositor interface. It
+  is the only channel through which consent, capture and input are
+  requested; nothing else can reach them.
+- **The compositor's tools** come over a second inherited socket, as MCP:
+  the compositor is a provider like the others, with an installed manifest.
 - **Where shims find the hub:** the socket's path is in the session's
   environment, in a directory only the user can enter.
-- **Independent of IPC:** the private connection works with Waybox's
-  general IPC socket turned off (its default), so none of this needs IPC
-  enabled.
-- **On other desktops:** a systemd user unit, or the desktop's own session
-  startup. Documented, not built: without a compositor's private
-  connection, such a hub has no consent it can trust, so it offers no tool
-  above `read` and `content`.
+- **Independent of Waybox's IPC:** both sockets work with Waybox's general
+  IPC socket turned off (its default).
+- **On other desktops:** their compositor starts the hub the same way,
+  implementing the compositor interface. A desktop whose compositor doesn't
+  (yet) can start the hub as a systemd user unit; with no compositor
+  interface, it has no consent it can trust, so it offers no tool above
+  `read` and `content`.
 
 There are no well-known names in the trust path that another program could
 claim first.
@@ -127,6 +141,13 @@ Description=Battery charge and state
 Sensitivity=act
 Description=Play or pause the current media player
 ```
+
+**Provider fields** besides those above:
+- **Version:** the manifest format's version (`1`); see "Future-proofing".
+- **McpName:** the provider's name in the MCP registry's `server.json`
+  (`io.github.user/server`), when it's also published for MCP clients:
+  the same program then needs only this file to join the hub.
+- **X-...:** keys of a vendor or desktop of its own; others ignore them.
 
 **Tool fields:**
 - **Description:** what's shown to the user when approving, and the *only*
@@ -173,8 +194,9 @@ establishes a provider's identity in one of two ways:
   registering, as agents do (see "Agent profiles"). Activated providers need
   none: the hub started them itself.
 
-**Sandboxed providers** (Flatpak): register through a portal and are
-identified by their app id.
+**Sandboxed providers** (Flatpak, Snap): register through the Agent portal
+(below), identified by their app id, which the portal knows for certain.
+Their manifest's `Id` must be the app's id.
 
 **New providers need the user's approval.** A provider seen for the first
 time, or one whose manifest changed, is listed in the hub's state as
@@ -227,6 +249,22 @@ Each tool declares one sensitivity:
 | `input` | types or points as the user | synthetic keys, clicks |
 | `ui` | talks to the user through the desktop's UI | ask, choose, a form, a notice, streamed output (see "Agent UI") |
 
+**An unknown sensitivity** (a later version's, or a typo) counts as the
+most guarded: a tool declaring one is `off` until the hub knows it.
+
+**MCP's tool annotations follow from the sensitivity.** MCP lets a tool hint
+at what it does; agents use the hints to decide when to confirm. The hub
+gives agents the hints its sensitivity implies, whatever the provider says,
+and refuses (and logs) a tool whose own hints contradict its manifest (a
+`read` tool saying it isn't read-only):
+
+| Sensitivity | readOnlyHint | destructiveHint | openWorldHint |
+|---|---|---|---|
+| `read`, `content`, `capture` | true | false | false |
+| `act`, `ui` | false | false | false |
+| `destroy` | false | true | false |
+| `exec`, `input` | false | true | true |
+
 The user's settings give each sensitivity a level: `off`, `ask` or `allow`.
 Overrides per provider and per tool sit on top.
 
@@ -276,7 +314,9 @@ model: full" and "cloud assistant: safe".
   - **What the confirmation shows:** the executable and the script from the
     command line (`node …/cli.js`), so the user knows what they're binding.
     The hub records them for display and the audit, never as authority.
-  - **Without a valid token,** a shim gets "safe", whatever it asks for.
+  - **Sandboxed agents need no token:** the Agent portal knows their app id
+  for certain, and the binding is to that id (see "The Agent portal").
+- **Without a valid token,** a shim gets "safe", whatever it asks for.
     Otherwise an agent could pick the most permissive profile itself.
 - **Lower only:** a shim's flags can lower levels, never raise them.
 - **No self-declared trust:** an agent's self-declared name (MCP
@@ -332,26 +372,18 @@ UI explains what that permits.
 from something the agent and the providers can't imitate, so it can't be a
 panel or a notification.
 
-**The hub asks through the compositor's private connection.** The compositor
-draws the question itself.
-
-**On other desktops** (not built now), the portal Access dialog
-(`org.freedesktop.impl.portal.Access`) is the closest fit:
-- **The choices:** its options can carry the scope (once, the session, a set
-  time).
-- **No public door yet:** it has no public front end today; only
-  xdg-desktop-portal itself calls it. A hub using it must check who owns the
-  backend's bus name (that it's the desktop's portal backend), since any
-  program could claim the name first and answer "allow". A portal of its own
-  would avoid this (decision 7: not now).
+**The hub asks through the compositor interface** (`Ask`, on its private
+socket). The compositor draws the question itself, above everything,
+where clients can't overlap or fake it; on every desktop alike, since each
+compositor implements the interface.
 - **What it shows:**
   - **The question:** the agent's profile, the provider and tool, and a
     readable summary of the arguments.
-  - **The choices:** once, for this session, or for a set time.
-
-The desktop's portal backend draws it. Under Waybox, Waybox's own backend
-draws it in the compositor, above everything, where clients can't overlap
-or fake it.
+  - **The choices:** the scopes the hub offers (once, for this session, or
+    for a set time; see below).
+- **Why not the portal Access dialog:** it has no public front end (only
+  xdg-desktop-portal calls it), and a hub calling its backend directly
+  would have to trust whoever owns that bus name.
 
 **Grants:**
 - **Shared state:** grants are kept by the hub, and shown and revoked through
@@ -398,9 +430,9 @@ later with the same profile gets nothing.
 
 ## State for surfaces
 
-The hub publishes its state on D-Bus, at `org.waybox.AgentHub1` on the
-session bus (`doc/dbus/org.waybox.AgentHub1.xml`), until a shared name is
-agreed (`org.freedesktop.AgentHub1`).
+The hub publishes its state on D-Bus, at `org.freedesktop.AgentHub1` on
+the session bus (`doc/dbus/org.waybox.AgentHub1.xml` until renamed; see
+"Names").
 
 **Properties:**
 - `Agents`: connected shims, with profile and self-declared name.
@@ -480,40 +512,63 @@ compositor's confirmation.
 ## The compositor's part
 
 **No Wayland protocol is involved or defined.** Agents, shims, the hub,
-providers and surfaces aren't Wayland clients. The hub reaches the
-compositor through its private connection: Waybox's IPC protocol (the
-same JSON requests `waybox-msg` sends), plus the requests only the hub may
-make (consent, confirmations, capture, input, the stop key's news), which
-the general IPC socket refuses.
-Capture and input are done inside the compositor at the hub's request,
-not through the protected capture and virtual input protocols, which stay
-closed to sandboxed clients as they are.
+providers and surfaces aren't Wayland clients. The compositor and the hub
+talk over the two sockets the compositor hands the hub at launch: the
+compositor interface, and the compositor's tools as MCP.
 
-A Wayland protocol could make sense one day, if several compositors want
-to share the compositor's side: mediated capture with exclusions, and a
-trusted consent overlay. That would come after the rest has proved itself,
-as a cross-compositor proposal.
+### The compositor interface: `org.freedesktop.AgentCompositor1`
 
-A compositor that supports this provides the following.
-- **A provider** for its own state and actions: windows, desktops, outputs,
-  focus, move and resize. Under Waybox, the hub offers it as the `waybox`
-  provider, over the private connection (its tools are below).
-- **Consent drawn where clients can't reach it.** Under Waybox, the
-  compositor draws questions and confirmations itself, asked over the
-  private connection; no portal backend is involved. (A portal Access
-  backend is the route on other desktops; see the decisions below.)
-- **The hub,** started by the compositor, with the private connection.
-- **Capture and input,** mediated:
-  - **Capture:** the compositor itself draws what's captured, leaving out
-    private windows and the lock screen.
-  - **Input:** synthesized only into the granted window.
-  - **Requests:** accepted only on the hub's private connection.
-  - **Defaults:** grants are for one window; a whole output only by explicit
-    choice.
-- **Confirmations and questions,** answered by physical input only.
-- **The stop key,** always.
-- **The indicator,** while capture or input is active, drawn by the
-  compositor. Switchable; a surface may show one too.
+Peer-to-peer D-Bus (no bus daemon, no bus name) on the inherited socket,
+object `/org/freedesktop/AgentCompositor1`. Everything in it takes and
+returns `a{sv}` for what may grow; unknown keys are ignored. The sketch:
+
+- **`Hello(u version, a{sv} hub) → (u version, a{sv} compositor)`:** each
+  side's version and what it supports (`capture`, `input`, `indicator`,
+  the stop key's binding); the hub offers only what the compositor said it
+  supports.
+- **`Ask(a{sv} question) → u id`**, answered later by
+  **`Answered(u id, s answer, a{sv} details)`**: a question about a call.
+  The question carries the profile, the agent's claimed name, the
+  provider's name, the tool, its sensitivity, the arguments' summary, and
+  the scopes to offer. `answer` is `deny`, `once`, `session` or `timed`
+  (with `until` in the details). **`CloseQuestion(u id)`** withdraws one;
+  it counts as denied.
+- **`Confirm(a{sv} change) → u id`**, answered by **`Confirmed(u id, b yes,
+  a{sv} details)`**: a change that raises power (a level, a guard, the
+  audit, approving a provider, binding a profile), with what it is, shown
+  in full.
+- **`Capture(a{sv} target, a{sv} options) → h image`:** an image of a
+  window or an output, drawn by the compositor (private windows and the
+  lock screen left out), as a file descriptor (a sealed memfd, PNG).
+- **`OpenInput(a{sv} target) → h eis`:** a connection in libei's protocol
+  (EIS), limited by the compositor to the target window; closed by the
+  compositor at the stop key, when the window goes, or when the screen
+  locks.
+- **`SetActivity(a{sv})`:** what the hub is doing, for the compositor's
+  indicator (capture and input it already knows; a call running).
+- **`Stopped()`:** the stop key was pressed. The compositor has already
+  ended capture and input and closed its questions; the hub revokes grants
+  and cancels calls.
+
+**Windows are named by their `ext-foreign-toplevel-list` identifier,**
+the one Wayland itself defines across compositors, so a window means the
+same thing to the hub, to tools and in the audit on any compositor.
+
+**Why not the ScreenCast and RemoteDesktop portals for capture and input:**
+the hub would call them, and they'd ask their own question on top of the
+hub's; RemoteDesktop grants input to the whole desktop, where the hub
+grants one window. libei, which RemoteDesktop uses underneath, is kept: it
+is the standard for synthetic input, so a compositor that has EIS for the
+portal has most of `OpenInput` already.
+
+**A compositor implementing this provides:**
+- **the compositor interface,** answered only on the hub's socket;
+- **its tools,** as an MCP provider with a manifest;
+- **confirmations and questions,** drawn by itself, answered by physical
+  input only;
+- **the stop key,** always;
+- **the indicator,** while capture or input is active. Switchable; a
+  surface may show one too.
 
 ### The `waybox` provider's tools
 
@@ -547,6 +602,48 @@ in the script.
 
 A policy hook, `wb.policy("mcp", fn)`, sees every call routed through the
 compositor provider, and can refuse it.
+
+## The Agent portal: sandboxed agents and providers
+
+An agent with a shell can do anything the user can (see "The limits"). An
+agent in a sandbox whose only door is this portal is confined: the levels
+are then all it can do. So the portal is the recommended way to run an
+agent with real limits, not only the way for sandboxed apps.
+
+**`org.freedesktop.portal.Agent`**, after the ScreenCast portal's pattern:
+- **`CreateSession(a{sv} options) → o handle`**
+- **`Start(o session, s parent_window, a{sv} options) → o handle`:** the
+  user's answer, asked by the compositor: "*App* wants to use your
+  desktop's tools as an assistant", the profile it would get, and whether
+  to remember. Remembered answers return a `restore_token`, as screen
+  sharing's do, and are kept in the permission store's `agent` table,
+  listed and revoked in the settings with the profiles.
+- **`ConnectAgent(o session, a{sv} options) → h socket`:** a socket that
+  speaks MCP to the hub, as a shim's does. The portal doesn't parse MCP;
+  it connects and steps aside.
+- **`RegisterProvider(o session, a{sv} options) → h socket`:** the same for
+  a sandboxed provider (or an Agent UI provider), its manifest's `Id` its
+  app id.
+
+**Identity:** the portal knows a sandboxed app's id for certain (Flatpak
+and Snap both make it known, and every portal relies on it), and passes it
+to the hub. A sandboxed agent's profile is bound to its app id: no token
+to copy.
+
+**The backend is the hub** (`org.freedesktop.impl.portal.Agent`): the
+portal frontend checks the caller and hands the hub the app id; the
+compositor asks the question, through the compositor interface, as for
+any other.
+
+**Manifests from inside a sandbox:** an app ships its manifest in
+`share/agent-tools/`, and Flatpak exports it as it exports desktop files,
+icons and search providers (an addition to Flatpak's exported folders).
+Until Flatpak does, the hub reads installed Flatpaks' manifests from their
+deployments, each `Id` checked against its app's id.
+
+**No static holes:** no `--talk-name`, no socket mounted into the sandbox.
+Portals are reachable from any sandbox, and the user's answer is the
+permission.
 
 ## Agent UI
 
@@ -715,10 +812,42 @@ are marked as untrusted content, for agents that understand the marking
 - **Activated providers' `Exec`** is parsed with the same quoting rules as
   `.desktop` files, and run without a shell.
 
-## Versioning
+## Future-proofing
 
-**Manifests** carry `Version=1` in `[Provider]`. The D-Bus interface is
-versioned by name (`AgentHub1`). MCP versions are negotiated as MCP does.
+What's fixed once others build on it is the interfaces and the formats,
+so each is made to grow without breaking:
+- **D-Bus interfaces** are versioned by name (`AgentHub1`,
+  `AgentCompositor1`) and carry a `version` property; additions raise the
+  version, breaking changes make a new interface (`...2`), offered beside
+  the old for a while.
+- **Options and results are `a{sv}`** wherever something may be added;
+  unknown keys are ignored, never an error.
+- **Manifests** carry `Version=`; unknown keys are ignored; a newer major
+  version is skipped (and logged), not misread. Vendors' own keys start
+  with `X-`.
+- **Sensitivities** may be added; an unknown one counts as `off`.
+- **Capabilities are negotiated** (the compositor interface's `Hello`), so
+  a hub never assumes what a compositor can do, and the reverse.
+- **MCP versions** are negotiated as MCP does; the hub passes on what both
+  ends speak, and its own tools follow MCP's annotations.
+- **Windows are named by a Wayland standard** (`ext-foreign-toplevel-list`),
+  not by any compositor's own ids.
+
+## Names
+
+The spec uses the names proposed for sharing: `org.freedesktop.AgentHub1`,
+`org.freedesktop.AgentCompositor1`, `org.freedesktop.portal.Agent`,
+`org.freedesktop.impl.portal.Agent`, `org.freedesktop.AgentUI1`.
+- **The peer-to-peer interface** (`AgentCompositor1`) has no bus name and
+  ships under its proposed name from the start.
+- **On the session bus,** the hub ships its state as `org.waybox.AgentHub1`
+  (and Agent UI as `org.waybox.AgentUI1`), with the same members, until the
+  names are agreed; renaming then changes nothing else.
+- **The portal** lives in xdg-desktop-portal's frontend, so it needs that
+  project's agreement. Until then the hub offers the same interface at
+  `org.waybox.portal.Agent`, which a sandboxed agent reaches with one
+  `--talk-name`; the portal frontend's checks (the caller's app id) are
+  done by the hub itself, as the frontend does.
 
 ## Decisions on the first pass's questions
 
@@ -732,20 +861,28 @@ versioned by name (`AgentHub1`). MCP versions are negotiated as MCP does.
    connection. Elsewhere a systemd user unit, documented but not built, and
    limited to `read` and `content` (no trusted consent without a
    compositor).
-4. **Sandboxed agents.** Out of scope for now: no Agent portal.
+4. **Sandboxed agents.** In scope (third pass): the Agent portal, which is
+   also the recommended way to confine an agent.
 5. **Resource streams.** Tools only at first; resources and subscriptions
    later.
-6. **The name.** `org.waybox.AgentHub1` and `org.waybox.AgentUI1`, until a
-   shared name is agreed.
-7. **The consent route on other desktops.** Not now. Waybox draws its own
-   questions; a portal of its own is proposed only once this has proved
-   itself.
+6. **The name.** The spec uses the proposed shared names; what ships before
+   they're agreed is under "Names".
+7. **The consent route on other desktops.** The compositor interface
+   (third pass): every compositor draws its own questions, as Waybox does;
+   no portal Access backend is used.
 8. **Agent UI as a standard of its own.** Later, likewise.
 
 Also decided in the second pass:
 - **Settings** in `agent-tools.ini`, not rc.xml.
 - **`ui` at `ask` in "safe"**, once per agent connection.
 - **The stop key:** Super+Escape by default, changeable, never unbound.
+- **Third pass:** the hub desktop-neutral, the compositor interface
+  (peer-to-peer D-Bus) for consent, capture, input and the stop key; the
+  compositor's tools as an ordinary provider; capture as files and input
+  through libei (EIS), not through the ScreenCast and RemoteDesktop
+  portals; MCP's tool annotations implied by sensitivities; `McpName`
+  linking a manifest to its `server.json`; unknown sensitivities `off`;
+  windows named by `ext-foreign-toplevel-list`; the Agent portal.
 - **From #196:** AT-SPI (`content`), `check_config` (`read`),
   `write_config`, `run_action` and `run_lua` (`exec`), and the process
   tools for a stuck window (`read`; Kill as `destroy`). Raw IPC is dropped.
@@ -755,8 +892,9 @@ Also decided in the second pass:
 One pull request each, each useful on its own; tests on private buses
 and a headless Waybox, never the user's session.
 
-1. **The hub and the shim, started by Waybox:** the private connection;
-   the `waybox` provider's `read` and `content` tools (the process id and
+1. **The hub and the shim, started by Waybox:** the two sockets (the
+   compositor interface's `Hello`; the compositor's tools as MCP); the
+   `waybox` provider's `read` and `content` tools (the process id and
    whether a window answers in its list); the audit log. Every agent gets
    "safe", with `ask` acting as `off` until step 2.
 2. **Consent and the stop key:** questions drawn by Waybox (physical input
@@ -769,10 +907,13 @@ and a headless Waybox, never the user's session.
    `run_command`, `run_action`.
 5. **Providers of other programs:** manifests, activated and registering
    providers, approval and pinning.
-6. **The accessibility provider** (`atspi`).
-7. **Scripts:** `wb.mcp_tool`, `wb.policy("mcp")`, `run_lua`.
-8. **Agent UI:** the `ui` tools, Waybox's fallbacks, the `agent-ui` rule.
-9. **Capture and input,** with the indicator.
+6. **The Agent portal:** sandboxed agents and providers, at
+   `org.waybox.portal.Agent` until the shared portal is agreed.
+7. **The accessibility provider** (`atspi`).
+8. **Scripts:** `wb.mcp_tool`, `wb.policy("mcp")`, `run_lua`.
+9. **Agent UI:** the `ui` tools, Waybox's fallbacks, the `agent-ui` rule.
+10. **Capture and input** (`Capture`, `OpenInput` with EIS), with the
+    indicator.
 
 ## Still open
 

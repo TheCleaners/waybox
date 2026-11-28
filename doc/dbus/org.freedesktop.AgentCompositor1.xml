@@ -1,0 +1,115 @@
+<?xml version="1.0"?>
+<!--
+  org.freedesktop.AgentCompositor1 (proposed): between the agent hub and the
+  compositor that started it (doc/agent-tools.md, "The compositor's part").
+
+  Peer-to-peer D-Bus on a socket the compositor hands the hub at launch: no
+  bus daemon, no bus name, so nothing can stand in for either side. Object
+  /org/freedesktop/AgentCompositor1, implemented by the compositor; the hub
+  calls it. Only the hub's socket answers it.
+
+  Dictionaries (a{sv}) carry what may grow: unknown keys are ignored, never
+  an error. Windows are named by their ext-foreign-toplevel-list identifier.
+-->
+<node>
+  <interface name="org.freedesktop.AgentCompositor1">
+    <!-- This interface's version (1). -->
+    <property name="version" type="u" access="read"/>
+
+    <!--
+      Hello: each side's version and what it supports. hub: "version" (s, the
+      hub's own), "agents" (u, connected). Returned: "name" (s, the
+      compositor), "capture" (b), "input" (b), "indicator" (b), "stop_key"
+      (s, its binding as shown to the user). The hub offers only what the
+      compositor says it supports.
+    -->
+    <method name="Hello">
+      <arg name="version" type="u" direction="in"/>
+      <arg name="hub" type="a{sv}" direction="in"/>
+      <arg name="compositor_version" type="u" direction="out"/>
+      <arg name="compositor" type="a{sv}" direction="out"/>
+    </method>
+
+    <!--
+      Ask: a question about a call, drawn by the compositor, answered by
+      physical input only (virtual keyboards and pointers ignored), input
+      ignored for about half a second after it appears, Deny the default.
+      Returns at once; the answer comes as Answered.
+      question: "profile" (s), "agent_claim" (s, the agent's self-declared
+      name, shown as a claim), "provider" (s, its approved Name), "tool" (s),
+      "sensitivity" (s), "summary" (as, lines summarizing the arguments,
+      already sanitized; shown as literal text), "scopes" (as: "once",
+      "session", "timed"), "window" (s, the target, if any).
+    -->
+    <method name="Ask">
+      <arg name="question" type="a{sv}" direction="in"/>
+      <arg name="id" type="u" direction="out"/>
+    </method>
+    <!-- answer: "deny", "once", "session", "timed"; details: "until" (x, unix
+         seconds, for "timed"), "stop_asking" (b, the user asked not to be
+         asked again by this agent). -->
+    <signal name="Answered">
+      <arg name="id" type="u"/>
+      <arg name="answer" type="s"/>
+      <arg name="details" type="a{sv}"/>
+    </signal>
+    <!-- Withdraw a question (the agent left, the call was cancelled); it counts
+         as denied. No Answered follows. -->
+    <method name="CloseQuestion">
+      <arg name="id" type="u" direction="in"/>
+    </method>
+
+    <!--
+      Confirm: a change that raises power, shown in full, drawn and answered
+      as Ask's questions are. change: "kind" (s: "level", "guard", "audit",
+      "provider", "binding"), "title" (s), "lines" (as, what changes, one
+      per line), and per kind: for "provider", "id", "name", "exec" (s) and
+      "tools" (aa{sv}: name, description, sensitivity); for "binding",
+      "profile" (s), "exec" and "script" (s, shown, not trusted).
+    -->
+    <method name="Confirm">
+      <arg name="change" type="a{sv}" direction="in"/>
+      <arg name="id" type="u" direction="out"/>
+    </method>
+    <signal name="Confirmed">
+      <arg name="id" type="u"/>
+      <arg name="yes" type="b"/>
+      <arg name="details" type="a{sv}"/>
+    </signal>
+
+    <!--
+      Capture: an image drawn by the compositor, private windows and the
+      lock screen left out. target: "window" (s) or "output" (s, its name).
+      options: "max_size" (u, the longer side in pixels). Returns a sealed
+      memfd holding a PNG. Refused while the screen is locked.
+    -->
+    <method name="Capture">
+      <arg name="target" type="a{sv}" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="image" type="h" direction="out"/>
+    </method>
+
+    <!--
+      OpenInput: a connection in libei's protocol (EIS), limited by the
+      compositor to the target window: events land only in it, and only
+      while it's there. Closed by the compositor at the stop key, when the
+      window goes, or when the screen locks. target: "window" (s).
+    -->
+    <method name="OpenInput">
+      <arg name="target" type="a{sv}" direction="in"/>
+      <arg name="eis" type="h" direction="out"/>
+    </method>
+
+    <!-- What the hub is doing, for the compositor's indicator: "calls" (u,
+         running), "agents" (u, connected). Capture and input the compositor
+         knows already. -->
+    <method name="SetActivity">
+      <arg name="activity" type="a{sv}" direction="in"/>
+    </method>
+
+    <!-- The stop key was pressed. The compositor has already ended capture and
+         input and closed its questions (no Answered follows for them); the hub
+         revokes grants and cancels calls. -->
+    <signal name="Stopped"/>
+  </interface>
+</node>
