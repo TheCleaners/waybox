@@ -1,0 +1,209 @@
+<?xml version="1.0"?>
+<!--
+  org.freedesktop.AgentCompositor1 (proposed): between the agent hub and the
+  compositor that started it (doc/agent-tools.md, "The compositor's part").
+
+  Peer-to-peer D-Bus on a socket the compositor hands the hub at launch: no
+  bus daemon, no bus name, so nothing can stand in for either side. Object
+  /org/freedesktop/AgentCompositor1, implemented by the compositor; the hub
+  calls it. Only the hub's socket answers it.
+
+  Dictionaries (a{sv}) carry what may grow: unknown keys are ignored, never
+  an error. Windows are named by their ext-foreign-toplevel-list identifier.
+-->
+<node>
+  <interface name="org.freedesktop.AgentCompositor1">
+    <!-- This interface's version (1). -->
+    <property name="version" type="u" access="read"/>
+
+    <!-- Whether the screen is locked (changes come as PropertiesChanged): the
+         hub refuses reads and actions while it is, where that guard is on. -->
+    <property name="Locked" type="b" access="read"/>
+
+    <!-- Whether the user is away: the screen locked, or idle past AwayAfter
+         (the compositor's idle time). Questions aren't asked while away. -->
+    <property name="Away" type="b" access="read"/>
+
+    <!-- Whether assistants are stopped (the stop key, until the user resumes):
+         the compositor's state, so it holds for new and reconnecting agents
+         and across a hub restart. -->
+    <property name="AssistantsStopped" type="b" access="read"/>
+
+    <!--
+      Hello: each side's version and what it supports. hub: "version" (s, the
+      hub's own), "agents" (u, connected). Returned: "name" (s, the
+      compositor), "capture" (b), "input" (b), "indicator" (b), "locked" (b), "stop_key"
+      (s, its binding as shown to the user). The hub offers only what the
+      compositor says it supports.
+    -->
+    <method name="Hello">
+      <arg name="version" type="u" direction="in"/>
+      <arg name="hub" type="a{sv}" direction="in"/>
+      <arg name="compositor_version" type="u" direction="out"/>
+      <arg name="compositor" type="a{sv}" direction="out"/>
+    </method>
+
+    <!--
+      Ask: a question about a call, drawn by the compositor, answered by
+      physical input only (virtual keyboards and pointers ignored), input
+      ignored for a moment after it appears (the InputPause tunable), Deny the
+      default.
+      Returns at once; the answer comes as Answered.
+      question: "profile" (s), "agent_claim" (s, the agent's self-declared
+      name, shown as a claim), "provider" (s, its approved Name), "provider_id" (s, its full Id,
+      shown under the Name, copyable), "tool" (s),
+      "sensitivity" (s), "summary" (as, lines summarizing the arguments,
+      already sanitized; shown as literal text, anything cut marked so),
+      "arguments" (s, the full canonical arguments, escaped, secrets as
+      placeholders with their length: the scrollable view), "digest" (s, of
+      the canonical arguments: what an answer approves), "expanded" (b,
+      open with the full arguments shown), "scopes" (as: "once",
+      "session", "timed"), "window" (s, the target, if any), "reason" (s,
+      why it's asked when the level alone wouldn't: the flow guard's "this
+      assistant has read window contents"), "remote" (b, the agent is
+      connected from another device, through a bridge).
+    -->
+    <method name="Ask">
+      <arg name="question" type="a{sv}" direction="in"/>
+      <arg name="id" type="u" direction="out"/>
+    </method>
+    <!-- answer: "deny", "once", "session", "timed"; details: "until" (x, unix
+         seconds, for "timed"), "stop_asking" (b, the user asked not to be
+         asked again by this agent). -->
+    <!-- An answer approves the call whose digest the question carried, and no
+         other. -->
+    <signal name="Answered">
+      <arg name="id" type="u"/>
+      <arg name="answer" type="s"/>
+      <arg name="details" type="a{sv}"/>
+    </signal>
+    <!-- Withdraw a question (the agent left, the call was cancelled); it counts
+         as denied. No Answered follows. -->
+    <method name="CloseQuestion">
+      <arg name="id" type="u" direction="in"/>
+    </method>
+
+    <!--
+      Confirm: a change that raises power, shown in full, drawn and answered
+      as Ask's questions are. change: "kind" (s: "level", "guard", "audit",
+      "provider", "binding", "resume" (after the stop key), "portal" (a
+      sandboxed app through the Agent portal: "app_id", "app_name",
+      "role", "remember" (b))), "title" (s), "lines" (as, what changes, one
+      per line), and per kind: for "provider", "id", "name", "exec" (s) and
+      "tools" (aa{sv}: name, description, sensitivity, reach, untrusted (b),
+      arguments (s, the input schema shown readably)); "digest" (s, of what
+      is shown: the values, the manifest, the profile; a yes applies exactly
+      that); for "binding",
+      "profile" (s), "exec" and "script" (s, shown, not trusted), "remote"
+      (b, a bridge for an assistant on another device).
+    -->
+    <method name="Confirm">
+      <arg name="change" type="a{sv}" direction="in"/>
+      <arg name="id" type="u" direction="out"/>
+    </method>
+    <signal name="Confirmed">
+      <arg name="id" type="u"/>
+      <arg name="yes" type="b"/>
+      <arg name="details" type="a{sv}"/>
+    </signal>
+
+    <!--
+      Capture: an image drawn by the compositor, private windows and the
+      lock screen left out. target: "window" (s) or "output" (s, its name).
+      options: "max_size" (u, the longer side in pixels). Returns a sealed
+      memfd holding a PNG. Refused while the screen is locked.
+    -->
+    <method name="Capture">
+      <arg name="target" type="a{sv}" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="image" type="h" direction="out"/>
+    </method>
+
+    <!--
+      OpenInput: a connection in libei's protocol (EIS), limited by the
+      compositor to the target window: events land only in it, and only
+      while it's there. Closed by the compositor at the stop key, when the
+      window goes, or when the screen locks. target: "window" (s).
+    -->
+    <method name="OpenInput">
+      <arg name="target" type="a{sv}" direction="in"/>
+      <arg name="eis" type="h" direction="out"/>
+    </method>
+
+    <!-- What the hub is doing, for the compositor's indicator: "calls" (u,
+         running), "agents" (u, connected). Capture and input the compositor
+         knows already. -->
+    <method name="SetActivity">
+      <arg name="activity" type="a{sv}" direction="in"/>
+    </method>
+
+    <!--
+      AgentProcess: a connected host agent's process (from the shim's parent),
+      so the compositor can hold the programs it starts to its levels. "conn"
+      is the hub's id for the connection; "info": "pidfd" (h, where the
+      system has pidfds), else "pid" (u) and "start_time" (t, so a reused
+      process id is told apart); "scope" (s, the systemd scope it runs in,
+      on Linux); "tracked" (s: "from-start" when it was launched in its
+      scope, "from-connect" when moved there at the handshake, "parent-chain"
+      without a scope); "profile" (s).
+    -->
+    <method name="AgentProcess">
+      <arg name="conn" type="s" direction="in"/>
+      <arg name="info" type="a{sv}" direction="in"/>
+    </method>
+
+    <!--
+      UiRequest: a UI provider has an Agent UI request open; while it does,
+      any window its process opens is agent UI (never focused when it
+      appears, opened beside the focused window, framed as agent UI),
+      whatever tag the window sets. "conn" is the provider's connection;
+      "info": "pidfd" (h) or "pid" (u) and "start_time" (t), "open" (b,
+      false when its last request closed).
+    -->
+    <method name="UiRequest">
+      <arg name="conn" type="s" direction="in"/>
+      <arg name="info" type="a{sv}" direction="in"/>
+    </method>
+
+    <!-- The agent left: the compositor drops its process policy. -->
+    <method name="ForgetAgent">
+      <arg name="conn" type="s" direction="in"/>
+    </method>
+
+    <!--
+      ClientCall: a program in an agent's scope used a privileged protocol or
+      the IPC socket. call: "conn" (s), "client" (s, its executable),
+      "what" (s, e.g. "capture", "virtual-keyboard", "ipc:action Close"),
+      "sensitivity" (s), "outcome" (s: "allowed", "asked-allowed",
+      "asked-denied", "refused"). The hub applies nothing; it records it
+      (audit, the connection's flow record) and shows it on its state.
+      The compositor decides from the levels the hub gave it (LevelsFor).
+    -->
+    <signal name="ClientCall">
+      <arg name="call" type="a{sv}"/>
+    </signal>
+
+    <!-- The levels the compositor applies to an agent's processes: per
+         sensitivity, "off", "ask" or "allow" (a{ss} in "levels"). Sent at
+         AgentProcess and whenever they change (a grant, a stop). -->
+    <method name="LevelsFor">
+      <arg name="conn" type="s" direction="in"/>
+      <arg name="levels" type="a{sv}" direction="in"/>
+    </method>
+
+    <!-- Stop assistants as the stop key does (a panel's Stop, through the hub):
+         sets AssistantsStopped, ends capture and input and the commands run
+         for agents, closes questions and confirmations, then sends Stopped.
+         Idempotent. -->
+    <method name="StopAssistants"/>
+
+    <!-- The user resumed assistants after the stop key (a confirmation the
+         compositor drew, from its indicator or after a Propose). -->
+    <signal name="Resumed"/>
+
+    <!-- The stop key was pressed. The compositor has already ended capture and
+         input and closed its questions (no Answered follows for them); the hub
+         revokes grants and cancels calls. -->
+    <signal name="Stopped"/>
+  </interface>
+</node>
