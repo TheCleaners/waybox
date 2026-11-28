@@ -65,13 +65,20 @@ void apply_tunables(Tunables &t, std::string_view ini_text, bool system,
 		uint64_t *value;
 	};
 	uint64_t frame = t.max_frame, queued = t.max_queued, agents = t.max_agents,
-			listens = t.max_listens, wait = static_cast<uint64_t>(t.handshake_wait.count());
+			listens = t.max_listens, wait = static_cast<uint64_t>(t.handshake_wait.count()),
+			timeout = static_cast<uint64_t>(t.call_timeout.count()),
+			deadline = static_cast<uint64_t>(t.call_deadline.count()),
+			in_flight = t.max_in_flight, rate = t.call_rate;
 	Key keys[] = {
 		{"MaxFrame", Kind::Size, 4096, &frame},
 		{"MaxQueued", Kind::Size, 4096, &queued},
 		{"MaxAgents", Kind::Count, 1, &agents},
 		{"MaxListens", Kind::Count, 0, &listens},
 		{"HandshakeWait", Kind::Duration, 100, &wait},
+		{"CallTimeout", Kind::Duration, 100, &timeout},
+		{"CallDeadline", Kind::Duration, 100, &deadline},
+		{"MaxInFlight", Kind::Count, 1, &in_flight},
+		{"CallRate", Kind::Count, 1, &rate},
 	};
 	for (const Key &k : keys) {
 		auto raw = doc.get("Tunables", k.name);
@@ -92,6 +99,60 @@ void apply_tunables(Tunables &t, std::string_view ini_text, bool system,
 		}
 		*k.value = *v;
 	}
+	t.call_timeout = std::chrono::milliseconds(timeout);
+	t.call_deadline = std::chrono::milliseconds(deadline);
+	t.max_in_flight = in_flight;
+	t.call_rate = rate;
+	/* The audit's: from a distribution's file only. */
+	uint64_t cut = t.audit_cut, rotate = t.audit_rotate, keep = t.audit_keep;
+	Key audit[] = {
+		{"AuditCut", Kind::Size, 256, &cut},
+		{"AuditKeep", Kind::Count, 1, &keep},
+	};
+	for (const Key &k : audit) {
+		auto raw = doc.get("Tunables", k.name);
+		if (!raw)
+			continue;
+		auto v = parse(*raw, k.kind);
+		if (!system)
+			notes.push_back(std::string(k.name) + ": the audit's tunables are a distribution's to set");
+		else if (!v || *v < k.least)
+			notes.push_back(std::string(k.name) + "=" + *raw + ": not a value it can take");
+		else
+			*k.value = *v;
+	}
+	/* AuditRotate: a size, and optionally how many are kept ("10 MiB, 3 kept"). */
+	if (auto raw = doc.get("Tunables", "AuditRotate")) {
+		std::string_view r = *raw;
+		size_t comma = r.find(',');
+		auto size = parse(r.substr(0, comma), Kind::Size);
+		std::optional<uint64_t> kept;
+		if (comma != std::string_view::npos) {
+			std::string_view k = r.substr(comma + 1);
+			size_t word = k.find("kept");
+			kept = parse(word == std::string_view::npos ? k : k.substr(0, word), Kind::Count);
+		}
+		if (!system)
+			notes.push_back("AuditRotate: the audit's tunables are a distribution's to set");
+		else if (!size || *size < 4096 || (comma != std::string_view::npos && (!kept || *kept < 1)))
+			notes.push_back("AuditRotate=" + *raw + ": not a value it can take");
+		else {
+			rotate = *size;
+			if (kept)
+				keep = *kept;
+		}
+	}
+	if (auto raw = doc.get("Tunables", "AuditSync")) {
+		if (!system)
+			notes.push_back("AuditSync: the audit's tunables are a distribution's to set");
+		else if (*raw == "important" || *raw == "all" || *raw == "none")
+			t.audit_sync = *raw;
+		else
+			notes.push_back("AuditSync=" + *raw + ": important, all or none");
+	}
+	t.audit_cut = cut;
+	t.audit_rotate = rotate;
+	t.audit_keep = keep;
 	t.max_frame = frame;
 	t.max_queued = queued;
 	t.max_agents = agents;

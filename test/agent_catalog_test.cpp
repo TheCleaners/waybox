@@ -194,11 +194,12 @@ WB_TEST(client_calls_end_with_the_connection) {
 	c.call("a", {}, [&](bool ok, const json::Object &) { failed += !ok; });
 	std::string first = c.last_call();
 	c.call("b", {}, [&](bool ok, const json::Object &) { failed += !ok; });
-	/* Cancelled: the provider is told, the callback never runs. */
+	/* Cancelled: the provider is asked; its answer still comes (here: the
+	 * connection goes, so both end, marked lost). */
 	out = c.cancel(first);
 	WB_CHECK(out.size() == 1 && method_of(out[0]) == "notifications/cancelled");
 	c.lost("gone");
-	WB_CHECK(failed == 1 && c.state() == McpClient::State::Failed);
+	WB_CHECK(failed == 2 && c.state() == McpClient::State::Failed);
 	/* Not ready: a call fails at once. */
 	bool refused = false;
 	WB_CHECK(c.call("a", {}, [&](bool ok, const json::Object &) { refused = !ok; }).empty() && refused);

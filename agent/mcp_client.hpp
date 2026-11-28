@@ -26,6 +26,9 @@ public:
 	enum class Era { Unknown, Older, Stateless };
 	/* A call's end: ok and the result, or not and the error object. */
 	using Done = std::function<void(bool ok, const json::Object &body)>;
+	/* A call's progress (the provider's notifications/progress). */
+	using Progress = std::function<void(double progress, const json::Value &total,
+			const std::string &message)>;
 
 	McpClient(std::string name, std::string version);
 
@@ -35,9 +38,12 @@ public:
 	std::vector<std::string> receive(std::string_view line);
 	/* No answer to server/discover in time: the older era is tried. */
 	std::vector<std::string> timed_out();
-	/* A tool called; `done` once it's answered (or the connection ends). */
-	std::vector<std::string> call(const std::string &tool, const json::Object &args, Done done);
-	/* A call no longer wanted: the provider is told; `done` isn't called. */
+	/* A tool called; `done` once it's answered (or the connection ends,
+	 * `body` then marked "lost"); `progress` as it reports. */
+	std::vector<std::string> call(const std::string &tool, const json::Object &args, Done done,
+			Progress progress = {});
+	/* A call no longer wanted: the provider is asked to stop. It may answer
+	 * anyway: `done` still comes (a cancellation is a request). */
 	std::vector<std::string> cancel(const std::string &tool_call);
 	/* The connection ended: every call still out ends, as failed. */
 	void lost(const std::string &why);
@@ -62,6 +68,7 @@ private:
 	std::string error_, last_call_;
 	unsigned next_ = 1;
 	std::map<std::string, Done> calls_;  /* by request id */
+	std::map<std::string, Progress> progress_;
 
 	std::string id();
 	json::Object meta() const;

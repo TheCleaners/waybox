@@ -26,6 +26,7 @@
 #include <memory>
 
 #include "mcp_agent.hpp"
+#include "calls.hpp"
 #include "providers.hpp"
 #include "tunables.hpp"
 #include "waybox/platform.hpp"
@@ -64,7 +65,9 @@ struct Conn {
 	std::unique_ptr<HubTools> tools;  /* (before the endpoint, which uses it) */
 	std::unique_ptr<McpServer> endpoint;
 	std::string profile = "safe";
+	std::string label;
 	std::string who;  /* for the log: "agent 3" */
+	std::string peer; /* for the audit: "pid 12, agent /usr/bin/node" */
 	~Conn() {
 		if (deadline != 0)
 			g_source_remove(deadline);
@@ -86,7 +89,7 @@ struct Agents {
 };
 
 Agents *g_agents = nullptr;
-bool g_locked = false;
+Audit *g_audit = nullptr;
 
 /* What agents are told of the hub, in MCP's instructions. */
 constexpr const char *kInstructions =
@@ -106,6 +109,9 @@ void close_conn(unsigned id, const char *why) {
 	if (c == nullptr)
 		return;
 	say("%s: left (%s)", c->who.c_str(), why);
+	if (g_audit != nullptr && c->handshaken)
+		g_audit->write(json::Object{{"event", "disconnect"},
+				{"agent", json::Object{{"conn", static_cast<double>(id)}}}, {"why", why}});
 	g_agents->conns.erase(id);
 }
 
@@ -148,56 +154,68 @@ public:
 			server.fail(id, -32602, "unknown tool: " + name);
 			return;
 		}
-		if (g_locked) {
-			server.fail(id, -32603, "the screen is locked: nothing is read or done until it's unlocked");
-			return;
+		Conn *c = find(conn_id_);
+		Caller who;
+		who.conn = conn_id_;
+		who.profile = profile_;
+		if (c != nullptr) {
+			who.label = c->label;
+			if (c->endpoint)
+				who.claim = c->endpoint->claimed_name();
 		}
+		bool untrusted = tool->manifest.untrusted;
 		json::Object provenance{{"provider", tool->provider}, {"tool", tool->tool},
 				{"sensitivity", tool->manifest.sensitivity}};
-		bool untrusted = tool->manifest.untrusted;
 		unsigned conn_id = conn_id_;
 		std::string key = json::dump(id);
-		unsigned handle = providers_call(*tool, args,
-				[conn_id, id, key, provenance, untrusted](bool ok, const json::Object &body) {
-					Conn *c = find(conn_id);
-					if (c == nullptr || !c->endpoint)
-						return;
-					c->tools->calls_.erase(key);
-					if (ok) {
-						json::Object result = body;
-						json::Object meta;
-						if (auto m = result.find("_meta"); m != result.end() && m->second.object())
-							meta = *m->second.object();
-						meta["org.freedesktop.agent/provenance"] = provenance;
-						if (untrusted)
-							meta["org.freedesktop.agent/untrusted"] = true;
-						result["_meta"] = std::move(meta);
-						c->endpoint->complete(id, std::move(result));
-					} else {
-						const json::Value *code = body.count("code") ? &body.at("code") : nullptr;
-						c->endpoint->fail(id,
-								code != nullptr && code->number() ? static_cast<int>(*code->number())
-										: -32603,
-								body.count("message") && body.at("message").string()
-										? *body.at("message").string() : "the call failed");
-					}
-					flush_endpoint(c);
-				});
-		if (handle != 0)
-			calls_[key] = handle;
+		CallSink sink;
+		sink.complete = [conn_id, id, key, provenance, untrusted](json::Object result) {
+			Conn *c = find(conn_id);
+			if (c == nullptr || !c->endpoint)
+				return;
+			c->tools->calls_.erase(key);
+			json::Object meta;
+			if (auto m = result.find("_meta"); m != result.end() && m->second.object())
+				meta = *m->second.object();
+			meta["org.freedesktop.agent/provenance"] = provenance;
+			if (untrusted)
+				meta["org.freedesktop.agent/untrusted"] = true;
+			result["_meta"] = std::move(meta);
+			c->endpoint->complete(id, std::move(result));
+			flush_endpoint(c);
+		};
+		sink.fail = [conn_id, id, key](int code, const std::string &message) {
+			Conn *c = find(conn_id);
+			if (c == nullptr || !c->endpoint)
+				return;
+			c->tools->calls_.erase(key);
+			c->endpoint->fail(id, code, message);
+			flush_endpoint(c);
+		};
+		sink.progress = [conn_id, id](double progress, const json::Value &total,
+				const std::string &message) {
+			Conn *c = find(conn_id);
+			if (c == nullptr || !c->endpoint)
+				return;
+			c->endpoint->progress(id, progress, total, message);
+			flush_endpoint(c);
+		};
+		calls_[key] = "";
+		std::string call = calls_begin(who, *tool, args, std::move(sink));
+		/* (it may have ended already: refused) */
+		if (calls_.count(key))
+			calls_[key] = call;
 	}
 	void cancel(const json::Value &id) override {
 		auto it = calls_.find(json::dump(id));
 		if (it == calls_.end())
 			return;
-		providers_cancel(it->second);
+		std::string call = it->second;
 		calls_.erase(it);
+		calls_cancel(call);
 	}
-	~HubTools() override {
-		for (auto &[key, handle] : calls_)
-			providers_cancel(handle);
-	}
-	std::map<std::string, unsigned> calls_;  /* the agent's call id → handle */
+	~HubTools() override { calls_agent_left(conn_id_); }
+	std::map<std::string, std::string> calls_;  /* the agent's call id → the hub's */
 
 private:
 	/* Until consent exists, "ask" acts as "off". */
@@ -369,6 +387,7 @@ bool identify(Conn *c) {
 			desc += ", agent " + agent;
 	}
 	say("%s: connected (%s)", c->who.c_str(), desc.c_str());
+	c->peer = desc;
 	return true;
 }
 
@@ -391,8 +410,16 @@ void on_line(Conn *c, std::string_view line) {
 		c->tools = std::make_unique<HubTools>(c);
 		c->endpoint = std::make_unique<McpServer>("waybox-agent-hub", g_agents->hub_version,
 				g_agents->t.max_listens, c->tools.get(), kInstructions);
+		c->label = hs.label;
 		if (!hs.label.empty())
 			c->who += " (" + display_name(hs.label) + ")";
+		if (g_audit != nullptr) {
+			json::Object agent{{"conn", static_cast<double>(c->id)}, {"profile", profile}};
+			if (!hs.label.empty())
+				agent["label"] = hs.label;
+			g_audit->write(json::Object{{"event", "connect"}, {"agent", std::move(agent)},
+					{"peer", c->peer}});
+		}
 		say("%s: profile %s%s", c->who.c_str(), profile.c_str(),
 				hs.token ? " (a token no binding has)" : "");
 		return;
@@ -557,7 +584,11 @@ bool agents_listen(const std::string &path, const std::string &hub_version,
 }
 
 void agents_set_locked(bool locked) {
-	g_locked = locked;
+	calls_set_locked(locked);
+}
+
+void agents_set_audit(Audit *audit) {
+	g_audit = audit;
 }
 
 void agents_stop() {

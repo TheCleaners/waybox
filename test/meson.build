@@ -446,6 +446,15 @@ json_test = executable(
   )
 test('json', json_test, suite: 'unit')
 
+# Calls through the hub, with a stand-in compositor (no Waybox needed).
+if not tests_only
+  test('integration_agent_calls', find_program('python3'),
+    args: [files('integration' / 'agent_calls_test.py'), agent_hub_exe,
+           meson.project_source_root() / 'doc' / 'dbus' / 'org.freedesktop.AgentCompositor1.xml'],
+    env: {'DBUS_SESSION_BUS_ADDRESS': 'disabled:'},
+    suite: 'compositor', timeout: 60)
+endif
+
 # The hub's MCP endpoint toward agents and the shim's handshake (pure).
 mcp_agent_test = executable(
   'mcp_agent_test',
@@ -467,6 +476,16 @@ agent_catalog_test = executable(
   include_directories: [inc_dir],
   )
 test('agent_catalog', agent_catalog_test, suite: 'unit')
+
+# The hub's audit log: lines, modes, rotation, recovery, redaction.
+agent_audit_test = executable(
+  'agent_audit_test',
+  ['agent_audit_test.cpp', 'wb_test_main.cpp', json_src, ini_doc_src,
+   meson.project_source_root() / 'agent' / 'audit.cpp',
+   meson.project_source_root() / 'agent' / 'tunables.cpp'],
+  include_directories: [inc_dir],
+  )
+test('agent_audit', agent_audit_test, suite: 'unit')
 
 # Code that depends on the system names each one, and says so on any
 # other (include/waybox/platform.hpp).

@@ -27,6 +27,8 @@ void agents_stop();
 /* The screen is locked (or not): calls are refused meanwhile (the
  * WhileLocked guard). */
 void agents_set_locked(bool locked);
+/* Where connections are recorded (the hub's audit). */
+void agents_set_audit(class Audit *audit);
 
 }  // namespace wb::agent
 

@@ -161,11 +161,26 @@ McpServer::McpServer(std::string server_name, std::string server_version,
 	: server_name_(std::move(server_name)), server_version_(std::move(server_version)),
 	  max_listens_(max_listens), tools_(tools), instructions_(std::move(instructions)) {}
 
+void McpServer::progress(const json::Value &id, double progress, const json::Value &total,
+		const std::string &message) {
+	auto it = tokens_.find(json::dump(id));
+	if (it == tokens_.end() || std::find(calls_.begin(), calls_.end(), id) == calls_.end())
+		return;
+	json::Object params{{"progressToken", it->second}, {"progress", progress}};
+	if (!total.is_null())
+		params["total"] = total;
+	if (!message.empty())
+		params["message"] = message;
+	outbox_.push_back(json::dump(json::Object{{"jsonrpc", "2.0"},
+			{"method", "notifications/progress"}, {"params", std::move(params)}}));
+}
+
 void McpServer::complete(const json::Value &id, json::Object result) {
 	auto it = std::find(calls_.begin(), calls_.end(), id);
 	if (it == calls_.end())
 		return;
 	calls_.erase(it);
+	tokens_.erase(json::dump(id));
 	outbox_.push_back(json::dump(result_response(id, finish(std::move(result)))));
 }
 
@@ -174,6 +189,7 @@ void McpServer::fail(const json::Value &id, int code, const std::string &message
 	if (it == calls_.end())
 		return;
 	calls_.erase(it);
+	tokens_.erase(json::dump(id));
 	outbox_.push_back(json::dump(error_response(id, code, message)));
 }
 
@@ -272,6 +288,7 @@ std::vector<std::string> McpServer::receive(std::string_view line) {
 					auto it = std::find(calls_.begin(), calls_.end(), *rid);
 					if (it != calls_.end()) {
 						calls_.erase(it);
+						tokens_.erase(json::dump(*rid));
 						if (tools_ != nullptr)
 							tools_->cancel(*rid);
 					}
@@ -303,6 +320,10 @@ json::Value McpServer::begin_call(const json::Value &id, const json::Value *para
 	if (tools_ == nullptr)
 		return error_response(id, kInvalidParams, "unknown tool: " + *name->string());
 	calls_.push_back(id);
+	if (const json::Value *meta = params->get("_meta"))
+		if (const json::Value *tok = meta->get("progressToken");
+				tok != nullptr && (tok->string() != nullptr || tok->number() != nullptr))
+			tokens_[json::dump(id)] = *tok;
 	tools_->call(*this, id, *name->string(), args != nullptr ? *args->object() : json::Object{});
 	return nullptr;  /* (answered through complete or fail) */
 }

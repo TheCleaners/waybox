@@ -27,6 +27,7 @@ struct ManifestTool {
 	std::string sensitivity, description;
 	bool untrusted = true;
 	std::string reach = "local";
+	std::vector<std::string> secret;  /* arguments redacted in the audit */
 };
 
 struct Manifest {

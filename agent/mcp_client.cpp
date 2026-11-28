@@ -80,19 +80,31 @@ bool McpClient::take_tools_changed() {
 }
 
 std::vector<std::string> McpClient::call(const std::string &tool, const json::Object &args,
-		Done done) {
+		Done done, Progress progress) {
 	if (state_ != State::Ready) {
-		done(false, json::Object{{"code", -32603.0}, {"message", "the provider isn't ready"}});
+		done(false, json::Object{{"code", -32603.0}, {"message", "the provider isn't ready"},
+				{"not_sent", true}});
 		return {};
 	}
 	last_call_ = id();
 	calls_[last_call_] = std::move(done);
-	return {request(last_call_, "tools/call",
-			json::Object{{"name", tool}, {"arguments", args}})};
+	if (progress)
+		progress_[last_call_] = std::move(progress);
+	std::string line = request(last_call_, "tools/call",
+			json::Object{{"name", tool}, {"arguments", args}});
+	/* Its progress asked for, by its own id (both eras take _meta). */
+	auto v = json::parse(line);
+	json::Object msg = *v->object();
+	json::Object params = *msg["params"].object();
+	json::Object meta = params.count("_meta") ? *params["_meta"].object() : json::Object{};
+	meta["progressToken"] = last_call_;
+	params["_meta"] = std::move(meta);
+	msg["params"] = std::move(params);
+	return {json::dump(msg)};
 }
 
 std::vector<std::string> McpClient::cancel(const std::string &tool_call) {
-	if (calls_.erase(tool_call) == 0)
+	if (calls_.count(tool_call) == 0)
 		return {};
 	json::Object params{{"requestId", tool_call}};
 	if (era_ == Era::Stateless)
@@ -106,8 +118,9 @@ void McpClient::lost(const std::string &why) {
 	if (error_.empty())
 		error_ = why;
 	auto calls = std::exchange(calls_, {});
+	progress_.clear();
 	for (auto &[rid, done] : calls)
-		done(false, json::Object{{"code", -32603.0}, {"message", why}});
+		done(false, json::Object{{"code", -32603.0}, {"message", why}, {"lost", true}});
 }
 
 std::vector<std::string> McpClient::receive(std::string_view line) {
@@ -121,6 +134,20 @@ std::vector<std::string> McpClient::receive(std::string_view line) {
 		 * taken (sampling and elicitation come later). */
 		if (*method->string() == "notifications/tools/list_changed" && state_ == State::Ready)
 			return list();
+		if (*method->string() == "notifications/progress") {
+			const json::Value *p = msg->get("params");
+			const json::Value *tok = p != nullptr ? p->get("progressToken") : nullptr;
+			const json::Value *n = p != nullptr ? p->get("progress") : nullptr;
+			if (tok != nullptr && tok->string() != nullptr && n != nullptr && n->number() != nullptr) {
+				auto it = progress_.find(*tok->string());
+				if (it != progress_.end()) {
+					const json::Value *total = p->get("total");
+					it->second(*n->number(), total != nullptr ? *total : json::Value(),
+							p->str("message"));
+				}
+			}
+			return {};
+		}
 		if (rid != nullptr)
 			return {json::dump(json::Object{{"jsonrpc", "2.0"}, {"id", *rid},
 					{"error", json::Object{{"code", -32601.0}, {"message", "not taken"}}}})};
@@ -205,6 +232,7 @@ std::vector<std::string> McpClient::on_response(const std::string &rid, const js
 		return {};
 	Done done = std::move(it->second);
 	calls_.erase(it);
+	progress_.erase(rid);
 	if (result != nullptr && result->object() != nullptr)
 		done(true, *result->object());
 	else if (error != nullptr && error->object() != nullptr)

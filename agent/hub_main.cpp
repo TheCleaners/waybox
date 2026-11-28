@@ -22,6 +22,8 @@
 #include <vector>
 
 #include "agents.hpp"
+#include "audit.hpp"
+#include "calls.hpp"
 #include "providers.hpp"
 #include "tunables.hpp"
 
@@ -252,6 +254,16 @@ int main() {
 	hub.loop = g_main_loop_new(nullptr, FALSE);
 	int status = 0;
 	wb::agent::Tunables tunables = read_tunables();
+	/* The audit: interrupted calls (a crash's) ended as outcome unknown,
+	 * then the hub's start. */
+	wb::agent::Audit audit(std::string(g_get_user_state_dir()) + "/agents/tools", tunables);
+	if (!audit.ok())
+		say("the audit can't be written: %s", audit.error().c_str());
+	size_t recovered = audit.recover();
+	audit.write(wb::json::Object{{"event", "hub"}, {"what", "started"},
+			{"version", WB_HUB_VERSION}, {"recovered", static_cast<double>(recovered)}}, true);
+	wb::agent::calls_init(tunables, &audit);
+	wb::agent::agents_set_audit(&audit);
 	if (start(hub, fd) && wb::agent::agents_listen(dir + "/agent", WB_HUB_VERSION, tunables)) {
 		wb::agent::agents_set_locked(hub.locked);
 		/* The compositor's own tools, if it offers any. */
@@ -265,6 +277,7 @@ int main() {
 	}
 	wb::agent::agents_stop();
 	wb::agent::providers_stop();
+	wb::agent::calls_stop();
 	if (hub.compositor != nullptr) {
 		g_dbus_connection_close_sync(hub.compositor, nullptr, nullptr);
 		g_object_unref(hub.compositor);
