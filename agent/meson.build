@@ -1,9 +1,9 @@
 # waybox-agent-hub: the agent hub (doc/agent-tools.md), started and
 # supervised by the compositor; GIO only.
-agent_hub_src = files('mcp_agent.cpp', 'tunables.cpp', 'mcp_client.cpp', 'catalog.cpp')
+agent_hub_src = files('mcp_agent.cpp', 'tunables.cpp', 'mcp_client.cpp', 'catalog.cpp', 'audit.cpp')
 agent_hub_exe = executable(
   'waybox-agent-hub',
-  ['hub_main.cpp', 'agents.cpp', 'providers.cpp', agent_hub_src, json_src, ini_doc_src],
+  ['hub_main.cpp', 'agents.cpp', 'providers.cpp', 'calls.cpp', agent_hub_src, json_src, ini_doc_src],
   include_directories: [inc_dir],
   dependencies: [dependency('gio-unix-2.0')],
   cpp_args: ['-DWB_HUB_VERSION="' + meson.project_version() + '"'],

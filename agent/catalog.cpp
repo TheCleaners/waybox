@@ -61,6 +61,20 @@ Manifest read_manifest(std::string_view ini_text) {
 		t.description = doc.get(section, "Description").value_or("");
 		t.untrusted = yes(doc.get(section, "Untrusted").value_or(""), true);
 		t.reach = doc.get(section, "Reach").value_or("local");
+		std::string secret = doc.get(section, "Secret").value_or("");
+		for (size_t at = 0; at <= secret.size();) {
+			size_t comma = secret.find(',', at);
+			std::string one = secret.substr(at, comma == std::string::npos ? std::string::npos : comma - at);
+			while (!one.empty() && one.front() == ' ')
+				one.erase(0, 1);
+			while (!one.empty() && one.back() == ' ')
+				one.pop_back();
+			if (!one.empty())
+				t.secret.push_back(one);
+			if (comma == std::string::npos)
+				break;
+			at = comma + 1;
+		}
 		m.tools[name] = t;
 	}
 	return m;

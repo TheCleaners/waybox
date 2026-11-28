@@ -25,6 +25,17 @@ struct Tunables {
 	size_t max_agents = 32;
 	size_t max_listens = 8;
 	std::chrono::milliseconds handshake_wait{10000};
+	/* Calls (doc/agent-tools.md, "Calls"). */
+	std::chrono::milliseconds call_timeout{30000};   /* reset by progress */
+	std::chrono::milliseconds call_deadline{600000}; /* from dispatch, absolute */
+	size_t max_in_flight = 8;                         /* per agent, and per provider */
+	size_t call_rate = 600;                           /* calls a minute per agent */
+	/* The audit (a distribution's to set: what's evidence isn't the user's
+	 * to weaken unconfirmed, and the file is theirs either way). */
+	size_t audit_cut = 4096;
+	size_t audit_rotate = 10 * 1024 * 1024;
+	size_t audit_keep = 3;
+	std::string audit_sync = "important";  /* important, all, none */
 };
 
 /* [Tunables] from one file's text, over `t`; `system`: a distribution's

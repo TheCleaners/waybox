@@ -889,7 +889,10 @@ audit and the state agree on.
 - **Deadlines:** `CallTimeout` ends a call nothing is heard of; each
   progress notification restarts it, but never past `CallDeadline`, an
   absolute limit from dispatch that progress doesn't extend. At most
-  `MaxInFlight` calls run at once per agent and per provider; more wait.
+  `MaxInFlight` calls run at once per agent and per provider; more wait. A
+  call counts until the provider is done with it (it answers, or goes
+  away), even after its outcome was reported unknown: a provider that
+  ignores cancellation is sent no more than that, whatever the deadlines.
   (Long-running work belongs to MCP's tasks, once the hub supports them.)
 - **High-impact calls are recorded before they're sent** (`exec`,
   `destroy`, `capture`, `input`, and `Reach=outside` tools): an intent line

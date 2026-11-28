@@ -30,7 +30,9 @@ void providers_on_change(std::function<void()> f);
 
 /* Calls an offered tool; `done` on the main loop. A handle for
  * providers_cancel (0: answered already, as failed). */
-unsigned providers_call(const OfferedTool &t, const json::Object &args, McpClient::Done done);
+unsigned providers_call(const OfferedTool &t, const json::Object &args, McpClient::Done done,
+		McpClient::Progress progress = {});
+/* Asks the provider to stop the call: its answer still comes to `done`. */
 void providers_cancel(unsigned handle);
 
 }  // namespace wb::agent

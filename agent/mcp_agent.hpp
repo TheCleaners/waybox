@@ -13,6 +13,7 @@
  * No tools yet: the compositor's come with the next step (tools/list is
  * empty, a call names an unknown tool). Pure; unit-tested.
  */
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -88,6 +89,10 @@ public:
 	 * answered already). The lines go out with take_output(). */
 	void complete(const json::Value &id, json::Object result);
 	void fail(const json::Value &id, int code, const std::string &message);
+	/* A call's progress, passed on if the client asked for it (its
+	 * progressToken); nothing otherwise. */
+	void progress(const json::Value &id, double progress, const json::Value &total,
+			const std::string &message);
 	/* Lines answered since the last receive() or take_output(). */
 	std::vector<std::string> take_output();
 	/* The tool list changed: the client is told (older era: a
@@ -113,6 +118,7 @@ private:
 	ToolSource *tools_;
 	std::string instructions_;
 	std::vector<json::Value> calls_;        /* calls under way, by id */
+	std::map<std::string, json::Value> tokens_;  /* their progress tokens, by id */
 	std::vector<json::Value> tool_listens_; /* listens that asked for tool changes */
 	std::vector<std::string> outbox_;
 	Era era_ = Era::Unknown;

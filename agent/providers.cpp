@@ -254,10 +254,12 @@ void providers_on_change(std::function<void()> f) {
 	g_on_change = std::move(f);
 }
 
-unsigned providers_call(const OfferedTool &t, const json::Object &args, McpClient::Done done) {
+unsigned providers_call(const OfferedTool &t, const json::Object &args, McpClient::Done done,
+		McpClient::Progress progress) {
 	Provider *p = g_compositor;
 	if (p == nullptr || t.provider != p->id) {
-		done(false, json::Object{{"code", -32603.0}, {"message", "its provider isn't connected"}});
+		done(false, json::Object{{"code", -32603.0}, {"message", "its provider isn't connected"},
+				{"not_sent", true}});
 		return 0;
 	}
 	unsigned handle = g_next_handle++;
@@ -266,7 +268,8 @@ unsigned providers_call(const OfferedTool &t, const json::Object &args, McpClien
 			g_compositor->calls.erase(handle);
 		done(ok, body);
 	};
-	std::vector<std::string> lines = p->client->call(t.tool, args, std::move(wrapped));
+	std::vector<std::string> lines = p->client->call(t.tool, args, std::move(wrapped),
+			std::move(progress));
 	if (lines.empty())
 		return 0;  /* (answered already: not ready) */
 	p->calls[handle] = p->client->last_call();
@@ -281,9 +284,8 @@ void providers_cancel(unsigned handle) {
 	auto it = p->calls.find(handle);
 	if (it == p->calls.end())
 		return;
-	std::string call_id = it->second;
-	p->calls.erase(it);
-	send_lines(p, p->client->cancel(call_id));
+	/* (kept: its answer still comes, and ends it) */
+	send_lines(p, p->client->cancel(it->second));
 }
 
 }  // namespace wb::agent
