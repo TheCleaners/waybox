@@ -61,6 +61,6 @@ endif
 
 # Desktop entry so wbconf shows up in application menus / launchers.
 install_data(
-  'org.waybox.wbconf.desktop',
+  'org.waybox.wbconf.desktop', 'org.waybox.LocationAgent.desktop',
   install_dir: get_option('datadir') / 'applications',
 )

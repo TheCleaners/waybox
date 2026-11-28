@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Location Requests
+Comment=Asks before an app learns where you are
+Exec=waybox-location-agent
+Icon=find-location
+Terminal=false
+NoDisplay=true

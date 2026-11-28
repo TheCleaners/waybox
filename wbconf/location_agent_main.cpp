@@ -10,6 +10,12 @@
  * list that, as geoclue-demo-agent, which every distribution's does (the
  * ID is self-declared, not a security boundary; see #363).
  *
+ * Options (the integration's, set in wbconf): --policy=ask|allow|deny, for
+ * apps with no answer remembered (a remembered one still holds);
+ * --note-kept, a notification when a remembered answer is given;
+ * --ask-with-notifications, asking through the notification daemon (this
+ * time only) where it shows actions, else the card.
+ *
  * Tests: WAYBOX_LOCATION_TEST_ANSWER="allow:once" (or deny; once,
  * session, always; "every" too) answers each card as shown, after printing
  * its wording ("card: ..." on stderr); "@FILE": read from FILE each time;
@@ -63,8 +69,15 @@ struct Request {
 	GDBusMethodInvocation *invocation = nullptr;
 };
 
+enum class Policy { Ask, Allow, Deny };
+
 struct Agent {
 	GtkApplication *app = nullptr;
+	Policy policy = Policy::Ask;
+	bool note_kept = false, ask_notify = false;
+	/* Asking through a notification: its id (0: none), the action chosen. */
+	guint32 notification = 0;
+	std::string action;
 	GDBusConnection *system = nullptr;
 	std::string registered_as;
 	std::map<std::string, loc::Answer> session;
@@ -178,15 +191,73 @@ void answer(bool allow) {
 	show_next();
 }
 
-/* An answer kept for it (the session's, "every app", or the store's). */
-std::optional<loc::Answer> kept(const Request &r) {
+/* An answer kept for it (the session's, "every app", or the store's), and
+ * for how long, as the note says it. */
+std::optional<loc::Answer> kept(const Request &r, std::string *how) {
 	if (g.session_all) {
 		loc::Answer a = *g.session_all;
 		if (a.allow)
 			a.level = r.level;
+		*how = "Remembered for every app, this session";
 		return a;
 	}
+	*how = g.session.count(r.app) != 0 ? "Remembered for this session" : "Remembered always";
 	return loc::kept_answer(r.app, r.level, g.session, store_lookup());
+}
+
+/* ---- Notifications (org.freedesktop.Notifications) ---- */
+
+constexpr const char *kNotify = "org.freedesktop.Notifications";
+constexpr const char *kNotifyPath = "/org/freedesktop/Notifications";
+
+/* Posted; its id, 0 if no daemon took it. */
+guint32 notify(const std::string &summary, const std::string &body, const char *icon,
+		const std::vector<std::string> &actions, bool waits) {
+	GDBusConnection *bus = session_bus();
+	if (bus == nullptr)
+		return 0;
+	GVariantBuilder acts;
+	g_variant_builder_init(&acts, G_VARIANT_TYPE("as"));
+	for (const std::string &a : actions)
+		g_variant_builder_add(&acts, "s", a.c_str());
+	GVariantBuilder hints;
+	g_variant_builder_init(&hints, G_VARIANT_TYPE("a{sv}"));
+	g_variant_builder_add(&hints, "{sv}", "desktop-entry", g_variant_new_string(kAppId));
+	if (waits)  /* a question waits for its answer: critical, kept until answered */
+		g_variant_builder_add(&hints, "{sv}", "urgency", g_variant_new_byte(2));
+	GVariant *r = g_dbus_connection_call_sync(bus, kNotify, kNotifyPath, kNotify, "Notify",
+			g_variant_new("(susssasa{sv}i)", "Location", 0u, icon, summary.c_str(), body.c_str(),
+					&acts, &hints, waits ? 0 : -1),
+			G_VARIANT_TYPE("(u)"), G_DBUS_CALL_FLAGS_NONE, 3000, nullptr, nullptr);
+	g_object_unref(bus);
+	if (r == nullptr)
+		return 0;
+	guint32 id = 0;
+	g_variant_get(r, "(u)", &id);
+	g_variant_unref(r);
+	return id;
+}
+
+/* Whether the daemon shows actions (buttons, or a menu of them). */
+bool notifications_have_actions() {
+	GDBusConnection *bus = session_bus();
+	if (bus == nullptr)
+		return false;
+	GVariant *r = g_dbus_connection_call_sync(bus, kNotify, kNotifyPath, kNotify,
+			"GetCapabilities", nullptr, G_VARIANT_TYPE("(as)"), G_DBUS_CALL_FLAGS_NONE, 3000,
+			nullptr, nullptr);
+	g_object_unref(bus);
+	if (r == nullptr)
+		return false;
+	bool yes = false;
+	GVariantIter *it = nullptr;
+	const char *cap = nullptr;
+	g_variant_get(r, "(as)", &it);
+	while (g_variant_iter_next(it, "&s", &cap))
+		yes = yes || g_strcmp0(cap, "actions") == 0;
+	g_variant_iter_free(it);
+	g_variant_unref(r);
+	return yes;
 }
 
 /* ---- The card ---- */
@@ -300,6 +371,48 @@ void draw_map(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer
  * nothing (a new card may be showing). */
 bool saying_gone(GtkWidget *w) {
 	return g_object_get_data(G_OBJECT(w), "wb-gone") != nullptr;
+}
+
+/* Asked through a notification: Allow / Deny, this time only; dismissed
+ * (or timed out) is Deny. False: no daemon took it (the card then). */
+bool ask_by_notification(const Request &r) {
+	AppLook look = app_look(r.app);
+	std::string icon = "find-location";
+	if (G_IS_THEMED_ICON(look.icon))
+		icon = g_themed_icon_get_names(G_THEMED_ICON(look.icon))[0];
+	g_object_unref(look.icon);
+	std::string summary = look.name + " wants to know where you are";
+	std::string body = "If you allow it, it learns where you are " + loc::nearness(r.level) +
+			". Your answer holds this time only.";
+	g.action.clear();
+	g.notification = notify(summary, body, icon.c_str(), {"deny", "Deny", "allow", "Allow"}, true);
+	if (g.notification == 0)
+		return false;
+	g_printerr("asked by notification: %s|%s\n", summary.c_str(), body.c_str());
+	return true;
+}
+
+/* The notification answered: by its action, or closed without one. */
+void on_notification_signal(GDBusConnection *, const char *, const char *, const char *,
+		const char *signal, GVariant *params, gpointer) {
+	guint32 id = 0;
+	if (g_strcmp0(signal, "ActionInvoked") == 0) {
+		const char *key = nullptr;
+		g_variant_get(params, "(u&s)", &id, &key);
+		if (id != 0 && id == g.notification)
+			g.action = key;
+		return;
+	}
+	guint32 reason = 0;
+	g_variant_get(params, "(uu)", &id, &reason);
+	if (id == 0 || id != g.notification || g.queue.empty())
+		return;
+	g.notification = 0;
+	Request r = g.queue.front();
+	g.queue.pop_front();
+	bool allow = g.action == "allow";
+	reply(r, loc::Answer{allow, allow ? r.level : loc::kNone});
+	show_next();
 }
 
 gboolean on_key(GtkEventControllerKey *c, guint keyval, guint, GdkModifierType, gpointer) {
@@ -459,14 +572,33 @@ void show_card(const Request &r) {
 /* The first asked, with no answer kept: its card; those with one,
  * answered at once. */
 void show_next() {
-	while (!g.queue.empty() && g.card == nullptr) {
+	while (!g.queue.empty() && g.card == nullptr && g.notification == 0) {
 		Request &r = g.queue.front();
-		if (std::optional<loc::Answer> a = kept(r)) {
+		std::string how;
+		std::optional<loc::Answer> a = kept(r, &how);
+		if (!a && g.policy != Policy::Ask) {
+			a = loc::Answer{g.policy == Policy::Allow, g.policy == Policy::Allow ? r.level
+										: loc::kNone};
+			how = g.policy == Policy::Allow ? "Location settings: allow every app"
+							: "Location settings: deny every app";
+		}
+		if (a) {
 			Request done = r;
 			g.queue.pop_front();
 			reply(done, *a);
+			if (g.note_kept) {
+				AppLook look = app_look(done.app);
+				std::string name = look.name;
+				g_object_unref(look.icon);
+				std::string summary = std::string(a->allow ? "Allowed " : "Denied ") + name +
+						"'s location";
+				notify(summary, how, "find-location", {}, false);
+				g_printerr("note: %s|%s\n", summary.c_str(), how.c_str());
+			}
 			continue;
 		}
+		if (g.ask_notify && notifications_have_actions() && ask_by_notification(r))
+			continue;
 		show_card(r);
 	}
 }
@@ -499,8 +631,20 @@ GVariant *on_get(GDBusConnection *, const char *, const char *, const char *, co
  * asked; the card says so, then goes. */
 void geoclue_gone() {
 	std::string name;
-	if (!g.queue.empty())
-		name = app_look(g.queue.front().app).name;
+	if (!g.queue.empty()) {
+		AppLook look = app_look(g.queue.front().app);
+		name = look.name;
+		g_object_unref(look.icon);
+	}
+	if (g.notification != 0) {
+		if (GDBusConnection *bus = session_bus()) {
+			g_dbus_connection_call(bus, kNotify, kNotifyPath, kNotify, "CloseNotification",
+					g_variant_new("(u)", g.notification), nullptr, G_DBUS_CALL_FLAGS_NONE, -1,
+					nullptr, nullptr, nullptr);
+			g_object_unref(bus);
+		}
+		g.notification = 0;
+	}
 	for (Request &r : g.queue)
 		if (r.invocation != nullptr)
 			g_dbus_method_invocation_return_dbus_error(r.invocation,
@@ -582,6 +726,11 @@ void activate(GtkApplication *app, gpointer) {
 	g_dbus_node_info_unref(node);
 	/* Registered when GeoClue is there (started, where it's activatable),
 	 * and again whenever it restarts. */
+	if (GDBusConnection *bus = session_bus()) {
+		g_dbus_connection_signal_subscribe(bus, nullptr, kNotify, nullptr, kNotifyPath, nullptr,
+				G_DBUS_SIGNAL_FLAGS_NONE, on_notification_signal, nullptr, nullptr);
+		g_object_unref(bus);
+	}
 	g.watch = g_bus_watch_name_on_connection(g.system, "org.freedesktop.GeoClue2",
 			G_BUS_NAME_WATCHER_FLAGS_AUTO_START,
 			[](GDBusConnection *, const char *, const char *, gpointer) { add_agent(); },
@@ -592,6 +741,43 @@ void activate(GtkApplication *app, gpointer) {
 }  // namespace
 
 int main(int argc, char **argv) {
+	gchar *policy = nullptr;
+	gboolean note_kept = FALSE, ask_notify = FALSE;
+	GOptionEntry entries[] = {
+		{"policy", 0, 0, G_OPTION_ARG_STRING, &policy,
+				"For apps with no answer remembered: ask (the default), allow or deny", "POLICY"},
+		{"note-kept", 0, 0, G_OPTION_ARG_NONE, &note_kept,
+				"A notification when a remembered answer is given", nullptr},
+		{"ask-with-notifications", 0, 0, G_OPTION_ARG_NONE, &ask_notify,
+				"Ask through notifications where they show actions (this time only)", nullptr},
+		{},
+	};
+	GOptionContext *ctx = g_option_context_new(nullptr);
+	g_option_context_set_summary(ctx, "Asks before an app learns where you are (GeoClue's agent).");
+	g_option_context_add_main_entries(ctx, entries, nullptr);
+	GError *err = nullptr;
+	if (!g_option_context_parse(ctx, &argc, &argv, &err)) {
+		g_printerr("waybox-location-agent: %s\n", err->message);
+		g_error_free(err);
+		g_option_context_free(ctx);
+		return 2;
+	}
+	g_option_context_free(ctx);
+	if (policy != nullptr) {
+		std::string pol = policy;
+		g_free(policy);
+		if (pol == "allow")
+			g.policy = Policy::Allow;
+		else if (pol == "deny")
+			g.policy = Policy::Deny;
+		else if (pol != "ask") {
+			g_printerr("waybox-location-agent: --policy: ask, allow or deny, not %s\n",
+					pol.c_str());
+			return 2;
+		}
+	}
+	g.note_kept = note_kept;
+	g.ask_notify = ask_notify;
 	g.app = gtk_application_new(kAppId, G_APPLICATION_DEFAULT_FLAGS);
 	g_signal_connect(g.app, "activate", G_CALLBACK(activate), nullptr);
 	int status = g_application_run(G_APPLICATION(g.app), argc, argv);

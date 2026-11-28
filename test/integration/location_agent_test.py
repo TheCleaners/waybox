@@ -20,6 +20,12 @@ the card's display. Each card is answered as a file says
 7. GeoClue stopping while a card waits: the card says so, and the next
    ask (GeoClue back) gets a card of its own.
 8. GeoClue listing the agent's own ID: it registers as itself.
+9. --policy=allow --note-kept: an app with nothing remembered is allowed
+   at once, no card; a remembered denial still denies; each answer noted
+   in a notification ("Allowed APP's location", why).
+10. --ask-with-notifications: asked through the daemon (Deny, Allow);
+    Allow chosen: allowed; dismissed: denied.
+11. The daemon without actions: the card instead.
 
 Skips (exit 77) without dbus-daemon, xdg-permission-store, the Python
 GObject bindings, or a headless display.
@@ -130,9 +136,20 @@ def main():
                 return line
         return None
 
-    def start_agent():
+    def notifier(with_actions):
+        p = subprocess.Popen([sys.executable, os.path.join(HERE, "notifications_standin.py")],
+                             env=dict(base, NOTIFY_ACTIONS="1" if with_actions else "0"),
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        procs.append(p)
+        lines = queue.Queue()
+        threading.Thread(target=lambda: [lines.put(l.strip()) for l in p.stdout],
+                         daemon=True).start()
+        return p, lines
+
+    def start_agent(*args):
         errlog = open(os.path.join(workdir, f"agent-{len(procs)}.log"), "w+")
-        a = subprocess.Popen([agent_bin], env=aenv, stdout=subprocess.DEVNULL, stderr=errlog)
+        a = subprocess.Popen([agent_bin, *args], env=aenv, stdout=subprocess.DEVNULL,
+                             stderr=errlog)
         procs.append(a)
         return a, errlog
 
@@ -140,6 +157,12 @@ def main():
         errlog.flush()
         errlog.seek(0)
         return errlog.read()
+
+    def wait_text(errlog, needle, timeout=8.0):
+        end = time.time() + timeout
+        while needle not in agent_text(errlog) and time.time() < end:
+            time.sleep(0.1)
+        return needle in agent_text(errlog)
 
     def store():
         conn = Gio.DBusConnection.new_for_address_sync(
@@ -243,6 +266,66 @@ def main():
         agent, errlog = start_agent()
         if not wait_line(lines, "agent org.waybox.LocationAgent "):
             failures.append("with its ID listed, it didn't register as itself")
+        agent.terminate()
+        agent.wait(timeout=10)
+
+        # 9. Allow every app with nothing remembered; each answer noted.
+        np_, nlines = notifier(True)
+        wait_line(nlines, "ready")
+        agent, errlog = start_agent("--policy=allow", "--note-kept")
+        wait_line(lines, "agent org.waybox.LocationAgent ")
+        got = ask(sp, lines, "third.unknown.tool", 6, "deny:once")
+        if got != "answer third.unknown.tool true 6" or "card: third" in agent_text(errlog):
+            failures.append(f"--policy=allow: {got}")
+        if not wait_line(nlines, "notify 1 Allowed third.unknown.tool's location|") or \
+                not wait_text(errlog, "note: Allowed third.unknown.tool's location|"
+                              "Location settings: allow every app"):
+            failures.append("--note-kept: no note for the policy's answer: " +
+                            agent_text(errlog)[-300:])
+        got = ask(sp, lines, "org.example.Maps", 4, "allow:once")
+        if got != "answer org.example.Maps false 0":
+            failures.append(f"--policy=allow overrode a remembered denial: {got}")
+        if not wait_line(nlines, "notify 2 Denied Maps's location|Remembered always") or \
+                not wait_text(errlog, "note: Denied Maps's location|Remembered always"):
+            failures.append("--note-kept: no note for the remembered denial")
+        agent.terminate()
+        agent.wait(timeout=10)
+
+        # 10. Asked through notifications.
+        agent, errlog = start_agent("--ask-with-notifications")
+        wait_line(lines, "agent org.waybox.LocationAgent ")
+        sp.stdin.write("ask fourth.unknown.tool 5\n")
+        sp.stdin.flush()
+        line = wait_line(nlines, "notify ")
+        if not line or "fourth.unknown.tool wants to know where you are|" not in line \
+                or not line.endswith("|deny,Deny,allow,Allow"):
+            failures.append(f"asked by notification: {line}")
+        else:
+            np_.stdin.write(f"invoke {line.split()[1]} allow\n")
+            np_.stdin.flush()
+            got = wait_line(lines, "answer fourth.unknown.tool ")
+            if got != "answer fourth.unknown.tool true 5":
+                failures.append(f"Allow in the notification: {got}")
+        sp.stdin.write("ask fourth.unknown.tool 5\n")
+        sp.stdin.flush()
+        line = wait_line(nlines, "notify ")
+        if line:
+            np_.stdin.write(f"dismiss {line.split()[1]}\n")
+            np_.stdin.flush()
+        got = wait_line(lines, "answer fourth.unknown.tool ")
+        if got != "answer fourth.unknown.tool false 0":
+            failures.append(f"the notification dismissed: {got} (asked: {line})")
+        if "card: fourth" in agent_text(errlog):
+            failures.append("asking through notifications, a card showed too")
+
+        # 11. A daemon without actions: the card.
+        np_.kill()
+        np_.wait(timeout=5)
+        np_, nlines = notifier(False)
+        wait_line(nlines, "ready")
+        got = ask(sp, lines, "fifth.unknown.tool", 5, "deny:once")
+        if got != "answer fifth.unknown.tool false 0" or "card: fifth" not in agent_text(errlog):
+            failures.append(f"no actions in notifications, no card: {got}")
     finally:
         for p in reversed(procs):
             if p.poll() is None:
