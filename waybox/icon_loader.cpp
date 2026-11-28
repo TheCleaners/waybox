@@ -240,12 +240,15 @@ Task<void> IconCache::load_one(std::string name, std::string theme, int size,
 		std::shared_ptr<const std::vector<std::string>> dirs, Scheduler &pool, Scheduler &main,
 		std::shared_ptr<size_t> left, size_t total, std::function<void(size_t)> done) {
 	co_await on(pool);
-	/* On a worker: only this task's own data. */
-	cairo_surface_t *loaded = load_themed_icon(name, theme, size, *dirs);
+	/* On a worker: only this task's own data. Owned until the cache takes
+	 * it: a task dropped while it waits for the main thread (the cache
+	 * cleared, Waybox ending) frees it with its frame. */
+	std::unique_ptr<cairo_surface_t, void (*)(cairo_surface_t *)> loaded(
+			load_themed_icon(name, theme, size, *dirs), cairo_surface_destroy);
 	co_await on(main);
 	/* Back on the main thread, the cache alive (or this task was dropped). */
-	if (!icons_.emplace(key(name, theme, size), loaded).second && loaded != nullptr)
-		cairo_surface_destroy(loaded);
+	if (icons_.emplace(key(name, theme, size), loaded.get()).second)
+		loaded.release();
 	if (--*left == 0 && done)
 		done(total);
 }

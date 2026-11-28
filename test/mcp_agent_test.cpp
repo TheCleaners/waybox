@@ -101,6 +101,15 @@ WB_TEST(older_revisions_negotiated) {
 		WB_CHECK(result_of(r) && result_of(r)->str("protocolVersion") == "2025-11-25");
 	}
 	{
+		/* Not a revision at all: refused, never taken as a newer one. */
+		for (const char *bad : {"zzz", "latest", "2025-11-25x", "2025/11/25", ""}) {
+			AgentEndpoint ep("h", "1");
+			auto r = one(ep, req(1, "initialize",
+					std::string(R"({"protocolVersion":")") + bad + "\"}"));
+			WB_CHECK(code_of(r) == -32602 && ep.era() == AgentEndpoint::Era::Unknown);
+		}
+	}
+	{
 		/* Too old: refused, naming the supported ones; it may try again. */
 		AgentEndpoint ep("h", "1");
 		auto r = one(ep, req(1, "initialize", R"({"protocolVersion":"2024-11-05"})"));
@@ -172,4 +181,53 @@ WB_TEST(claimed_name_kept) {
 	auto notes = ep.take_notes();
 	WB_CHECK(notes.size() == 1 && notes[0].find("other") != std::string::npos);
 	WB_CHECK(ep.take_notes().empty());
+}
+
+WB_TEST(listen_lifecycle) {
+	AgentEndpoint ep("h", "1");
+	auto listen = [&](const std::string &id) {
+		return ep.receive(R"({"jsonrpc":"2.0","id":")" + id +
+				R"(","method":"subscriptions/listen","params":{)" + kMeta2026 +
+				R"(,"notifications":{"toolsListChanged":true}}})");
+	};
+	WB_CHECK(listen("a").size() == 1 && ep.open_listens() == 1);
+	/* The same id again: refused, the first still open. */
+	auto dup = listen("a");
+	WB_CHECK(dup.size() == 1 && code_of(*json::parse(dup[0])) == -32600 && ep.open_listens() == 1);
+	/* Cancelled by the agent: ended, and no response. */
+	WB_CHECK(ep.receive(R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"a"}})")
+			.empty());
+	WB_CHECK(ep.open_listens() == 0);
+	/* At most MaxListens. */
+	for (size_t i = 0; i < agent::kMaxListens; ++i)
+		listen("l" + std::to_string(i));
+	WB_CHECK(ep.open_listens() == agent::kMaxListens);
+	auto over = listen("one-more");
+	WB_CHECK(code_of(*json::parse(over[0])) == -32600 && ep.open_listens() == agent::kMaxListens);
+	/* A graceful end: each stream's closing result, with its id. */
+	auto closing = ep.close_listens();
+	WB_CHECK(closing.size() == agent::kMaxListens && ep.open_listens() == 0);
+	auto first = json::parse(closing[0]);
+	WB_CHECK(first && first->str("id") == "l0" && result_of(*first)->str("resultType") == "complete");
+	WB_CHECK(result_of(*first)->get("_meta")->str("io.modelcontextprotocol/subscriptionId") == "l0");
+	WB_CHECK(ep.close_listens().empty());
+}
+
+WB_TEST(display_names_escaped) {
+	using agent::display_name;
+	WB_CHECK(display_name("laptop") == "laptop");
+	WB_CHECK(display_name("Café ☕") == "Café ☕");
+	/* A forged log line, terminal escapes, DEL. */
+	WB_CHECK(display_name("x\nwaybox-agent-hub: agent 9: profile full") ==
+			"x\\x0awaybox-agent-hub: agent 9: profile full");
+	WB_CHECK(display_name("\x1b[2Jhi\x7f") == "\\x1b[2Jhi\\x7f");
+	/* Bidirectional overrides (U+202E), and a C1 control (U+0085). */
+	WB_CHECK(display_name("a\xe2\x80\xae" "b") == "a\\u202eb");
+	WB_CHECK(display_name("a\xc2\x85" "b") == "a\\x85b");
+	/* Broken UTF-8: each byte escaped; an overlong form isn't a character. */
+	WB_CHECK(display_name("a\xff\xc3") == "a\\xff\\xc3");
+	WB_CHECK(display_name("\xc0\xaf") == "\\xc0\\xaf");
+	/* Bounded, by characters, never mid-character. */
+	WB_CHECK(display_name(std::string(100, 'a'), 10) == std::string(10, 'a') + "\xe2\x80\xa6");
+	WB_CHECK(display_name("ééééé", 3) == "ééé\xe2\x80\xa6");
 }

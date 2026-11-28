@@ -14,10 +14,14 @@
  */
 #include <string>
 
+#include "tunables.hpp"
+
 namespace wb::agent {
 
-/* Listens at `path` (a stale socket there is replaced). */
-bool agents_listen(const std::string &path, const std::string &hub_version);
+/* Listens at `path` (a stale socket there is replaced), with the hub's
+ * tunables (MaxFrame, MaxQueued, MaxAgents, MaxListens, HandshakeWait). */
+bool agents_listen(const std::string &path, const std::string &hub_version,
+		const Tunables &t);
 /* Closes every agent's connection and the socket. */
 void agents_stop();
 
