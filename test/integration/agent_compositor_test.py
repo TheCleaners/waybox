@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Integration test: Waybox's side of org.freedesktop.AgentCompositor1.
 
-A headless Waybox starts a stand-in hub (agent_hub_standin.py) as
-WAYBOX_AGENT_HUB, handing it the compositor interface's socket:
+A headless Waybox, agent tools on, starts a stand-in hub
+(agent_hub_standin.py) as WAYBOX_AGENT_HUB, handing it the compositor
+interface's socket:
 1. the hub connects (peer-to-peer D-Bus) and Hello answers version 1,
    Waybox's name, nothing of capture or input yet, not locked;
 2. the properties: version 1, Locked, Away and AssistantsStopped false;
@@ -42,6 +43,10 @@ def main():
     open(out, "w").close()
     run = os.path.join(work, "run")
     os.makedirs(run, 0o700)
+    tools = os.path.join(work, "config", "agents", "tools")
+    os.makedirs(tools)
+    with open(os.path.join(tools, "settings.ini"), "w") as f:
+        f.write("[Agent Tools]\nEnabled=true\n")
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman",
                XDG_RUNTIME_DIR=run, XDG_CONFIG_HOME=os.path.join(work, "config"),
                WB_RC_XML="", WB_MENU_XML="", STANDIN_OUT=out,

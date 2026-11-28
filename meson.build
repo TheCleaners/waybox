@@ -225,6 +225,7 @@ if not tests_only
   subdir('doc')
   subdir('protocol')
   subdir('waybox')
+  subdir('agent')
   if gtk4.found() and json_glib.found()
     subdir('wbconf')
   endif

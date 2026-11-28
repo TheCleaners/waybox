@@ -116,9 +116,15 @@ There are no well-known names in the trust path that another program could
 claim first.
 
 **The hub's lifetime:**
+- **Off until the user turns it on:** the compositor starts the hub only
+  while `Enabled=true` (settings, below), read at start and whenever the
+  desktop's settings are applied; turned off, the hub is ended, and
+  nothing of agent tools runs.
 - **The compositor supervises it:** restarted with a growing delay; after
   too many crashes in a short time (a tunable), not again, and the user is
-  told (a notice, and the indicator showing the hub unavailable).
+  told (a notice, and the indicator showing the hub unavailable). Applying
+  the settings again gives it another go. A hub that closes its socket
+  is ended, and counts as a crash.
 - **When the hub's socket closes,** the compositor closes every open
   question, ends capture and input, and clears the activity it showed: all
   safe even if the hub was in a bad state. It keeps the stopped state, if
@@ -544,6 +550,9 @@ compositor's confirmation, below). Lowering takes effect at once.
 ```ini
 [Agent Tools]
 Version=1
+# Off until the user turns agent tools on: the compositor starts the hub
+# only then
+Enabled=true
 Preset=safe
 StopKey=Super+Escape
 # Typed input in the audit: off (kind and size only) or full

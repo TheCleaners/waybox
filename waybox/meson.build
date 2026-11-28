@@ -120,7 +120,9 @@ waybox_exe = executable(
   include_directories: [inc_dir],
   dependencies: [wb_dep, wlr_protos],
   cpp_args: ['-DWB_ICON_PATH="' + get_option('prefix') / get_option('datadir') / 'icons' /
-             'waybox.svg' + '"'],
+             'waybox.svg' + '"',
+             '-DWB_AGENT_HUB="' + get_option('prefix') / get_option('libexecdir') /
+             'waybox-agent-hub' + '"'],
   install: true,
   install_dir: get_option('prefix') / get_option('libexecdir'),
   link_args: ['-Wl,-lm'],

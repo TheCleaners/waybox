@@ -11,7 +11,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdlib>
+#include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -24,6 +27,7 @@ extern char **environ;
 #include "agent_compositor_xml.h"
 #include "waybox/server.h"
 #include "waybox/session_lock.h"
+#include "waybox/async.hpp"
 #include "waybox/glib_thread.hpp"
 #include "waybox/threads.hpp"
 
@@ -32,6 +36,11 @@ namespace {
 constexpr const char *kPath = "/org/freedesktop/AgentCompositor1";
 constexpr const char *kIface = "org.freedesktop.AgentCompositor1";
 constexpr guint32 kVersion = 1;
+/* Tunables (doc/agent-tools.md, "Tunables"): HubRestarts, 3 in 1 min; the
+ * delay before each restart grows from a second. */
+constexpr size_t kHubRestarts = 3;
+constexpr std::chrono::seconds kHubRestartWindow{60};
+constexpr std::chrono::milliseconds kHubRestartDelay{1000};
 
 /* What the hub may read at any time, from the D-Bus thread: kept by the
  * main thread. */
@@ -48,14 +57,23 @@ struct Conn {
 	guint registration = 0;
 	std::shared_ptr<Snapshot> snap;
 	std::weak_ptr<wb::MainQueue> queue;
+	/* The hub closed it: the main thread ends that hub (once). */
+	std::function<void()> on_closed;
 	~Conn() { g_object_unref(cancel); }
 };
 
+/* For the session, while agent tools are on: the hub it runs (one at a
+ * time, each with a connection of its own) and the state that outlives
+ * any one hub (the snapshot: the stopped state, kept through restarts). */
 struct AgentCompositor {
 	struct wb_server *server = nullptr;
+	std::string command;
 	pid_t hub = -1;
 	std::shared_ptr<Snapshot> snap = std::make_shared<Snapshot>();
-	std::shared_ptr<Conn> conn = std::make_shared<Conn>();
+	std::shared_ptr<Conn> conn;
+	std::deque<std::chrono::steady_clock::time_point> crashes;
+	bool given_up = false;
+	wb::TaskScope restarts;  /* a restart waiting its delay (dropped with this) */
 };
 
 AgentCompositor *g_ac = nullptr;  /* one per compositor */
@@ -145,13 +163,21 @@ void on_connected(GObject *, GAsyncResult *res, gpointer data) {
 	auto *closed_data = new std::weak_ptr<Conn>(c);
 	g_signal_connect_data(conn, "closed", G_CALLBACK(+[](GDBusConnection *, gboolean, GError *,
 			gpointer d) {
-		if (auto c = static_cast<std::weak_ptr<Conn> *>(d)->lock())
-			log_on_main(c, "the hub's connection closed", WLR_INFO);
+		auto c = static_cast<std::weak_ptr<Conn> *>(d)->lock();
+		if (!c || g_cancellable_is_cancelled(c->cancel))
+			return;  /* (closed by us) */
+		if (auto q = c->queue.lock())
+			q->post(c->on_closed);
 	}), closed_data, [](gpointer d, GClosure *) {
 		delete static_cast<std::weak_ptr<Conn> *>(d);
 	}, GConnectFlags(0));
-	std::lock_guard lock(c->snap->mutex);
-	c->snap->conn = G_DBUS_CONNECTION(g_object_ref(conn));
+	{
+		std::lock_guard lock(c->snap->mutex);
+		c->snap->conn = G_DBUS_CONNECTION(g_object_ref(conn));
+	}
+	/* Only now: a hub calling the moment it's connected finds the object
+	 * there (messages wait until this). */
+	g_dbus_connection_start_message_processing(conn);
 }
 
 /* On the GLib thread: start the connection over our end of the socket. */
@@ -170,7 +196,9 @@ void connect_hub(const std::shared_ptr<Conn> &c, int fd) {
 	/* Asynchronous: a hub slow to authenticate never holds the thread
 	 * everything GLib in Waybox shares. */
 	g_dbus_connection_new(G_IO_STREAM(stream), guid,
-			G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_SERVER, nullptr, c->cancel, on_connected,
+			GDBusConnectionFlags(G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_SERVER |
+					G_DBUS_CONNECTION_FLAGS_DELAY_MESSAGE_PROCESSING),
+			nullptr, c->cancel, on_connected,
 			new std::shared_ptr<Conn>(c));
 	g_free(guid);
 	g_object_unref(stream);
@@ -211,10 +239,50 @@ void emit_changed(Snapshot *snap, const char *name, bool value) {
 
 }  // namespace
 
-void agent_compositor_init(struct wb_server *server) {
+namespace {
+
+/* Agent tools are on: Enabled=true in the spec's settings.ini, the first
+ * one found (the user's, then the system's: file by file, as XDG has it). */
+bool agent_tools_enabled() {
+	std::vector<std::string> dirs;
+	dirs.emplace_back(g_get_user_config_dir());
+	for (const char *const *d = g_get_system_config_dirs(); *d != nullptr; ++d)
+		dirs.emplace_back(*d);
+	for (const std::string &dir : dirs) {
+		std::string path = dir + "/agents/tools/settings.ini";
+		GKeyFile *kf = g_key_file_new();
+		GError *err = nullptr;
+		bool loaded = g_key_file_load_from_file(kf, path.c_str(), G_KEY_FILE_NONE, &err);
+		bool missing = !loaded && g_error_matches(err, G_FILE_ERROR, G_FILE_ERROR_NOENT);
+		if (!loaded && !missing)
+			wlr_log(WLR_ERROR, "agent tools: %s: %s", path.c_str(), err->message);
+		g_clear_error(&err);
+		bool on = loaded && g_key_file_get_boolean(kf, "Agent Tools", "Enabled", nullptr);
+		g_key_file_unref(kf);
+		if (!missing)
+			return on;
+	}
+	return false;
+}
+
+/* What to run as the hub, when agent tools are on: waybox-agent-hub, or
+ * the program WAYBOX_AGENT_HUB names (a stand-in, for tests). */
+std::string hub_command() {
+	if (!agent_tools_enabled())
+		return {};
 	const char *hub = getenv("WAYBOX_AGENT_HUB");
-	if (hub == nullptr || *hub == '\0' || g_ac != nullptr)
-		return;
+	if (hub != nullptr && *hub != '\0')
+		return hub;
+	gchar *quoted = g_shell_quote(WB_AGENT_HUB);
+	std::string cmd = quoted;
+	g_free(quoted);
+	return cmd;
+}
+
+void hub_lost(AgentCompositor *ac);
+
+/* Starts a hub, with a connection of its own. */
+void start_hub(AgentCompositor *ac) {
 	/* Everything the child needs, made before fork: between fork and exec
 	 * only async-signal-safe calls (Waybox has threads). */
 	std::vector<std::string> env_store;
@@ -226,7 +294,7 @@ void agent_compositor_init(struct wb_server *server) {
 	for (auto &e : env_store)
 		envp.push_back(e.data());
 	envp.push_back(nullptr);
-	const char *argv[] = {"sh", "-c", hub, nullptr};
+	const char *argv[] = {"sh", "-c", ac->command.c_str(), nullptr};
 	int sv[2];
 	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) != 0) {
 		wlr_log_errno(WLR_ERROR, "agent tools: socketpair");
@@ -256,20 +324,119 @@ void agent_compositor_init(struct wb_server *server) {
 	}
 	setpgid(pid, pid);
 	close(sv[1]);
+	ac->hub = pid;
+	auto c = std::make_shared<Conn>();
+	c->snap = ac->snap;
+	c->queue = ac->server->main_queue;
+	/* The hub closing its connection ends it: a hub without one is no
+	 * use, and its exit is then a crash like any other. */
+	std::weak_ptr<Conn> weak = c;
+	c->on_closed = [ac, weak] {
+		auto c = weak.lock();
+		if (c && g_ac == ac && ac->conn == c && ac->hub > 0) {
+			wlr_log(WLR_ERROR, "agent tools: the hub closed its connection");
+			kill(-ac->hub, SIGTERM);
+		}
+	};
+	ac->conn = c;
+	int fd = sv[0];
+	ac->server->glib->post([c, fd] { connect_hub(c, fd); });
+	wlr_log(WLR_INFO, "agent tools: started the hub (%d)", static_cast<int>(pid));
+}
+
+/* The current connection ended on the GLib thread (waited for, when
+ * `wait`: nothing of it outlives the call). */
+void end_conn(AgentCompositor *ac, bool wait) {
+	if (!ac->conn)
+		return;
+	std::shared_ptr<Conn> c = std::move(ac->conn);
+	if (!wait) {
+		ac->server->glib->post([c] { disconnect_hub(c); });
+		return;
+	}
+	std::latch ended(1);
+	ac->server->glib->post([c, &ended] {
+		disconnect_hub(c);
+		ended.count_down();
+	});
+	ended.wait();
+}
+
+/* Waits up to `ms` for the hub to exit; true once it has (reaped). */
+bool hub_exited_within(AgentCompositor *ac, int ms) {
+	for (int i = 0; ac->hub > 0 && i <= ms / 10; ++i) {
+		if (waitpid(ac->hub, nullptr, WNOHANG) == ac->hub) {
+			ac->hub = -1;
+			return true;
+		}
+		usleep(10000);
+	}
+	return ac->hub <= 0;
+}
+
+/* Ends the hub on purpose: its socket closes, and it ends by itself; one
+ * that doesn't, within a moment, is ended (its process group: what it
+ * started too), and reaped. */
+void stop_hub(AgentCompositor *ac) {
+	end_conn(ac, true);
+	if (ac->hub <= 0)
+		return;
+	if (!hub_exited_within(ac, 500)) {
+		kill(-ac->hub, SIGTERM);
+		if (!hub_exited_within(ac, 500)) {
+			kill(-ac->hub, SIGKILL);
+			waitpid(ac->hub, nullptr, 0);
+			ac->hub = -1;
+		}
+	}
+}
+
+wb::Task<void> restart_after(AgentCompositor *ac, std::chrono::milliseconds delay) {
+	co_await wb::sleep_for(*ac->server->main_sched, delay);
+	/* (Only while `ac` lives: its scope's task.) */
+	if (ac->hub <= 0 && !ac->given_up)
+		start_hub(ac);
+}
+
+/* The hub exited, not asked to: restarted after a growing delay, unless
+ * it crashed HubRestarts times within a minute. */
+void hub_lost(AgentCompositor *ac) {
+	end_conn(ac, false);
+	auto now = std::chrono::steady_clock::now();
+	ac->crashes.push_back(now);
+	while (!ac->crashes.empty() && now - ac->crashes.front() > kHubRestartWindow)
+		ac->crashes.pop_front();
+	if (ac->crashes.size() >= kHubRestarts) {
+		ac->given_up = true;
+		wlr_log(WLR_ERROR, "agent tools: the hub crashed %zu times within %llds; not restarting "
+				"it until agent tools are reconfigured", ac->crashes.size(),
+				static_cast<long long>(kHubRestartWindow.count()));
+		return;
+	}
+	auto delay = kHubRestartDelay * (1 << (ac->crashes.size() - 1));
+	wlr_log(WLR_INFO, "agent tools: restarting the hub in %lld ms",
+			static_cast<long long>(delay.count()));
+	ac->restarts.spawn(restart_after(ac, delay));
+}
+
+}  // namespace
+
+void agent_compositor_init(struct wb_server *server) {
+	if (g_ac != nullptr)
+		return;
+	std::string command = hub_command();
+	if (command.empty())
+		return;
 	auto *ac = new AgentCompositor;
 	ac->server = server;
-	ac->hub = pid;
+	ac->command = std::move(command);
 	{
 		std::lock_guard lock(ac->snap->mutex);
 		ac->snap->locked = session_locked(server);
 		ac->snap->away = ac->snap->locked;
 	}
-	ac->conn->snap = ac->snap;
-	ac->conn->queue = server->main_queue;
 	g_ac = ac;
-	int fd = sv[0];
-	server->glib->post([c = ac->conn, fd] { connect_hub(c, fd); });
-	wlr_log(WLR_INFO, "agent tools: started the hub (%d)", static_cast<int>(pid));
+	start_hub(ac);
 }
 
 void agent_compositor_finish(struct wb_server *) {
@@ -277,25 +444,32 @@ void agent_compositor_finish(struct wb_server *) {
 	if (ac == nullptr)
 		return;
 	g_ac = nullptr;
-	/* Ended on the GLib thread, waited for: nothing of it outlives this. */
-	std::latch ended(1);
-	ac->server->glib->post([c = ac->conn, &ended] {
-		disconnect_hub(c);
-		ended.count_down();
-	});
-	ended.wait();
-	/* The hub sees its socket close and ends by itself; one that doesn't,
-	 * within a moment, is ended (its process group: what it started too). */
-	for (int i = 0; ac->hub > 0 && i < 50; ++i) {
-		if (waitpid(ac->hub, nullptr, WNOHANG) == ac->hub) {
-			ac->hub = -1;
-			break;
-		}
-		usleep(10000);
+	stop_hub(ac);
+	delete ac;  /* (a restart waiting its delay is dropped with it) */
+}
+
+void agent_compositor_reconfigure(struct wb_server *server) {
+	std::string command = hub_command();
+	AgentCompositor *ac = g_ac;
+	if (command.empty()) {
+		if (ac != nullptr)
+			wlr_log(WLR_INFO, "agent tools: turned off");
+		agent_compositor_finish(server);
+		return;
 	}
-	if (ac->hub > 0)
-		kill(-ac->hub, SIGTERM);
-	delete ac;
+	if (ac == nullptr) {
+		agent_compositor_init(server);
+		return;
+	}
+	/* On, and staying on: a hub given up on gets another go; a changed
+	 * command takes effect with the next start. */
+	ac->command = std::move(command);
+	if (ac->given_up) {
+		ac->given_up = false;
+		ac->crashes.clear();
+		if (ac->hub <= 0)
+			start_hub(ac);
+	}
 }
 
 void agent_compositor_state_changed(struct wb_server *server) {
@@ -324,7 +498,11 @@ void agent_compositor_reap(struct wb_server *) {
 		return;
 	int status = 0;
 	if (waitpid(ac->hub, &status, WNOHANG) == ac->hub) {
-		wlr_log(WLR_INFO, "agent tools: the hub exited (%d)", status);
+		if (WIFSIGNALED(status))
+			wlr_log(WLR_ERROR, "agent tools: the hub was ended by signal %d", WTERMSIG(status));
+		else
+			wlr_log(WLR_ERROR, "agent tools: the hub exited (status %d)", WEXITSTATUS(status));
 		ac->hub = -1;
+		hub_lost(ac);
 	}
 }
