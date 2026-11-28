@@ -631,7 +631,9 @@ act on a window use the focused one.
 *Exit*
 	Exit Waybox, asking first (as Openbox): a card with Cancel (chosen
 	first) and Exit; Left, Right or Tab choose, Return or Space answer,
-	Escape or a click outside cancels. *<prompt>no</prompt>* exits at once.
+	Escape or a click outside cancels. *<prompt>no</prompt>* exits at once;
+	so does *waybox-msg action Exit prompt=no*, for a logout script or a
+	power menu that has asked already.
 
 # MENU.XML
 

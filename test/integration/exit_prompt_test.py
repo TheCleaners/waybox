@@ -8,10 +8,12 @@ Super+Q runs Exit; Super+Shift+Q runs Exit with <prompt>no</prompt>.
 3. Super+Q, a click outside the card: Waybox goes on (if wlrctl is there).
 4. Super+Q, Right (Exit chosen), Return: Waybox exits.
 5. Again, Super+Shift+Q (<prompt>no</prompt>): Waybox exits, unasked.
+6. Again, waybox-msg action Exit prompt=no (a logout script's): exits,
+   unasked.
 
 Skips (exit 77) without wtype, or a headless display.
 
-Usage: exit_prompt_test.py <waybox>
+Usage: exit_prompt_test.py <waybox> <waybox-msg>
 """
 import os
 import shutil
@@ -64,10 +66,10 @@ def start(waybox, workdir, tag):
 
 
 def main():
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 3:
         print(__doc__)
         sys.exit(2)
-    waybox = sys.argv[1]
+    waybox, msg = sys.argv[1:]
     if shutil.which("wtype") is None:
         print("SKIP: wtype not found", file=sys.stderr)
         sys.exit(SKIP)
@@ -141,6 +143,25 @@ def main():
                 proc.kill()
             if "wb-confirm open" in open(log_path).read():
                 failures.append("<prompt>no</prompt> asked anyway")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            log.close()
+
+    # 6. Over IPC, prompt=no: at once.
+    proc, log, log_path, cenv = start(waybox, workdir, "ipc")
+    if proc is not None:
+        try:
+            time.sleep(0.5)
+            subprocess.run([msg, "action", "Exit", "prompt=no"], env=cenv, capture_output=True,
+                           timeout=10)
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                failures.append("waybox-msg action Exit prompt=no didn't exit at once")
+                proc.kill()
+            if "wb-confirm open" in open(log_path).read():
+                failures.append("waybox-msg action Exit prompt=no asked anyway")
         finally:
             if proc.poll() is None:
                 proc.kill()
