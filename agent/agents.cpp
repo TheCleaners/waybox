@@ -9,8 +9,11 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
-#ifdef __FreeBSD__
+#if defined(__FreeBSD__) || defined(__DragonFly__)
+#include <sys/param.h>
+#include <sys/sysctl.h>
 #include <sys/ucred.h>
+#include <sys/user.h>
 #endif
 
 #include <errno.h>
@@ -23,6 +26,7 @@
 #include <memory>
 
 #include "mcp_agent.hpp"
+#include "waybox/platform.hpp"
 
 namespace wb::agent {
 
@@ -149,7 +153,7 @@ bool peer_of(int fd, uid_t &uid, pid_t &pid) {
 	uid = cr.uid;
 	pid = cr.pid;
 	return true;
-#elif defined(__FreeBSD__)
+#elif defined(__FreeBSD__) || defined(__DragonFly__)
 	struct xucred cr {};
 	socklen_t len = sizeof(cr);
 	if (getsockopt(fd, SOL_LOCAL, LOCAL_PEERCRED, &cr, &len) != 0 || cr.cr_version != XUCRED_VERSION)
@@ -158,9 +162,48 @@ bool peer_of(int fd, uid_t &uid, pid_t &pid) {
 	pid = cr.cr_pid;  /* (FreeBSD 13 and later) */
 	return true;
 #else
+	WB_PLATFORM_FALLBACK("a connecting agent's process (its user is still checked)");
 	pid = 0;
 	gid_t gid;
 	return getpeereid(fd, &uid, &gid) == 0;
+#endif
+}
+
+/* The executable of the process that started `pid` (the agent that
+ * started a shim): "" if it can't be known. */
+std::string parent_executable(pid_t pid) {
+#if defined(__linux__)
+	gchar *stat = nullptr;
+	std::string stat_path = "/proc/" + std::to_string(pid) + "/stat";
+	if (!g_file_get_contents(stat_path.c_str(), &stat, nullptr, nullptr))
+		return {};
+	const char *close = strrchr(stat, ')');
+	int ppid = 0;
+	bool ok = close != nullptr && sscanf(close + 1, " %*c %d", &ppid) == 1 && ppid > 1;
+	g_free(stat);
+	if (!ok)
+		return {};
+	std::string exe_path = "/proc/" + std::to_string(ppid) + "/exe";
+	gchar *exe = g_file_read_link(exe_path.c_str(), nullptr);
+	std::string out = exe != nullptr ? exe : "";
+	g_free(exe);
+	return out;
+#elif defined(__FreeBSD__) || defined(__DragonFly__)
+	int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, static_cast<int>(pid)};
+	struct kinfo_proc kp {};
+	size_t len = sizeof(kp);
+	if (sysctl(mib, 4, &kp, &len, nullptr, 0) != 0 || len < sizeof(kp) || kp.ki_ppid <= 1)
+		return {};
+	int path_mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, static_cast<int>(kp.ki_ppid)};
+	char path[PATH_MAX];
+	size_t plen = sizeof(path);
+	if (sysctl(path_mib, 4, path, &plen, nullptr, 0) != 0 || plen == 0)
+		return {};
+	return std::string(path, strnlen(path, plen));
+#else
+	WB_PLATFORM_FALLBACK("the agent that started a shim (for the log)");
+	(void) pid;
+	return {};
 #endif
 }
 
@@ -181,22 +224,9 @@ bool identify(Conn *c) {
 	std::string desc = "pid ?";
 	if (pid > 0) {
 		desc = "pid " + std::to_string(pid);
-#ifdef __linux__
-		/* Its parent: the agent. */
-		gchar *stat = nullptr;
-		std::string stat_path = "/proc/" + std::to_string(pid) + "/stat";
-		if (g_file_get_contents(stat_path.c_str(), &stat, nullptr, nullptr)) {
-			const char *close = strrchr(stat, ')');
-			int ppid = 0;
-			if (close != nullptr && sscanf(close + 1, " %*c %d", &ppid) == 1 && ppid > 1) {
-				std::string exe_path = "/proc/" + std::to_string(ppid) + "/exe";
-				gchar *exe = g_file_read_link(exe_path.c_str(), nullptr);
-				desc += ", agent " + std::string(exe != nullptr ? exe : "?");
-				g_free(exe);
-			}
-			g_free(stat);
-		}
-#endif
+		std::string agent = parent_executable(pid);
+		if (!agent.empty())
+			desc += ", agent " + agent;
 	}
 	say("%s: connected (%s)", c->who.c_str(), desc.c_str());
 	return true;

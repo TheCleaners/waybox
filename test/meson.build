@@ -442,6 +442,11 @@ mcp_agent_test = executable(
   )
 test('mcp_agent', mcp_agent_test, suite: 'unit')
 
+# Code that depends on the system names each one, and says so on any
+# other (include/waybox/platform.hpp).
+test('platform_branches', find_program('python3'),
+  args: [files('platform_branches_test.py'), meson.project_source_root()], suite: 'unit')
+
 # The waybox Python module, against a fake socket (no compositor needed).
 test('python_module', find_program('python3'),
   args: [files('python/waybox_module_test.py'), python_src_dir], suite: 'unit')
