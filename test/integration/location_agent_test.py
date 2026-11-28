@@ -16,7 +16,10 @@ the card's display. Each card is answered as a file says
 5. Weather asks (exactly): allowed for the session; asking again for a
    street, answered yes at once (the session's answer covers less).
 6. An app with no desktop file: the card names it as GeoClue said it.
-7. GeoClue listing the agent's own ID: it registers as itself.
+   (Each card draws its map: the source tree's data, a fixed time zone.)
+7. GeoClue stopping while a card waits: the card says so, and the next
+   ask (GeoClue back) gets a card of its own.
+8. GeoClue listing the agent's own ID: it registers as itself.
 
 Skips (exit 77) without dbus-daemon, xdg-permission-store, the Python
 GObject bindings, or a headless display.
@@ -103,7 +106,8 @@ def main():
         print("SKIP: headless backend did not bring up a display", file=sys.stderr)
         sys.exit(SKIP)
     aenv = dict(wenv, WAYLAND_DISPLAY=sock, GDK_BACKEND="wayland", GSK_RENDERER="cairo",
-                GSETTINGS_BACKEND="memory", WAYBOX_LOCATION_TEST_ANSWER="@" + answer_file)
+                GSETTINGS_BACKEND="memory", WAYBOX_LOCATION_TEST_ANSWER="@" + answer_file,
+                WBCONF_GEO_DIR=os.path.join(HERE, "..", "..", "data", "geo"), TZ="Europe/Lisbon")
 
     def stand_in(allow):
         p = subprocess.Popen([sys.executable, os.path.join(HERE, "geoclue_standin.py")],
@@ -204,10 +208,36 @@ def main():
                 "card: some.unknown.tool wants to know where you are|" not in agent_text(errlog) \
                 or "to within a neighborhood" not in agent_text(errlog):
             failures.append(f"an app with no desktop file: {got}")
+        # 7. GeoClue stops while a card waits.
+        with open(answer_file, "w") as f:
+            f.write("wait")
+        # (an app with nothing kept, so a card shows)
+        sp.stdin.write("ask some.unknown.tool 4\n")
+        sp.stdin.flush()
+        end = time.time() + 8
+        while agent_text(errlog).count("card: some.unknown.tool") < 2 and time.time() < end:
+            time.sleep(0.1)
+        sp.kill()
+        sp.wait(timeout=5)
+        end = time.time() + 8
+        while "card: closed, GeoClue stopped|some.unknown.tool no longer waits" not in agent_text(errlog) \
+                and time.time() < end:
+            time.sleep(0.1)
+        if "card: closed, GeoClue stopped|some.unknown.tool no longer waits" not in agent_text(errlog):
+            failures.append("GeoClue stopped mid-ask: the card didn't say so")
+        sp, lines = stand_in("geoclue-demo-agent")
+        wait_line(lines, "ready")
+        if not wait_line(lines, "agent geoclue-demo-agent "):
+            failures.append("GeoClue back: the agent didn't register again")
+        got = ask(sp, lines, "another.unknown.tool", 4, "deny:once")
+        if got != "answer another.unknown.tool false 0":
+            failures.append(f"GeoClue back, a new ask: {got}")
+        if agent.poll() is not None:
+            failures.append("the agent exited: " + agent_text(errlog)[-600:])
         agent.terminate()
         agent.wait(timeout=10)
         sp.kill()
-        # 7. Its own ID listed: itself.
+        # 8. Its own ID listed: itself.
         sp, lines = stand_in("org.waybox.LocationAgent,geoclue-demo-agent")
         wait_line(lines, "ready")
         agent, errlog = start_agent()
