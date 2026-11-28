@@ -21,6 +21,7 @@
 #include "color_pick.h"
 #include "stall_watch.h"
 #include "waybox/threads.hpp"
+#include "waybox/agent_compositor.hpp"
 #include "script.h"
 #include "startup_supervisor.h"
 #include "waybox/workspace.h"
@@ -512,6 +513,7 @@ bool wb_start_server(struct wb_server* server) {
 				return 0;
 			}, server->main_queue.get());
 	server->workers = std::make_unique<wb::Workers>();
+	agent_compositor_init(server);
 	init_input_method(server);
 	init_scripts(server);  /* last: they may act on all of the above */
 
@@ -557,6 +559,7 @@ bool wb_terminate(struct wb_server* server) {
 	workspace_finish(server);
 	finish_shortcuts_inhibit(server);
 	finish_xwayland(server);  /* X11 windows still use the seat and cursor */
+	agent_compositor_finish(server);  /* its thread posts to the queue */
 	/* First: the workers finish (or give up) and stop, then results still
 	 * waiting are dropped, before what they'd have been applied to goes. */
 	server->workers.reset();

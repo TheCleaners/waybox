@@ -2,6 +2,7 @@
  * ext-session-lock-v1 (see include/waybox/session_lock.h for the behaviour).
  */
 #include "waybox/session_lock.h"
+#include "waybox/agent_compositor.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -251,6 +252,7 @@ static void begin_lock(struct wb_session_lock_state *st) {
 		drop_window_capture(t);
 
 	st->locked = true;
+	agent_compositor_state_changed(server);
 	/* Locked: a virtual keyboard <virtualInput> now blocks isn't the
 	 * seat's keyboard (its keys and modifiers would go with focus to the
 	 * lock screen). */
@@ -264,6 +266,7 @@ static void begin_lock(struct wb_session_lock_state *st) {
 static void end_lock(struct wb_session_lock_state *st) {
 	struct wb_server *server = st->server;
 	st->locked = false;
+	agent_compositor_state_changed(server);
 	st->surfaces.clear();
 	st->awaiting_frame.clear();
 	st->shown_locked.clear();

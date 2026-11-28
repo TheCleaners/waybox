@@ -1,0 +1,3 @@
+/* Generated from doc/dbus/org.freedesktop.AgentCompositor1.xml: the
+ * interface as the spec defines it, served as is. */
+static const char kAgentCompositorXml[] = R"WBXML(@AGENT_COMPOSITOR_XML@)WBXML";
