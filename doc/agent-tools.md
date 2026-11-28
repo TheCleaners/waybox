@@ -547,8 +547,20 @@ Preset=safe
 StopKey=Super+Escape
 # Typed input in the audit: off (kind and size only) or full
 AuditInput=off
-# The assistant "Ask AI about this window" starts: a binding's label
-AskWith=laptop
+# "Ask AI about this window": the asks offered, in order (one: the entry
+# itself; several: a submenu), each a binding's label or an [Ask …] below
+AskWith=laptop;pi-local;pi-opus
+
+# An ask of the user's own: a binding, with its own way to start it
+[Ask pi-local]
+Label=pi (local)
+Binding=pi
+Ask=foot -e pi --model qwen3 %q
+
+[Ask pi-opus]
+Label=pi (Opus)
+Binding=pi
+Ask=foot -e pi --model claude-opus-5-5 %q
 
 # Per sensitivity, over the preset
 [Levels]
@@ -1166,9 +1178,13 @@ McpRemove=openclaw mcp remove desktop
 # How to turn off the agent's own command tool, where it has a way
 # (a command, as McpAdd), offered by the settings when adding it:
 # ShellOff=…
-# How to start it with a question, for "Ask AI about this window" (a
-# command, as McpAdd; %q: the question, as one word):
+# How to start it with a question, for "Ask AI about this window": a
+# command, as McpAdd (%q: the question, as one word), or a URL, opened
+# as the desktop opens links (%u: the question, percent-encoded)
 Ask=foot -e openclaw ask %q
+# Where it's one app serving every conversation, running already or
+# started once (a desktop app): its tools connection is shared
+AskShared=false
 ```
 
 - **Who ships them:** the agent's package, the distribution, or the
@@ -1179,29 +1195,45 @@ Ask=foot -e openclaw ask %q
   backed up first; a command is run without a shell.
 - **Unknown agents** still work: the settings show the command to add by
   hand.
+- **A desktop app** is described the same way: its `McpConfig=` is its own
+  config file, and its `Ask=` a URL it handles, such as
+  `claude://claude.ai/new?q=%u` with `AskShared=true`.
 
 ### Asking about a window
 
 The window menu (Alt+Space, or the titlebar's) offers "Ask AI about this
-window" when an assistant is set up for it: `AskWith=` names a binding
-whose agent's integration file has `Ask=`. The hub tells the compositor
-so (`SetOffers`, `ask`), and the compositor shows the entry.
-- **The click is the consent,** for that one window: it's physical input
-  in a menu the compositor draws, which is what the spec trusts. The
-  compositor tells the hub (`AskAbout`, with the window's id).
-- **The hub starts the assistant** with `Ask=`, its question naming the
-  window by its id and app id only, never its title: titles are untrusted
-  (a page titled "ignore your instructions…"), so the assistant reads it
-  through the tools, marked untrusted like any other.
-- **A one-time ticket ties the grant to it:** the hub puts a fresh ticket
-  (128 random bits) in the started assistant's environment
-  (`AGENT_TOOLS_ASK`); its shim presents it in the handshake (`ask`). The
-  ticket works once, within a minute.
-- **What it grants, to that connection only:** `content` and `capture`
-  for that window (its title, its accessibility tree, a capture of it) for
-  as long as the connection lasts; nothing else is raised (Kill and the
-  rest follow the profile, at `ask` where they are). Recorded in the
-  audit as a grant made by the menu.
+window" when an assistant is set up for it: `AskWith=` lists the asks, in
+order, each a binding (with its agent's `Ask=`) or an `[Ask …]` of the
+user's own (a binding with its own `Ask=`, for one model or another). One
+ask: the entry itself; several: a submenu of their labels, the user's
+names for them, never what agents call themselves. The hub tells the
+compositor what to show (`SetOffers`, `asks`).
+- **Only the click chooses.** No window, app or agent picks the
+  assistant, and nothing is sent until the user chooses one.
+- **The click is the consent,** for that one window and that one ask:
+  it's physical input in a menu the compositor draws, which is what the
+  spec trusts. The compositor tells the hub (`AskAbout`, with the
+  window's id and the ask's).
+- **The hub starts it** with its `Ask=`: a command, or a URL opened as the
+  desktop opens links. The question names the window by its id and app id
+  only, never its title: titles are untrusted (a page titled "ignore your
+  instructions…"), so the assistant reads it through the tools, marked
+  untrusted like any other. Where the agent can, the question is prefilled
+  for the user to send, not sent for them.
+- **The grant goes to what the click started:**
+  - **An assistant started for the question:** the hub puts a one-time
+    ticket (128 random bits) in its environment (`AGENT_TOOLS_ASK`); its
+    shim presents it in the handshake (`ask`). The ticket works once,
+    within `AskTicket`. That connection gets the grant, while it lasts.
+  - **A shared one** (`AskShared=true`: one app serving every
+    conversation, its tools connection made already, its environment not
+    the hub's to set): the grant goes to that binding's connections, for
+    `AskGrant` or until the window closes, whichever is first. The app's
+    other conversations share it; the settings say so beside such an ask.
+- **What it grants:** `content` and `capture` for that window (its title,
+  its accessibility tree, a capture of it); nothing else is raised (Kill
+  and the rest follow the profile, at `ask` where they are). Recorded in
+  the audit as a grant made by the menu, with the ask's name.
 
 ### Unattended agents
 
@@ -1665,6 +1697,8 @@ interoperability, not taste.
 | `AuditCut` | 4 KiB | longer strings in the audit are cut, marked so |
 | `AuditKeepMax` | 1 MiB | the largest command or Lua code kept in full beside the audit |
 | `MaxFrame` | 4 MiB | the largest MCP message the hub reads from an agent or a provider; a longer one, or a line not ended within it, closes that connection |
+| `AskTicket` | 1 min | how long a started assistant has to connect with its ask ticket: longer suits slow starts, but a ticket waits that long to be used |
+| `AskGrant` | 15 min | how long a shared assistant's grant for a window lasts (it ends sooner when the window closes): longer suits long conversations, but the app's other conversations share it that long |
 | `AuditSync` | important lines | which lines are synced to disk as written (`important`, `all`, `none`): more is safer evidence, at a write's cost each |
 | `AuditRotate` | 10 MiB, 3 kept | when the audit file rotates, and how many are kept |
 
@@ -1892,16 +1926,18 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
 ### Asking about a window
 
 1. The user opens the window menu on a window; the compositor shows "Ask
-   AI about this window" (the hub's `SetOffers` said an assistant is set
-   up).
-2. The user clicks it: the compositor sends `AskAbout(window)`.
-3. The hub mints a one-time ticket, and starts the assistant (`Ask=`)
-   with a question naming the window by id and app id, the ticket in its
-   environment; audit (`ask`).
-4. The assistant's shim connects, presenting its token file and the
-   ticket; the hub grants that connection `content` and `capture` for that
-   window, for as long as it lasts; the ticket is spent.
-5. The assistant looks (`window_titles`, `window_process`, a capture of
+   AI about this window", or a submenu of the asks (the hub's `SetOffers`).
+2. The user clicks one: the compositor sends `AskAbout(window, ask)`.
+3. The hub starts that ask's `Ask=` with a question naming the window by
+   id and app id; audit (`ask`).
+   - **Started for the question:** a one-time ticket in its environment.
+     Its shim connects, presenting its token file and the ticket; the hub
+     grants that connection `content` and `capture` for that window, while
+     it lasts; the ticket is spent.
+   - **Shared** (a desktop app, its URL opened): the hub grants the
+     binding's connections the same, for `AskGrant` or until the window
+     closes.
+4. The assistant looks (`window_titles`, `window_process`, a capture of
    that window): allowed by the grant, no question. Anything else follows
    its profile (killing the window asks, as `destroy` does).
 
