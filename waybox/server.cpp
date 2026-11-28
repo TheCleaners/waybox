@@ -173,6 +173,7 @@ bool wb_reconfigure(struct wb_server *server, std::string *problem) {
 	ipc_reconfigured(server);  /* <ipc>, and tells subscribers */
 	scripts_reload(server);    /* scripts are loaded afresh */
 	startup_apply(server);     /* <startup>: start, stop what changed */
+	agent_compositor_reconfigure(server);  /* agent tools on or off */
 	idle_reconfigured(server); /* <idle>: the new timeout counts from now */
 	menu_preload_icons(server);  /* the cache was cleared: the menus' icons again */
 	wlr_log(WLR_INFO, "%s", _("Reconfigured"));

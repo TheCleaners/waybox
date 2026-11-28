@@ -15,16 +15,25 @@
  *
  * So far: Hello, and the Locked, Away and AssistantsStopped properties
  * with their changes; the other members answer "not supported" until the
- * steps that bring them. The hub is the program WAYBOX_AGENT_HUB names
- * (until waybox-agent-hub and its supervision exist).
+ * steps that bring them.
+ *
+ * The hub (waybox-agent-hub; WAYBOX_AGENT_HUB names a stand-in) runs while
+ * agent tools are on (Enabled=true in agents/tools/settings.ini), and is
+ * supervised: restarted after a growing delay when it exits, not asked
+ * to, until it has crashed HubRestarts times within a minute; then not
+ * again until agent tools are reconfigured. The state it reads (the
+ * stopped state above all) is the compositor's, kept through restarts.
  */
 
 struct wb_server;
 
-/* Starts the hub, if there's one to start. */
+/* Starts the hub, if agent tools are on. */
 void agent_compositor_init(struct wb_server *server);
-/* Ends the D-Bus thread; the hub sees its socket close. */
+/* Ends the hub (its connection first: it sees its socket close). */
 void agent_compositor_finish(struct wb_server *server);
+/* Settings may have changed: agent tools turned on or off; a hub given up
+ * on gets another go. */
+void agent_compositor_reconfigure(struct wb_server *server);
 /* The lock, away or stopped state may have changed: the hub hears of what
  * did (PropertiesChanged). */
 void agent_compositor_state_changed(struct wb_server *server);
