@@ -694,6 +694,21 @@ if python.found() and not get_option('tests_only')
     )
 
   # A window that tags itself (xdg-toplevel-tag).
+  # A window whose icon is pixels (xdg-toplevel-icon's buffer path).
+  icon_xml = wl_protocol_dir / 'staging/xdg-toplevel-icon/xdg-toplevel-icon-v1.xml'
+  icon_buffer_client = executable(
+    'icon_buffer_client',
+    [
+      'integration' / 'icon_buffer_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml),
+      wayland_scanner_client.process(icon_xml),
+      wayland_scanner_code.process(icon_xml),
+      wayland_scanner_client.process(wl_protocol_dir / 'unstable/xdg-decoration/xdg-decoration-unstable-v1.xml'),
+      wayland_scanner_code.process(wl_protocol_dir / 'unstable/xdg-decoration/xdg-decoration-unstable-v1.xml'),
+    ],
+    dependencies: [dependency('wayland-client')],
+  )
   activate_client = executable(
     'activate_client',
     [
@@ -951,6 +966,7 @@ if python.found() and not get_option('tests_only')
     ['tearing', 'tearing_test.py', [tearing_client], 60],
     ['titlebar_buttons', 'titlebar_buttons_test.py', [], 60],
     ['titlebar_icon', 'titlebar_icon_test.py', [], 60],
+    ['pixel_icon', 'pixel_icon_test.py', [icon_buffer_client], 60],
     ['touch', 'touch_test.py', [touch_client, dnd_client, lock_client], 60],
     ['window_capture', 'window_capture_test.py', [lock_client], 60],
     ['window_menu', 'window_menu_test.py', [], 90],
