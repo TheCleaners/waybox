@@ -134,6 +134,7 @@ stall_src = files('waybox/stall.cpp')
 json_src = files('waybox/json.cpp')
 session_store_src = files('waybox/session_store.cpp')
 atomic_file_src = files('waybox/atomic_file.cpp')
+location_agent_src = files('waybox/location_agent.cpp')
 trust_src = files('waybox/trust.cpp')
 xml_strict_src = files('waybox/xml_strict.cpp')
 

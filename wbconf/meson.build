@@ -35,6 +35,17 @@ wbconf_exe = executable(
   install: true,
 )
 
+# waybox-location-agent: GeoClue's agent for the session (asks before an
+# app learns where you are; #363).
+location_agent_exe = executable(
+  'waybox-location-agent',
+  ['location_agent_main.cpp', location_agent_src],
+  include_directories: [inc_dir],
+  dependencies: [gtk4, dependency('gio-unix-2.0')],
+  cpp_args: wbconf_args,
+  install: true,
+)
+
 # wbconf-lua: integrations' settings pages written in Lua, in a sandboxed
 # process of its own (Page=NAME.lua).
 if lua.found()

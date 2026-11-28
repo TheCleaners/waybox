@@ -53,6 +53,14 @@ start_polkit_agent()
 }
 start_polkit_agent
 
+# Ask before an app learns where you are: Waybox's GeoClue agent, where
+# GeoClue is installed (without an agent, GeoClue answers apps on its own
+# list and keeps the rest waiting).
+if command -v waybox-location-agent >/dev/null 2>&1 &&
+        [ -e /usr/share/dbus-1/system-services/org.freedesktop.GeoClue2.service ]; then
+    waybox-location-agent &
+fi
+
 # To switch the screens off after 10 minutes without input, and back on at
 # the next key press or mouse move, uncomment this (needs swayidle and
 # wlopm). To lock the screen as well, add for example: timeout 300 'swaylock -f'
