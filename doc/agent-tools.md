@@ -1827,8 +1827,9 @@ The spec uses the names proposed for sharing: `org.freedesktop.AgentHub1`,
 - **The peer-to-peer interface** (`AgentCompositor1`) has no bus name and
   ships under its proposed name from the start.
 - **On the session bus,** the hub ships its state as `org.waybox.AgentHub1`
-  (and Agent UI as `org.waybox.AgentUI1`), with the same members, until the
-  names are agreed; renaming then changes nothing else.
+  until the names are agreed. Agent UI has no bus name (it runs over each
+  provider's registration socket), so only its interface name changes: the
+  hub calls whichever of the two a provider exports.
 - **The portal** lives in xdg-desktop-portal's frontend, so it needs that
   project's agreement. Until then a small interim frontend offers the
   same interface at `org.waybox.portal.Agent`, which a sandboxed agent
@@ -1838,6 +1839,31 @@ The spec uses the names proposed for sharing: `org.freedesktop.AgentHub1`,
   `--talk-name` reaches nothing else of the hub's. It does the portal
   frontend's checks itself (see "How the caller's app id is known") and
   talks to the hub privately, not over the bus.
+
+### Moving to the shared names
+
+A rename isn't free: surfaces find the hub by its bus name and object
+path, and sandboxed apps hold a `--talk-name` for the interim portal's
+exact name. So when the shared names are agreed:
+- **The hub's state answers to both** for a transition period: it owns
+  `org.freedesktop.AgentHub1` and `org.waybox.AgentHub1`, and exports the
+  interface under both names at both object paths, on the state's own
+  connection (never on a sandbox-facing one). Surfaces look for the shared
+  name first and fall back to the old one; the `version` property tells
+  them what they're talking to. The old one carries `Deprecated` (true)
+  and is logged when used.
+- **The portal moves into xdg-desktop-portal,** reachable by every sandbox
+  without any `--talk-name`. Apps ask `org.freedesktop.portal.Desktop` for
+  the Agent interface (its `version`) first, and use the interim name only
+  where it's missing. The interim frontend keeps running, alone on its own
+  connection as before, through the transition; remembered answers and
+  restore tokens are the hub's, so they carry over between the two.
+  Apps drop the `--talk-name` from their manifests when they stop
+  supporting desktops without the portal.
+- **The transition lasts at least twelve months** after a release ships
+  the shared names (the window MCP gives its own deprecations), announced
+  in the release notes; the old names are then removed in a release that
+  says so.
 
 ## Decisions on the first pass's questions
 
@@ -1873,6 +1899,12 @@ Also decided in the second pass:
   portals; MCP's tool annotations implied by sensitivities; `McpName`
   linking a manifest to its `server.json`; unknown sensitivities `off`;
   windows named by `ext-foreign-toplevel-list`; the Agent portal.
+- **Review 22, finding 40:** moving to the shared names: the hub's state
+  under both names and paths for at least twelve months, surfaces trying
+  the shared one first, the old marked `Deprecated`; the portal in
+  xdg-desktop-portal tried first, the interim frontend kept alone on its
+  connection meanwhile, remembered answers carried over; Agent UI with no
+  bus name to migrate.
 - **Review 22, batch D:** capture and input the hub's own tools (the
   reserved `desktop` provider), each step's owner named; UI providers
   reached over their registration's private socket, never a well-known
