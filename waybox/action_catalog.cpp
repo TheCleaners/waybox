@@ -44,7 +44,8 @@ const std::vector<ActionInfo> &action_catalog() {
 				{{"menu", "Menu", OptionKind::Text, {}, "root-menu"}}},
 		{"ShowAbout", "About Waybox", "Programs and menus", {}},
 		{"Reconfigure", "Reload the settings", "Programs and menus", {}},
-		{"Exit", "Log out", "Programs and menus", {}},
+		{"Exit", "Log out", "Programs and menus",
+				{{"prompt", "Ask first", OptionKind::Bool, {}, "yes"}}},
 		/* Windows */
 		{"Close", "Close the window", "Windows", {}},
 		{"Kill", "End the window's program", "Windows", {}},

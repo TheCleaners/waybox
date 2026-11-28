@@ -38,6 +38,7 @@ entry sys cond-unless-exists "AutostartCondition=unless-exists nothing-here"
 entry sys cond-if-exists "AutostartCondition=if-exists nothing-here"
 entry sys cond-unknown "AutostartCondition=GNOME3 if-session gnome"
 entry sys only-pattern "OnlyShowIn=W*;"
+entry sys geoclue-demo-agent
 # A user file name with a space must not hide a system one it ends with.
 printf '[Desktop Entry]\nType=Application\nExec=touch %s/spaced\n' "$out" \
 	> "$t/home/autostart/a b.desktop"
@@ -111,6 +112,17 @@ expect no hidden "Hidden still applies with all"
 run env WB_AUTOSTART_ENVIRONMENT=Waybox:KDE
 expect yes only-gnome "OnlyShowIn=GNOME;KDE; with KDE listed"
 expect no not-other "NotShowIn=KDE;GNOME; with KDE listed"
+
+# GeoClue's demo agent (yes to every app, unasked): not started where
+# Waybox's location agent is installed (it asks), else as any entry. (A
+# PATH of its own: the real agent may be installed where the test runs.)
+mkdir -p "$t/agentbin"
+printf '#!/bin/sh\n' > "$t/agentbin/waybox-location-agent"
+chmod +x "$t/agentbin/waybox-location-agent"
+run env PATH="$t/bin:/usr/bin:/bin"
+expect yes geoclue-demo-agent "no location agent installed: the demo agent starts"
+run env PATH="$t/agentbin:$t/bin:/usr/bin:/bin"
+expect no geoclue-demo-agent "Waybox's location agent installed: the demo agent doesn't start"
 
 [ "$fail" = 0 ] && echo "xdg-autostart: OK"
 exit "$fail"

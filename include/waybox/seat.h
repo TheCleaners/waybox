@@ -71,6 +71,9 @@ bool wb_input_is_virtual(struct wlr_input_device *device);
 /* True if input from `device` must be dropped under the <virtualInput>
  * policy (see config.h). */
 bool wb_input_blocked(struct wb_server *server, struct wlr_input_device *device);
+/* The seat's keyboard, if <virtualInput> blocks it now (locked, or the
+ * policy changed): another allowed one, or none. */
+void seat_recheck_keyboard(struct wb_server *server);
 /* The test touchscreen (only with WAYBOX_TEST_TOUCH=1): "down", "motion",
  * "up" or "frame" for a touch point at (x, y) in 0..1 of the layout.
  * False without it. */
@@ -86,6 +89,15 @@ void seat_set_focus_layer(struct wb_seat *seat, struct wlr_layer_surface_v1 *lay
  * Both are no-ops when no switcher is active. */
 void wb_switcher_commit(struct wb_server *server);
 void wb_switcher_cancel(struct wb_server *server);
+/* A window the switcher lists is going: its row goes, the switcher stays
+ * (closed from it, with Delete); with none left, it's cancelled. */
+void wb_switcher_forget(struct wb_server *server, struct wb_toplevel *toplevel);
+/* A pointer button at layout (x, y) while the switcher is up: true if it
+ * was on its list (and so taken). */
+/* `toplevel` stopped responding: its switcher row says so. */
+void wb_switcher_note(struct wb_server *server, struct wb_toplevel *toplevel);
+bool wb_switcher_click(struct wb_server *server, double x, double y, uint32_t button,
+		bool pressed);
 /* Reconfigure: apply the keymap and pointer settings from the new rc.xml to
  * the devices already connected. */
 void seat_reconfigure_input(struct wb_server *server);

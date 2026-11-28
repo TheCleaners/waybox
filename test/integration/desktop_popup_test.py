@@ -3,8 +3,9 @@
 
 Three desktops, the first two named; Super+1/2/3 switch:
 
-1. Switching shows the desktop's name in the middle of the monitor, and
-   after popupTime it is gone (the screen is as before).
+1. Switching shows the desktop's name in the middle of the monitor, with
+   a square per desktop before it, the shown one highlighted (Openbox's
+   pager); after popupTime it is gone (the screen is as before).
 2. An unnamed desktop shows "Desktop N"; switching again while the popup is
    up replaces it, and it hides once.
 3. With popupTime 0 (after Reconfigure), nothing is shown.
@@ -117,6 +118,8 @@ def main():
         key(2)
         time.sleep(0.25)
         expect("wb-desktop-popup Code" in logtext(), "no popup naming desktop 2")
+        expect("wb-desktop-popup Code on 1 pager 2/3" in logtext(),
+               "the popup has no square per desktop, the second highlighted")
         expect(centre() != before, "the popup isn't drawn in the middle")
         time.sleep(1.0)
         expect(logtext().count("wb-desktop-popup hidden") == 1, "the popup didn't hide")

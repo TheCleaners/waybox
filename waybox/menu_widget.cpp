@@ -105,7 +105,7 @@ MenuWidget::~MenuWidget() {
 		wl_event_source_remove(hover_timer_);
 	/* Stop running pipe-menu commands: nothing will read their output. */
 	while (!pipe_jobs_.empty())
-		stop_pipe(pipe_jobs_.begin()->second.get());
+		stop_pipe(pipe_jobs_.begin()->second.get(), true);
 	levels_.clear();  /* destroy canvases (scene buffers) before their tree */
 	for (auto &[name, surf] : icon_cache_) {
 		if (surf != nullptr)
@@ -512,7 +512,7 @@ int MenuWidget::on_pipe_timeout(void *data) {
 	return 0;
 }
 
-void MenuWidget::stop_pipe(PipeJob *job) {
+void MenuWidget::stop_pipe(PipeJob *job, bool abandon) {
 	if (job->read_source != nullptr)
 		wl_event_source_remove(job->read_source);
 	if (job->timer != nullptr)
@@ -520,11 +520,14 @@ void MenuWidget::stop_pipe(PipeJob *job) {
 	if (job->fd >= 0)
 		close(job->fd);
 	if (job->pid > 0) {
-		/* Done or abandoned either way: if it is still running, stop its
-		 * whole process group, then reap it. */
-		if (waitpid(job->pid, nullptr, WNOHANG) == 0) {
+		/* Abandoned (no complete output in time, or the menu closed): its
+		 * whole process group stopped, the shell or not (it may have exited
+		 * leaving a child that holds the pipe); done: the shell, if it's
+		 * still running. Either way before the shell is reaped, so that
+		 * the group's id is still its own. */
+		if (abandon || waitpid(job->pid, nullptr, WNOHANG) == 0)
 			kill(-job->pid, SIGKILL);
-			waitpid(job->pid, nullptr, 0);
+		while (waitpid(job->pid, nullptr, 0) < 0 && errno == EINTR) {
 		}
 	}
 	pipe_jobs_.erase(job->id);  /* frees job */
@@ -548,7 +551,7 @@ void MenuWidget::finish_pipe(PipeJob *job, bool ok) {
 		file = std::make_unique<MenuFile>();
 		file->menus.push_back(std::move(failed));
 	}
-	stop_pipe(job);
+	stop_pipe(job, !ok);  /* not ok: timed out or failed reading */
 	pipe_results_[id] = std::move(file);
 	refresh_pending(id);
 }

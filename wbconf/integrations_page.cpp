@@ -59,6 +59,7 @@ std::string provides_phrase(const std::string &what) {
 		{"idle", N_("lock and blank the screen when idle")},
 		{"polkit-agent", N_("ask for passwords")},
 		{"output-profiles", N_("arrange the monitors")},
+		{"location-agent", N_("answer apps asking where you are")},
 	};
 	auto it = phrases.find(what);
 	if (it != phrases.end())
@@ -272,13 +273,13 @@ std::string program_binary(Ui::ProgramRow *row) {
 }
 
 /* The user's running copies of `binary`. */
-std::vector<pid_t> running_copies(const std::string &binary) {
-	std::vector<pid_t> out;
+std::vector<ProcessInfo> running_copies(const std::string &binary) {
+	std::vector<ProcessInfo> out;
 	uid_t me = getuid();
 	std::string name = binary.substr(0, 15);
 	for (const ProcessInfo &p : list_processes())
 		if (p.uid == me && p.name == name)
-			out.push_back(p.pid);
+			out.push_back(p);
 	return out;
 }
 
@@ -293,7 +294,7 @@ std::string proposed_command(Ui::ProgramRow *row, const wb::ScriptStarters &star
 }
 
 void move_to_waybox(Ui *ui, Ui::ProgramRow *row, const wb::ScriptStarters &starters, bool stop,
-		const std::vector<pid_t> &running, const std::string &command) {
+		const std::vector<ProcessInfo> &running, const std::string &command) {
 	if (!command.empty())
 		gtk_editable_set_text(GTK_EDITABLE(row->command), command.c_str());
 	for (const wb::ScriptEntry &e : starters.lines)
@@ -301,7 +302,7 @@ void move_to_waybox(Ui *ui, Ui::ProgramRow *row, const wb::ScriptStarters &start
 			if (r->script && r->line == e.line && r->on != nullptr)
 				gtk_switch_set_active(r->on, FALSE);
 	row->stop_on_save = stop && !running.empty();
-	row->stop_pids = row->stop_on_save ? running : std::vector<pid_t>{};
+	row->stop_pids = row->stop_on_save ? running : std::vector<ProcessInfo>{};
 	row->via_function = !starters.functions.empty();
 	program_status(ui, row);
 	refresh_save_state(ui);
@@ -321,7 +322,7 @@ struct MoveDialog {
 	GtkWindow *window = nullptr;
 	GtkCheckButton *stop = nullptr;
 	GtkEntry *command = nullptr;
-	std::vector<pid_t> running;
+	std::vector<ProcessInfo> running;
 	bool decided = false;
 };
 
@@ -341,7 +342,7 @@ void move_dialog_answer(MoveDialog *d, bool to_waybox) {
 /* Turned on, but the autostart script starts it too: which should? */
 void ask_move(Ui *ui, Ui::ProgramRow *row, const wb::ScriptStarters &starters) {
 	std::string binary = program_binary(row);
-	std::vector<pid_t> running = running_copies(binary);
+	std::vector<ProcessInfo> running = running_copies(binary);
 	if (!ui->test_choice.empty()) {
 		if (ui->test_choice.rfind("waybox", 0) == 0)
 			move_to_waybox(ui, row, starters, ui->test_choice == "waybox+stop", running,
@@ -431,8 +432,8 @@ void ask_move(Ui *ui, Ui::ProgramRow *row, const wb::ScriptStarters &starters) {
 	}
 	if (!running.empty()) {
 		std::string pids;
-		for (pid_t p : running)
-			pids += (pids.empty() ? "" : ", ") + std::to_string(p);
+		for (const ProcessInfo &p : running)
+			pids += (pids.empty() ? "" : ", ") + std::to_string(p.pid);
 		char *text = starters.functions.empty()
 			? g_strdup_printf(ngettext(
 				"Also stop the running %s (process %s) when saving",
@@ -493,14 +494,13 @@ void stop_moved_programs(Ui *ui) {
 		if (row->removed || !gtk_switch_get_active(row->on))
 			continue;
 		std::string name = program_binary(row.get()).substr(0, 15);
-		std::vector<pid_t> pids = std::move(row->stop_pids);
+		std::vector<ProcessInfo> asked = std::move(row->stop_pids);
 		row->stop_pids.clear();
 		std::vector<ProcessInfo> all = list_processes();
-		for (const ProcessInfo &p : all) {
-			/* Only the copies shown when asked, if still the same program
-			 * (a process id can be reused). */
-			if (p.uid != me || p.name != name ||
-					std::find(pids.begin(), pids.end(), p.pid) == pids.end())
+		for (const ProcessInfo &p : asked) {
+			/* Only the copies shown when asked, if still those very
+			 * processes (signal_process checks, as it signals). */
+			if (p.uid != me || p.name != name)
 				continue;
 			/* Started from a function of the script: the background shell
 			 * running it goes first, or it could start another. It's the
@@ -516,9 +516,9 @@ void stop_moved_programs(Ui *ui) {
 					bool runs_script = std::find(args.begin(), args.end(), ui->script_path) !=
 							args.end();
 					if (parent.name == script_name || runs_script)
-						kill(parent.pid, SIGTERM);
+						signal_process(parent, SIGTERM);
 				}
-			kill(p.pid, SIGTERM);
+			signal_process(p, SIGTERM);
 		}
 	}
 }
@@ -595,7 +595,7 @@ void answer_xdg_move(Ui *ui, Ui::ProgramRow *row, const std::string &file, bool 
 		for (auto &r : ui->source_rows)
 			if (!r->script && r->file == file && r->on != nullptr)
 				gtk_switch_set_active(r->on, FALSE);
-		std::vector<pid_t> running = running_copies(program_binary(row));
+		std::vector<ProcessInfo> running = running_copies(program_binary(row));
 		row->stop_on_save = !running.empty();
 		row->stop_pids = running;
 	} else {
@@ -741,6 +741,8 @@ GtkWidget *build_integration_page(Ui *ui, Ui::ProgramRow *row) {
 		return nullptr;
 	if (row->in->page == "wallpaper")
 		return build_wallpaper_page(ui, row);
+	if (row->in->page == "location")
+		return build_location_page(ui, row);
 	if (!wb::lua_page_path(*row->in).empty())
 		return build_lua_page(ui, row);
 	return nullptr;
@@ -860,9 +862,11 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 	if (in != nullptr && !in->options.empty()) {
 		/* With a page, the options go under it, folded; without, they're
 		 * its settings, folded as a page is. */
-		GtkWidget *options_parent = row->details;
+		GtkWidget *options_parent = nullptr;  /* (set on both ways below) */
 		GtkWidget *expander = nullptr;
-		if (!in->page.empty()) {
+		/* (The location page goes under its options, in their fold: they're
+		 * few, and what it's about.) */
+		if (!in->page.empty() && in->page != "location") {
 			expander = gtk_expander_new(_("All options"));
 			options_parent = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
 			gtk_expander_set_child(GTK_EXPANDER(expander), options_parent);
@@ -907,6 +911,10 @@ Ui::ProgramRow *add_program_row(Ui *ui, GtkWidget *parent, const wb::Integration
 				gtk_widget_set_margin_bottom(row->geo, 6);
 				gtk_box_prepend(GTK_BOX(options_parent), row->geo);
 			}
+		}
+		if (expander == nullptr && in->page == "location") {
+			if (GtkWidget *page = build_integration_page(ui, row.get()))
+				gtk_box_append(GTK_BOX(options_parent), page);
 		}
 		if (expander != nullptr) {
 			if (GtkWidget *page = build_integration_page(ui, row.get()))

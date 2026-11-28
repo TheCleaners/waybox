@@ -9,7 +9,9 @@
 
 #include "script.h"
 #include "about.h"
+#include "waybox/cycle_outline.hpp"
 #include "waybox/about_card.hpp"
+#include "waybox/confirm_card.hpp"
 #include "waybox/geometry_actions.hpp"
 #include "color_pick.h"
 #include "waybox/stall.hpp"
@@ -43,6 +45,36 @@ static void deiconify_toplevel(struct wb_toplevel *toplevel) {
 	set_toplevel_minimized(toplevel, false);
 }
 
+/* The monitor a desktop or cycling action's <monitor> means (#367):
+ * "all" every one (one = nullptr); "this" / "current" the focused window's
+ * (else the pointer's); a number (left to right) or a name, that one; not
+ * given, "this" with desktops per monitor and "all" with shared ones. */
+struct MonitorChoice {
+	struct wb_output *one = nullptr;
+};
+
+static MonitorChoice action_monitor(struct wb_server *server, const wb::Action &action) {
+	auto m = action.args.find("monitor");
+	std::string spec = m != action.args.end() ? m->second : "";
+	if (spec.empty())
+		spec = desktops_per_monitor(server) ? "this" : "all";
+	if (spec == "all")
+		return {};
+	if (spec == "this" || spec == "current")
+		return {desktop_action_output(server)};
+	if (struct wlr_output *o = rule_output(server, spec))
+		return {static_cast<struct wb_output *>(o->data)};
+	return {desktop_action_output(server)};
+}
+
+/* Whether a window is in the cycle (its monitor's, if one was given). */
+static bool on_cycle_monitor(struct wb_server *server, struct wb_toplevel *t) {
+	if (server->cycle_monitor.empty())
+		return true;
+	struct wlr_output *o = get_active_output(t);
+	return o != nullptr && server->cycle_monitor == o->name;
+}
+
 /* Shared Alt+Tab cycle: walk the MRU focus order to the next/previous eligible
  * toplevel using the pure wb::cycle_next() selector, then focus it. */
 static void cycle_toplevels_dir(struct wb_server *server, bool reverse) {
@@ -64,8 +96,9 @@ static void cycle_toplevels_dir(struct wb_server *server, bool reverse) {
 		}
 	}
 
-	auto eligible = [&order](std::size_t i) {
+	auto eligible = [&order, server](std::size_t i) {
 		return order[i]->mapped && toplevel_on_current_desktop(order[i]) &&
+				on_cycle_monitor(server, order[i]) &&
 				view_modal_child(order[i]) == nullptr;  /* its modal stands for it */
 	};
 	std::optional<std::size_t> next =
@@ -99,6 +132,19 @@ static std::string toplevel_label(struct wb_toplevel *t) {
 	return "(untitled)";
 }
 
+/* The outline around the switcher's selected window (made with the switcher,
+ * below its list; gone with it). */
+static void outline_selected(struct wb_server *server) {
+	if (server->switcher == nullptr)
+		return;
+	if (server->switcher->outline == nullptr)
+		server->switcher->outline = std::make_unique<wb::CycleOutline>(server);
+	int sel = server->switcher->selected();
+	server->switcher->outline->show(sel >= 0 && sel < static_cast<int>(server->switcher_windows.size())
+			? server->switcher_windows[sel] : nullptr);
+	server->switcher->raise();
+}
+
 /* Dismiss the OSD and focus the selected window (Alt released / Return). */
 void wb_switcher_commit(struct wb_server *server) {
 	if (server->switcher == nullptr)
@@ -112,6 +158,100 @@ void wb_switcher_commit(struct wb_server *server) {
 		deiconify_toplevel(wins[sel]);
 		focus_toplevel(wins[sel]);
 	}
+}
+
+void wb_switcher_forget(struct wb_server *server, struct wb_toplevel *toplevel) {
+	if (server->switcher == nullptr)
+		return;
+	auto &wins = server->switcher_windows;
+	if (server->switcher->asked_to_close == toplevel)
+		server->switcher->asked_to_close = nullptr;
+	auto it = std::find(wins.begin(), wins.end(), toplevel);
+	if (it == wins.end())
+		return;
+	int i = static_cast<int>(it - wins.begin());
+	wins.erase(it);
+	if (wins.empty()) {
+		wb_switcher_cancel(server);
+		return;
+	}
+	server->switcher->remove_entry(i);
+	outline_selected(server);
+}
+
+static void run_window_action(wb::ActionType type, struct wb_server *server,
+		struct wb_toplevel *t);
+
+/* From the switcher: `t` asked to close; asked again (still there), its
+ * program ended (Kill, whose own second time forces it); `kill`: ended at
+ * once. */
+static void switcher_close_window(struct wb_server *server, struct wb_toplevel *t, bool kill) {
+	/* Asked again, and it doesn't answer pings: hung, its program goes.
+	 * One that answers is only asked again: it may be asking to save. */
+	if (!kill && server->switcher->asked_to_close == t && t->not_responding)
+		kill = true;
+	wlr_log(WLR_INFO, "wb-switcher %s %s", kill ? "kill" : "close",
+			view_app_id(t) ? view_app_id(t) : "");
+	if (kill) {
+		run_window_action(wb::ActionType::Kill, server, t);
+	} else {
+		view_close(t);
+		toplevel_ping(t);  /* hung? (unanswered in 2.5 s: its row says so) */
+		server->switcher->asked_to_close = t;
+	}
+}
+
+void wb_switcher_note(struct wb_server *server, struct wb_toplevel *toplevel) {
+	if (server->switcher == nullptr)
+		return;
+	auto &wins = server->switcher_windows;
+	auto it = std::find(wins.begin(), wins.end(), toplevel);
+	if (it == wins.end())
+		return;
+	server->switcher->set_note(static_cast<int>(it - wins.begin()),
+			toplevel->not_responding ? _("not responding: close again to end it") : "");
+	outline_selected(server);
+}
+
+/* Whether `sym` with `modifiers` is the switcher key `spec` (rc.xml's
+ * syntax), the switcher's own modifier and the locks left out. */
+static bool switcher_key_is(struct wb_server *server, const std::string &spec, xkb_keysym_t sym,
+		uint32_t modifiers) {
+	if (spec.empty() || spec == "none")
+		return false;
+	uint32_t want_sym = 0, want_mods = 0;
+	wb_parse_key_combo(spec.c_str(), &want_sym, &want_mods);
+	if (want_sym == 0)
+		return false;
+	uint32_t mods = modifiers & ~(server->switcher_mods | WLR_MODIFIER_CAPS | WLR_MODIFIER_MOD2);
+	/* Delete and KP_Delete alike. */
+	if (sym == XKB_KEY_KP_Delete)
+		sym = XKB_KEY_Delete;
+	return wb::keysym_fold_case(sym) == wb::keysym_fold_case(want_sym) && mods == want_mods;
+}
+
+bool wb_switcher_click(struct wb_server *server, double x, double y, uint32_t button,
+		bool pressed) {
+	if (server->switcher == nullptr)
+		return false;
+	wb::SwitcherWidget::Hit h = server->switcher->hit(x, y);
+	if (h.row < 0)
+		return server->switcher->on_motion(x, y);  /* the panel's edge: taken, nothing */
+	/* On press (the release is taken too, as the press was). */
+	if (!pressed || button != wb::MOUSE_BUTTON_LEFT)
+		return true;
+	if (h.row >= static_cast<int>(server->switcher_windows.size()))
+		return true;
+	struct wb_toplevel *t = server->switcher_windows[h.row];
+	if (h.close) {
+		struct wlr_keyboard *kb = wlr_seat_get_keyboard(server->seat->seat);
+		bool kill = kb != nullptr && (wlr_keyboard_get_modifiers(kb) & WLR_MODIFIER_SHIFT);
+		switcher_close_window(server, t, kill);
+		return true;
+	}
+	server->switcher->select(h.row);
+	wb_switcher_commit(server);
+	return true;
 }
 
 /* Dismiss the OSD without changing focus (Escape, or a window vanished). */
@@ -131,6 +271,7 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 			server->switcher->select_prev();
 		else
 			server->switcher->select_next();
+		outline_selected(server);
 		return;
 	}
 
@@ -148,9 +289,11 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 	std::vector<struct wb_toplevel *> wins;
 	struct wb_toplevel *t;
 	wl_list_for_each(t, &server->focus_order, focus_link)
-		if (t->mapped && toplevel_on_current_desktop(t))
+		if (t->mapped && toplevel_on_current_desktop(t) && on_cycle_monitor(server, t))
 			wins.push_back(t);
-	if (wins.size() < 2) {  /* nothing meaningful to switch between */
+	/* Shown for a single window too: closing it (Delete) is done from
+	 * here. With none, nothing. */
+	if (wins.empty()) {
 		if (reverse)
 			cycle_toplevels_reverse(server);
 		else
@@ -198,6 +341,10 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 	int current = static_cast<int>(std::find(ordered.begin(), ordered.end(), wins[0]) -
 			ordered.begin());
 	int sel = reverse ? (current - 1 + n) % n : (current + 1) % n;
+	/* Another monitor's windows (the focused one isn't among them): the
+	 * first Tab selects the most recent of them, not the one after it. */
+	if (first_toplevel(server) != wins[0])
+		sel = current;
 	wins = std::move(ordered);
 	wb::SwitcherStyle style = wb_osd_style(server);
 	wb::StallScope timing("switcher");
@@ -205,12 +352,13 @@ static void switcher_invoke(struct wb_server *server, bool reverse) {
 	std::vector<wb::SwitcherWidget::Entry> rows;
 	rows.reserve(wins.size());
 	for (struct wb_toplevel *w : wins)
-		rows.push_back({toplevel_label(w), w->icon});
+		rows.push_back({toplevel_label(w), w->icon, ""});
 	widget->open(std::move(rows), sel);
 
 	server->switcher_windows = std::move(wins);
 	server->switcher_mods = trigger;
 	server->switcher = std::move(widget);
+	outline_selected(server);
 }
 
 /* Open the window menu for the focused window: at the pointer when it is
@@ -353,7 +501,8 @@ bool conditions_hold(struct wb_server *server, const wb::Conditional &c,
 		action_facts = window_facts(server, target);
 	if (struct wb_toplevel *f = keyboard_focused(server))
 		focus_facts = window_facts(server, f);
-	wb::DesktopFacts d{server->current_desktop, server->last_desktop};
+	wb::DesktopFacts d{0, 0};
+	desktop_action_state(server, &d.current, &d.last);
 	return wb::conditions_true(c.queries, action_facts ? &*action_facts : nullptr,
 			focus_facts ? &*focus_facts : nullptr, d);
 }
@@ -420,14 +569,12 @@ static void run_geometry_action(const wb::Action &action, struct wb_server *serv
 	using T = wb::ActionType;
 	struct wlr_output *output = get_active_output(t);
 	if (action.type == T::MoveResizeTo) {
+		/* As window rules count them: left to right (not the order
+		 * they were plugged in), or by name, mouse, active, primary. */
 		auto m = action.args.find("monitor");
-		if (m != action.args.end() && m->second != "current") {
-			int want = std::atoi(m->second.c_str()), i = 0;
-			struct wb_output *o;
-			wl_list_for_each_reverse(o, &server->outputs, link)
-				if (++i == want)
-					output = o->wlr_output;
-		}
+		if (m != action.args.end() && m->second != "current")
+			if (struct wlr_output *o = rule_output(server, m->second))
+				output = o;
 	}
 	if (output == nullptr)
 		return;
@@ -552,10 +699,13 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		wb_spawn(action.command.c_str());
 		break;
 	case wb::ActionType::NextWindow:
-		switcher_invoke(server, false);
-		break;
 	case wb::ActionType::PreviousWindow:
-		switcher_invoke(server, true);
+		/* A cycle on its way keeps the monitor it started with. */
+		if (server->switcher == nullptr) {
+			struct wb_output *one = action_monitor(server, action).one;
+			server->cycle_monitor = one != nullptr ? one->wlr_output->name : "";
+		}
+		switcher_invoke(server, action.type == wb::ActionType::PreviousWindow);
 		break;
 	case wb::ActionType::Close: {
 		struct wb_toplevel *toplevel = action_target(server);
@@ -699,10 +849,26 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		script_menu_call(server, action.script_callback);
 		break;
 	case wb::ActionType::GoToDesktop: {
-		if (auto target = wb::desktop_target(action.to,
-				server->current_desktop, server->last_desktop,
-				desktop_count(server), action.wrap))
-			wb_go_to_desktop(server, *target);
+		/* Desktops per monitor: the monitor <monitor> names (the focused
+		 * window's, else the pointer's, by default), or every one ("all"),
+		 * counting from that one's (or the focused one's) desktop. */
+		MonitorChoice m = action_monitor(server, action);
+		int cur = 0, last = 0;
+		if (m.one != nullptr && desktops_per_monitor(server)) {
+			cur = m.one->desktop;
+			last = m.one->last_desktop;
+		} else {
+			desktop_action_state(server, &cur, &last);
+		}
+		if (auto target = wb::desktop_target(action.to, cur, last,
+				desktop_count(server), action.wrap)) {
+			if (!desktops_per_monitor(server))
+				wb_go_to_desktop(server, *target);
+			else if (m.one == nullptr)
+				wb_go_to_desktop_everywhere(server, *target);
+			else
+				wb_go_to_desktop_on(server, m.one, *target);
+		}
 		break;
 	}
 	case wb::ActionType::SendToDesktop: {
@@ -711,8 +877,9 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		struct wb_toplevel *toplevel = action_target(server);
 		if (toplevel == nullptr || !toplevel->mapped)
 			break;
-		if (auto target = wb::desktop_target(action.to,
-				server->current_desktop, server->last_desktop,
+		int cur = 0, last = 0;
+		desktop_action_state(server, &cur, &last);
+		if (auto target = wb::desktop_target(action.to, cur, last,
 				desktop_count(server), action.wrap))
 			wb_send_to_desktop(toplevel, *target, action.follow);
 		break;
@@ -803,7 +970,7 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 		break;
 	}
 	case wb::ActionType::ToggleShowDesktop:
-		toggle_show_desktop(server);
+		toggle_show_desktop(server, action_monitor(server, action).one);
 		break;
 	case wb::ActionType::ShowAbout:
 		/* Nothing drawn over the lock screen. */
@@ -850,9 +1017,19 @@ void wb::run_action(const wb::Action &action, struct wb_server *server) {
 							server->cursor->cursor->y));
 		break;
 	}
-	case wb::ActionType::Exit:
-		wl_display_terminate(server->wl_display);
+	case wb::ActionType::Exit: {
+		/* As Openbox: asked first (<prompt>no</prompt>: not). */
+		auto p = action.args.find("prompt");
+		if (p != action.args.end() && (p->second == "no" || p->second == "false" ||
+				p->second == "off" || p->second == "0")) {
+			wl_display_terminate(server->wl_display);
+			break;
+		}
+		server->confirm = std::make_unique<wb::ConfirmCard>(server, wb_osd_style(server),
+				_("Exit Waybox?"), _("Programs still open will close."), _("Exit"),
+				_("Cancel"));
 		break;
+	}
 	}
 }
 
@@ -1071,6 +1248,20 @@ void wb_keyboard::on_key(void *data) {
 					wb_switcher_commit(server);
 					break;
 				}
+				/* Its keys (<switcher closeKey killKey>, Delete and
+				 * Shift+Delete): the selected window asked to close (again:
+				 * its program ended), or its program ended. The switcher
+				 * stays: the row goes when the window does. */
+				if (server->switcher->can_close()) {
+					const wb::SwitcherBehavior &b = server->switcher->behavior();
+					bool kill = switcher_key_is(server, b.kill_key, s, modifiers);
+					if (kill || switcher_key_is(server, b.close_key, s, modifiers)) {
+						int sel = server->switcher->selected();
+						if (sel >= 0 && sel < static_cast<int>(server->switcher_windows.size()))
+							switcher_close_window(server, server->switcher_windows[sel], kill);
+						break;
+					}
+				}
 				if (s == XKB_KEY_Tab || s == XKB_KEY_ISO_Left_Tab) {
 					bool reverse = (s == XKB_KEY_ISO_Left_Tab) ||
 							(modifiers & WLR_MODIFIER_SHIFT);
@@ -1078,11 +1269,31 @@ void wb_keyboard::on_key(void *data) {
 						server->switcher->select_prev();
 					else
 						server->switcher->select_next();
+					outline_selected(server);
 				} else if (s == XKB_KEY_Up || s == XKB_KEY_Left) {
 					server->switcher->select_prev();
+					outline_selected(server);
 				} else if (s == XKB_KEY_Down || s == XKB_KEY_Right) {
 					server->switcher->select_next();
+					outline_selected(server);
 				}
+			}
+			idle_activity(server, seat);
+			return;
+		}
+
+		/* A question asked (Exit's prompt): its keys answer it, and the
+		 * keyboard goes nowhere else meanwhile. */
+		if (server->confirm != nullptr) {
+			for (int i = 0; i < nsyms; i++) {
+				wb::ConfirmCard::Answer a = server->confirm->on_key(syms[i]);
+				if (a == wb::ConfirmCard::Answer::None)
+					continue;
+				server->confirm.reset();
+				wlr_log(WLR_INFO, "wb-confirm %s", a == wb::ConfirmCard::Answer::Yes ? "yes" : "no");
+				if (a == wb::ConfirmCard::Answer::Yes)
+					wl_display_terminate(server->wl_display);
+				break;
 			}
 			idle_activity(server, seat);
 			return;
@@ -1262,9 +1473,28 @@ static void handle_new_keyboard(struct wb_server *server,
 		delete keyboard;
 	});
 
-	wlr_seat_set_keyboard(server->seat->seat, keyboard->keyboard);
+	/* The seat's keyboard (its keys and modifiers go with focus): not a
+	 * virtual one <virtualInput> blocks now. */
+	if (!wb_input_blocked(server, device))
+		wlr_seat_set_keyboard(server->seat->seat, keyboard->keyboard);
 
 	wl_list_insert(&server->seat->keyboards, &keyboard->link);
+}
+
+void seat_recheck_keyboard(struct wb_server *server) {
+	struct wlr_keyboard *now = wlr_seat_get_keyboard(server->seat->seat);
+	if (now == nullptr || !wb_input_blocked(server, &now->base))
+		return;
+	/* A blocked one (a virtual keyboard, the screen locked): the first
+	 * keyboard allowed, or none, so focus doesn't carry its state. */
+	struct wlr_keyboard *pick = nullptr;
+	struct wb_keyboard *k;
+	wl_list_for_each(k, &server->seat->keyboards, link)
+		if (pick == nullptr && !wb_input_blocked(server, &k->keyboard->base))
+			pick = k->keyboard;
+	wlr_seat_set_keyboard(server->seat->seat, pick);
+	wlr_log(WLR_INFO, "wb-seat keyboard: a blocked one let go (now %s)",
+			pick != nullptr ? "another" : "none");
 }
 
 #ifdef HAS_LIBINPUT
@@ -1622,12 +1852,26 @@ struct wb_seat *wb_seat_create(struct wb_server *server) {
 			[seat](void *data) {
 		auto *event =
 			static_cast<struct wlr_seat_request_set_primary_selection_event *>(data);
+		/* Locked: the selections stay as they were (nothing set at the
+		 * lock screen, or by a clipboard manager meanwhile, outlives it). */
+		if (session_locked(seat->server)) {
+			if (event->source != nullptr)
+				wlr_primary_selection_source_destroy(event->source);
+			return;
+		}
 		wlr_seat_set_primary_selection(seat->seat, event->source, event->serial);
 	});
 	seat->request_set_selection.connect(
 			&seat->seat->events.request_set_selection, [seat](void *data) {
 		auto *event =
 			static_cast<struct wlr_seat_request_set_selection_event *>(data);
+		/* Locked: as the primary selection above (the one copied before
+		 * the lock is still there after it). */
+		if (session_locked(seat->server)) {
+			if (event->source != nullptr)
+				wlr_data_source_destroy(event->source);
+			return;
+		}
 		wlr_seat_set_selection(seat->seat, event->source, event->serial);
 	});
 
@@ -1637,6 +1881,14 @@ struct wb_seat *wb_seat_create(struct wb_server *server) {
 	seat->request_start_drag.connect(&seat->seat->events.request_start_drag,
 			[seat](void *data) {
 		auto *event = static_cast<struct wlr_seat_request_start_drag_event *>(data);
+		/* None while the screen is locked (a drag takes the keyboard grab,
+		 * the lock screen's password field with it). */
+		if (session_locked(seat->server)) {
+			wlr_log(WLR_DEBUG, "%s", "Refused a drag while the screen is locked");
+			if (event->drag->source != nullptr)
+				wlr_data_source_destroy(event->drag->source);
+			return;
+		}
 		if (wlr_seat_validate_pointer_grab_serial(seat->seat, event->origin,
 				event->serial)) {
 			wlr_seat_start_pointer_drag(seat->seat, event->drag, event->serial);

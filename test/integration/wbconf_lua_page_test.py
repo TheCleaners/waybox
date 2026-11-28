@@ -3,20 +3,24 @@
 
 Integration files with Page=NAME.lua, two as a package installs them
 (trusted), one in the user's own folder:
+- (Trusted means owned by root, the folders above it too, and no one
+  else able to write it: the test stands its own user in for root;
+  another owner, and demo is asked about like any other page.)
 - demo: its page reads ~/.config/demo/config (Files=); may run touch
   (Runs=). wbconf (driven by WBCONF_TEST_TOC) shows its values from the
   file; a timeout under a second shows a problem (on_change), and the
   change is listed as not saved; its button runs touch; Save & Apply has
-  wbconf write the new file (the old one kept as config.bak) and run the
+  wbconf write the new file (the old one kept as config.bak; the config a
+  link into a dotfiles folder: written to its target, the link kept) and run the
   page's reload (touch).
 - broken: its script has a syntax error: the page says so, with the line,
   and wbconf goes on.
 - mine (the user's folder): its page waits, its runner not started,
   until allowed; then it runs, and is remembered; changed, it's asked
-  about again.
+  about again; replaced while asked about, what runs is what was shown.
 Then a runner gone wrong (a fake one): wbconf refuses its write outside
-Files= and its run outside Runs=; and one that never answers: wbconf says
-so after 3 s and goes on.
+Files= and its run outside Runs=; one that never answers: wbconf says
+so after 3 s and goes on; one whose page can't be drawn: said so.
 Skips (exit 77) without a headless display.
 
 Usage: wbconf_lua_page_test.py <waybox> <wbconf> <schema-dir> <wbconf-lua>
@@ -101,13 +105,19 @@ LOCAL = MINE.replace("Name=Mine", "Name=Local").replace("mine.lua", "local.lua")
 # "stuck", it never answers at all.
 ROGUE = r'''#!/usr/bin/env python3
 import json, sys, time
-stuck = len(sys.argv) > 1
+stuck = "stuck" in sys.argv
+undrawable = "undrawable" in sys.argv
 for line in sys.stdin:
     m = json.loads(line)
     if stuck:
         time.sleep(60)
     out = []
-    if "open" in m:
+    if "open" in m and undrawable:
+        # No "controls": pages wbconf can't draw. Four, so the replies fill
+        # their vector (sizes 1, 2, 4): an error added to it while it was
+        # read made it grow under the loop.
+        out += [{"page": {}} for _ in range(4)]
+    elif "open" in m:
         out.append({"page": {"controls": [{"kind": "number", "key": "n", "label": "N",
                                             "value": "1"},
                                            {"kind": "button", "key": "b", "label": "B"}]}})
@@ -123,6 +133,9 @@ for line in sys.stdin:
 
 
 def main():
+    # As a package installs files: no one but their owner may write them (a
+    # group-writable folder would make the "packaged" pages untrusted).
+    os.umask(0o022)
     if len(sys.argv) != 5:
         print(__doc__)
         sys.exit(2)
@@ -161,8 +174,13 @@ def main():
     conf = os.path.join(home, ".config", "demo", "config")  # ~/.config, as Files= says
     os.makedirs(os.path.dirname(conf))
     original = f"marker={workdir}\ntimeout=7000\nicons=yes\n"
-    with open(conf, "w") as f:
+    # A link into a dotfiles folder (as GNU Stow makes them): read through,
+    # written to its target, the link kept.
+    target = os.path.join(home, "dotfiles", "demo-config")
+    os.makedirs(os.path.dirname(target))
+    with open(target, "w") as f:
         f.write(original)
+    os.symlink(target, conf)
     runtime = os.path.join(workdir, "run")
     os.makedirs(runtime, 0o700)
     env = dict(os.environ, WLR_BACKENDS="headless", WLR_RENDERER="pixman", HOME=home,
@@ -195,6 +213,8 @@ def main():
                 DBUS_SESSION_BUS_ADDRESS="disabled:", GSETTINGS_BACKEND="memory",
                 GIO_USE_VFS="local", NO_AT_BRIDGE="1", WBCONF_SCHEMA_DIR=schema,
                 WAYBOX_PID=str(proc.pid), WBCONF_LUA=runner,
+                # The tests' stand-in for root: the packaged pages are ours.
+                WBCONF_TEST_TRUSTED_OWNER=str(os.getuid()),
                 WBCONF_TEST_TOC=";".join(steps))
     failures = []
     app = subprocess.Popen([wbconf], env=wenv, stdout=subprocess.DEVNULL,
@@ -234,9 +254,11 @@ def main():
     text = open(conf).read()
     if text != f"marker={workdir}\ntimeout=500\nicons=yes\n":
         failures.append(f"the file as saved: {text!r}")
-    bak = conf + ".bak"
+    if not os.path.islink(conf) or os.path.realpath(conf) != os.path.realpath(target):
+        failures.append("saving replaced the link with a file (or moved it)")
+    bak = target + ".bak"
     if not os.path.exists(bak) or open(bak).read() != original:
-        failures.append("no backup of the file as it was")
+        failures.append("no backup of the file as it was (beside its target)")
     # Approval: mine waits (its runner not started), runs once allowed, is
     # remembered; changed, it's asked about again.
     approvals = os.path.join(cfg, "waybox", "approved-pages")
@@ -250,6 +272,20 @@ def main():
         a.kill()
         _, e = a.communicate()
         return [l.split("|")[1:] for l in e.splitlines() if l.startswith("luapage-dump:mine")]
+
+    # Not the system's (the "packaged" files someone else's, as far as
+    # wbconf knows): even unwritable, demo is asked about.
+    other = dict(wenv, WBCONF_TEST_TRUSTED_OWNER=str(os.getuid() + 4242),
+                 WBCONF_TEST_TOC="luapage:demo")
+    a = subprocess.Popen([wbconf], env=other, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.PIPE, text=True)
+    wbtest.reap_on_exit(a)
+    time.sleep(0.8 * 3 + 1.5)
+    a.kill()
+    _, e = a.communicate()
+    demo_d = [l for l in e.splitlines() if l.startswith("luapage-dump:demo")]
+    if not demo_d or "approval:waiting" not in demo_d[0]:
+        failures.append(f"a page not owned by the system ran unasked: {demo_d}")
 
     # Saved while still asking: said for a program in use (Local, started),
     # not for one that isn't (Risky).
@@ -306,10 +342,32 @@ def main():
     if d != [["approval:changed"]]:
         failures.append(f"changed, not asked again: {d}")
 
+    # Replaced while it's asked about: what's allowed (the script shown) is
+    # what runs, not what's on disk by the time Allow is clicked.
+    with open(os.path.join(integ, "mine.lua"), "w") as f:
+        f.write(MINE_LUA)
+    if os.path.exists(approvals):
+        os.remove(approvals)
+    steps4 = ["luapage:mine", "status", "status", "luaset:mine.approve=1", "luapage:mine"]
+    a = subprocess.Popen([wbconf], env=dict(wenv, WBCONF_TEST_TOC=";".join(steps4)),
+                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    wbtest.reap_on_exit(a)
+    time.sleep(0.8 * 2 + 0.4)  # the card up, Allow not clicked yet
+    with open(os.path.join(integ, "mine.lua"), "w") as f:
+        f.write('page { switch { "evil", label = "Evil", value = true } }\n')
+    time.sleep(0.8 * (len(steps4) - 2) + 2)
+    a.kill()
+    _, e = a.communicate()
+    d = [l.split("|")[1:] for l in e.splitlines() if l.startswith("luapage-dump:mine")]
+    if len(d) != 2 or d[1] != ["on=on"]:
+        failures.append(f"replaced while asked about, the other script ran: {d}")
+    with open(os.path.join(integ, "mine.lua"), "w") as f:
+        f.write(MINE_LUA)
+
     # A runner gone wrong: wbconf refuses what isn't allowed. One that never
     # answers: wbconf gives up on it after 3 s and goes on.
     outside = os.path.join(workdir, "outside")
-    for name, args in (("rogue", ""), ("stuck", " stuck")):
+    for name, args in (("rogue", ""), ("stuck", " stuck"), ("undrawable", " undrawable")):
         fake = os.path.join(workdir, name + "-runner")
         with open(fake, "w") as f:
             # Its stderr not wbconf's: a stuck one would hold the test's pipe.
@@ -324,7 +382,9 @@ def main():
         app = subprocess.Popen([wbconf], env=e2, stdout=subprocess.DEVNULL,
                                stderr=subprocess.PIPE, text=True)
         wbtest.reap_on_exit(app)
-        time.sleep(0.8 * (len(steps2) + 2) + (8 if name == "stuck" else 1.5))
+        # Stuck: each page that opens (three here) is given up on after 3 s
+        # first; room for a slower machine past that.
+        time.sleep(0.8 * (len(steps2) + 2) + (14 if name == "stuck" else 1.5))
         alive = app.poll() is None
         # Given up on, the stuck runner is stopped, not left sleeping (asked
         # while wbconf still runs: killing wbconf would orphan it anyway).
@@ -347,6 +407,11 @@ def main():
         dump = [l for l in err2.splitlines() if l.startswith("luapage-dump:demo")]
         if name == "stuck" and (not dump or "didn't answer in time" not in dump[0]):
             failures.append(f"stuck: not said: {dump} after {time.time() - t0:.0f}s")
+        # A page it can't draw: said, and nothing else goes wrong (the error
+        # added while the replies were being read once corrupted them).
+        if name == "undrawable" and (not dump or "can't be drawn" not in dump[0]
+                                     or "Sanitizer" in err2):
+            failures.append(f"undrawable: {dump} {err2[-600:] if 'Sanitizer' in err2 else ''}")
         if name == "rogue" and "isn't allowed" not in err2 and "isn't in the integration" \
                 not in err2:
             failures.append(f"rogue: not refused: {err2[-400:]}")

@@ -1,8 +1,10 @@
 #include <algorithm>
+#include <set>
 #include <unistd.h>
 #include "script.h"
 #include "bell.h"
 #include "toplevel_drag.h"
+#include "waybox/session_lock.h"
 #include "waybox/window_icon.h"
 #include "waybox/desktop_popup.hpp"
 #include "waybox/wlroots.hpp"
@@ -26,6 +28,21 @@ wb::FrameInsets toplevel_insets(struct wb_toplevel *toplevel) {
 	return wb::FrameInsets{};
 }
 
+static void follow_monitor_desktop(struct wb_toplevel *t);
+
+/* The monitor its middle is on, and where on it (for coming back to it). */
+static void note_output(struct wb_toplevel *t) {
+	struct wlr_output *out = wlr_output_layout_output_at(t->server->output_layout,
+			t->geometry.x + t->geometry.width / 2.0, t->geometry.y + t->geometry.height / 2.0);
+	if (out == nullptr)
+		return;
+	struct wlr_box box;
+	wlr_output_layout_get_box(t->server->output_layout, out, &box);
+	t->on_output = out->name;
+	t->on_dx = t->geometry.x - box.x;
+	t->on_dy = t->geometry.y - box.y;
+}
+
 void position_toplevel(struct wb_toplevel *toplevel) {
 	if (toplevel == nullptr || toplevel->scene_tree == nullptr)
 		return;
@@ -36,6 +53,8 @@ void position_toplevel(struct wb_toplevel *toplevel) {
 	wb::FrameInsets in = toplevel_insets(toplevel);
 	wlr_scene_node_set_position(&toplevel->scene_tree->node,
 			toplevel->geometry.x - in.left, toplevel->geometry.y - in.top);
+	note_output(toplevel);
+	follow_monitor_desktop(toplevel);
 	view_moved(toplevel);
 }
 
@@ -74,26 +93,38 @@ static void create_foreign_handle(struct wb_toplevel *toplevel) {
 	if (struct wlr_output *output = get_active_output(toplevel))
 		wlr_foreign_toplevel_handle_v1_output_enter(handle, output);
 
+	/* While the screen is locked, a taskbar (any client outside a sandbox
+	 * may bind this) changes nothing behind the lock screen. */
 	toplevel->foreign_request_activate.connect(&handle->events.request_activate,
-			[toplevel](void *) { focus_toplevel(toplevel); });
+			[toplevel](void *) {
+		if (!session_locked(toplevel->server))
+			focus_toplevel(toplevel);
+	});
 	toplevel->foreign_request_close.connect(&handle->events.request_close,
 			[toplevel](void *) {
-		view_close(toplevel);
+		if (!session_locked(toplevel->server))
+			view_close(toplevel);
 	});
 	toplevel->foreign_request_maximize.connect(&handle->events.request_maximize,
 			[toplevel](void *data) {
+		if (session_locked(toplevel->server))
+			return;
 		auto *e = static_cast<
 				struct wlr_foreign_toplevel_handle_v1_maximized_event *>(data);
 		set_toplevel_maximized(toplevel, e->maximized, e->maximized);
 	});
 	toplevel->foreign_request_fullscreen.connect(
 			&handle->events.request_fullscreen, [toplevel](void *data) {
+		if (session_locked(toplevel->server))
+			return;
 		auto *e = static_cast<
 				struct wlr_foreign_toplevel_handle_v1_fullscreen_event *>(data);
 		set_toplevel_fullscreen(toplevel, e->fullscreen);
 	});
 	toplevel->foreign_request_minimize.connect(&handle->events.request_minimize,
 			[toplevel](void *data) {
+		if (session_locked(toplevel->server))
+			return;
 		auto *e = static_cast<
 				struct wlr_foreign_toplevel_handle_v1_minimized_event *>(data);
 		set_toplevel_minimized(toplevel, e->minimized);
@@ -361,25 +392,32 @@ void lower_toplevel(struct wb_toplevel *toplevel) {
 
 static void switch_desktop(struct wb_server *server, int index, bool refocus);
 
-void toggle_show_desktop(struct wb_server *server) {
+void toggle_show_desktop(struct wb_server *server, struct wb_output *only) {
+	auto here = [only](struct wb_toplevel *t) {
+		return only == nullptr || get_active_output(t) == only->wlr_output;
+	};
 	server->show_desktop_busy = true;
 	struct wb_toplevel *t;
-	if (!server->showing_desktop) {
+	/* Shown already (those here hidden by it): back; else hide them. */
+	bool shown_already = false;
+	wl_list_for_each(t, &server->toplevels, link)
+		if (t->hidden_by_show_desktop && here(t))
+			shown_already = true;
+	if (!shown_already) {
 		/* Collected first: minimizing moves a window in the list. */
 		std::vector<struct wb_toplevel *> shown;
 		wl_list_for_each(t, &server->toplevels, link)
-			if (t->mapped && !t->minimized && toplevel_on_current_desktop(t))
+			if (t->mapped && !t->minimized && toplevel_on_current_desktop(t) && here(t))
 				shown.push_back(t);
 		for (struct wb_toplevel *w : shown) {
 			w->hidden_by_show_desktop = true;
 			set_toplevel_minimized(w, true);
 		}
-		server->showing_desktop = true;
 		wlr_log(WLR_INFO, "wb-showdesktop on %zu", shown.size());
 	} else {
 		std::vector<struct wb_toplevel *> back;
 		wl_list_for_each(t, &server->toplevels, link)
-			if (t->hidden_by_show_desktop)
+			if (t->hidden_by_show_desktop && here(t))
 				back.push_back(t);
 		/* Bottom to top, so they stack as they were. */
 		for (auto it = back.rbegin(); it != back.rend(); ++it) {
@@ -387,9 +425,13 @@ void toggle_show_desktop(struct wb_server *server) {
 			if ((*it)->mapped && (*it)->minimized)
 				set_toplevel_minimized(*it, false);
 		}
-		server->showing_desktop = false;
 		wlr_log(WLR_INFO, "wb-showdesktop off %zu", back.size());
 	}
+	/* Showing the desktop while any window anywhere is hidden by it. */
+	server->showing_desktop = false;
+	wl_list_for_each(t, &server->toplevels, link)
+		if (t->hidden_by_show_desktop)
+			server->showing_desktop = true;
 	server->show_desktop_busy = false;
 }
 
@@ -451,7 +493,9 @@ void toplevel_request_activation(struct wb_toplevel *toplevel, bool from_user) {
 	struct wb_server *server = toplevel->server;
 	using A = wb_config::Activation;
 	A mode = server->config != nullptr ? server->config->activation : A::Smart;
-	bool focus = from_user && (mode == A::Always ||
+	/* While locked: marked (urgent, seen after unlock), not focused,
+	 * raised or brought over (which would change what unlock focuses). */
+	bool focus = from_user && !session_locked(server) && (mode == A::Always ||
 			(mode == A::Smart && toplevel_on_current_desktop(toplevel) && !toplevel->minimized));
 	struct wlr_surface *s = view_surface(toplevel);
 	if (focus) {
@@ -564,8 +608,122 @@ bool toplevel_on_desktop(struct wb_toplevel *toplevel, int desktop) {
 	return toplevel->omnipresent || toplevel->desktop == desktop;
 }
 
+int output_desktop(struct wb_server *server, struct wlr_output *output) {
+	auto *o = output != nullptr ? static_cast<struct wb_output *>(output->data) : nullptr;
+	return o != nullptr ? o->desktop : server->current_desktop;
+}
+
+/* Shown where it is: on the desktop its own monitor shows (with shared
+ * desktops, the one every monitor shows). */
 bool toplevel_on_current_desktop(struct wb_toplevel *toplevel) {
-	return toplevel_on_desktop(toplevel, toplevel->server->current_desktop);
+	return toplevel_on_desktop(toplevel,
+			output_desktop(toplevel->server, get_active_output(toplevel)));
+}
+
+bool desktops_per_monitor(struct wb_server *server) {
+	return server->config != nullptr && server->config->desktops.per_monitor;
+}
+
+struct wb_output *desktop_action_output(struct wb_server *server) {
+	struct wlr_output *out = nullptr;
+	struct wlr_surface *s = server->seat->seat->keyboard_state.focused_surface;
+	if (struct wb_toplevel *t = s != nullptr ? toplevel_from_surface(server, s) : nullptr)
+		out = get_active_output(t);
+	if (out == nullptr)
+		out = wlr_output_layout_output_at(server->output_layout, server->cursor->cursor->x,
+				server->cursor->cursor->y);
+	return out != nullptr ? static_cast<struct wb_output *>(out->data) : nullptr;
+}
+
+void desktop_action_state(struct wb_server *server, int *current, int *last) {
+	struct wb_output *o = desktops_per_monitor(server) ? desktop_action_output(server) : nullptr;
+	*current = o != nullptr ? o->desktop : server->current_desktop;
+	*last = o != nullptr ? o->last_desktop : server->last_desktop;
+}
+
+/* Desktops per monitor: a window moved onto another monitor while in
+ * sight (on the desktop its monitor showed) takes the desktop the new one
+ * shows, so it stays in sight (dragged across, sent there). One that
+ * wasn't (on another of its monitor's desktops), or whose monitor is gone
+ * (unplugged), keeps its desktop's number: the monitor's desktops carry
+ * over each to the same number, not all onto the one shown. One on all
+ * desktops just notes where it is. */
+static void follow_monitor_desktop(struct wb_toplevel *t) {
+	if (!t->mapped || !desktops_per_monitor(t->server))
+		return;
+	struct wlr_output *out = get_active_output(t);
+	if (out == nullptr)
+		return;
+	std::string name = out->name;
+	if (t->going_home) {  /* back where it was: its desktop as it was */
+		t->desktop_output = name;
+		toplevel_update_visibility(t);
+		return;
+	}
+	struct wb_output *was = nullptr, *o;
+	wl_list_for_each(o, &t->server->outputs, link)
+		if (o->wlr_output->enabled && t->desktop_output == o->wlr_output->name)
+			was = o;
+	bool in_sight = was != nullptr && was->desktop == t->desktop;
+	if (!t->desktop_output.empty() && name != t->desktop_output && !t->omnipresent &&
+			in_sight) {
+		t->desktop = output_desktop(t->server, out);
+		wlr_log(WLR_INFO, "wb-desktop %s follows %s to %d", view_app_id(t), out->name,
+				t->desktop + 1);
+	}
+	bool moved = !t->desktop_output.empty() && name != t->desktop_output;
+	t->desktop_output = name;
+	if (moved) {
+		/* Its new monitor may show another desktop: in sight or not there. */
+		bool was_active = first_toplevel(t->server) == t;
+		toplevel_update_visibility(t);
+		if (was_active && !toplevel_on_current_desktop(t))
+			focus_current_desktop(t->server);
+	}
+}
+
+void windows_return_home(struct wb_server *server) {
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link) {
+		if (t->home_output.empty() || t->scene_tree == nullptr)
+			continue;
+		struct wb_output *o, *home = nullptr;
+		wl_list_for_each(o, &server->outputs, link)
+			if (o->wlr_output->enabled && t->home_output == o->wlr_output->name &&
+					wlr_output_layout_get(server->output_layout, o->wlr_output) != nullptr)
+				home = o;
+		if (home == nullptr)
+			continue;
+		struct wlr_box box;
+		wlr_output_layout_get_box(server->output_layout, home->wlr_output, &box);
+		/* Where it was on it, kept on it (the monitor may have come back
+		 * at another size). */
+		t->geometry.x = box.x + std::clamp(t->home_dx, 0, std::max(0, box.width - t->geometry.width));
+		t->geometry.y = box.y + std::clamp(t->home_dy, 0, std::max(0, box.height - t->geometry.height));
+		t->home_output.clear();
+		t->going_home = true;
+		position_toplevel(t);
+		t->going_home = false;
+		wlr_log(WLR_INFO, "wb-geom %s back on %s", view_app_id(t), home->wlr_output->name);
+	}
+}
+
+void desktops_outputs_changed(struct wb_server *server) {
+	if (!desktops_per_monitor(server))
+		return;
+	struct wb_toplevel *t;
+	wl_list_for_each(t, &server->toplevels, link)
+		follow_monitor_desktop(t);
+	workspace_schedule_sync(server);
+}
+
+/* Shared desktops: every monitor shows the server's. */
+static void sync_output_desktops(struct wb_server *server) {
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link) {
+		o->desktop = server->current_desktop;
+		o->last_desktop = server->last_desktop;
+	}
 }
 
 /* Windows on other desktops stay mapped (clients keep running and drawing)
@@ -601,10 +759,16 @@ static void clear_toplevel_focus(struct wb_server *server) {
 }
 
 void focus_current_desktop(struct wb_server *server) {
+	focus_current_desktop_on(server, nullptr);
+}
+
+/* The most recent window shown (on monitor `on` only, if given). */
+void focus_current_desktop_on(struct wb_server *server, struct wb_output *on) {
 	struct wb_toplevel *toplevel;
 	wl_list_for_each(toplevel, &server->focus_order, focus_link) {
 		if (toplevel->mapped && toplevel_on_current_desktop(toplevel) &&
-				!toplevel->minimized) {
+				!toplevel->minimized &&
+				(on == nullptr || get_active_output(toplevel) == on->wlr_output)) {
 			focus_toplevel(toplevel);
 			return;
 		}
@@ -651,22 +815,55 @@ int wb_identify_outputs(struct wb_server *server, const std::string &only, int d
 	return shown;
 }
 
-/* Show the desktop's name for a moment (Openbox's <popupTime>). */
-static void show_desktop_popup(struct wb_server *server, int index) {
+/* Show the desktop's name for a moment (Openbox's <popupTime>): on every
+ * monitor (shared, as Openbox), or on the one switched (`on`). */
+static void show_desktop_popup(struct wb_server *server, int index, struct wb_output *on) {
 	wb::DesktopConfig defaults;
 	const wb::DesktopConfig &desktops =
 			server->config != nullptr ? server->config->desktops : defaults;
 	if (desktops.popup_time_ms <= 0)
 		return;
-	wb_show_popup(server, wb::desktop_name(desktops, index), desktops.popup_time_ms);
+	std::vector<struct wlr_output *> outputs;
+	if (on != nullptr) {
+		outputs.push_back(on->wlr_output);
+	} else {
+		struct wb_output *o;
+		wl_list_for_each(o, &server->outputs, link)
+			if (o->wlr_output->enabled)
+				outputs.push_back(o->wlr_output);
+	}
+	if (server->desktop_popup == nullptr)
+		server->desktop_popup = std::make_unique<wb::DesktopPopup>(server,
+				wb_osd_style(server));
+	server->desktop_popup->show_on_each(outputs, wb::desktop_name(desktops, index),
+			desktops.popup_time_ms, wb::DesktopPopup::Pager{index, desktop_count(server)});
 }
 
+static void switch_desktop_on(struct wb_server *server, struct wb_output *on, int index,
+		bool refocus);
+
 static void switch_desktop(struct wb_server *server, int index, bool refocus) {
+	switch_desktop_on(server, desktops_per_monitor(server) ? desktop_action_output(server)
+			: nullptr, index, refocus);
+}
+
+/* Show desktop `index`: on monitor `on` alone (desktops per monitor), or,
+ * for none, on every monitor (shared). The server's current desktop is
+ * the one switched (for what reads it: the pager, IPC, Lua). */
+static void switch_desktop_on(struct wb_server *server, struct wb_output *on, int index,
+		bool refocus) {
 	if (index < 0 || index >= desktop_count(server))
 		return;
-	if (index != server->current_desktop) {
-		server->last_desktop = server->current_desktop;
+	int was = on != nullptr ? on->desktop : server->current_desktop;
+	if (index != was) {
+		server->last_desktop = was;
 		server->current_desktop = index;
+		if (on != nullptr) {
+			on->last_desktop = on->desktop;
+			on->desktop = index;
+		} else {
+			sync_output_desktops(server);
+		}
 		/* A window being dragged comes along (as in Openbox); a resize in
 		 * progress ends. */
 		if (struct wb_toplevel *grabbed = server->grabbed_toplevel) {
@@ -681,15 +878,32 @@ static void switch_desktop(struct wb_server *server, int index, bool refocus) {
 		wlr_log(WLR_INFO, "wb-desktop %d", index + 1);
 		ipc_desktop_event(server);
 		workspace_schedule_sync(server);
-		show_desktop_popup(server, index);
+		show_desktop_popup(server, index, on);
 	}
 	if (refocus)
-		focus_current_desktop(server);
+		focus_current_desktop_on(server, on);
 	cursor_refresh_focus(server);
 }
 
 void wb_go_to_desktop(struct wb_server *server, int index) {
 	switch_desktop(server, index, true);
+}
+
+void wb_go_to_desktop_on(struct wb_server *server, struct wb_output *output, int index) {
+	switch_desktop_on(server, desktops_per_monitor(server) ? output : nullptr, index, true);
+}
+
+void wb_go_to_desktop_everywhere(struct wb_server *server, int index) {
+	if (!desktops_per_monitor(server)) {
+		switch_desktop_on(server, nullptr, index, true);
+		return;
+	}
+	struct wb_output *o;
+	wl_list_for_each(o, &server->outputs, link)
+		if (o->wlr_output->enabled)
+			switch_desktop_on(server, o, index, false);
+	focus_current_desktop(server);
+	cursor_refresh_focus(server);
 }
 
 void wb_send_to_desktop(struct wb_toplevel *toplevel, int index, bool follow) {
@@ -705,7 +919,9 @@ void wb_send_to_desktop(struct wb_toplevel *toplevel, int index, bool follow) {
 	wlr_log(WLR_INFO, "wb-desktop send %s to %d", view_app_id(toplevel),
 			index + 1);
 	if (follow) {
-		switch_desktop(server, index, false);
+		struct wlr_output *out = get_active_output(toplevel);
+		switch_desktop_on(server, desktops_per_monitor(server) && out != nullptr
+				? static_cast<struct wb_output *>(out->data) : nullptr, index, false);
 		focus_toplevel(toplevel);
 	} else if (was_active && !toplevel_on_current_desktop(toplevel)) {
 		focus_current_desktop(server);
@@ -717,7 +933,7 @@ void wb_toggle_omnipresent(struct wb_toplevel *toplevel) {
 	/* Either way the window stays on the desktop being shown. */
 	if (toplevel->omnipresent) {
 		toplevel->omnipresent = false;
-		toplevel->desktop = toplevel->server->current_desktop;
+		toplevel->desktop = output_desktop(toplevel->server, get_active_output(toplevel));
 	} else {
 		toplevel->omnipresent = true;
 	}
@@ -806,6 +1022,15 @@ void desktops_reconfigured(struct wb_server *server) {
 	}
 	if (server->last_desktop >= count)
 		server->last_desktop = count - 1;
+	if (desktops_per_monitor(server)) {
+		struct wb_output *o;
+		wl_list_for_each(o, &server->outputs, link) {
+			o->desktop = std::min(o->desktop, count - 1);
+			o->last_desktop = std::min(o->last_desktop, count - 1);
+		}
+	} else {
+		sync_output_desktops(server);
+	}
 	if (server->current_desktop >= count) {
 		switch_desktop(server, count - 1, true);
 	} else {
@@ -913,6 +1138,15 @@ void arrange_toplevels(struct wb_server *server) {
 	for (struct wb_toplevel *toplevel : toplevels) {
 		if (toplevel->scene_tree == NULL || !view_ready(toplevel))
 			continue;
+		/* Its monitor gone: remembered, to go back to when it returns. */
+		if (toplevel->home_output.empty() && !toplevel->on_output.empty() &&
+				wlr_output_layout_output_at(server->output_layout,
+						toplevel->geometry.x + toplevel->geometry.width / 2.0,
+						toplevel->geometry.y + toplevel->geometry.height / 2.0) == nullptr) {
+			toplevel->home_output = toplevel->on_output;
+			toplevel->home_dx = toplevel->on_dx;
+			toplevel->home_dy = toplevel->on_dy;
+		}
 
 		if (toplevel->fullscreen) {
 			struct wlr_output *output = get_active_output(toplevel);
@@ -946,6 +1180,16 @@ void arrange_toplevels(struct wb_server *server) {
 		if (usable.width <= 0 || usable.height <= 0)
 			continue;
 
+		/* Its middle on no monitor (the one it was on unplugged or switched
+		 * off): all of it onto the one it's now nearest. */
+		if (wlr_output_layout_output_at(server->output_layout,
+				toplevel->geometry.x + toplevel->geometry.width / 2.0,
+				toplevel->geometry.y + toplevel->geometry.height / 2.0) == nullptr) {
+			toplevel->geometry.x = std::max(usable.x, std::min(toplevel->geometry.x,
+					usable.x + usable.width - toplevel->geometry.width));
+			toplevel->geometry.y = std::max(usable.y, std::min(toplevel->geometry.y,
+					usable.y + usable.height - toplevel->geometry.height));
+		}
 		/* Keep floating windows reachable after a resolution/scale change. */
 		int max_x = usable.x + usable.width - 1;
 		int max_y = usable.y + usable.height - 1;
@@ -1210,6 +1454,16 @@ void map_toplevel(struct wb_toplevel *toplevel) {
 		placed = *p;
 
 	toplevel->geometry = {placed.x, placed.y, placed.width, placed.height};
+	/* Desktops per monitor: on the desktop its monitor shows (unless its
+	 * parent, a rule or session restore said which). */
+	if (desktops_per_monitor(server)) {
+		struct wlr_output *out = get_active_output(toplevel);
+		if (parent == nullptr && !(rule != nullptr && rule->desktop) &&
+				!(restore && toplevel->session_restore_desktop))
+			toplevel->desktop = output_desktop(server, out);
+		toplevel->desktop_output = out != nullptr ? out->name : "";
+		update_desktop_visibility(toplevel);
+	}
 
 	view_set_size(toplevel, toplevel->geometry.width, toplevel->geometry.height);
 
@@ -1300,19 +1554,12 @@ static void xdg_toplevel_map(struct wb_toplevel *toplevel, void *data) {
 	map_toplevel(toplevel);
 }
 
-/* Cancel any in-progress Alt+Tab switcher whose stable window list references
- * `toplevel` (it is about to unmap or be destroyed), so the OSD never
- * dereferences a freed toplevel. */
+/* `toplevel` is about to unmap or be destroyed: its row leaves the Alt+Tab
+ * switcher (which goes on, or is cancelled with none left), so the OSD
+ * never dereferences a freed toplevel. */
 static void cancel_switcher_for(struct wb_toplevel *toplevel) {
-	struct wb_server *server = toplevel->server;
-	if (server->switcher == nullptr)
-		return;
-	for (struct wb_toplevel *w : server->switcher_windows) {
-		if (w == toplevel) {
-			wb_switcher_cancel(server);
-			return;
-		}
-	}
+	/* Its row goes; the switcher stays (a window closed from it). */
+	wb_switcher_forget(toplevel->server, toplevel);
 }
 
 static void xdg_toplevel_unmap(struct wb_toplevel *toplevel, void *data) {
@@ -1378,6 +1625,21 @@ static void xdg_toplevel_destroy(struct wb_toplevel *toplevel, void *data) {
 
 /* ---- Window capture ---- */
 
+/* Tests only: WAYBOX_TEST_FAIL=capture,toplevel makes that step fail,
+ * once each, as an allocation that fails would. */
+bool wb_test_fail_once(const char *what) {
+	static std::set<std::string> failed;
+	const char *spec = getenv("WAYBOX_TEST_FAIL");
+	if (spec == nullptr || failed.count(what))
+		return false;
+	std::string all = std::string(",") + spec + ",";
+	if (all.find(std::string(",") + what + ",") == std::string::npos)
+		return false;
+	failed.insert(what);
+	wlr_log(WLR_INFO, "wb-test-fail %s", what);
+	return true;
+}
+
 void drop_window_capture(struct wb_toplevel *toplevel) {
 	if (toplevel->capture_scene != nullptr) {
 		/* Takes the capture source along; capturing clients see it end. */
@@ -1394,22 +1656,32 @@ void drop_window_capture(struct wb_toplevel *toplevel) {
 static struct wlr_ext_image_capture_source_v1 *window_capture_source(
 		struct wb_toplevel *t) {
 	struct wb_server *server = t->server;
-	if (t->capture_scene == nullptr) {
-		struct wlr_surface *surface = view_surface(t);
-		if (surface == nullptr)
-			return nullptr;
-		t->capture_scene = wlr_scene_create();
-		if (t->capture_scene == nullptr)
-			return nullptr;
-		if (t->kind == wb_view_kind::Xdg)
-			wlr_scene_xdg_surface_create(&t->capture_scene->tree, t->xdg_toplevel->base);
-		else
-			wlr_scene_subsurface_tree_create(&t->capture_scene->tree, surface);
-		t->capture_source = wlr_ext_image_capture_source_v1_create_with_scene_node(
-				&t->capture_scene->tree.node, server->wl_event_loop,
-				server->allocator, server->renderer);
+	if (t->capture_scene != nullptr)
+		return t->capture_source;
+	struct wlr_surface *surface = view_surface(t);
+	if (surface == nullptr)
+		return nullptr;
+	/* Made whole, or not kept: one that failed partway is asked for again
+	 * next time, not kept failed. */
+	struct wlr_scene *scene = wlr_scene_create();
+	if (scene == nullptr)
+		return nullptr;
+	struct wlr_scene_tree *tree = t->kind == wb_view_kind::Xdg
+			? wlr_scene_xdg_surface_create(&scene->tree, t->xdg_toplevel->base)
+			: wlr_scene_subsurface_tree_create(&scene->tree, surface);
+	struct wlr_ext_image_capture_source_v1 *source =
+			tree == nullptr || wb_test_fail_once("capture") ? nullptr
+			: wlr_ext_image_capture_source_v1_create_with_scene_node(&scene->tree.node,
+					server->wl_event_loop, server->allocator, server->renderer);
+	if (source == nullptr) {
+		wlr_log(WLR_ERROR, "window capture: no capture source for %s",
+				view_app_id(t) ? view_app_id(t) : "");
+		wlr_scene_node_destroy(&scene->tree.node);
+		return nullptr;
 	}
-	return t->capture_source;
+	t->capture_scene = scene;
+	t->capture_source = source;
+	return source;
 }
 #endif
 
@@ -1423,6 +1695,10 @@ void init_window_capture(struct wb_server *server) {
 			[server](void *data) {
 		auto *request = static_cast<
 				struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request *>(data);
+		/* Locked: no window is captured (its scene isn't under the lock
+		 * screen); asked again after unlocking, it is. */
+		if (session_locked(server))
+			return;
 		struct wb_toplevel *t;
 		wl_list_for_each(t, &server->toplevels, link) {
 			if (t->foreign_toplevel_handle != request->toplevel_handle)
@@ -1462,8 +1738,8 @@ void destroy_toplevel(struct wb_toplevel *toplevel) {
 		wlr_scene_node_destroy(&toplevel->scene_tree->node);
 	if (toplevel->server->frame_pressed == toplevel)
 		toplevel->server->frame_pressed = nullptr;
-	/* If this window is part of an in-progress Alt+Tab cycle, drop the OSD so
-	 * its window list never dereferences a freed toplevel. */
+	/* Out of an Alt+Tab cycle's list, so it never dereferences a freed
+	 * toplevel. */
 	cancel_switcher_for(toplevel);
 
 	if (toplevel->server->grabbed_toplevel == toplevel)
@@ -1760,6 +2036,21 @@ static void xdg_toplevel_request_maximize(struct wb_toplevel *toplevel, void *da
 	set_toplevel_maximized(toplevel, maximize, maximize);
 }
 
+/* A ping unanswered: its program is hung (one asking to save answers). */
+static void xdg_toplevel_ping_timeout(struct wb_toplevel *toplevel, void *) {
+	toplevel->not_responding = true;
+	wlr_log(WLR_INFO, "wb-not-responding %s",
+			view_app_id(toplevel) ? view_app_id(toplevel) : "");
+	wb_switcher_note(toplevel->server, toplevel);
+}
+
+void toplevel_ping(struct wb_toplevel *toplevel) {
+	if (toplevel == nullptr || toplevel->kind != wb_view_kind::Xdg)
+		return;
+	toplevel->not_responding = false;
+	wlr_xdg_surface_ping(toplevel->xdg_toplevel->base);
+}
+
 static void xdg_toplevel_request_minimize(struct wb_toplevel *toplevel, void *data) {
 	set_toplevel_minimized(toplevel, toplevel->xdg_toplevel->requested.minimized);
 }
@@ -1820,6 +2111,9 @@ void begin_interactive(struct wb_toplevel *toplevel,
 	 * compositor stops propagating pointer events to clients and instead
 	 * consumes them itself, to move or resize windows. */
 	struct wb_server *server = toplevel->server;
+	/* Moved or resized by hand: it stays where it's put now, even when the
+	 * monitor it came from returns. */
+	toplevel->home_output.clear();
 	server->grabbed_toplevel = toplevel;
 	server->cursor->cursor_mode = mode;
 
@@ -2004,6 +2298,8 @@ static void handle_new_xdg_popup(struct wb_server *server, void *data) {
 			[popup](void *data) { xdg_popup_destroy(popup, data); });
 }
 
+static void unregister_toplevel(struct wb_toplevel *toplevel);
+
 static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 	struct wlr_xdg_toplevel *xdg_toplevel = static_cast<struct wlr_xdg_toplevel *>(data);
 
@@ -2012,7 +2308,21 @@ static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 	toplevel->server = server;
 	toplevel->kind = wb_view_kind::Xdg;
 	toplevel->xdg_toplevel = xdg_toplevel;
-	register_toplevel(toplevel);
+	if (!register_toplevel(toplevel)) {
+		delete toplevel;
+		wl_resource_post_no_memory(xdg_toplevel->resource);
+		return;
+	}
+	/* Its surface in the frame container (below); without it, no window
+	 * either: undone before anything is listened to. */
+	toplevel->surface_tree = wlr_scene_xdg_surface_create(
+		toplevel->scene_tree, xdg_toplevel->base);
+	if (toplevel->surface_tree == nullptr) {
+		unregister_toplevel(toplevel);
+		delete toplevel;
+		wl_resource_post_no_memory(xdg_toplevel->resource);
+		return;
+	}
 
 	/* Connect each event to its handler. The handlers take the wb_toplevel
 	 * directly; the lambda supplies it from the capture. */
@@ -2032,8 +2342,6 @@ static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 	 * decoration nodes). For now the surface sits at the container origin: with
 	 * no decorations the insets are zero, so this is identical to attaching the
 	 * surface directly. */
-	toplevel->surface_tree = wlr_scene_xdg_surface_create(
-		toplevel->scene_tree, xdg_toplevel->base);
 	/* Tag both the container and the surface tree so a click on a decoration
 	 * node (which is a child of the container, not the surface) still resolves
 	 * to this toplevel via the scene walk-up. */
@@ -2048,25 +2356,47 @@ static void handle_new_xdg_toplevel(struct wb_server *server, void *data) {
 	bind(toplevel->request_resize, &xdg_toplevel->events.request_resize, xdg_toplevel_request_resize);
 	bind(toplevel->set_app_id, &xdg_toplevel->events.set_app_id, xdg_toplevel_set_app_id);
 	bind(toplevel->set_title, &xdg_toplevel->events.set_title, xdg_toplevel_set_title);
+	bind(toplevel->ping_timeout, &xdg_toplevel->base->events.ping_timeout,
+			xdg_toplevel_ping_timeout);
 }
 
-void register_toplevel(struct wb_toplevel *toplevel) {
+bool register_toplevel(struct wb_toplevel *toplevel) {
 	struct wb_server *server = toplevel->server;
+	/* The frame container: holds the client surface tree and, with
+	 * server-side decorations, the frame nodes. Without it, no window. */
+	toplevel->scene_tree = wb_test_fail_once("toplevel") ? nullptr
+			: wlr_scene_tree_create(toplevel_layer_tree(server, 0));
+	if (toplevel->scene_tree == nullptr) {
+		wlr_log(WLR_ERROR, "%s", "a new window: no scene tree for it (out of memory?)");
+		return false;
+	}
 	toplevel->foreign_toplevel_handle = wlr_ext_foreign_toplevel_handle_v1_create(
 			server->foreign_toplevel_list, &toplevel->foreign_toplevel_state);
-	/* The frame container: holds the client surface tree and, with
-	 * server-side decorations, the frame nodes. */
-	toplevel->scene_tree = wlr_scene_tree_create(toplevel_layer_tree(server, 0));
 	assign_scene_descriptor(&toplevel->scene_tree->node,
 			WB_SCENE_DESC_TOPLEVEL, toplevel);
 	toplevel->desktop = server->current_desktop;
 	wl_list_insert(&server->toplevels, &toplevel->link);
 	wl_list_insert(&server->focus_order, &toplevel->focus_link);
+	return true;
+}
+
+/* register_toplevel undone (setup failed after it). */
+static void unregister_toplevel(struct wb_toplevel *toplevel) {
+	wl_list_remove(&toplevel->link);
+	wl_list_remove(&toplevel->focus_link);
+	if (toplevel->foreign_toplevel_handle != nullptr)
+		wlr_ext_foreign_toplevel_handle_v1_destroy(toplevel->foreign_toplevel_handle);
+	toplevel->foreign_toplevel_handle = nullptr;
+	if (toplevel->scene_tree != nullptr)
+		wlr_scene_node_destroy(&toplevel->scene_tree->node);
+	toplevel->scene_tree = nullptr;
 }
 
 void init_xdg_shell(struct wb_server *server) {
 	/* xdg-shell version 3 */
 	server->xdg_shell = wlr_xdg_shell_create(server->wl_display, 3);
+	/* A program that doesn't answer a ping in 2.5 s is taken as hung. */
+	server->xdg_shell->ping_timeout = 2500;
 	server->new_xdg_popup.connect(&server->xdg_shell->events.new_popup,
 			[server](void *data) { handle_new_xdg_popup(server, data); });
 	server->new_xdg_toplevel.connect(&server->xdg_shell->events.new_toplevel,

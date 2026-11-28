@@ -7,12 +7,14 @@ ext-foreign-toplevel identifier, which Waybox logs):
 
 1. The capture is the window's size and shows its contents.
 2. It still works while the window is hidden on another desktop.
-3. Capturing, then closing the window, leaves Waybox running.
+3. Locked, the window can't be captured (its own scene isn't under the
+   lock screen): nothing, or not it; unlocked, it can be again.
+4. Capturing, then closing the window, leaves Waybox running.
 
 Skips (exit 77) without foot, grim with -T, wtype, magick, a headless
 display, or wlroots 0.20 (which the protocol needs).
 
-Usage: window_capture_test.py <waybox-binary>
+Usage: window_capture_test.py <waybox-binary> <lock_client>
 """
 import os
 import re
@@ -35,9 +37,10 @@ def need(tool):
 
 
 def main():
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 3:
         print(__doc__)
         sys.exit(2)
+    lock_bin = sys.argv[2]
     waybox = sys.argv[1]
     for tool in ("foot", "grim", "wtype", "magick"):
         need(tool)
@@ -155,7 +158,25 @@ def main():
         expect(got is not None and got[1] == BLUE,
                f"capture of a window on another desktop failed: {got or err}")
 
-        # 3. Close it after capturing.
+        # 3. Locked: not captured; unlocked: captured again.
+        locker = subprocess.Popen([lock_bin], env=cenv, stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, text=True)
+        wbtest.reap_on_exit(locker)
+        for _ in range(30):
+            if "locked" in (locker.stdout.readline() or ""):
+                break
+        got, err = capture(ident)
+        expect(got is None or got[1] != BLUE,
+               f"the window was captured while the screen was locked: {got}")
+        locker.stdin.write("unlock\n")
+        locker.stdin.flush()
+        locker.wait(timeout=5)
+        time.sleep(0.5)
+        got, err = capture(ident)
+        expect(got is not None and got[1] == BLUE,
+               f"after unlocking, the window couldn't be captured again: {got or err}")
+
+        # 4. Close it after capturing.
         foot.terminate()
         foot.wait()
         time.sleep(0.5)

@@ -15,6 +15,9 @@
 6. "remove": the session is gone from sessions.json.
 7. <sessionRestore enabled="no"/>: a known id isn't restored (a new one is
    given), nothing is placed from it.
+8. A save that fails (the state directory unwritable) isn't forgotten: it's
+   tried again, and lands once the directory can be written.
+9. A file of a newer format isn't read, and isn't written over.
 Skips (77) without a headless display.
 
 Usage: session_restore_test.py <waybox> <session_client>
@@ -329,6 +332,56 @@ def main():
             failures.append("with it off, a window was restored")
         h.quit()
         failures += [f"off: {p}" for p in wb.stop()]
+
+        # 8. The state directory can't be written (a file in its place:
+        # that stops root too, as CI runs): the save fails, is kept, and is
+        # tried again (5 s on) until it can be.
+        state_dir = os.path.dirname(store)
+        aside = state_dir + ".aside"
+        wb = Waybox(waybox, workdir, "retry")
+        os.rename(state_dir, aside)
+        with open(state_dir, "w") as f:
+            f.write("not a directory\n")
+        try:
+            r = client(wb, "sess-r", "-", "launch", "add", "main")
+            clients.append(r)
+            sid3 = r.wait_for("created ").split()[1]
+            r.wait_for("configured ")
+            wb.action("SnapToEdge", wb.windows()["sess-r"]["id"], direction="right")
+            time.sleep(1.6)
+            if "sessions: can't write" not in open(wb.log_path).read():
+                failures.append("a failed save wasn't logged")
+        finally:
+            os.remove(state_dir)
+            os.rename(aside, state_dir)
+        if saved(sid3) is not None:
+            failures.append("saved while the directory couldn't be written?")
+        for _ in range(80):
+            time.sleep(0.1)
+            if saved(sid3) is not None:
+                break
+        if saved(sid3) is None:
+            failures.append("a failed save wasn't tried again once it could be")
+        r.quit()
+        failures += [f"retry: {p}" for p in wb.stop()]
+
+        # 9. A newer format's file: left as it is, byte for byte.
+        newer = '{"version":99,"sessions":{"x":{"future":true}}}\n'
+        with open(store, "w") as f:
+            f.write(newer)
+        wb = Waybox(waybox, workdir, "newer")
+        n = client(wb, "sess-n", "-", "launch", "add", "main")
+        clients.append(n)
+        n.wait_for("created ")
+        n.wait_for("configured ")
+        wb.action("SnapToEdge", wb.windows()["sess-n"]["id"], direction="right")
+        time.sleep(1.6)
+        n.quit()
+        failures += [f"newer: {p}" for p in wb.stop()]
+        if open(store).read() != newer:
+            failures.append("a newer format's sessions.json was written over")
+        if "from a newer Waybox" not in open(wb.log_path).read():
+            failures.append("a newer format's file wasn't said so")
     except (RuntimeError, OSError, KeyError, IndexError, AttributeError) as e:
         failures.append(f"{type(e).__name__}: {e}")
         failures += wb.stop() if wb.proc.poll() is None else []

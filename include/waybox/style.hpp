@@ -80,6 +80,10 @@ struct SwitcherStyle {
 	Surface panel;
 	ControlStyle item;
 	TextStyle item_text;
+	/* The desktop popup's squares (Openbox's pager): the shown desktop's
+	 * (osd.hilight.bg), the others' (osd.unhilight.bg, else the panel's),
+	 * each bordered in the panel's border colour. */
+	Paint pager_on, pager_off;
 	SwitcherOrientation orientation = SwitcherOrientation::Vertical;
 	OsdPosition position = OsdPosition::Center;
 	bool show_thumbnails = false;  /* reserved */
@@ -115,6 +119,12 @@ struct SwitcherBehavior {
 	bool include_minimized = true;
 	bool wrap = true;
 	bool show_icons = true;         /* each window's icon beside its title */
+	bool close = true;              /* close from it: the rows' x, the keys */
+	/* Its keys, as rc.xml writes keys, besides the switcher's own
+	 * modifier held ("none": no key): close the selected window (again
+	 * on one still there: end its program), and end its program. */
+	std::string close_key = "Delete";
+	std::string kill_key = "S-Delete";
 };
 
 /* ---- Adapters: raw Theme -> resolved style (pure) -------------------- */

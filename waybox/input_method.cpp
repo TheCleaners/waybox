@@ -2,6 +2,7 @@
  * The input method relay: text-input-v3 (applications) <-> input-method-v2
  * (fcitx5, ibus, ...). See input_method.h.
  */
+#include <algorithm>
 #include "waybox/input_method.h"
 
 #include <list>
@@ -92,8 +93,16 @@ static void update_popup(wb_ime_popup *p) {
 	struct wlr_text_input_v3 *input = relay->active->input;
 	wb::Rect cursor{ox, oy, 0, 0};
 	if (input->active_features & WLR_TEXT_INPUT_V3_FEATURE_CURSOR_RECTANGLE) {
+		/* The client's numbers: summed wide, kept to a sane range of the
+		 * layout (an int's worth of offset mustn't overflow). */
 		const struct wlr_box &r = input->current.cursor_rectangle;
-		cursor = {ox + r.x, oy + r.y, r.width, r.height};
+		constexpr long long kFar = 1LL << 24;
+		auto in_range = [](long long v, long long lo, long long hi) {
+			return static_cast<int>(std::clamp(v, lo, hi));
+		};
+		cursor = {in_range(static_cast<long long>(ox) + r.x, -kFar, kFar),
+				in_range(static_cast<long long>(oy) + r.y, -kFar, kFar),
+				in_range(r.width, 0, kFar), in_range(r.height, 0, kFar)};
 	}
 	struct wlr_output *output = wlr_output_layout_output_at(
 			relay->server->output_layout, cursor.x, cursor.y);
@@ -144,6 +153,10 @@ static void send_state(wb_input_method_relay *relay) {
 }
 
 static wb_text_input *find_active(wb_input_method_relay *relay) {
+	/* Lock screens get no input method: it would be activated for the
+	 * locker, see its text (a password field's) and send it commits. */
+	if (session_locked(relay->server))
+		return nullptr;
 	struct wlr_surface *focused = focused_surface(relay);
 	if (focused == nullptr)
 		return nullptr;
@@ -173,11 +186,13 @@ static void update_active(wb_input_method_relay *relay) {
 
 /* Text inputs follow keyboard focus: they enter surfaces of their own client. */
 static void focus_text_inputs(wb_input_method_relay *relay, struct wlr_surface *surface) {
+	/* Locked: no text input is entered (the lock screen's included). */
+	bool locked = session_locked(relay->server);
 	for (auto &t : relay->text_inputs) {
 		struct wlr_text_input_v3 *input = t->input;
-		if (input->focused_surface != nullptr && input->focused_surface != surface)
+		if (input->focused_surface != nullptr && (input->focused_surface != surface || locked))
 			wlr_text_input_v3_send_leave(input);
-		if (input->focused_surface == nullptr && same_client(input->resource, surface))
+		if (!locked && input->focused_surface == nullptr && same_client(input->resource, surface))
 			wlr_text_input_v3_send_enter(input, surface);
 	}
 	update_active(relay);

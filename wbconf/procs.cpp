@@ -2,11 +2,19 @@
  * Processes, the portable way: /proc on Linux, sysctl(KERN_PROC) on the
  * BSDs (where /proc isn't mounted by default). Names are cut to 15
  * characters everywhere (Linux's comm is), so they compare the same.
+ * Zombies are left out: exited, whatever still holds their slot.
  */
 #include "wbconf_ui.hpp"
 
+#include <optional>
+#include <csignal>
 #include <iterator>
 #include <sstream>
+
+#if defined(__linux__)
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 
 #if defined(__FreeBSD__) || defined(__DragonFly__)
 #include <sys/types.h>
@@ -48,7 +56,11 @@ std::vector<ProcessInfo> list_processes() {
 		return out;
 	for (size_t off = 0; off + sizeof(struct kinfo_proc) <= len; off += sizeof(struct kinfo_proc)) {
 		const auto *kp = reinterpret_cast<const struct kinfo_proc *>(buf.data() + off);
-		out.push_back({kp->ki_pid, kp->ki_uid, cut(kp->ki_comm), kp->ki_ppid});
+		if (kp->ki_stat == SZOMB)
+			continue;  /* exited (Waybox may hold a startup program's leader) */
+		out.push_back({kp->ki_pid, kp->ki_uid, cut(kp->ki_comm), kp->ki_ppid,
+				static_cast<unsigned long long>(kp->ki_start.tv_sec) * 1000000ull +
+						static_cast<unsigned long long>(kp->ki_start.tv_usec)});
 	}
 #else
 	DIR *d = opendir("/proc");
@@ -70,19 +82,59 @@ std::vector<ProcessInfo> list_processes() {
 		/* The parent: the field after the state, past the ")" that ends
 		 * the name (which may itself hold spaces or parentheses). */
 		pid_t ppid = 0;
+		std::string state;
 		std::ifstream statf(dir + "/stat");
 		std::string stat;
 		std::getline(statf, stat);
+		unsigned long long start = 0;
 		if (size_t close = stat.rfind(')'); close != std::string::npos) {
+			/* After the name: state, ppid, ... starttime (stat's field 22). */
 			std::istringstream rest(stat.substr(close + 1));
-			std::string state;
+			std::string field;
 			rest >> state >> ppid;
+			for (int f = 5; f < 22 && rest >> field; ++f) {
+			}
+			rest >> start;
 		}
-		out.push_back({static_cast<pid_t>(pid), st.st_uid, cut(comm), ppid});
+		/* Exited, not reaped yet (Waybox holds a startup program's leader
+		 * while what it left runs): not running. */
+		if (state == "Z" || state == "X")
+			continue;
+		out.push_back({static_cast<pid_t>(pid), st.st_uid, cut(comm), ppid, start});
 	}
 	closedir(d);
 #endif
 	return out;
+}
+
+std::optional<ProcessInfo> process_info(pid_t pid) {
+	for (const ProcessInfo &p : list_processes())
+		if (p.pid == pid)
+			return p;
+	return std::nullopt;
+}
+
+bool signal_process(const ProcessInfo &p, int sig) {
+	if (p.pid <= 1 || p.start == 0)
+		return false;
+	auto same = [&p]() {
+		std::optional<ProcessInfo> now = process_info(p.pid);
+		return now && now->start == p.start && now->uid == p.uid && now->name == p.name;
+	};
+#if defined(__linux__) && defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
+	/* The process the pidfd holds can't be replaced: checked after it's
+	 * opened, signalled through it. */
+	int fd = static_cast<int>(syscall(SYS_pidfd_open, p.pid, 0));
+	if (fd >= 0) {
+		bool ok = same() && syscall(SYS_pidfd_send_signal, fd, sig, nullptr, 0) == 0;
+		close(fd);
+		return ok;
+	}
+	if (errno != ENOSYS)
+		return false;  /* gone */
+#endif
+	/* No pidfd: checked, then signalled at once. */
+	return same() && kill(p.pid, sig) == 0;
 }
 
 std::vector<std::string> process_args(pid_t pid) {

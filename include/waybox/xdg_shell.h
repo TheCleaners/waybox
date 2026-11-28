@@ -89,6 +89,7 @@ struct wb_toplevel {
 	wb::Listener request_resize;
 	wb::Listener set_app_id;
 	wb::Listener set_title;
+	wb::Listener ping_timeout;  /* xdg: a ping (to see if it answers) unanswered */
 	/* Xwayland only. */
 	wb::Listener associate;
 	wb::Listener dissociate;
@@ -126,12 +127,27 @@ struct wb_toplevel {
 	 * shows on every desktop (Openbox's "all desktops"/sticky). */
 	int desktop = 0;
 	bool omnipresent = false;
+	/* Desktops per monitor: the monitor whose desktop it's on (by name);
+	 * moved to another, it takes the desktop that one shows. */
+	std::string desktop_output;
+	/* The monitor it's on now (by name) and where on it; and, once that
+	 * monitor went away (unplugged, switched off) and it was brought onto
+	 * another, the one it goes back to when that returns (unless the user
+	 * moves it meanwhile). */
+	std::string on_output;
+	int on_dx = 0, on_dy = 0;
+	std::string home_output;
+	int home_dx = 0, home_dy = 0;
+	bool going_home = false;
 	/* Openbox's layer: -1 always below, 0 normal, 1 always on top. Raising
 	 * and lowering stay within it. */
 	int layer = 0;
 	/* Asked for attention (activation it didn't get, an X11 urgency hint):
 	 * until it's focused. Its desktop shows as urgent (ext-workspace). */
 	bool urgent = false;
+	/* Pinged (asked to close from the switcher) and didn't answer: hung,
+	 * not merely asking to save. Cleared when pinged again. */
+	bool not_responding = false;
 	/* Minimized by ToggleShowDesktop: shown again when it's toggled off. */
 	bool hidden_by_show_desktop = false;
 
@@ -195,7 +211,11 @@ struct wlr_scene_tree *toplevel_layer_tree(struct wb_server *server, int layer);
 void set_toplevel_layer(struct wb_toplevel *toplevel, int layer);
 /* Insert a new toplevel into the server lists and create its scene
  * container (both kinds). */
-void register_toplevel(struct wb_toplevel *toplevel);
+/* Its scene tree, its handle, in the lists; false (nothing done) if its
+ * scene tree can't be made. */
+bool register_toplevel(struct wb_toplevel *toplevel);
+/* Tests only: WAYBOX_TEST_FAIL names steps that fail once each. */
+bool wb_test_fail_once(const char *what);
 /* Window capture (wlroots 0.20+; no-ops otherwise). */
 void init_window_capture(struct wb_server *server);
 void drop_window_capture(struct wb_toplevel *toplevel);
@@ -256,15 +276,36 @@ wb::Rect tile_preview_rect(struct wb_server *server, struct wlr_output *output,
 int desktop_count(struct wb_server *server);
 bool toplevel_on_desktop(struct wb_toplevel *toplevel, int desktop);
 bool toplevel_on_current_desktop(struct wb_toplevel *toplevel);
+/* The desktop `output` shows (#367); the shared one for none. */
+int output_desktop(struct wb_server *server, struct wlr_output *output);
+/* Monitors added, removed, switched off or moved: with desktops per
+ * monitor, each window's monitor looked at again (a gone one's windows
+ * carry over by desktop number). */
+void desktops_outputs_changed(struct wb_server *server);
+/* A monitor back (plugged in, switched on): the windows moved off it when
+ * it went go back to where they were on it. */
+void windows_return_home(struct wb_server *server);
+/* Whether each monitor shows its own desktop (<desktops><perMonitor>). */
+bool desktops_per_monitor(struct wb_server *server);
+/* The monitor desktop actions act on: the focused window's, else the
+ * pointer's. */
+struct wb_output *desktop_action_output(struct wb_server *server);
+/* The current and last desktop desktop actions see (that monitor's;
+ * shared: the server's). */
+void desktop_action_state(struct wb_server *server, int *current, int *last);
 /* A window asks to be shown (xdg-activation, X11 _NET_ACTIVE_WINDOW):
  * focused, or marked urgent, as <activation> says; `from_user`: made from
  * input (a click, a key), not by the program on its own. */
 void toplevel_request_activation(struct wb_toplevel *toplevel, bool from_user);
 void set_toplevel_urgent(struct wb_toplevel *toplevel, bool urgent);
+/* Ask the window's program whether it's responding (xdg's ping; unanswered
+ * in 2.5 s: not_responding). X11 windows: nothing. */
+void toplevel_ping(struct wb_toplevel *toplevel);
 /* ToggleShowDesktop: the current desktop's windows minimized, or (on again)
  * those brought back. Focusing a window ends it, the others left minimized
  * (as in Openbox). */
-void toggle_show_desktop(struct wb_server *server);
+/* Every window shown minimized (or back); `only`: that monitor's alone. */
+void toggle_show_desktop(struct wb_server *server, struct wb_output *only = nullptr);
 /* AddDesktop, RemoveDesktop: one more after the current or the last; the
  * current or the last taken away, its windows to the one before. Until the
  * next Reconfigure (rc.xml keeps its number). */
@@ -281,6 +322,10 @@ void focus_order_to_bottom(struct wb_toplevel *toplevel);
 /* Show desktop `index` (0-based): hide the other desktops' windows and focus
  * the most recently used window here (or nothing). */
 void wb_go_to_desktop(struct wb_server *server, int index);
+/* Desktop `index` on monitor `output` (desktops per monitor; shared: on all). */
+void wb_go_to_desktop_on(struct wb_server *server, struct wb_output *output, int index);
+/* Desktop `index` on every monitor (desktops per monitor: each switched). */
+void wb_go_to_desktop_everywhere(struct wb_server *server, int index);
 /* An output's usable area (less panels' reservations), in layout
  * coordinates; empty for nullptr. */
 struct wlr_box output_usable_area(struct wb_server *server, struct wlr_output *output);
@@ -302,6 +347,8 @@ void wb_toggle_omnipresent(struct wb_toplevel *toplevel);
 /* Focus the most recently used visible window on the current desktop, or
  * clear keyboard focus when there is none. */
 void focus_current_desktop(struct wb_server *server);
+struct wb_output;
+void focus_current_desktop_on(struct wb_server *server, struct wb_output *on);
 /* After a reconfigure: move windows off desktops that no longer exist. */
 void desktops_reconfigured(struct wb_server *server);
 struct wb_toplevel *get_toplevel_at(

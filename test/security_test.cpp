@@ -24,3 +24,16 @@ WB_TEST(ordinary_app_protocols_are_not) {
 		WB_CHECK(!is_privileged_protocol(name));
 	WB_CHECK(!is_privileged_protocol(""));
 }
+
+/* Every global Waybox makes is one or the other; a new one is unknown
+ * (and so refused to sandboxed programs) until classified. */
+WB_TEST(protocols_classified) {
+	using wb::ProtocolClass;
+	using wb::classify_protocol;
+	WB_CHECK(classify_protocol("wl_compositor") == ProtocolClass::Ordinary);
+	WB_CHECK(classify_protocol("xdg_session_manager_v1") == ProtocolClass::Ordinary);
+	WB_CHECK(classify_protocol("zwlr_screencopy_manager_v1") == ProtocolClass::Privileged);
+	WB_CHECK(classify_protocol("xwayland_shell_v1") == ProtocolClass::Privileged);
+	WB_CHECK(classify_protocol("zwp_fancy_new_thing_v1") == ProtocolClass::Unknown);
+	WB_CHECK(classify_protocol("") == ProtocolClass::Unknown);
+}

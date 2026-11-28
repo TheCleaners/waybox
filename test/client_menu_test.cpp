@@ -24,6 +24,9 @@ WB_TEST(entries_follow_the_window_state) {
 	WB_CHECK(find_label(*m, "Maximize") && find_label(*m, "Roll up"));
 	WB_CHECK(find_label(*m, "Decorate") && find_label(*m, "Close"));
 	WB_CHECK(find_label(*m, "Close")->actions.at(0).type == ActionType::Close);
+	/* For a window that won't close: its program ended. */
+	WB_CHECK(find_label(*m, "End Program") &&
+			find_label(*m, "End Program")->actions.at(0).type == ActionType::Kill);
 
 	s.maximized = s.shaded = s.decorated = true;
 	f = wb::build_client_menu(s);

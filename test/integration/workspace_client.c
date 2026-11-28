@@ -6,6 +6,8 @@
  *   done outputs=<n> <id>:<name>:<active|->[:urgent] ...
  * in the order the workspaces were announced. Commands on stdin:
  *   activate <id>   activate that workspace and commit
+ *   queue <id>      activate that workspace, no commit yet
+ *   commit          commit
  *   stop            send stop (expects "finished")
  */
 #define _GNU_SOURCE
@@ -155,15 +157,19 @@ static const struct wl_registry_listener registry_listener = {
 
 static void command(const char *line) {
 	char id[32];
-	if (sscanf(line, "activate %31s", id) == 1) {
+	int queue = sscanf(line, "queue %31s", id) == 1;
+	if (queue || sscanf(line, "activate %31s", id) == 1) {
 		for (int i = 0; i < num_ws; i++) {
 			if (!workspaces[i].removed && strcmp(workspaces[i].id, id) == 0) {
 				ext_workspace_handle_v1_activate(workspaces[i].handle);
-				ext_workspace_manager_v1_commit(manager);
+				if (!queue)
+					ext_workspace_manager_v1_commit(manager);
 				return;
 			}
 		}
 		fprintf(stderr, "no workspace %s\n", id);
+	} else if (strncmp(line, "commit", 6) == 0 && manager) {
+		ext_workspace_manager_v1_commit(manager);
 	} else if (strncmp(line, "stop", 4) == 0 && manager) {
 		ext_workspace_manager_v1_stop(manager);
 	}

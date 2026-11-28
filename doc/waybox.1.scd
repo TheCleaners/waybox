@@ -58,10 +58,14 @@ _/etc/xdg/waybox/_). If neither has one, Openbox's files are used, with a
 warning.
 
 The default *autostart* starts a dock, a panel, a notification daemon, a
-wallpaper and a polkit authentication agent, and passes *WAYLAND_DISPLAY*, *DISPLAY*,
+wallpaper, a polkit authentication agent and, where GeoClue is installed,
+*waybox-location-agent* (it asks before an app learns where you are), and passes *WAYLAND_DISPLAY*, *DISPLAY*,
 *XDG_CURRENT_DESKTOP* and *XDG_SESSION_TYPE* to the D-Bus activation
 environment. XDG autostart entries are started for the *Waybox* desktop
-only; entries limited to other desktops (_OnlyShowIn_) are skipped.
+only; entries limited to other desktops (_OnlyShowIn_) are skipped. An
+entry's _Exec_ line is run by _sh -c_ (its field codes, such as _%u_,
+removed), as many entries expect: quotes, variables and _;_ in it are the
+shell's, so an entry in _~/.config/autostart_ runs what it says, as you.
 
 # SIGNALS
 

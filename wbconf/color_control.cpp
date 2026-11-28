@@ -16,25 +16,29 @@ namespace wbconf {
 
 namespace {
 
-/* One stylesheet for every field's tint (GTK 4 has no per-widget one). */
-GtkCssProvider *tints = nullptr;
-std::map<std::string, std::string> tint_rules;
 int next_class = 0;
 
-void apply_tints() {
-	if (tints == nullptr) {
-		tints = gtk_css_provider_new();
-		gtk_style_context_add_provider_for_display(gdk_display_get_default(),
-				GTK_STYLE_PROVIDER(tints), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+/* The field's tint, in a stylesheet of its own attached to the field only:
+ * a change restyles that field, not the whole window (one stylesheet for
+ * every field, reloaded on each change, restyled all of wbconf each time:
+ * a color picked froze it for minutes). GTK deprecates a widget's own
+ * provider, without a replacement for this. */
+void set_tint(ColorControl *c, const std::string &css) {
+	if (css == c->tint_css)
+		return;
+	if (c->tint == nullptr) {
+		c->tint = gtk_css_provider_new();
+		G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+		gtk_style_context_add_provider(gtk_widget_get_style_context(GTK_WIDGET(c->entry)),
+				GTK_STYLE_PROVIDER(c->tint), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+		G_GNUC_END_IGNORE_DEPRECATIONS
 	}
-	std::string css;
-	for (const auto &[cls, rule] : tint_rules)
-		css += rule;
 #if GTK_CHECK_VERSION(4, 12, 0)
-	gtk_css_provider_load_from_string(tints, css.c_str());
+	gtk_css_provider_load_from_string(c->tint, css.c_str());
 #else
-	gtk_css_provider_load_from_data(tints, css.c_str(), -1);
+	gtk_css_provider_load_from_data(c->tint, css.c_str(), -1);
 #endif
+	c->tint_css = css;
 }
 
 std::string hex_of(const GdkRGBA *c, bool alpha) {
@@ -75,12 +79,30 @@ void on_text(GtkEditable *, gpointer data) {
 	color_control_refresh(c);
 }
 
+/* The button's color into the field: the first change at once, then while
+ * it keeps changing the latest one every 100 ms. Dragging in GTK's color
+ * editor changes it many times a second, and each change of the field is
+ * a setting changed (its tint, the unsaved changes, the problems checked
+ * again): one at a time, a drag froze wbconf. */
+gboolean on_button_settled(gpointer data) {
+	auto *c = static_cast<ColorControl *>(data);
+	if (c->pending == gtk_editable_get_text(GTK_EDITABLE(c->entry))) {
+		c->pending_timer = 0;  /* quiet for 100 ms: the next change goes at once */
+		return G_SOURCE_REMOVE;
+	}
+	gtk_editable_set_text(GTK_EDITABLE(c->entry), c->pending.c_str());
+	return G_SOURCE_CONTINUE;  /* and wait another 100 ms */
+}
+
 void on_button(GObject *, GParamSpec *, gpointer data) {
 	auto *c = static_cast<ColorControl *>(data);
 	if (c->syncing)
 		return;
-	gtk_editable_set_text(GTK_EDITABLE(c->entry),
-			hex_of(gtk_color_dialog_button_get_rgba(c->button), c->alpha).c_str());
+	c->pending = hex_of(gtk_color_dialog_button_get_rgba(c->button), c->alpha);
+	if (c->pending_timer != 0)
+		return;  /* changing fast: the latest when the 100 ms are up */
+	gtk_editable_set_text(GTK_EDITABLE(c->entry), c->pending.c_str());
+	c->pending_timer = g_timeout_add(100, on_button_settled, c);
 }
 
 /* The eyedropper: Waybox waits for a click, so not on this thread. */
@@ -124,11 +146,7 @@ void color_control_refresh(ColorControl *c) {
 	bool light = 0.2126 * fg.red + 0.7152 * fg.green + 0.0722 * fg.blue < 0.5;
 	wb::Color base = light ? wb::Color{255, 255, 255, 255} : wb::Color{0x24, 0x24, 0x24, 255};
 	auto tint = wb::field_tint(v, base);
-	if (tint)
-		tint_rules[c->css_class] = wb::field_tint_css(c->css_class, *tint);
-	else
-		tint_rules.erase(c->css_class);
-	apply_tints();
+	set_tint(c, tint ? wb::field_tint_css(c->css_class, *tint) : std::string());
 	/* The button shows the value; left out, the default, else the example
 	 * the field shows greyed; else nothing (clear), never GTK's own red. */
 	GdkRGBA rgba;
@@ -180,7 +198,10 @@ std::unique_ptr<ColorControl> make_color_control(const std::string &hint,
 
 ColorControl::~ColorControl() {
 	*self = nullptr;  /* a pick answering later finds it gone */
-	tint_rules.erase(css_class);
+	if (pending_timer != 0)
+		g_source_remove(pending_timer);
+	if (tint != nullptr)
+		g_object_unref(tint);
 }
 
 }  // namespace wbconf

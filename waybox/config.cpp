@@ -14,6 +14,7 @@
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 
+#include "waybox/geometry.hpp"
 #include "waybox/app_rule_xml.hpp"
 #include "waybox/font_spec.hpp"
 #include "waybox/stall.hpp"
@@ -117,14 +118,6 @@ static wb::MenuFile load_menu_file() {
 		return wb::parse_menu_xml(buf.str());
 	}
 	return {};
-}
-
-static unsigned long strtoulong(char *s) {
-	if (!s)
-		return 0;
-	unsigned long value = strtoul(s, (char **) NULL, 10);
-	free(s);
-	return value;
 }
 
 /* The text of the first node `expr` matches (to be free()d), or NULL. */
@@ -380,6 +373,9 @@ static void parse_desktops(struct wb_config *config, xmlXPathContextPtr ctxt) {
 		if (const char *n = child_text(node, "number"))
 			config->desktops.number =
 					wb::parse_desktop_count(n, config->desktops.number);
+		if (const char *p = child_text(node, "perMonitor"))
+			config->desktops.per_monitor = strcasecmp(p, "yes") == 0 ||
+					strcasecmp(p, "true") == 0 || strcmp(p, "1") == 0;
 		if (const char *t = child_text(node, "popupTime"))
 			config->desktops.popup_time_ms =
 					wb::parse_popup_time(t, config->desktops.popup_time_ms);
@@ -447,6 +443,12 @@ static void parse_switcher_behavior(struct wb_config *config,
 				config->switcher_behavior.wrap = *w;
 			if (auto i = parse_bool((const char *) get_attribute(node, "icons")))
 				config->switcher_behavior.show_icons = *i;
+			if (auto c = parse_bool((const char *) get_attribute(node, "close")))
+				config->switcher_behavior.close = *c;
+			if (const char *k = (const char *) get_attribute(node, "closeKey"))
+				config->switcher_behavior.close_key = k;
+			if (const char *k = (const char *) get_attribute(node, "killKey"))
+				config->switcher_behavior.kill_key = k;
 		}
 	}
 	xmlXPathFreeObject(object);
@@ -1008,6 +1010,20 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 	}
 	parse_mouse_bindings(config, ctxt);
 	parse_app_rules(config, ctxt);
+	/* Built in, after rc.xml's (first match wins: a rule of the user's for
+	 * it goes first): the location agent's card above the windows, in
+	 * the middle of the monitor in use, not taking the keyboard from what's
+	 * being typed (a click or Tab reaches it). */
+	{
+		wb::AppRule card;
+		card.class_pattern = "org.waybox.LocationAgent";
+		card.focus = false;
+		card.layer = 1;
+		card.x_spec = "center";
+		card.y_spec = "center";
+		card.monitor = "active";
+		config->app_rules.push_back(std::move(card));
+	}
 	parse_desktops(config, ctxt);
 
 	if (char *policy = parse_xpath_expr("//ob:placement/ob:policy", ctxt)) {
@@ -1016,10 +1032,22 @@ static struct wb_config *load_config_file(const fs::path &rc_file, std::string *
 		free(policy);
 	}
 
-	config->margins.bottom = strtoulong(parse_xpath_expr("//ob:margins/ob:bottom", ctxt));
-	config->margins.left = strtoulong(parse_xpath_expr("//ob:margins/ob:left", ctxt));
-	config->margins.right = strtoulong(parse_xpath_expr("//ob:margins/ob:right", ctxt));
-	config->margins.top = strtoulong(parse_xpath_expr("//ob:margins/ob:top", ctxt));
+	/* Whole pixels, 0 to 10000; anything else is 0 (and said). */
+	auto margin = [ctxt](const char *expr, const char *side) {
+		char *text = parse_xpath_expr(expr, ctxt);
+		if (text == nullptr)
+			return 0;
+		std::optional<int> v = wb::parse_margin(text);
+		if (!v)
+			wlr_log(WLR_ERROR, "rc.xml: <margins><%s>%s</%s> isn't 0 to %d pixels; 0 is used",
+					side, text, side, wb::kMaxMargin);
+		free(text);
+		return v.value_or(0);
+	};
+	config->margins.bottom = margin("//ob:margins/ob:bottom", "bottom");
+	config->margins.left = margin("//ob:margins/ob:left", "left");
+	config->margins.right = margin("//ob:margins/ob:right", "right");
+	config->margins.top = margin("//ob:margins/ob:top", "top");
 
 	config->menu = load_menu_file();
 
@@ -1120,7 +1148,12 @@ bool init_config(struct wb_server *server) {
 	if (has_settings(rc_file)) {
 		config = load_config_file(rc_file, &problem);
 	} else {
+		/* Missing or empty: the defaults, as a Reconfigure makes them (no
+		 * config at all left the scripting socket off until one). */
+		static const std::string kNoSettings =
+				"<openbox_config xmlns=\"http://openbox.org/3.4/rc\"/>";
 		wlr_log(WLR_INFO, "%s %s", _("No settings in"), rc_file.c_str());
+		config = load_config_file(rc_file, &problem, &kNoSettings);
 	}
 #ifdef WB_SYSCONFDIR
 	/* A broken user rc.xml: start with the system's instead, rather than
@@ -1142,7 +1175,7 @@ bool init_config(struct wb_server *server) {
 
 /* Reconfigure: read rc.xml again. A broken file leaves the current
  * configuration in place. Returns the new config, or nullptr. */
-struct wb_config *reload_config(struct wb_server *server) {
+struct wb_config *reload_config(struct wb_server *server, std::string *problem_out) {
 	std::string problem;
 	fs::path rc_file = chosen_rc_file(server);
 	if (!rc_file.empty() && !has_settings(rc_file)) {
@@ -1153,8 +1186,11 @@ struct wb_config *reload_config(struct wb_server *server) {
 		return load_config_file(rc_file, &problem, &kNoSettings);
 	}
 	struct wb_config *config = load_config(server, &problem);
-	if (config == nullptr)
+	if (config == nullptr) {
 		report_config_problem(problem, _("Keeping the current settings."), false);
+		if (problem_out != nullptr)
+			*problem_out = problem;
+	}
 	return config;
 }
 

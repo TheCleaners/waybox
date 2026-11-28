@@ -192,7 +192,11 @@ Waybox listens on a socket (`$WAYBOX_SOCK`, reachable only by your own
 programs; `<waybox><ipc enabled="no"/>` turns it off) for one JSON object per
 line: list windows, desktops and outputs, run any rc.xml action, and
 subscribe to events (windows opening, closing, focused or retitled; desktop
-switches; outputs; reloads).
+switches; outputs; reloads). A request's `"id"` comes back in its reply; picks answer when
+the click comes, after any requests sent behind them. Whatever reaches the socket acts as you
+(an Execute action runs any command), so don't pass it into a sandbox;
+while the screen is locked, it refuses actions and anything that runs
+or restarts a program.
 `waybox-msg` does it from the shell:
 
 ```sh
@@ -203,6 +207,7 @@ waybox-msg identify                    # each monitor's name, large, on it
 waybox-msg pick_color                  # the color you click next (Escape cancels)
 waybox-msg pick_window                 # the window you click next: its app id, title, tag
 waybox-msg restart_program mako        # a startup program stopped, then started again
+waybox-msg reconfigure                 # rc.xml read again; says why if it can't be
 waybox-msg subscribe window,desktop    # one event per line, as they happen
 waybox-msg subscribe bell              # each ring of the bell, and what it showed
 ```

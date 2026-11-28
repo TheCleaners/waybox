@@ -1,3 +1,5 @@
+#include <cstdlib>
+#include <climits>
 #include "waybox/page_protocol.hpp"
 
 #include <set>
@@ -295,6 +297,28 @@ std::string expand_home(const std::string &path, const std::string &home) {
 		return home;
 	if (path.rfind("~/", 0) == 0 && !home.empty())
 		return home + path.substr(1);
+	return path;
+}
+
+std::string resolve_path(const std::string &path) {
+	if (path.empty() || path[0] != '/')
+		return path;
+	std::string head = path, tail;
+	while (!head.empty()) {
+		char buf[PATH_MAX];
+		if (realpath(head.c_str(), buf) != nullptr) {
+			std::string out = buf;
+			if (!tail.empty())
+				out += (out == "/" ? "" : "/") + tail;
+			return out;
+		}
+		size_t slash = head.rfind('/');
+		if (slash == std::string::npos)
+			break;
+		std::string name = head.substr(slash + 1);
+		tail = tail.empty() ? name : name + "/" + tail;
+		head = slash == 0 ? "/" : head.substr(0, slash);
+	}
 	return path;
 }
 

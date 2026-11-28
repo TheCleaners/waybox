@@ -100,7 +100,10 @@
           "rc": { "path": "desktops/names", "item": "name" } },
         { "id": "desktops.popupTime", "title": "Show the name after switching", "type": "int",
           "description": "How long the desktop's name stays on screen; 0 turns it off.", "min": 0, "max": 10000,
-          "unit": "ms", "default": "875", "rc": { "path": "desktops/popupTime" } }
+          "unit": "ms", "default": "875", "rc": { "path": "desktops/popupTime" } },
+        { "id": "desktops.perMonitor", "title": "Each monitor its own desktop", "type": "bool",
+          "description": "Switching desktops changes only the monitor of the focused window (or the pointer's); new windows open on the desktop their monitor shows. Off, every monitor shows the same desktop, as in Openbox.",
+          "default": "no", "rc": { "path": "desktops/perMonitor" } }
       ]
     },
     {
@@ -159,7 +162,16 @@
         { "id": "waybox.switcher.wrap", "title": "Wrap the selection", "type": "bool", "default": "yes",
           "rc": { "path": "waybox/switcher", "attr": "wrap" } },
         { "id": "waybox.switcher.icons", "title": "Show window icons", "type": "bool", "default": "yes",
-          "rc": { "path": "waybox/switcher", "attr": "icons" } }
+          "rc": { "path": "waybox/switcher", "attr": "icons" } },
+        { "id": "waybox.switcher.close", "title": "Close windows from the switcher", "type": "bool", "default": "yes",
+          "description": "A close button on the selected row and the one under the pointer (Shift+click ends the program), and the two keys below.",
+          "keywords": "kill quit x delete", "rc": { "path": "waybox/switcher", "attr": "close" } },
+        { "id": "waybox.switcher.closeKey", "title": "Key to close the selected window", "type": "key", "default": "Delete",
+          "description": "While the switcher is up (its modifier still held). A window that doesn't close and doesn't respond either is marked so; pressed again then, the key ends its program. One that responds (asking to save, say) is only asked again.",
+          "keywords": "kill quit x delete shortcut", "rc": { "path": "waybox/switcher", "attr": "closeKey" } },
+        { "id": "waybox.switcher.killKey", "title": "Key to end the selected window's program", "type": "key", "default": "S-Delete",
+          "description": "While the switcher is up: the program ends at once, without asking (unsaved work is lost).",
+          "keywords": "kill force quit shortcut", "rc": { "path": "waybox/switcher", "attr": "killKey" } }
       ]
     },
     {

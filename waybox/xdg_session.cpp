@@ -5,6 +5,7 @@
  * $XDG_STATE_HOME/waybox/sessions.json and, when the app asks before a
  * window's first commit, opens it where it was. See xdg_session.h.
  */
+#include "waybox/atomic_file.hpp"
 #include "waybox/xdg_session.h"
 
 #include <algorithm>
@@ -59,6 +60,9 @@ struct wb_session_state {
 	struct wl_event_source *save_timer = nullptr;
 	bool dirty = false;
 	bool armed = false;  /* the save timer is set */
+	/* The file is a newer Waybox's: read nothing from it, write nothing. */
+	bool read_only = false;
+	int retry_ms = 0;  /* after a failed save: the wait before the next */
 };
 
 namespace {
@@ -85,26 +89,45 @@ std::string state_path() {
 	return dir + "/waybox/sessions.json";
 }
 
-void save_now(struct wb_session_state *st) {
-	st->dirty = false;
-	if (st->path.empty())
-		return;
-	st->store.expire(now_seconds());
+/* Written whole (a temporary file, synced, renamed over, the directory
+ * synced), or not at all; true if saved. */
+bool write_store(struct wb_session_state *st) {
 	std::error_code ec;
-	fs::create_directories(fs::path(st->path).parent_path(), ec);
-	std::string tmp = st->path + ".tmp";
-	int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
-	if (fd < 0) {
-		wlr_log(WLR_ERROR, "sessions: can't write %s: %s", tmp.c_str(), strerror(errno));
+	fs::path dir = fs::path(st->path).parent_path();
+	fs::create_directories(dir, ec);
+	/* A new file of its own (mkstemp: no link followed, no FIFO opened),
+	 * private, renamed over. */
+	std::string err;
+	if (!wb::write_file_atomic(st->path, st->store.to_json(), &err, 0600)) {
+		wlr_log(WLR_ERROR, "sessions: can't write %s", err.c_str());
+		return false;
+	}
+	/* The rename itself kept across a crash. */
+	int dfd = open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	if (dfd >= 0) {
+		fsync(dfd);
+		close(dfd);
+	}
+	return true;
+}
+
+void save_now(struct wb_session_state *st) {
+	if (st->path.empty() || st->read_only) {
+		st->dirty = false;
 		return;
 	}
-	std::string text = st->store.to_json();
-	bool ok = write(fd, text.data(), text.size()) == static_cast<ssize_t>(text.size());
-	ok = fsync(fd) == 0 && ok;
-	close(fd);
-	if (!ok || rename(tmp.c_str(), st->path.c_str()) != 0) {
-		wlr_log(WLR_ERROR, "sessions: can't save %s", st->path.c_str());
-		unlink(tmp.c_str());
+	st->store.expire(now_seconds());
+	if (write_store(st)) {
+		st->dirty = false;
+		st->retry_ms = 0;
+		return;
+	}
+	/* Still to save: again later, waiting longer each time (5 s to 1 min). */
+	st->dirty = true;
+	st->retry_ms = st->retry_ms == 0 ? 5000 : std::min(st->retry_ms * 2, 60000);
+	if (st->save_timer != nullptr && !st->armed) {
+		wl_event_source_timer_update(st->save_timer, st->retry_ms);
+		st->armed = true;
 	}
 }
 
@@ -421,13 +444,23 @@ void init_xdg_session(struct wb_server *server) {
 	st->server = server;
 	st->path = state_path();
 	if (!st->path.empty()) {
-		std::ifstream f(st->path);
+		std::ifstream f(st->path, std::ios::binary);
 		if (f) {
-			std::stringstream text;
-			text << f.rdbuf();
-			if (!st->store.from_json(text.str()))
-				wlr_log(WLR_ERROR, "sessions: %s isn't readable; starting afresh",
-						st->path.c_str());
+			/* No more than a store can be (a bigger file isn't one). */
+			std::string text(wb::SessionStore::kMaxFileBytes + 1, '\0');
+			f.read(text.data(), static_cast<std::streamsize>(text.size()));
+			text.resize(static_cast<size_t>(f.gcount()));
+			bool newer = false;
+			if (!st->store.from_json(text, &newer)) {
+				if (newer) {
+					st->read_only = true;
+					wlr_log(WLR_ERROR, "sessions: %s is from a newer Waybox; not used, "
+							"and left as it is", st->path.c_str());
+				} else {
+					wlr_log(WLR_ERROR, "sessions: %s isn't readable; starting afresh",
+							st->path.c_str());
+				}
+			}
 			st->store.expire(now_seconds());
 		}
 	}

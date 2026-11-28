@@ -107,6 +107,8 @@ struct OsdColors {
 	bool bg_set = false;
 	Texture hilight_bg;      /* osd.hilight.bg: the switcher's selected row */
 	bool hilight_set = false;
+	Texture unhilight_bg;    /* osd.unhilight.bg: the desktop popup's other desktops */
+	bool unhilight_set = false;
 	Color text;              /* osd.label.text.color, osd.inactive.label.text.color */
 	bool text_set = false;
 	Color active_text;       /* osd.active.label.text.color: the selected row's */

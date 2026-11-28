@@ -40,6 +40,7 @@ int usage() {
 		"       waybox-msg pick_color\n"
 		"       waybox-msg pick_window\n"
 		"       waybox-msg restart_program NAME\n"
+		"       waybox-msg reconfigure   (rc.xml read again; fails if it can't be)\n"
 		"       waybox-msg subscribe window,desktop,output,config\n"
 		"       waybox-msg raw JSON\n");
 	return 2;
@@ -133,6 +134,10 @@ int main(int argc, char **argv) {
 		req["request"] = "subscribe";
 		req["events"] = events;
 		stream = true;
+	} else if (cmd == "reconfigure") {
+		if (argc != 2)
+			return usage();
+		req["request"] = cmd;
 	} else if (cmd.rfind("get_", 0) == 0) {
 		if (argc != 2)
 			return usage();

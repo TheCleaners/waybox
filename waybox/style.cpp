@@ -141,6 +141,8 @@ SwitcherStyle switcher_style_from_theme(const Theme &theme) {
 	s.item.disabled = StateStyle{paint_from_texture(bg), m.separator};
 	s.item_text.color = text;
 	s.item_text.font = theme.font_osd;
+	s.pager_on = paint_from_texture(hilight);
+	s.pager_off = paint_from_texture(o.unhilight_set ? o.unhilight_bg : bg);
 	return s;
 }
 
@@ -153,6 +155,8 @@ SwitcherStyle osd_style(const Theme &theme, const OsdConfig &c) {
 		s.panel.fill = paint_from_texture(t);
 		s.item.normal.fill = s.panel.fill;
 		s.item.disabled.fill = s.panel.fill;
+		if (!theme.osd.unhilight_set)
+			s.pager_off = s.panel.fill;
 	}
 	if (c.text) {
 		s.item_text.color = *c.text;

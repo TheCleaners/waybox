@@ -56,6 +56,16 @@
 
 namespace wbconf {
 
+/* A process, as listed (procs.cpp): `start` tells it from a later one
+ * given the same id (Linux: clock ticks after boot; the BSDs: µs). */
+struct ProcessInfo {
+	pid_t pid;
+	uid_t uid;
+	std::string name;  /* at most 15 characters */
+	pid_t ppid = 0;
+	unsigned long long start = 0;
+};
+
 namespace fs = std::filesystem;
 
 /* ---- Monitors, as wlr-randr --json reports them ----------------------- */
@@ -95,6 +105,10 @@ struct ColorControl {
 	std::string css_class, default_value, hint;
 	bool alpha = false, syncing = false, picking = false;
 	std::shared_ptr<ColorControl *> self;  /* nulled when gone: a late pick */
+	GtkCssProvider *tint = nullptr;  /* the field's own stylesheet */
+	std::string pending;      /* the button's color, for the field soon */
+	guint pending_timer = 0;
+	std::string tint_css;
 	~ColorControl();
 };
 std::unique_ptr<ColorControl> make_color_control(const std::string &hint,
@@ -364,7 +378,7 @@ struct Ui {
 		 * once; with "stop it", its running copies go when saving. */
 		bool asked = false;
 		bool stop_on_save = false;
-		std::vector<pid_t> stop_pids;  /* the copies shown when asked */
+		std::vector<ProcessInfo> stop_pids;  /* the copies shown when asked */
 		bool via_function = false;  /* the script starts it from a function */
 	};
 	std::vector<wb::Integration> integrations;
@@ -449,6 +463,11 @@ struct Ui {
 		GtkDropDown *dropdown = nullptr;
 		GtkEntry *entry = nullptr;
 		GtkTextView *text = nullptr;
+		/* Key: a button showing the key, which captures the next one
+		 * pressed; the value as rc.xml writes it ("none": no key). */
+		GtkButton *key = nullptr;
+		std::string key_value;
+		bool capturing = false;
 		std::unique_ptr<ColorControl> color;  /* type color */
 		std::unique_ptr<FontControl> font;
 		bool updating = false;                /* setting the control from code */
@@ -515,7 +534,17 @@ std::string system_rc_path();
 std::optional<wb::RcDocument> load_document(std::string *problem);
 pid_t session_compositor();
 bool is_waybox(long pid);
-int signal_waybox_reload();
+/* SIGUSR2 to this session's Waybox; outside one, to the user's only
+ * Waybox (with several, none: `several` set). The number signalled. */
+int signal_waybox_reload(bool *several = nullptr);
+/* Asks Waybox to reconfigure and says how it went: over its socket, the
+ * answer once done (applied, or kept as it was and why); without one, the
+ * signal (sent, not confirmed). */
+struct ReloadResult {
+	enum Kind { Applied, Refused, Signalled, Several, NoWaybox } kind = NoWaybox;
+	std::string error;  /* Refused: why */
+};
+ReloadResult reload_waybox();
 /* One request to Waybox's socket; its answer, or nullptr after
  * `timeout_s` seconds or with no socket. */
 JsonObject *waybox_request(const std::string &request, int timeout_s = 1);
@@ -573,12 +602,13 @@ void preview_draw(GtkDrawingArea *, cairo_t *cr, int width, int height,
 		gpointer data);
 void preview_refresh(Ui *ui);
 void thumb_draw(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data);
-struct ProcessInfo {
-	pid_t pid;
-	uid_t uid;
-	std::string name;  /* at most 15 characters */
-	pid_t ppid = 0;
-};
+/* Signal `p` only if it's still that process: the same start time and
+ * owner (a process id can be reused, by a program of the same name too).
+ * With a pidfd (Linux): checked through it, then signalled through it,
+ * nothing reused in between. False if it's gone or another. */
+bool signal_process(const ProcessInfo &p, int sig);
+/* One process now (nullopt: gone, or a zombie). */
+std::optional<ProcessInfo> process_info(pid_t pid);
 std::vector<ProcessInfo> list_processes();
 std::string process_name(pid_t pid);
 /* Its arguments (argv), or none if it's gone or not ours to read. */
@@ -597,6 +627,11 @@ bool installed(const std::string &binary);
  * or it doesn't suit the options. */
 GtkWidget *build_integration_page(Ui *ui, Ui::ProgramRow *row);
 GtkWidget *build_wallpaper_page(Ui *ui, Ui::ProgramRow *row);
+/* Page=location (pages/location.cpp): the location answers kept always,
+ * each forgotten; for the tests, a step ("dump", "forget:APP",
+ * "forget-all") on the page showing, "dump" giving what it lists. */
+GtkWidget *build_location_page(Ui *ui, Ui::ProgramRow *row);
+std::string location_page_test(const std::string &step);
 /* Page=NAME.lua (lua_page.cpp): run by wbconf-lua, drawn here; its
  * changes listed and saved with the rest. */
 GtkWidget *build_lua_page(Ui *ui, Ui::ProgramRow *row);

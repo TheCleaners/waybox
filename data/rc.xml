@@ -89,6 +89,8 @@
     <!-- <names><name>web</name><name>code</name></names> -->
     <!-- How long the desktop's name shows after switching, in ms (0 = off). -->
     <popupTime>875</popupTime>
+    <!-- yes: each monitor shows its own desktop (a Waybox extension). -->
+    <perMonitor>no</perMonitor>
   </desktops>
   <!-- Where newly-mapped windows are placed: Smart (avoid overlap, then
        cascade), Center, or UnderMouse. -->

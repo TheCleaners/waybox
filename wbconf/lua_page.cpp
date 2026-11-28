@@ -19,6 +19,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "waybox/trust.hpp"
 #include "waybox/json.hpp"
 #include "waybox/page_protocol.hpp"
 #include "waybox/setting_problems.hpp"
@@ -74,11 +75,15 @@ std::string read_text(const std::string &path) {
 	return s;
 }
 
-/* What an approval is for: the integration file and its script together. */
-std::string page_hash(const wb::Integration &in) {
-	std::string both = read_text(in.dir + "/" + in.id + ".integration");
+/* What an approval is for: the integration file and its script together
+ * (as read once, for the page). */
+std::string page_hash(const std::string &manifest, const std::string &script,
+		const std::string &targets) {
+	std::string both = manifest;
 	both.push_back('\0');
-	both += read_text(wb::lua_page_path(in));
+	both += script;
+	both.push_back('\0');
+	both += targets;
 	gchar *h = g_compute_checksum_for_data(G_CHECKSUM_SHA256,
 			reinterpret_cast<const guchar *>(both.data()), both.size());
 	std::string out = h != nullptr ? h : "";
@@ -179,6 +184,12 @@ struct LuaPage {
 	bool approval_full = false;     /* what it may touch is full access */
 	std::string reloaded;           /* the last wb.reload(): tests */
 	std::string hash;               /* what an approval would be for */
+	/* The page as it was read, once: its integration file and script, and
+	 * the integration parsed from that text (`in` points to it). The hash,
+	 * the approval card, what it may touch and the source the runner
+	 * runs are all this one copy: what's allowed is what runs. */
+	std::string manifest_text, script_text;
+	std::unique_ptr<wb::Integration> snapshot;
 	bool syncing = false;
 	/* The program's command, as its row has it now (none: no row). */
 	std::function<std::string()> command;
@@ -187,6 +198,7 @@ struct LuaPage {
 	std::function<bool()> in_use;
 	std::map<std::string, std::string> options;  /* the command's, as opened */
 	std::vector<std::string> allowed;            /* Files= and what the command names */
+	std::map<std::string, std::string> resolved; /* each (expanded) -> its target, at open */
 	guint refresh_source = 0;
 	std::weak_ptr<LuaPage> self;
 
@@ -431,7 +443,7 @@ struct LuaPage {
 			for (const ProcessInfo &pi : list_processes())
 				if (pi.uid == getuid() && pi.name == name && name != "waybox" &&
 						pi.pid != getpid() && in_this_session(pi.pid) &&
-						kill(pi.pid, sig) == 0)
+						signal_process(pi, sig))
 					++sent;
 			reloaded = "signal:" + std::to_string(sent);
 		} else if (r.kind == K::Restart) {
@@ -644,23 +656,38 @@ struct LuaPage {
 		json::Object opts;
 		for (const auto &[k, v] : options)
 			opts[k] = v;
-		for (const std::string &f : allowed)
+		/* Each file's target, resolved now: where it's read and written
+		 * (a link changed later is refused, not followed). */
+		json::Array targets;
+		resolved.clear();
+		for (const std::string &f : allowed) {
 			files.emplace_back(f);
+			std::string t = page::resolve_path(page::expand_home(f, home ? home : ""));
+			resolved[page::expand_home(f, home ? home : "")] = t;
+			targets.emplace_back(t);
+		}
 		for (const std::string &r : in->runs)
 			runs.emplace_back(r);
 		auto replies = ask(json::Object{{"open", json::Object{
-				{"script", wb::lua_page_path(*in)}, {"home", std::string(home ? home : "")},
-				{"files", std::move(files)}, {"runs", std::move(runs)},
+				{"script", wb::lua_page_path(*in)}, {"source", script_text},
+				{"home", std::string(home ? home : "")},
+				{"files", std::move(files)}, {"resolved", std::move(targets)},
+				{"runs", std::move(runs)},
 				{"options", std::move(opts)}}}});
+		/* Errors gathered aside, added after: added to `replies` while it's
+		 * read, it could grow and leave the loop on freed memory. */
+		std::vector<json::Value> undrawable;
 		for (const json::Value &r : replies)
 			if (const json::Value *p = r.get("page")) {
 				std::string why;
 				if (auto m = page::page_from_json(*p, &why))
 					model = std::move(*m);
 				else
-					replies.push_back(json::Object{{"error", json::Object{{"line", 0},
+					undrawable.push_back(json::Object{{"error", json::Object{{"line", 0},
 							{"message", "the page can't be drawn: " + why}}}});
 			}
+		for (json::Value &e : undrawable)
+			replies.push_back(std::move(e));
 		build(content, model.controls);
 		gtk_widget_set_visible(expander, TRUE);
 		for (const auto &[k, v] : page::page_values(model))
@@ -703,6 +730,16 @@ struct LuaPage {
 				g_warning("%s's page: writing %s isn't allowed (Files=): refused",
 						in->name.c_str(), path.c_str());
 				return false;
+			}
+			/* Where it led when opened (and approved), still: written there
+			 * (a link kept a link: a dotfile managed by symlinks stays so). */
+			if (auto rt = resolved.find(path); rt != resolved.end()) {
+				if (page::resolve_path(path) != rt->second) {
+					*err = in->name + ": " + path + _(" leads elsewhere now (a link changed); "
+							"close and open wbconf");
+					return false;
+				}
+				path = rt->second;
 			}
 			/* A backup of what was there, then the new text. */
 			gchar *old = nullptr;
@@ -771,8 +808,20 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 	std::vector<wb::PageAccess> runs, files;
 	for (const std::string &r : in.runs)
 		runs.push_back(wb::run_access(in, r));
-	for (const std::string &f : in.files)
-		files.push_back(wb::file_access(in, page::expand_home(f, home), home));
+	/* Graded as written and where it leads (a link): the farther reach. */
+	std::vector<std::string> leads;
+	for (const std::string &f : in.files) {
+		std::string at = page::expand_home(f, home);
+		std::string target = page::resolve_path(at);
+		wb::PageAccess a = wb::file_access(in, at, home);
+		if (target != at) {
+			wb::PageAccess b = wb::file_access(in, target, home);
+			if (static_cast<int>(b.reach) > static_cast<int>(a.reach))
+				a = b;
+		}
+		files.push_back(a);
+		leads.push_back(target != at ? target : "");
+	}
 	using RK = wb::IntegrationReload::Kind;
 	std::optional<wb::PageAccess> reload_run;
 	if (in.reload.kind == RK::Command)
@@ -837,6 +886,7 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 	for (size_t i = 0; i < in.files.size(); ++i)
 		gtk_box_append(GTK_BOX(list), permission_line(line_icon(files[i], "document-edit-symbolic"),
 				std::string(_("Read and change")) + " " + mono(in.files[i]) +
+				(leads[i].empty() ? std::string() : std::string(" \u2192 ") + mono(leads[i])) +
 				note(files[i], true)));
 	/* "Read and change the file its command names (-c, Config file)". */
 	for (const wb::IntegrationOption &o : in.options)
@@ -892,7 +942,7 @@ GtkWidget *approval_card(LuaPage *p, Asking why) {
 	gtk_text_view_set_left_margin(GTK_TEXT_VIEW(view), 6);
 	gtk_text_view_set_top_margin(GTK_TEXT_VIEW(view), 4);
 	gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(view), 4);
-	std::string code = numbered(read_text(wb::lua_page_path(in)));
+	std::string code = numbered(p->script_text);
 	gtk_text_buffer_set_text(gtk_text_view_get_buffer(GTK_TEXT_VIEW(view)), code.c_str(), -1);
 	GtkWidget *scroll = gtk_scrolled_window_new();
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC,
@@ -945,7 +995,15 @@ GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in_ptr,
 		std::function<bool()> in_use) {
 	auto p = std::make_shared<LuaPage>();
 	p->ui = ui;
-	p->in = in_ptr;
+	/* Read once (see LuaPage::snapshot): what's shown, allowed and run. */
+	p->manifest_text = read_text(in_ptr->dir + "/" + in_ptr->id + ".integration");
+	p->script_text = read_text(wb::lua_page_path(*in_ptr));
+	if (auto parsed = wb::parse_integration(in_ptr->id, p->manifest_text)) {
+		parsed->dir = in_ptr->dir;
+		p->snapshot = std::make_unique<wb::Integration>(std::move(*parsed));
+	}
+	bool read_whole = p->snapshot != nullptr && p->snapshot->page == in_ptr->page;
+	p->in = read_whole ? p->snapshot.get() : in_ptr;
 	p->command = std::move(command);
 	p->in_use = std::move(in_use);
 	p->self = p;
@@ -974,11 +1032,31 @@ GtkWidget *build_lua_page_for(Ui *ui, const wb::Integration *in_ptr,
 	/* Trusted only when no one but root could have changed it (a package's
 	 * files): its folder, its integration file and its script. Else it
 	 * runs once allowed, for what it is now; changing it asks again. */
-	const wb::Integration &in = *in_ptr;
-	bool trusted = !writable(in.dir) && !writable(in.dir + "/" + in.id + ".integration") &&
-			!writable(wb::lua_page_path(in));
+	/* Changed under it (no longer an integration, or another page): not
+	 * run; reopening wbconf reads it again. */
+	if (!read_whole) {
+		p->fail(_("This page's files changed while wbconf read them. Close and open "
+				"wbconf again to see it."));
+		return box;
+	}
+	const wb::Integration &in = *p->in;
+	/* Root's (and the folders above it, as spelled and resolved), no one
+	 * else may write it, nor the user. (WBCONF_TEST_TRUSTED_OWNER: the
+	 * tests' stand-in for root.) */
+	uid_t system = 0;
+	if (const char *t = getenv("WBCONF_TEST_TRUSTED_OWNER"))
+		system = static_cast<uid_t>(strtoul(t, nullptr, 10));
+	auto sound = [system](const std::string &path) {
+		return wb::owned_by_system(path, system) && !writable(path);
+	};
+	bool trusted = sound(in.dir) && sound(in.dir + "/" + in.id + ".integration") &&
+			sound(wb::lua_page_path(in));
 	if (!trusted) {
-		p->hash = page_hash(in);
+		/* Where its Files= lead too: a link pointed elsewhere asks again. */
+		std::string targets;
+		for (const std::string &f : in.files)
+			targets += page::resolve_path(page::expand_home(f, home_dir())) + "\n";
+		p->hash = page_hash(p->manifest_text, p->script_text, targets);
 		auto approved = page::parse_approvals(read_text(approvals_path()));
 		auto it = approved.find(in.id);
 		if (it == approved.end() || it->second != p->hash) {
@@ -1085,7 +1163,8 @@ void set_lua_pages_open(Ui *ui, bool open) {
 
 void unfold_program_settings(Ui *ui, Ui::ProgramRow *row) {
 	for (LuaPage *p : live_pages(ui))
-		if (p->in != nullptr && p->in == row->in && p->expander != nullptr)
+		if (p->in != nullptr && row->in != nullptr && p->in->id == row->in->id &&
+				p->expander != nullptr)
 			gtk_expander_set_expanded(GTK_EXPANDER(p->expander), TRUE);
 	if (row->settings != nullptr)
 		gtk_expander_set_expanded(GTK_EXPANDER(row->settings), TRUE);

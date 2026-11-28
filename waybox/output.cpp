@@ -15,6 +15,21 @@
 #include "waybox/session_lock.h"
 #include "ipc.h"
 
+/* A monitor turned on draws with the current renderer: one a GPU reset
+ * left on the old one (it couldn't take the new; turned off then) takes
+ * it now. False if it still can't. */
+static bool output_take_renderer(struct wb_server *server, struct wlr_output *wlr_output) {
+	if (wlr_output->renderer == server->renderer && wlr_output->allocator == server->allocator)
+		return true;
+	if (wlr_output_init_render(wlr_output, server->allocator, server->renderer)) {
+		wlr_log(WLR_INFO, "wb-renderer %s takes the current renderer", wlr_output->name);
+		return true;
+	}
+	wlr_log(WLR_ERROR, "wb-renderer %s still can't render with the current renderer",
+			wlr_output->name);
+	return false;
+}
+
 /* Pick a sensible default scale for a freshly connected output based on its
  * pixel density. 96 dpi maps to 1.0; the result is rounded to the nearest
  * quarter step and clamped. This is only an initial guess: the user can
@@ -145,6 +160,10 @@ static bool configure_output(struct wb_server *server, struct wlr_output *wlr_ou
 		wlr_log(WLR_INFO, "%s: %s", wlr_output->name, _("disabled in rc.xml"));
 		return false;
 	}
+	if (!output_take_renderer(server, wlr_output)) {
+		wlr_output_state_finish(&state);
+		return false;  /* it can't draw with this renderer: stays off */
+	}
 	wlr_output_state_set_enabled(&state, true);
 
 	std::vector<struct wlr_output_mode *> modes;
@@ -237,7 +256,7 @@ static void reconfigure_output(struct wb_output *output) {
 }
 
 /* Advertise the current output configuration to output-management clients. */
-static void output_manager_update_config(struct wb_server *server) {
+void output_manager_update_config(struct wb_server *server) {
 	struct wlr_output_configuration_v1 *config =
 		wlr_output_configuration_v1_create();
 	struct wb_output *output;
@@ -296,6 +315,11 @@ static bool apply_output_config(struct wb_server *server,
 		struct wlr_output_state state;
 		wlr_output_state_init(&state);
 		wlr_output_state_set_enabled(&state, head->state.enabled);
+		if (head->state.enabled && !output_take_renderer(server, wlr_output)) {
+			ok = false;  /* it can't draw with this renderer: stays off */
+			wlr_output_state_finish(&state);
+			continue;
+		}
 		if (head->state.enabled) {
 			if (head->state.mode != NULL) {
 				wlr_output_state_set_mode(&state, head->state.mode);
@@ -449,6 +473,9 @@ void output_configuration_tested(struct wb_server *server, void *data) {
 
 void wb_output::on_request_state(void *data) {
 	auto *event = static_cast<const struct wlr_output_event_request_state *>(data);
+	if ((event->state->committed & WLR_OUTPUT_STATE_ENABLED) && event->state->enabled &&
+			!output_take_renderer(server, wlr_output))
+		return;
 
 	if (wlr_output_commit_state(wlr_output, event->state)) {
 		reconfigure_output(this);
@@ -505,6 +532,8 @@ void new_output_notify(struct wb_server *server, void *data) {
 	auto *output = new wb_output{};
 	output->server = server;
 	output->wlr_output = wlr_output;
+	output->desktop = server->current_desktop;  /* (shared: as every other) */
+	output->last_desktop = server->last_desktop;
 	wlr_output->data = output;
 
 	/* Initializes the layers */
@@ -539,6 +568,10 @@ void new_output_notify(struct wb_server *server, void *data) {
 
 	output->frame.connect(&wlr_output->events.frame,
 			[output](void *data) { output->on_frame(data); });
+	output->present.connect(&wlr_output->events.present, [output](void *data) {
+		session_lock_output_present(output,
+				static_cast<struct wlr_output_event_present *>(data));
+	});
 	output->request_state.connect(&wlr_output->events.request_state,
 			[output](void *data) { output->on_request_state(data); });
 	output->destroy.connect(&wlr_output->events.destroy, [output](void *data) {
@@ -647,6 +680,11 @@ void init_output(struct wb_server *server) {
 		struct wb_output *output;
 		wl_list_for_each(output, &server->outputs, link)
 			arrange_layers(output);
+		/* A monitor gone (unplugged, switched off): its windows are brought
+		 * onto one still there, maximized and fullscreen ones re-fitted. */
+		windows_return_home(server);
+		arrange_toplevels(server);
+		desktops_outputs_changed(server);
 	});
 
 	server->tearing_control = wlr_tearing_control_manager_v1_create(server->wl_display, 1);

@@ -14,7 +14,7 @@
 
 namespace wb {
 
-enum class SettingType { Bool, Int, Enum, String, Color, Font, Lines, Custom };
+enum class SettingType { Bool, Int, Enum, String, Color, Font, Lines, Key, Custom };
 
 struct SettingChoice {
 	std::string value;  /* "" in a choice: not set (the device's or system default) */

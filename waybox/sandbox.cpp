@@ -1,5 +1,8 @@
 #include "waybox/sandbox.h"
 
+#include <set>
+#include <string>
+
 #include "waybox/wlroots.hpp"
 
 #include "waybox/security.hpp"
@@ -21,6 +24,15 @@ static bool global_filter(const struct wl_client *client,
 	if (global == server->xwayland_keyboard_grab)
 		return false;
 #endif
+	const char *name = wl_global_get_interface(global)->name;
+	wb::ProtocolClass kind = wb::classify_protocol(name);
+	if (kind == wb::ProtocolClass::Unknown) {
+		/* Said once a name: a global nobody classified yet. */
+		static std::set<std::string> said;
+		if (said.insert(name).second)
+			wlr_log(WLR_ERROR, "wb-global unclassified %s: not offered to sandboxed "
+					"programs until it is (waybox/security.cpp)", name);
+	}
 	if (server->security_context_manager == nullptr)
 		return true;
 	const struct wlr_security_context_v1_state *context =
@@ -29,7 +41,8 @@ static bool global_filter(const struct wl_client *client,
 					const_cast<struct wl_client *>(client));
 	if (context == nullptr)
 		return true;  /* not sandboxed */
-	return !wb::is_privileged_protocol(wl_global_get_interface(global)->name);
+	/* Sandboxed: only what's known to be ordinary (fail closed). */
+	return kind == wb::ProtocolClass::Ordinary;
 }
 
 void init_sandbox(struct wb_server *server) {

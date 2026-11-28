@@ -33,9 +33,15 @@ struct wb_output {
 	bool tearing_wanted = false;  /* allowed and asked for (logged on change) */
 	struct wlr_box geometry = {};
 	struct wlr_box usable_area = {};
+	/* The desktop this monitor shows, and the one before (#367: desktops
+	 * per monitor). With shared desktops, every monitor's are the
+	 * server's (switch_desktop keeps them so). */
+	int desktop = 0;
+	int last_desktop = 0;
 
 	wb::Listener destroy;
 	wb::Listener frame;
+	wb::Listener present;
 	wb::Listener request_state;
 
 	struct wl_list link;
@@ -54,5 +60,8 @@ bool output_set_power(struct wb_output *output, bool on);
 void apply_output_rules(struct wb_server *server);
 void apply_output_color(struct wb_server *server, struct wlr_output *output,
 		struct wlr_output_state *state);
+
+/* Output management (wlr-randr, wbconf) told how the monitors are now. */
+void output_manager_update_config(struct wb_server *server);
 
 #endif /* output.h */

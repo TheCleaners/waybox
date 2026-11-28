@@ -40,6 +40,15 @@ private:
 	struct wlr_scene_tree *tree_ = nullptr;
 	std::unique_ptr<SceneCanvas> canvas_;
 	cairo_surface_t *logo_ = nullptr;
+	/* The logo, drawn here (not the icon file) when it moves: its mark
+	 * turning (a GPU renderer), confetti around it (New Year's Eve and
+	 * Day). Its own small canvas, redrawn on a timer while the card is up;
+	 * the rest of the card isn't. */
+	bool spin_ = false, confetti_ = false;
+	std::unique_ptr<SceneCanvas> logo_canvas_;
+	struct wl_event_source *tick_ = nullptr;
+	double t_ = 0;  /* seconds since it opened */
+	void render_logo();
 	Rect rect_{0, 0, 0, 0};
 	Rect link_{0, 0, 0, 0};  /* the address, in layout coordinates */
 };

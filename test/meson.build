@@ -324,10 +324,34 @@ session_store_test = executable(
   )
 test('session_store', session_store_test, suite: 'unit')
 
+# Files written whole, through a temporary file of their own.
+atomic_file_test = executable(
+  'atomic_file_test',
+  ['atomic_file_test.cpp', 'wb_test_main.cpp', atomic_file_src],
+  include_directories: [inc_dir],
+  )
+test('atomic_file', atomic_file_test, suite: 'unit')
+
+# The location agent's decisions (accuracy names, kept answers).
+location_agent_test = executable(
+  'location_agent_test',
+  ['location_agent_test.cpp', 'wb_test_main.cpp', location_agent_src],
+  include_directories: [inc_dir],
+  )
+test('location_agent', location_agent_test, suite: 'unit')
+
+# Whether only the system could have changed a file (pages run unasked).
+trust_test = executable(
+  'trust_test',
+  ['trust_test.cpp', 'wb_test_main.cpp', trust_src],
+  include_directories: [inc_dir],
+  )
+test('trust', trust_test, suite: 'unit')
+
 # The applications menu: .desktop files, categories, the scan and its cache.
 app_menu_test = executable(
   'app_menu_test',
-  ['app_menu_test.cpp', 'wb_test_main.cpp', app_menu_src, menu_src, action_src],
+  ['app_menu_test.cpp', 'wb_test_main.cpp', app_menu_src, menu_src, action_src, atomic_file_src],
   include_directories: [inc_dir],
   )
 test('app_menu', app_menu_test, suite: 'unit')
@@ -434,6 +458,7 @@ if not get_option('tests_only')
   wbconf_test = executable(
     'wbconf_test',
     ['wbconf_test.cpp', 'wb_test_main.cpp', files('../waybox/wbconf.cpp'), startup_src,
+     atomic_file_src,
      font_spec_src, app_rule_xml_src, xml_edit_src, applications_src,
      output_rules_src,
      xml_strict_src,
@@ -445,7 +470,7 @@ if not get_option('tests_only')
 
   menu_doc_test = executable(
     'menu_doc_test',
-    ['menu_doc_test.cpp', 'wb_test_main.cpp', menu_doc_src, xml_edit_src],
+    ['menu_doc_test.cpp', 'wb_test_main.cpp', menu_doc_src, xml_edit_src, atomic_file_src],
     include_directories: [inc_dir],
     dependencies: [libxml2],
     )
@@ -456,6 +481,7 @@ if not get_option('tests_only')
     'settings_schema_test',
     ['settings_schema_test.cpp', 'wb_test_main.cpp', files('../waybox/settings_schema.cpp',
      '../waybox/wbconf.cpp'), startup_src, xml_strict_src, theme_src, font_spec_src,
+     atomic_file_src,
      app_rule_xml_src, xml_edit_src, applications_src],
     include_directories: [inc_dir],
     dependencies: [libxml2, json_glib],
@@ -481,6 +507,16 @@ integration_env = {
   # ignores them when empty).
   'WB_RC_XML': '',
   'WB_MENU_XML': '',
+  # Nor may a test's waybox-msg or wbconf reach that session's Waybox (its
+  # socket and pid, exported to programs it starts): empty is unset to both,
+  # so they find the test's own through its WAYLAND_DISPLAY.
+  'WAYBOX_SOCK': '',
+  'WAYBOX_PID': '',
+  # Nor the session's D-Bus: a test's Waybox reporting a broken rc.xml (as
+  # tests make on purpose) would notify the user's desktop, and anything a
+  # test starts could reach that session's services. Tests that need a
+  # bus start a private one.
+  'DBUS_SESSION_BUS_ADDRESS': 'disabled:',
   # GTK programs under test (wbconf) abort on any critical: a test fails
   # on one rather than letting it scroll by.
   'G_DEBUG': 'fatal-criticals',
@@ -492,8 +528,10 @@ if python.found() and not get_option('tests_only')
     'lock_client',
     [
       'integration' / 'lock_client.c',
-      wayland_scanner_client.process(session_lock_xml),
-      wayland_scanner_code.process(session_lock_xml),
+      wayland_scanner_client.process(session_lock_xml,
+          wl_protocol_dir / 'unstable/text-input/text-input-unstable-v3.xml'),
+      wayland_scanner_code.process(session_lock_xml,
+          wl_protocol_dir / 'unstable/text-input/text-input-unstable-v3.xml'),
     ],
     dependencies: [dependency('wayland-client')],
     )
@@ -669,6 +707,21 @@ if python.found() and not get_option('tests_only')
     )
 
   # A window that tags itself (xdg-toplevel-tag).
+  # A window whose icon is pixels (xdg-toplevel-icon's buffer path).
+  icon_xml = wl_protocol_dir / 'staging/xdg-toplevel-icon/xdg-toplevel-icon-v1.xml'
+  icon_buffer_client = executable(
+    'icon_buffer_client',
+    [
+      'integration' / 'icon_buffer_client.c',
+      wayland_scanner_client.process(xdg_shell_client_xml),
+      wayland_scanner_code.process(xdg_shell_client_xml),
+      wayland_scanner_client.process(icon_xml),
+      wayland_scanner_code.process(icon_xml),
+      wayland_scanner_client.process(wl_protocol_dir / 'unstable/xdg-decoration/xdg-decoration-unstable-v1.xml'),
+      wayland_scanner_code.process(wl_protocol_dir / 'unstable/xdg-decoration/xdg-decoration-unstable-v1.xml'),
+    ],
+    dependencies: [dependency('wayland-client')],
+  )
   activate_client = executable(
     'activate_client',
     [
@@ -863,9 +916,15 @@ if python.found() and not get_option('tests_only')
     ['idle_inhibit', 'idle_inhibit_test.py', [inhibit_client], 60],
     ['idle_screen_off', 'idle_screen_off_test.py', [inhibit_client], 60],
     ['input_focus', 'input_focus_test.py', [], 60],
-    ['input_method', 'input_method_test.py', [ime_client, text_input_client], 90],
+    ['input_method', 'input_method_test.py', [ime_client, text_input_client, lock_client], 90],
     ['input_method_setting', 'input_method_setting_test.py', [], 60],
     ['ipc', 'ipc_test.py', [waybox_msg, lock_client], 60],
+    ['lock_control', 'lock_control_test.py', [lock_client, workspace_client], 60],
+    ['cycle_outline', 'cycle_outline_test.py', [], 60],
+    ['switcher_close', 'switcher_close_test.py', [], 60],
+    ['exit_prompt', 'exit_prompt_test.py', [waybox_msg], 60],
+    ['setup_failure', 'setup_failure_test.py', [], 60],
+    ['render_reset_output', 'render_reset_output_test.py', [], 60],
     ['osd_look', 'osd_look_test.py', [waybox_msg], 60],
     ['python_ipc', 'python_ipc_test.py', [touch_client, python_src_dir], 60],
     ['desktop_context', 'desktop_context_test.py', [desktop_client, vpointer_client], 60],
@@ -878,6 +937,7 @@ if python.found() and not get_option('tests_only')
     ['keymap_reconfigure', 'keymap_reconfigure_test.py', [], 60],
     ['lua', 'lua_test.py', [touch_client, meson.project_source_root() / 'data' / 'scripts'], 60],
     ['lua_policy', 'lua_policy_test.py', [touch_client, meson.project_source_root() / 'data' / 'scripts'], 60],
+    ['lua_spawn', 'lua_spawn_test.py', [], 60],
     ['lua_menu', 'lua_menu_test.py', [touch_client, meson.project_source_root() / 'data' / 'scripts'], 60],
     ['menu', 'menu_test.py', [], 60],
     ['menu_hover_delay', 'menu_hover_delay_test.py', [], 60],
@@ -885,6 +945,8 @@ if python.found() and not get_option('tests_only')
     ['mouse_binding', 'mouse_binding_test.py', [], 60],
     ['grouped_binds', 'grouped_binds_test.py', [], 60],
     ['menu_position', 'menu_position_test.py', [], 60],
+    ['desktops_per_monitor', 'desktops_per_monitor_test.py', [waybox_msg, workspace_client], 90],
+    ['protocol_inventory', 'protocol_inventory_test.py', [], 60],
     ['mouse_contexts', 'mouse_contexts_test.py', [], 60],
     ['multi_output', 'multi_output_test.py', [layer_client], 60],
     ['output_hotplug', 'output_hotplug_test.py', [layer_client], 60],
@@ -917,13 +979,15 @@ if python.found() and not get_option('tests_only')
     ['tearing', 'tearing_test.py', [tearing_client], 60],
     ['titlebar_buttons', 'titlebar_buttons_test.py', [], 60],
     ['titlebar_icon', 'titlebar_icon_test.py', [], 60],
+    ['pixel_icon', 'pixel_icon_test.py', [icon_buffer_client], 60],
     ['touch', 'touch_test.py', [touch_client, dnd_client, lock_client], 60],
-    ['window_capture', 'window_capture_test.py', [], 60],
+    ['window_capture', 'window_capture_test.py', [lock_client], 60],
     ['window_menu', 'window_menu_test.py', [], 90],
     ['window_state', 'window_state_test.py', [], 60],
-    ['wlr_data_control', 'wlr_data_control_test.py', [wlr_dc_client], 60],
+    ['wlr_data_control', 'wlr_data_control_test.py', [wlr_dc_client, lock_client], 60],
     ['workspace', 'workspace_test.py', [workspace_client], 60],
     ['urgency', 'urgency_test.py', [activate_client, workspace_client], 60],
+    ['switcher_keys', 'switcher_keys_test.py', [activate_client], 60],
     ['geometry_actions', 'geometry_actions_test.py', [activate_client], 60],
     ['xwayland', 'xwayland_test.py', [vpointer_client], 90],
   ]
@@ -988,6 +1052,9 @@ if python.found() and not get_option('tests_only')
     integration_tests += [['wbconf_geo', 'wbconf_geo_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf',
          meson.project_source_root()], 60]]
+    integration_tests += [['wbconf_location', 'wbconf_location_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf',
+         meson.project_source_root()], 60]]
     integration_tests += [['wbconf_menu', 'wbconf_menu_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 90]]
     integration_tests += [['wbconf_rules', 'wbconf_rules_test.py',
@@ -999,6 +1066,12 @@ if python.found() and not get_option('tests_only')
     integration_tests += [['wbconf_changes', 'wbconf_changes_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 90]]
     integration_tests += [['wbconf_reload', 'wbconf_reload_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
+    integration_tests += [['wbconf_save_status', 'wbconf_save_status_test.py',
+        [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 90]]
+    integration_tests += [['location_agent', 'location_agent_test.py',
+        [location_agent_exe], 90]]
+    integration_tests += [['wbconf_color_burst', 'wbconf_color_burst_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
     integration_tests += [['wbconf_toc', 'wbconf_toc_test.py',
         [wbconf_exe, meson.project_source_root() / 'data' / 'wbconf'], 60]]
@@ -1047,4 +1120,15 @@ if sh.found()
     timeout: 30,
     suite: 'unit',
     )
+endif
+
+# wbconf's process list (procs.cpp): only what runs, zombies left out.
+if not get_option('tests_only') and is_variable('gtk4') and gtk4.found()
+  procs_test = executable(
+    'procs_test',
+    ['procs_test.cpp', 'wb_test_main.cpp', files('../wbconf/procs.cpp')],
+    include_directories: [inc_dir],
+    dependencies: [gtk4, json_glib],
+    )
+  test('procs', procs_test, suite: 'unit')
 endif

@@ -76,6 +76,13 @@ desktops through the ext-workspace protocol.
 middle of the monitor after switching (default 875, as in Openbox); *0*
 turns it off.
 
+*perMonitor* (a Waybox extension) set to *yes* gives each monitor its own
+current desktop: switching desktops changes only the monitor of the
+focused window (or, with none, the pointer's); a new window opens on the
+desktop its monitor shows, and a window moved to another monitor takes
+the desktop that one shows. Off (the default, as in Openbox), every
+monitor shows the same desktop.
+
 ## Placement and margins
 
 ```
@@ -256,7 +263,8 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 ```
 <waybox>
   <menu source="builtin" submenuOpen="hover" hoverDelay="100" wrap="yes" icons="yes"/>
-  <switcher order="mru" osd="yes" wrap="yes" icons="yes"/>
+  <switcher order="mru" osd="yes" wrap="yes" icons="yes" close="yes"
+            closeKey="Delete" killKey="S-Delete"/>
   <edgeTiling enabled="yes" range="10"/>
   <sessionRestore enabled="yes"/>
   <activation focus="smart"/>
@@ -289,7 +297,20 @@ name a program gives a window (xdg-toplevel-tag, such as "preferences" or
 	right and top to bottom); Alt+Tab goes to the next window in that order.
 	*osd*: show the list while the modifier is held (otherwise, switch at
 	once). *wrap*: cycling wraps at the ends. *icons*: each window's icon
-	beside its title (default *yes*).
+	beside its title (default *yes*). *close*: windows closed from it
+	(default *yes*). While the list is shown, the window it would pick is
+	outlined (white, black, white, 6 px around its frame, as Openbox's).
+	It's shown for a single window too. A click on a row picks that
+	window. With *close*: *closeKey* (default *Delete*) asks the selected
+	window to close, and *killKey* (default *S-Delete*) ends its program
+	(*Kill*): keys as *<keybind>* writes them, the switcher's own modifier
+	left out (held anyway), *none* for no key. The list stays, without a
+	window that went. A window asked to close is pinged too: one that
+	doesn't answer in 2.5 s is marked "not responding", and *closeKey*
+	pressed again on it ends its program; one that answers (asking to
+	save, say) is only asked again. A click on a row's × (on the selected
+	row and the one under the pointer) does as *closeKey*; Shift-click, as
+	*killKey*.
 
 *<edgeTiling>*
 	Dragging a window to a monitor edge tiles it: the left or right half,
@@ -424,7 +445,10 @@ act on a window use the focused one.
 	resize, roll up, decorate and close, for the window it was opened on.
 
 *NextWindow*, *PreviousWindow*
-	Switch windows (Alt+Tab).
+	Switch windows (Alt+Tab). *<monitor>* (a Waybox extension): *all*,
+	*this* (the focused window's monitor), or a monitor's number or name:
+	only that monitor's windows. The default is *this* with desktops per
+	monitor, *all* otherwise.
 
 *Close*, *Iconify*, *Raise*, *Lower*
 	Close, minimize, raise or lower the window.
@@ -492,7 +516,9 @@ act on a window use the focused one.
 *GoToDesktop*
 	Go to the desktop in *<to>*: a number, *left*/*previous*,
 	*right*/*next* or *last*. *<wrap>no</wrap>* stops at the first and last
-	desktop.
+	desktop. With desktops per monitor, *<monitor>* (a Waybox extension)
+	says where: *this* (the default: the focused window's monitor, else the
+	pointer's), *all*, or a monitor's number or name.
 
 *SendToDesktop*
 	Move the window to a desktop (*<to>* and *<wrap>* as above).
@@ -565,7 +591,10 @@ act on a window use the focused one.
 *ToggleShowDesktop*
 	Minimize the current desktop's windows to show the desktop; again,
 	bring them back. Focusing a window (a click in a taskbar, Alt+Tab)
-	ends it: that window is shown, the others stay minimized.
+	ends it: that window is shown, the others stay minimized. *<monitor>*
+	(a Waybox extension): *all*, *this* or a monitor's number or name, its
+	windows alone; the default is *this* with desktops per monitor, *all*
+	otherwise.
 
 *DirectionalTargetWindow*, *DirectionalCycleWindows*
 	Focus (and raise) the nearest window that way from the focused one (or
@@ -600,7 +629,11 @@ act on a window use the focused one.
 	Reload the configuration, menu and theme.
 
 *Exit*
-	Exit Waybox.
+	Exit Waybox, asking first (as Openbox): a card with Cancel (chosen
+	first) and Exit; Left, Right or Tab choose, Return or Space answer,
+	Escape or a click outside cancels. *<prompt>no</prompt>* exits at once;
+	so does *waybox-msg action Exit prompt=no*, for a logout script or a
+	power menu that has asked already.
 
 # MENU.XML
 
@@ -648,11 +681,38 @@ Openbox themes work as they are.
 The on-screen displays use Openbox's *osd.\** keys where a theme has them:
 *osd.bg* (and its *.color*, *.colorTo*), *osd.border.width*,
 *osd.border.color*, *osd.label.text.color* (or
-*osd.inactive.label.text.color*), and for the switcher's selected row
-*osd.hilight.bg* and *osd.active.label.text.color*. What a theme leaves
+*osd.inactive.label.text.color*), for the switcher's selected row
+*osd.hilight.bg* and *osd.active.label.text.color*, and for the desktop
+popup's squares *osd.hilight.bg* (the desktop shown) and
+*osd.unhilight.bg* (the others; else the panel's background). What a theme leaves
 out comes from its menu: *menu.items.bg*, *menu.items.text.color*,
 *menu.items.active.bg*, the border, *waybox.menu.corner.radius* and
 *waybox.menu.opacity*. *<osd>* in rc.xml goes over both.
+
+# THE LOCKED SCREEN
+
+While a screen locker (*ext-session-lock-v1*) holds the session, only the
+lock screen gets keys and the pointer; bindings, menus and the switcher
+don't run. Also:
+
+- Programs capturing a single window stop: each window's capture ends
+  when the screen locks, and none starts until it's unlocked (capturing
+  a whole monitor shows the lock screen).
+- The clipboard and the primary selection stay as they were: copying,
+  from any program (clipboard managers and the locker included), is
+  refused, so nothing copied at the lock screen outlives it. The locker
+  can paste what was copied before (a password, say).
+- No program changes what's behind the lock screen: a taskbar can't
+  focus, close, minimize, maximize or make windows fullscreen, a panel
+  can't switch desktops (nor one it asked for before the lock), and
+  drags don't start. A window asking to be activated (xdg-activation,
+  or an X11 program) is marked urgent instead, and the focus after
+  unlocking is what it was before. A window may still change its own
+  state.
+- The scripting socket refuses actions and anything that runs or
+  restarts a program.
+- The lock screen gets no input method.
+- Virtual keyboards and pointers follow *<virtualInput>*.
 
 # SEE ALSO
 

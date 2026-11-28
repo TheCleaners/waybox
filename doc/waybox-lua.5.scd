@@ -142,7 +142,9 @@ any action.
 	The focused window, or *nil*.
 
 *wb.desktop()*
-	A table: *current* and *count*.
+	A table: *current* (the desktop of the focused window's monitor, else
+	the pointer's: with shared desktops, the one shown), *count*, and
+	*monitors*, each monitor's name and the desktop it shows.
 
 *wb.outputs()*
 	A list of tables: *name*, *x*, *y*, *width*, *height*, *scale*.
@@ -170,7 +172,10 @@ any action.
 	function (optional) gets its output (up to 1 MiB), its exit code
 	(negative: the signal that ended it) and whether the output was cut.
 	At most 16 run at once (then it returns *nil* and a reason); otherwise
-	it returns the program's process id.
+	it returns the program's process id. A reload (a Reconfigure, a wbconf
+	save) doesn't stop them; they still count until they exit, and its
+	function isn't called (what they print is read and dropped, so they
+	can go on printing). They end when Waybox does.
 
 *wb.show_menu(*_items_*,* _options_*)*
 	Opens a menu, in the theme's menu style, at the pointer (or at

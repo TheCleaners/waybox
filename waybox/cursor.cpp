@@ -2,7 +2,9 @@
 #include <cmath>
 #include <optional>
 
+#include "waybox/switcher_widget.hpp"
 #include "waybox/about_card.hpp"
+#include "waybox/confirm_card.hpp"
 #include <vector>
 
 #include "toplevel_drag.h"
@@ -313,6 +315,24 @@ static void process_cursor_motion(struct wb_server *server, uint32_t time) {
 				run_mouse_bindings(server, held->context, window, held->button,
 						held->modifiers, wb::MouseEvent::Drag);
 		}
+	}
+
+	/* A question asked: its buttons shown under the pointer, nothing for
+	 * the windows below. */
+	if (server->confirm != nullptr) {
+		server->confirm->on_motion(server->cursor->cursor->x, server->cursor->cursor->y);
+		server->cursor->show_xcursor("default");
+		idle_activity(server, server->seat->seat);
+		return;
+	}
+
+	/* Over the window switcher's list: its rows hovered (and their close
+	 * buttons), the default cursor, nothing for the windows below. */
+	if (server->switcher != nullptr &&
+			server->switcher->on_motion(server->cursor->cursor->x, server->cursor->cursor->y)) {
+		server->cursor->show_xcursor("default");
+		idle_activity(server, server->seat->seat);
+		return;
 	}
 
 		/* An open menu grabs the pointer: update its hover/submenu state and keep
@@ -847,6 +867,24 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 		return;
 	}
 
+	/* A question asked: a button answers it, a click outside cancels; the
+	 * windows below get nothing meanwhile. */
+	if (server->confirm != nullptr) {
+		if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
+			release_owed();
+			wb::ConfirmCard::Answer a = server->confirm->on_press(cursor->x, cursor->y);
+			if (a != wb::ConfirmCard::Answer::None) {
+				server->confirm.reset();
+				wlr_log(WLR_INFO, "wb-confirm %s",
+						a == wb::ConfirmCard::Answer::Yes ? "yes" : "no");
+				if (a == wb::ConfirmCard::Answer::Yes)
+					wl_display_terminate(server->wl_display);
+			}
+		}
+		idle_activity(server, seat);
+		return;
+	}
+
 	/* The About card: a press anywhere closes it (on the project's address,
 	 * opening it first), and goes no further; releases are let be (the
 	 * click that opened it). */
@@ -857,6 +895,16 @@ void wb_cursor::handle_button(struct wlr_pointer_button_event *event) {
 				wb_spawn(("xdg-open " + std::string(wb::kProjectUrl)).c_str());
 			server->about_card.reset();
 		}
+		idle_activity(server, seat);
+		return;
+	}
+
+	/* A click on the window switcher's list: a row picks that window, its
+	 * close button (x) closes it (Shift: ends its program). */
+	if (server->switcher != nullptr &&
+			wb_switcher_click(server, cursor->x, cursor->y, event->button,
+					event->state == WL_POINTER_BUTTON_STATE_PRESSED)) {
+		release_owed();
 		idle_activity(server, seat);
 		return;
 	}

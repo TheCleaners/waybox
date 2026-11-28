@@ -1,6 +1,7 @@
 #ifndef _WB_SERVER_H
 #define _WB_SERVER_H
 
+#include <string>
 #include "waybox/wlroots.hpp"
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -31,7 +32,7 @@
 #include "waybox/xdg_shell.h"
 #include "waybox/seat.h"
 
-namespace wb { class MenuWidget; class SwitcherWidget; class DesktopPopup; class AboutCard; }
+namespace wb { class MenuWidget; class SwitcherWidget; class DesktopPopup; class AboutCard; class ConfirmCard; }
 struct wb_session_lock_state;
 struct wb_startup_state;
 struct wb_shortcuts_inhibit_state;
@@ -67,6 +68,10 @@ struct wb_server {
 	struct wlr_output_layout *output_layout;
 	struct wlr_xdg_output_manager_v1 *output_manager;
 	struct wlr_renderer *renderer;
+	/* Renderers (and their allocators) a GPU reset replaced, kept while a
+	 * monitor that couldn't take the new one still points at them (it's
+	 * off; turned on again, it takes the current one). Freed at exit. */
+	std::vector<std::pair<struct wlr_renderer *, struct wlr_allocator *>> old_renderers;
 	/* text-input-v3 / input-method-v2 (see input_method.h). */
 	struct wb_input_method_relay *input_method_relay = nullptr;
 	/* xdg-toplevel-icon: icons clients set for their windows. */
@@ -185,6 +190,8 @@ struct wb_server {
 	std::unique_ptr<wb::SwitcherWidget> switcher;
 	/* The About card (ShowAbout), until a click or a key. */
 	std::unique_ptr<wb::AboutCard> about_card;
+	/* A question asked (Exit's prompt): it has the keyboard and pointer. */
+	std::unique_ptr<wb::ConfirmCard> confirm;
 	/* ToggleShowDesktop is on (its windows: hidden_by_show_desktop). */
 	bool showing_desktop = false;
 	bool show_desktop_busy = false;  /* while it minimizes and restores */
@@ -203,6 +210,9 @@ struct wb_server {
 	/* "identify" (IPC): each monitor's name, large, on it, for a moment. */
 	std::vector<std::unique_ptr<wb::DesktopPopup>> identify_popups;
 	std::vector<struct wb_toplevel *> switcher_windows;
+	/* NextWindow/PreviousWindow's <monitor> (#367): the monitor whose
+	 * windows the cycle goes through (by name), or empty for all. */
+	std::string cycle_monitor;
 	uint32_t switcher_mods = 0;
 	uint32_t last_key_modifiers = 0;
 
@@ -251,6 +261,8 @@ void wb_spawn(const char *cmd);
 /* Tests only (WAYBOX_TEST_GPU_RESET=1): as if the GPU was reset. */
 bool wb_test_renderer_lost(struct wb_server *server);
 /* Reload rc.xml/menu.xml/theme and restyle existing window frames. */
-void wb_reconfigure(struct wb_server *server);
+/* Read rc.xml again and apply it. False (with why, if asked) when it
+ * can't be read: the current settings are kept. */
+bool wb_reconfigure(struct wb_server *server, std::string *problem = nullptr);
 
 #endif /* server.h */

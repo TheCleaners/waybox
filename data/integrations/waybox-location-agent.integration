@@ -1,0 +1,26 @@
+[Integration]
+Name=Location requests
+Category=Location
+Provides=location-agent
+Comment=Asks before an app learns where you are (GeoClue's agent)
+Exec=waybox-location-agent
+Page=location
+
+[Option policy]
+Label=Apps with no remembered answer
+Flag=--policy
+Type=choice
+Choices=ask,allow,deny
+Default=ask
+
+[Option note]
+Label=Notify me when a remembered answer is given
+Flag=--note-kept
+Type=switch
+Default=off
+
+[Option notifications]
+Label=Ask through notifications, where they show buttons
+Flag=--ask-with-notifications
+Type=switch
+Default=off

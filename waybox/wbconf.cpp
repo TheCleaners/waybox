@@ -5,6 +5,7 @@
  * plain WayboxSettings struct; this file is the XML glue and is unit-tested via
  * in-memory round-trips (test/wbconf_test.cpp).
  */
+#include "waybox/atomic_file.hpp"
 #include "waybox/xml_edit.hpp"
 #include "waybox/app_rule_xml.hpp"
 #include "waybox/font_spec.hpp"
@@ -976,43 +977,11 @@ bool RcDocument::save_file(const std::string &path, std::string *error) const {
 			return fail("could not keep a backup at " + backup.string() + ": " + ec.message());
 	}
 
-	std::string text = to_string();
-	fs::path tmp = target;
-	tmp += ".tmp";
-	int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
-			existed ? (st.st_mode & 07777) : 0644);
-	if (fd < 0)
-		return fail("could not write " + tmp.string() + ": " + std::strerror(errno));
-	const char *p = text.data();
-	size_t left = text.size();
-	while (left > 0) {
-		ssize_t n = ::write(fd, p, left);
-		if (n < 0) {
-			if (errno == EINTR)
-				continue;
-			std::string why = std::strerror(errno);
-			::close(fd);
-			::unlink(tmp.c_str());
-			return fail("could not write " + tmp.string() + ": " + why);
-		}
-		p += n;
-		left -= static_cast<size_t>(n);
-	}
-	if (existed)
-		(void) ::fchmod(fd, st.st_mode & 07777);
-	int synced = ::fsync(fd);
-	int sync_errno = errno;
-	int closed = ::close(fd);  /* always, so a failing disk doesn't leak fds */
-	if (synced != 0 || closed != 0) {
-		std::string why = std::strerror(synced != 0 ? sync_errno : errno);
-		::unlink(tmp.c_str());
-		return fail("could not write " + tmp.string() + ": " + why);
-	}
-	if (::rename(tmp.c_str(), target.c_str()) != 0) {
-		std::string why = std::strerror(errno);
-		::unlink(tmp.c_str());
-		return fail("could not replace " + target.string() + ": " + why);
-	}
+	/* A new file of its own beside it (mkstemp: a link or FIFO planted at
+	 * a fixed name isn't followed), its mode kept, synced, renamed over. */
+	std::string why;
+	if (!wb::write_file_atomic(target.string(), to_string(), &why))
+		return fail("could not save " + why);
 	return true;
 }
 

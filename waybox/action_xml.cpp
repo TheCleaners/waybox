@@ -182,7 +182,7 @@ std::optional<Action> parse_action_depth(xmlNode *action_node, int depth) {
 						action->args[std::string("position.") + k] = text(p);
 		} else if (c->type == XML_ELEMENT_NODE)
 			for (const char *k : {"x", "y", "width", "height", "monitor", "left", "right",
-					"top", "bottom"})
+					"top", "bottom", "prompt"})  /* <prompt>: Exit's */
 				if (is(c, k))
 					action->args[k] = text(c);
 	}

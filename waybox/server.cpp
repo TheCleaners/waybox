@@ -5,6 +5,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "waybox/output.h"
 #include "waybox/stall.hpp"
 #include "waybox/wlroots.hpp"
 #include "waybox/wlroots.hpp"
@@ -34,6 +35,7 @@
 #include "waybox/menu_widget.hpp"
 #include "waybox/switcher_widget.hpp"
 #include "waybox/about_card.hpp"
+#include "waybox/confirm_card.hpp"
 #include "waybox/xdg_shell.h"
 #include "waybox/xdg_session.h"
 
@@ -72,18 +74,19 @@ void wb_spawn(const char *cmd) {
 	waitpid(pid, NULL, 0);
 }
 
-void wb_reconfigure(struct wb_server *server) {
+bool wb_reconfigure(struct wb_server *server, std::string *problem) {
 	wb::StallScope timing("reconfigure");
 	/* Read the new config first: a broken rc.xml keeps everything as it is. */
-	struct wb_config *fresh = reload_config(server);
+	struct wb_config *fresh = reload_config(server, problem);
 	if (fresh == nullptr)
-		return;
+		return false;
 
 	/* Drop anything that points into the old config (menu model, key-binding
 	 * tree, switcher list) before it is freed. */
 	server->menu.reset();
 	server->switcher.reset();
 	server->about_card.reset();
+	server->confirm.reset();
 	server->desktop_popup.reset();  /* restyled from the new theme */
 	server->osd_preview.reset();
 	server->switcher_windows.clear();
@@ -138,6 +141,8 @@ void wb_reconfigure(struct wb_server *server) {
 	startup_apply(server);     /* <startup>: start, stop what changed */
 	idle_reconfigured(server); /* <idle>: the new timeout counts from now */
 	wlr_log(WLR_INFO, "%s", _("Reconfigured"));
+	seat_recheck_keyboard(server);  /* <virtualInput> may have changed */
+	return true;
 }
 
 /* Colour management (color-management-v1, color-representation-v1): clients
@@ -192,11 +197,32 @@ static void renderer_lost(struct wb_server *server) {
 	server->allocator = allocator;
 	watch_renderer(server);  /* (off the old one) */
 	wlr_compositor_set_renderer(server->compositor, renderer);
+	/* Each monitor to the new one; one that can't take it (its backend and
+	 * the new buffers don't match) still points at the old: it's turned
+	 * off, and the old renderer kept for as long as that lasts (freeing it
+	 * now, its next frame would use freed memory). */
+	bool all = true;
 	struct wb_output *output;
-	wl_list_for_each(output, &server->outputs, link)
-		wlr_output_init_render(output->wlr_output, allocator, renderer);
-	wlr_allocator_destroy(old_allocator);
-	wlr_renderer_destroy(old_renderer);
+	wl_list_for_each(output, &server->outputs, link) {
+		if (!wb_test_fail_once("init_render") &&
+				wlr_output_init_render(output->wlr_output, allocator, renderer))
+			continue;
+		all = false;
+		wlr_log(WLR_ERROR, "wb-renderer %s can't render with the new renderer: turned off",
+				output->wlr_output->name);
+		struct wlr_output_state off;
+		wlr_output_state_init(&off);
+		wlr_output_state_set_enabled(&off, false);
+		wlr_output_commit_state(output->wlr_output, &off);
+		wlr_output_state_finish(&off);
+	}
+	if (all) {
+		wlr_allocator_destroy(old_allocator);
+		wlr_renderer_destroy(old_renderer);
+	} else {
+		server->old_renderers.emplace_back(old_renderer, old_allocator);
+		output_manager_update_config(server);  /* tools see it off */
+	}
 	/* What windows showed was on the GPU, and is gone: ask each to draw
 	 * again (a configure; toolkits redraw on it). */
 	wl_list_for_each(t, &server->toplevels, link)
@@ -544,6 +570,11 @@ bool wb_terminate(struct wb_server* server) {
 		renderer_lost_idle = nullptr;
 	}
 	wlr_renderer_destroy(server->renderer);
+	for (auto &[r, a] : server->old_renderers) {
+		wlr_allocator_destroy(a);
+		wlr_renderer_destroy(r);
+	}
+	server->old_renderers.clear();
 
 	server->new_input.disconnect();
 	server->new_virtual_keyboard.disconnect();
@@ -566,6 +597,7 @@ bool wb_terminate(struct wb_server* server) {
 	wlr_backend_destroy(server->backend);
 	server->menu.reset();  /* tear down any open menu before its scene tree */
 	server->about_card.reset();
+	server->confirm.reset();
 	server->seat.reset();
 	wl_display_destroy(server->wl_display);
 	wlr_scene_node_destroy(&server->scene->tree.node);

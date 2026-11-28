@@ -105,6 +105,11 @@ bool path_allowed(const std::string &path, const std::vector<std::string> &files
 bool run_allowed(const std::vector<std::string> &argv, const std::vector<std::string> &runs);
 std::string expand_home(const std::string &path, const std::string &home);
 
+/* Where an absolute path really leads, its symlinks followed: the file's
+ * own, or (not there yet) its nearest existing folder's, with the rest
+ * after it. What a page's Files= entry is shown, approved and used as. */
+std::string resolve_path(const std::string &path);
+
 /* The approvals file: "ID SHA256" lines (# comments, blank lines
  * ignored); an id's approval holds while its hash (of the integration file
  * and its script together) is the same. */
