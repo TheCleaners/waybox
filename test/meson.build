@@ -350,6 +350,28 @@ threads_test = executable(
   )
 test('threads', threads_test, suite: 'unit')
 
+# Coroutine tasks and schedulers (run under ThreadSanitizer with -Dtsan=true).
+async_test = executable(
+  'async_test',
+  ['async_test.cpp', 'wb_test_main.cpp', threads_src],
+  include_directories: [inc_dir],
+  dependencies: [threads_dep],
+  )
+test('async', async_test, suite: 'unit')
+
+# The shared GLib thread as a scheduler (where GLib is: not tests_only).
+glib_for_tests = dependency('glib-2.0', required: false)
+if glib_for_tests.found()
+  glib_thread_test = executable(
+    'glib_thread_test',
+    ['glib_thread_test.cpp', 'wb_test_main.cpp', threads_src,
+     meson.project_source_root() / 'waybox' / 'glib_thread.cpp'],
+    include_directories: [inc_dir],
+    dependencies: [threads_dep, glib_for_tests],
+    )
+  test('glib_thread', glib_thread_test, suite: 'unit')
+endif
+
 # Whether only the system could have changed a file (pages run unasked).
 trust_test = executable(
   'trust_test',

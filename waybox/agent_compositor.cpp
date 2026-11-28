@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <latch>
 #include <thread>
 #include <vector>
 
@@ -23,6 +24,7 @@ extern char **environ;
 #include "agent_compositor_xml.h"
 #include "waybox/server.h"
 #include "waybox/session_lock.h"
+#include "waybox/glib_thread.hpp"
 #include "waybox/threads.hpp"
 
 namespace {
@@ -39,14 +41,21 @@ struct Snapshot {
 	GDBusConnection *conn = nullptr;  /* set once connected; ref held */
 };
 
+/* The connection, on the shared GLib thread: only ever touched there. */
+struct Conn {
+	GCancellable *cancel = g_cancellable_new();
+	GDBusConnection *conn = nullptr;
+	guint registration = 0;
+	std::shared_ptr<Snapshot> snap;
+	std::weak_ptr<wb::MainQueue> queue;
+	~Conn() { g_object_unref(cancel); }
+};
+
 struct AgentCompositor {
 	struct wb_server *server = nullptr;
 	pid_t hub = -1;
-	int fd = -1;  /* our end of the socket, until the thread takes it */
 	std::shared_ptr<Snapshot> snap = std::make_shared<Snapshot>();
-	GMainContext *ctx = nullptr;
-	GMainLoop *loop = nullptr;
-	std::jthread thread;
+	std::shared_ptr<Conn> conn = std::make_shared<Conn>();
 };
 
 AgentCompositor *g_ac = nullptr;  /* one per compositor */
@@ -96,67 +105,90 @@ GVariant *on_get(GDBusConnection *, const char *, const char *, const char *,
 	return nullptr;
 }
 
-/* The D-Bus thread: the connection over our end of the socket, GLib's
- * loop until finish. */
-void serve(AgentCompositor *ac, int fd, std::shared_ptr<wb::MainQueue> queue,
-		std::shared_ptr<Snapshot> snap) {
-	wb::block_signals();
-	g_main_context_push_thread_default(ac->ctx);
-	GError *err = nullptr;
-	GSocket *sock = g_socket_new_from_fd(fd, &err);
-	GDBusConnection *conn = nullptr;
-	if (sock != nullptr) {
-		GSocketConnection *stream = g_socket_connection_factory_create_connection(sock);
-		g_object_unref(sock);
-		gchar *guid = g_dbus_generate_guid();
-		conn = g_dbus_connection_new_sync(G_IO_STREAM(stream), guid,
-				G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_SERVER, nullptr, nullptr, &err);
-		g_free(guid);
-		g_object_unref(stream);
-	} else {
-		close(fd);
-	}
-	if (conn == nullptr) {
-		std::string why = err != nullptr ? err->message : "no socket";
-		g_clear_error(&err);
-		queue->post([why] {
-			wlr_log(WLR_ERROR, "agent tools: the hub's connection failed: %s", why.c_str());
+void log_on_main(const std::shared_ptr<Conn> &c, std::string text, enum wlr_log_importance level) {
+	if (auto q = c->queue.lock())
+		q->post([text = std::move(text), level] {
+			_wlr_log(level, "agent tools: %s", text.c_str());
 		});
-		g_main_context_pop_thread_default(ac->ctx);
+}
+
+/* On the GLib thread: the connection made (or failed); its object
+ * registered, its closing watched. */
+void on_connected(GObject *, GAsyncResult *res, gpointer data) {
+	std::unique_ptr<std::shared_ptr<Conn>> holder(static_cast<std::shared_ptr<Conn> *>(data));
+	std::shared_ptr<Conn> c = *holder;
+	GError *err = nullptr;
+	GDBusConnection *conn = g_dbus_connection_new_finish(res, &err);
+	if (conn == nullptr) {
+		if (!g_error_matches(err, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+			log_on_main(c, std::string("the hub's connection failed: ") + err->message, WLR_ERROR);
+		g_clear_error(&err);
 		return;
 	}
+	if (g_cancellable_is_cancelled(c->cancel)) {  /* finished meanwhile */
+		g_dbus_connection_close_sync(conn, nullptr, nullptr);
+		g_object_unref(conn);
+		return;
+	}
+	c->conn = conn;
 	GDBusNodeInfo *node = g_dbus_node_info_new_for_xml(kAgentCompositorXml, &err);
 	if (node == nullptr) {
-		std::string why = err->message;
+		log_on_main(c, std::string("the interface's description: ") + err->message, WLR_ERROR);
 		g_clear_error(&err);
-		queue->post([why] {
-			wlr_log(WLR_ERROR, "agent tools: the interface's description: %s", why.c_str());
-		});
 	} else {
 		static const GDBusInterfaceVTable vtable = {on_method, on_get, nullptr, {nullptr}};
-		g_dbus_connection_register_object(conn, kPath, node->interfaces[0], &vtable,
-				snap.get(), nullptr, &err);
+		c->registration = g_dbus_connection_register_object(conn, kPath, node->interfaces[0],
+				&vtable, c->snap.get(), nullptr, &err);
 		g_clear_error(&err);
 		g_dbus_node_info_unref(node);
 	}
-	g_signal_connect(conn, "closed", G_CALLBACK(+[](GDBusConnection *, gboolean, GError *,
-			gpointer q) {
-		static_cast<wb::MainQueue *>(q)->post([] {
-			wlr_log(WLR_INFO, "agent tools: the hub's connection closed");
-		});
-	}), queue.get());
-	{
-		std::lock_guard lock(snap->mutex);
-		snap->conn = G_DBUS_CONNECTION(g_object_ref(conn));
+	auto *closed_data = new std::weak_ptr<Conn>(c);
+	g_signal_connect_data(conn, "closed", G_CALLBACK(+[](GDBusConnection *, gboolean, GError *,
+			gpointer d) {
+		if (auto c = static_cast<std::weak_ptr<Conn> *>(d)->lock())
+			log_on_main(c, "the hub's connection closed", WLR_INFO);
+	}), closed_data, [](gpointer d, GClosure *) {
+		delete static_cast<std::weak_ptr<Conn> *>(d);
+	}, GConnectFlags(0));
+	std::lock_guard lock(c->snap->mutex);
+	c->snap->conn = G_DBUS_CONNECTION(g_object_ref(conn));
+}
+
+/* On the GLib thread: start the connection over our end of the socket. */
+void connect_hub(const std::shared_ptr<Conn> &c, int fd) {
+	GError *err = nullptr;
+	GSocket *sock = g_socket_new_from_fd(fd, &err);
+	if (sock == nullptr) {
+		close(fd);
+		log_on_main(c, std::string("the hub's socket: ") + err->message, WLR_ERROR);
+		g_clear_error(&err);
+		return;
 	}
-	g_main_loop_run(ac->loop);
+	GSocketConnection *stream = g_socket_connection_factory_create_connection(sock);
+	g_object_unref(sock);
+	gchar *guid = g_dbus_generate_guid();
+	/* Asynchronous: a hub slow to authenticate never holds the thread
+	 * everything GLib in Waybox shares. */
+	g_dbus_connection_new(G_IO_STREAM(stream), guid,
+			G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_SERVER, nullptr, c->cancel, on_connected,
+			new std::shared_ptr<Conn>(c));
+	g_free(guid);
+	g_object_unref(stream);
+}
+
+/* On the GLib thread: the connection ended. */
+void disconnect_hub(const std::shared_ptr<Conn> &c) {
+	g_cancellable_cancel(c->cancel);
 	{
-		std::lock_guard lock(snap->mutex);
-		g_clear_object(&snap->conn);
+		std::lock_guard lock(c->snap->mutex);
+		g_clear_object(&c->snap->conn);
 	}
-	g_dbus_connection_close_sync(conn, nullptr, nullptr);
-	g_object_unref(conn);
-	g_main_context_pop_thread_default(ac->ctx);
+	if (c->conn != nullptr) {
+		if (c->registration != 0)
+			g_dbus_connection_unregister_object(c->conn, c->registration);
+		g_dbus_connection_close_sync(c->conn, nullptr, nullptr);
+		g_clear_object(&c->conn);
+	}
 }
 
 void emit_changed(Snapshot *snap, const char *name, bool value) {
@@ -227,15 +259,16 @@ void agent_compositor_init(struct wb_server *server) {
 	auto *ac = new AgentCompositor;
 	ac->server = server;
 	ac->hub = pid;
-	ac->ctx = g_main_context_new();
-	ac->loop = g_main_loop_new(ac->ctx, FALSE);
 	{
 		std::lock_guard lock(ac->snap->mutex);
 		ac->snap->locked = session_locked(server);
 		ac->snap->away = ac->snap->locked;
 	}
+	ac->conn->snap = ac->snap;
+	ac->conn->queue = server->main_queue;
 	g_ac = ac;
-	ac->thread = std::jthread(serve, ac, sv[0], server->main_queue, ac->snap);
+	int fd = sv[0];
+	server->glib->post([c = ac->conn, fd] { connect_hub(c, fd); });
 	wlr_log(WLR_INFO, "agent tools: started the hub (%d)", static_cast<int>(pid));
 }
 
@@ -244,13 +277,24 @@ void agent_compositor_finish(struct wb_server *) {
 	if (ac == nullptr)
 		return;
 	g_ac = nullptr;
-	g_main_loop_quit(ac->loop);  /* thread-safe; wakes the context */
-	if (ac->thread.joinable())
-		ac->thread.join();
-	g_main_loop_unref(ac->loop);
-	g_main_context_unref(ac->ctx);
+	/* Ended on the GLib thread, waited for: nothing of it outlives this. */
+	std::latch ended(1);
+	ac->server->glib->post([c = ac->conn, &ended] {
+		disconnect_hub(c);
+		ended.count_down();
+	});
+	ended.wait();
+	/* The hub sees its socket close and ends by itself; one that doesn't,
+	 * within a moment, is ended (its process group: what it started too). */
+	for (int i = 0; ac->hub > 0 && i < 50; ++i) {
+		if (waitpid(ac->hub, nullptr, WNOHANG) == ac->hub) {
+			ac->hub = -1;
+			break;
+		}
+		usleep(10000);
+	}
 	if (ac->hub > 0)
-		kill(-ac->hub, SIGTERM);  /* it'd see its socket close; this is sooner */
+		kill(-ac->hub, SIGTERM);
 	delete ac;
 }
 

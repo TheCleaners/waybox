@@ -6,7 +6,7 @@
 #include <vector>
 #include <map>
 
-#include "waybox/threads.hpp"
+#include "waybox/async.hpp"
 #include <string>
 #include <string_view>
 
@@ -53,19 +53,22 @@ public:
 	cairo_surface_t *get(const std::string &name, const std::string &theme, int size);
 	void clear();
 	size_t size() const { return icons_.size(); }
-	/* Loads `names` not cached yet on `workers`, in the background; each
-	 * comes back through `queue` and is kept, unless the cache was cleared
-	 * meanwhile. On the main thread; `done` (main thread) once all are back,
-	 * with how many it loaded. */
+	/* Loads `names` not cached yet in the background: a task each, loading
+	 * on `pool` and keeping the icon back on `main` (async.hpp). Started on
+	 * the main thread; `done` (main thread) once all are back, with how
+	 * many it loaded. clear() drops loads still under way. */
 	void preload(const std::vector<std::string> &names, const std::string &theme, int size,
-			Workers &workers, const std::shared_ptr<MainQueue> &queue,
-			std::function<void(size_t)> done = {});
+			Scheduler &pool, Scheduler &main, std::function<void(size_t)> done = {});
 
 private:
 	static std::string key(const std::string &name, const std::string &theme, int size);
+	Task<void> load_one(std::string name, std::string theme, int size,
+			std::shared_ptr<const std::vector<std::string>> dirs, Scheduler &pool,
+			Scheduler &main, std::shared_ptr<size_t> left, size_t total,
+			std::function<void(size_t)> done);
 	std::map<std::string, cairo_surface_t *> icons_;
-	/* Bumped by clear(): a preload's results from before are dropped. */
-	std::shared_ptr<uint64_t> generation_ = std::make_shared<uint64_t>(0);
+	/* The preloads under way: replaced by clear(), which drops them. */
+	std::unique_ptr<TaskScope> scope_ = std::make_unique<TaskScope>();
 };
 
 /* The Icon= of the desktop file for application `app_id` (APP_ID.desktop,
