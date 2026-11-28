@@ -131,8 +131,13 @@ claim first.
 - **Shims reconnect by themselves,** redo the MCP handshake with the new
   hub, and tell the agent its tools changed; calls that were running get
   "the desktop's hub restarted; call again".
-- **The audit is append-only,** one line a write: a crash loses at most the
-  line being written.
+- **The audit is append-only:** lines are only ever added to the current
+  file, never rewritten; rotation renames the file and starts a new one.
+  One line is one write, so lines never interleave. Durability is a
+  tunable (`AuditSync`): by default the lines that matter as evidence
+  (capture, input, exec, confirmations, grants, the stop key) are synced to
+  disk as they're written (`fdatasync`); the rest may be lost in a crash or
+  a power cut, and the audit says so when it starts after one.
 
 **Agents on another machine:** the hub never listens on the network.
 - **A local client with its model elsewhere** (a cloud service, a model
@@ -212,6 +217,12 @@ Description=Play or pause the current media player
   says over MCP. A live description that differs from the approved one is
   ignored and logged.
 - **Sensitivity:** how dangerous the tool is. The levels key on it (below).
+- **Reach:** `local` (the default) or `outside`: whether the tool sends or
+  fetches anything beyond the machine (a web service, another device),
+  whatever its sensitivity: a `read` tool fetching a web page and an `act`
+  tool posting to a service are both `outside`. Approved with the
+  manifest; a change makes the provider pending again. It gives MCP's
+  `openWorldHint`, and the flow guard keys on it.
 - **Secret:** argument names whose values are redacted in the audit
   (`Secret=password,token`).
 
@@ -383,18 +394,23 @@ Each tool declares one sensitivity:
 **An unknown sensitivity** (a later version's, or a typo) counts as the
 most guarded: a tool declaring one is `off` until the hub knows it.
 
-**MCP's tool annotations follow from the sensitivity.** MCP lets a tool hint
+**MCP's tool annotations follow from the manifest.** MCP lets a tool hint
 at what it does; agents use the hints to decide when to confirm. The hub
-gives agents the hints its sensitivity implies, whatever the provider says,
-and refuses (and logs) a tool whose own hints contradict its manifest (a
-`read` tool saying it isn't read-only):
+gives agents the hints its manifest implies, whatever the provider says,
+always all three (MCP's defaults, read-only false and destructive true,
+would otherwise apply to what's left unsaid), and refuses (and logs) a
+tool whose own hints contradict its manifest (a `read` tool saying it
+isn't read-only, a `local` tool saying it's open-world):
 
-| Sensitivity | readOnlyHint | destructiveHint | openWorldHint |
-|---|---|---|---|
-| `read`, `content`, `capture` | true | false | false |
-| `act`, `ui` | false | false | false |
-| `destroy` | false | true | false |
-| `exec`, `input` | false | true | true |
+| Sensitivity | readOnlyHint | destructiveHint |
+|---|---|---|
+| `read`, `content`, `capture` | true | false |
+| `act`, `ui` | false | false |
+| `destroy`, `exec`, `input` | false | true |
+
+`openWorldHint` is the tool's `Reach`: true for `outside`; `exec` and
+`input` always count as `outside` (a command or a keystroke can reach
+anything).
 
 The user's settings give each sensitivity a level: `off`, `ask` or `allow`.
 Overrides per provider and per tool sit on top.
@@ -419,7 +435,8 @@ must stay what the provider returned.
 | trusted | allow | allow | allow | ask | ask | ask | off | allow |
 | full | allow | allow | allow | allow | allow | allow | allow | allow |
 
-\* In "safe": window titles only; accessibility trees are `off`.
+\* In "safe": the accessibility provider (`atspi`) is `off` by name; other
+`content` tools (window titles) are allowed.
 
 \*\* In "safe", an agent's first `ui` request is asked about once, for that
 agent's connection: Agent UI never takes focus and is always marked, but a
@@ -537,8 +554,8 @@ tools that reach out.
 - **The hub remembers, per agent connection,** which sensitivities and
   providers it has had data from.
 - **The flow guard:** once a connection has had `content` or `capture` data,
-  its calls to tools that reach out (`exec`, and any tool whose hints say
-  open-world) are asked about even where the level is `allow`; the question
+  its calls to tools that reach out (`Reach=outside`, which `exec` and
+  `input` always are) are asked about even where the level is `allow`; the question
   says why ("this assistant has read window contents").
   - **Window titles count.** They're the way injected instructions reach
     the model in "safe" (a page titled "ignore your instructions and run
@@ -659,7 +676,8 @@ the session bus (`doc/dbus/org.waybox.AgentHub1.xml` until renamed; see
   sensitivities it has had data from (the flow guard's record).
 - `Pending`: questions waiting for the user's answer.
 - `Providers`: id, name, state (`approved`, `pending`, `refused`), tool count.
-- `Grants`: what's granted, to which profile, until when.
+- `Grants`: what's granted, to which agent connection (and its profile),
+  until when; each goes when its connection closes.
 - `Active`: what's happening now, such as capture or input in progress, or
   a tool call running.
 
@@ -820,7 +838,8 @@ portal has most of `OpenInput` already.
 
 | Tool | Sensitivity | What it does |
 |---|---|---|
-| `list_windows` | read (titles: content) | windows: id, app id, title, desktop, output, geometry, state, focused; each window's process id and whether it answers (Waybox's ping) |
+| `list_windows` | read | windows without their titles: id, app id, desktop, output, geometry, state, focused; each window's process id and whether it answers (Waybox's ping) |
+| `window_titles` | content | each window's id and title |
 | `list_desktops`, `list_outputs`, `get_version` | read | desktops and their names; monitors, modes, scale; Waybox's version |
 | `window_process` | read | a window's process: its state, CPU use, what it's waiting on, its children (the stuck-window case) |
 | `check_config` | read | Waybox's parser on a proposed rc.xml, without applying it |
@@ -1022,7 +1041,28 @@ deployments, each `Id` checked against its app's id.
 
 **No static holes:** no `--talk-name`, no socket mounted into the sandbox.
 Portals are reachable from any sandbox, and the user's answer is the
-permission.
+permission. (The interim bus name, under "Names", is the one exception
+until the portal frontend exists: one `--talk-name`.)
+
+**How the caller's app id is known,** by the portal frontend, and by the
+hub itself for the interim bus name, the same way xdg-desktop-portal does:
+- **From the D-Bus sender, never from what the caller says:** the bus's
+  credentials for the sender give its process as a pidfd (not a PID,
+  which can be reused), so the process can't change between the check and
+  its use.
+- **Flatpak:** the process's `/.flatpak-info` (through its root, as the
+  portal reads it), which the app can't write.
+- **Snap:** the process's security label from the bus's credentials
+  (`snap.<name>.…`).
+- **Not sandboxed:** refused; a host agent uses the shim.
+- **Every session and restore token is bound** to that app id and to the
+  sender's unique bus name; a call from another sender, or another app id,
+  with a session handle or a restore token it didn't get, is refused and
+  logged. A provider's manifest `Id` must be that app id.
+
+If the hub can't establish this for the interim name on a system (no
+pidfds in the bus's credentials, say), it offers no sandboxed agents there
+until the portal frontend does.
 
 ## Agent UI
 
@@ -1070,7 +1110,17 @@ The user picks a provider per kind, with fallbacks. Where standards already
 cover a kind, the hub uses them directly:
 - **notify:** freedesktop Notifications, with its actions;
 - **pick_file:** the portal FileChooser. It's sandbox-aware, and the user's
-  pick is itself the consent to share the file.
+  pick is itself the consent to share the file. The chooser grants access
+  to its caller, the hub, so what reaches the agent depends on it:
+  - **A host agent** gets the path.
+  - **A sandboxed agent** (through the Agent portal) gets the file through
+    the document portal: the hub adds it to the document store for the
+    agent's app id only (`AddFull`, read for opening, read and write for
+    saving), and returns the path the app sees inside its sandbox (under
+    `/run/user/…/doc/`). Another app can't use it.
+  - **Access ends** when that agent's connection closes, the hub revoking
+    the app's permissions on the document, unless the user chose to keep
+    it in the chooser.
 
 **Waybox ships fallbacks for every kind,** so all of it works with nothing
 else installed:
@@ -1233,6 +1283,7 @@ interoperability, not taste.
 | `HubRestarts` | 3 in 1 min | crashes before the compositor stops restarting the hub |
 | `RecentCallsMax` | 100 | what `RecentCalls` returns at most |
 | `AuditCut` | 4 KiB | longer strings in the audit are cut, marked so |
+| `AuditSync` | important lines | which lines are synced to disk as written (`important`, `all`, `none`): more is safer evidence, at a write's cost each |
 | `AuditRotate` | 10 MiB, 3 kept | when the audit file rotates, and how many are kept |
 
 ## Flows
@@ -1297,10 +1348,14 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
 4. The hub cancels running calls (the agents get "stopped by the user",
    the providers MCP's cancellation), revokes every grant, empties
    `Pending`; audit (`stop`).
-5. **Every connected agent is now stopped:** only `read` and `content`
-   calls go through; the rest are refused, "stopped by the user". The
-   compositor's indicator shows it. Agents connecting later start as
-   usual.
+5. **Assistants are now stopped, all of them:** the stopped state is the
+   compositor's (its `AssistantsStopped` property), not the hub's, so it holds for
+   agents connecting later, for agents reconnecting, and across a hub
+   restart (the new hub reads it at `Hello`). While stopped, only `read`
+   and `content` calls go through; the rest are refused, "stopped by the
+   user". Programs the agents start are held to the same (their levels,
+   `LevelsFor`, say so). The compositor's indicator shows it the whole
+   time. It lasts until the user resumes, or the session ends.
 6. **Resuming** is a click on the compositor's indicator: a confirmation
    drawn by the compositor (it raises power again), or `Propose` from a
    surface, which shows the same confirmation. Either way, once the user
@@ -1453,6 +1508,15 @@ Also decided in the second pass:
   portals; MCP's tool annotations implied by sensitivities; `McpName`
   linking a manifest to its `server.json`; unknown sensitivities `off`;
   windows named by `ext-foreign-toplevel-list`; the Agent portal.
+- **Tenth pass (review 21):** the stopped state the compositor's, holding
+  for new and reconnecting agents and across hub restarts; the caller's app
+  id established from the D-Bus sender's pidfd (Flatpak's `.flatpak-info`,
+  Snap's label), sessions and restore tokens bound to it, the interim
+  name's `--talk-name` stated as the exception; `list_windows` without
+  titles and `window_titles` (content); `Reach=local|outside` apart from
+  sensitivity, giving `openWorldHint` and keying the flow guard; picked
+  files reaching sandboxed agents through the document portal; grants
+  naming their connection; the audit's durability (`AuditSync`).
 - **Ninth pass:** the agent's processes held to its levels by the
   compositor (a systemd scope on Linux, the parent chain elsewhere:
   capture, virtual input, clipboard, window management and IPC from

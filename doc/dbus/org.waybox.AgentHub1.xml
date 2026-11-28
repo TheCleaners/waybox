@@ -54,7 +54,8 @@
     <!--
       Standing grants (answers to "ask" that were not just "once"):
         id (s)
-        profile (s)    who it's for
+        agent (s)      the agent connection it belongs to (it goes when that closes)
+        profile (s)    that connection's profile
         provider (s)   provider id, or "" for any
         tool (s)       tool name, or "" for every tool of that sensitivity
         sensitivity (s)

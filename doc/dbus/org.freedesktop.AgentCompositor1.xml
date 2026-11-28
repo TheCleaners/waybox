@@ -24,6 +24,11 @@
          (the compositor's idle time). Questions aren't asked while away. -->
     <property name="Away" type="b" access="read"/>
 
+    <!-- Whether assistants are stopped (the stop key, until the user resumes):
+         the compositor's state, so it holds for new and reconnecting agents
+         and across a hub restart. -->
+    <property name="AssistantsStopped" type="b" access="read"/>
+
     <!--
       Hello: each side's version and what it supports. hub: "version" (s, the
       hub's own), "agents" (u, connected). Returned: "name" (s, the
