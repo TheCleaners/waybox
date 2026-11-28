@@ -102,8 +102,10 @@ The hub is one per session, **started by the compositor**:
   requested; nothing else can reach them.
 - **The compositor's tools** come over a second inherited socket, as MCP:
   the compositor is a provider like the others, with an installed manifest.
-- **Where shims find the hub:** the socket's path is in the session's
-  environment, in a directory only the user can enter.
+- **Where shims find the hub:** `$XDG_RUNTIME_DIR/agents/tools/agent`, in
+  a directory only the user can enter, made so by the hub; a desktop that
+  puts it elsewhere names it in the session's environment
+  (`AGENT_TOOLS_SOCKET`).
 - **Independent of Waybox's IPC:** both sockets work with Waybox's general
   IPC socket turned off (its default).
 - **On other desktops:** their compositor starts the hub the same way,
@@ -369,8 +371,8 @@ The audit and the questions always show the full names (the provider's
   calls in flight is normal: its open questions are closed, and nothing
   waits on it.
 
-**The shim's handshake.** Before any MCP, the shim sends one line, and the
-hub answers one:
+**The shim's handshake.** Before any MCP (within `HandshakeWait`), the shim
+sends one line, and the hub answers one:
 
 ```json
 {"agent-tools": 1, "token": "…", "lower": {"exec": "off"}, "label": "laptop"}
@@ -383,15 +385,16 @@ hub answers one:
   gives nothing to present. No token, or a wrong one: "safe" (a wrong one
   is logged).
 - **`lower`** narrows levels, per sensitivity or per tool, for this
-  connection only; anything that would raise is ignored and logged.
+  connection only; anything that would raise is ignored and logged. The
+  shim sends what its command line asks (`--lower exec=off`, repeated).
 - **`label`** is the user's own name for this agent, shown beside its
-  self-declared one.
+  self-declared one (`--label`).
 - **`ask`** (optional): the one-time ticket of an assistant started to ask
   about a window (see "Asking about a window"), from `AGENT_TOOLS_ASK` in
   the shim's environment.
 - **Who it is, for the record:** the hub reads the shim's credentials from
-  the socket (`SO_PEERCRED`, or a pidfd where the system has one), then the
-  shim's parent, the agent: its executable and the script on its command
+  the socket (`SO_PEERCRED`, or a pidfd where the system has one), and
+  refuses another user's; then the shim's parent, the agent: its executable and the script on its command
   line, shown and audited, never trusted.
 - **A version the hub doesn't speak** gets `{"ok": false, "error": …}`
   naming the versions it does, and the connection closes.
@@ -1746,6 +1749,7 @@ interoperability, not taste.
 | `RecentCallsMax` | 100 | what `RecentCalls` returns at most |
 | `AuditCut` | 4 KiB | longer strings in the audit are cut, marked so |
 | `AuditKeepMax` | 1 MiB | the largest command or Lua code kept in full beside the audit |
+| `HandshakeWait` | 10 s | how long a connection to the hub may take to send its handshake before it's closed |
 | `MaxFrame` | 4 MiB | the largest MCP message the hub reads from an agent or a provider; a longer one, or a line not ended within it, closes that connection |
 | `AskTicket` | 1 min | how long a started assistant has to connect with its ask ticket: longer suits slow starts, but a ticket waits that long to be used |
 | `AskGrant` | 15 min | how long a shared assistant's grant for a window lasts (it ends sooner when the window closes): longer suits long conversations, but the app's other conversations share it that long |
