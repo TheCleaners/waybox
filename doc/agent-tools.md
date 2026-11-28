@@ -650,6 +650,10 @@ the session bus (`doc/dbus/org.waybox.AgentHub1.xml` until renamed; see
 "Names").
 
 **Properties:**
+- `Bindings`: agents bound to profiles: id, profile, label, the token
+  file's path (never the token), remote, an app id for a sandboxed one.
+- `Unconfirmed`: values the settings file raises that the user hasn't
+  confirmed: key, the file's value, the confirmed value in force.
 - `Agents`: connected agents, with profile, self-declared name, the user's
   label, whether remote, the app id for a sandboxed one, and which
   sensitivities it has had data from (the flow guard's record).
@@ -855,6 +859,10 @@ in, and the levels confine them only as far as they're otherwise confined
 (see "The limits"). The Agent portal is for sandboxed agents, and for
 whoever wants an agent truly confined.
 
+**Recommended:** an agent's own command tool off, or the agent sandboxed,
+wherever the work allows it; the settings offer it when adding an
+assistant, through its integration file (`ShellOff=`, below).
+
 **Their models may be anywhere:** on the machine, on the network (a model
 server on the LAN), or a cloud service. Only the agent's client talks to
 the hub, so where the model runs doesn't change what the agent may do.
@@ -878,6 +886,9 @@ McpRemove=openclaw mcp remove desktop
 # …or a JSON file and the object holding its servers:
 # McpConfig=~/.pi/agent/mcp.json
 # McpKey=mcpServers
+# How to turn off the agent's own command tool, where it has a way
+# (a command, as McpAdd), offered by the settings when adding it:
+# ShellOff=…
 ```
 
 - **Who ships them:** the agent's package, the distribution, or the
@@ -942,6 +953,34 @@ audited. A skill's scripts run with the agent's rights, outside the hub,
 as an agent's shell does (see "The limits"). Consent written into a skill
 as instructions (a checklist the model is told to follow) is a request to
 the model; the hub's is enforced.
+
+## The agent's processes
+
+A prompt-injected agent with a shell doesn't need the hub to take a
+screenshot (`grim`), type (`wtype`) or close a window (the compositor's own
+IPC): it runs a program that does. Those programs are Wayland or IPC
+clients of the compositor, so the compositor can tell that they act for
+the agent, and hold them to its levels.
+
+- **The hub tells the compositor the agent's process:** at the handshake
+  (from the shim's parent), `AgentProcess(conn, pidfd)`.
+- **On Linux, the agent's processes are kept together:** the hub asks the
+  user's service manager to move the running agent into a scope of its own
+  (systemd's `StartTransientUnit` with the agent's process); everything it
+  starts stays in that scope, even once its parent exits. The compositor
+  reads a client's scope from its process. **Elsewhere,** the parent chain
+  (weaker: a process whose parent exits is adopted by another).
+- **What the compositor holds to the agent's levels,** for clients in its
+  scope: screen capture protocols (`capture`), virtual keyboards and
+  pointers (`input`), clipboard and window management protocols (`content`,
+  `act`), and requests on its IPC socket (by what they do: `read`, `act`,
+  `destroy`, `exec`). Allowed ones go through; others ask, the question
+  saying a program the agent started wants it; both go in the audit (the
+  compositor tells the hub, `ClientCall`).
+- **The limits:** work started through the user's service manager
+  (`systemd-run --user`) leaves the scope; signals, files and the network
+  aren't the compositor's. This catches a tricked agent's ordinary tools,
+  not a determined escape: for that, confine the agent.
 
 ## The Agent portal: sandboxed agents and providers
 
@@ -1113,10 +1152,21 @@ injected instructions into it. The rules:
 agents among them) can run commands outside the hub. Such an agent can do
 anything the user can, except what needs the compositor's confirmations: it
 can't raise levels, approve providers, bind profiles or answer questions,
-because those take physical input in a dialog the compositor draws. The
-levels confine an agent only as far as the agent is otherwise confined. For
-real confinement, run the agent in a sandbox where the shim's socket is the
-only way out.
+because those take physical input in a dialog the compositor draws.
+
+What this design gives, said plainly:
+- **An unconfined agent** (its own shell on): consent and an audit for the
+  tools it uses through the hub, and a net for its ordinary way around
+  them: screenshots, typing and window actions by programs it starts are
+  caught by the compositor (see "The agent's processes"). Not caught: an
+  agent set on escaping (starting work through the user's service manager),
+  signals (`kill`), files and the network.
+- **A confined agent** (its shell off, or a sandbox whose only way out is
+  the hub): the levels are everything it can do.
+
+For real confinement, run the agent so: in a sandbox where the hub's
+socket (or the Agent portal) is the only way out, or with its own command
+tool turned off.
 
 **Data can flow between providers through the agent.** Content read from
 one tool (an accessibility tree, notification text) can be passed as
@@ -1253,7 +1303,9 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
    usual.
 6. **Resuming** is a click on the compositor's indicator: a confirmation
    drawn by the compositor (it raises power again), or `Propose` from a
-   surface, which shows the same confirmation.
+   surface, which shows the same confirmation. Either way, once the user
+   confirms, the compositor sends `Resumed()`, and the hub lifts the
+   stopped state.
 
 ### A new provider
 
@@ -1275,7 +1327,9 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
   label. `Propose` (kind `binding`); the compositor's confirmation shows the
   profile and the label. Yes: the hub mints a token, writes it to a file
   (mode 0600) under `$XDG_CONFIG_HOME/agents/tools/tokens/`, records its
-  hash, and the settings show the agent configuration naming that file.
+  hash, and lists the binding in `Bindings` (its token file's path, never
+  the token); the settings take the path from there and write the agent's
+  configuration naming it.
 - **From an agent connected as "safe":** "Bind this assistant" on its row.
   The confirmation also shows its executable and script (shown, not
   trusted). Yes: as above; the agent uses its binding from its next start.
@@ -1289,8 +1343,10 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
 3. Raised values stay at the confirmed ones; the hub asks once for the
    edit (`Confirm`, kind `level`: each raised value a line).
 4. Yes: they apply and become the confirmed ones. No: the file is left as
-   it is (the hub never rewrites the user's file); the settings show those
-   values "not confirmed", with a button to ask again (`Propose`).
+   it is (the hub never rewrites the user's file); the held values are in
+   `Unconfirmed` (each key, the file's value, the confirmed value in
+   force), and the settings show them "not confirmed", with a button to ask
+   again (`Propose`).
 
 ### An agent leaving
 
@@ -1397,6 +1453,13 @@ Also decided in the second pass:
   portals; MCP's tool annotations implied by sensitivities; `McpName`
   linking a manifest to its `server.json`; unknown sensitivities `off`;
   windows named by `ext-foreign-toplevel-list`; the Agent portal.
+- **Ninth pass:** the agent's processes held to its levels by the
+  compositor (a systemd scope on Linux, the parent chain elsewhere:
+  capture, virtual input, clipboard, window management and IPC from
+  programs the agent starts; `AgentProcess`, `ClientCall`); the limits
+  said plainly for unconfined and confined agents; agents' own command
+  tools off or sandboxed recommended (`ShellOff=` in integration files);
+  the review's gaps: `Resumed()`, `Bindings`, `Unconfirmed`.
 - **Eighth pass:** one `agents/` folder per XDG location (`tools/`,
   `clients/`, beside Agent Skills' `skills/`); existing MCP servers as
   providers, a dispatching tool at its worst case's sensitivity; the

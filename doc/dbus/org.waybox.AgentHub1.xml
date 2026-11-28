@@ -81,6 +81,21 @@
     -->
     <property name="Pending" type="aa{sv}" access="read"/>
 
+    <!--
+      Agents bound to profiles (no secrets):
+        id (s), profile (s), label (s), token_file (s, its path; "" for a
+        sandboxed app), app_id (s), remote (b), created (x)
+    -->
+    <property name="Bindings" type="aa{sv}" access="read"/>
+
+    <!--
+      Values the settings file raises that the user hasn't confirmed (held at
+      the confirmed ones):
+        key (s, "[Section] Key"), file (s, the file's value), confirmed (s,
+        the value in force)
+    -->
+    <property name="Unconfirmed" type="aa{sv}" access="read"/>
+
     <!-- True while any capture or input is active: the cheap thing for an indicator. -->
     <property name="Watching" type="b" access="read"/>
 

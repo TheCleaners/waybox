@@ -122,6 +122,44 @@
       <arg name="activity" type="a{sv}" direction="in"/>
     </method>
 
+    <!--
+      AgentProcess: a connected host agent's process (from the shim's
+      parent), so the compositor can hold the programs it starts to its
+      levels. "conn" is the hub's id for the connection; "info": "scope"
+      (s, the systemd scope the hub moved it into, on Linux), "profile" (s).
+      Called again with an empty pidfd-less info when the agent leaves.
+    -->
+    <method name="AgentProcess">
+      <arg name="conn" type="s" direction="in"/>
+      <arg name="process" type="h" direction="in"/>
+      <arg name="info" type="a{sv}" direction="in"/>
+    </method>
+
+    <!--
+      ClientCall: a program in an agent's scope used a privileged protocol or
+      the IPC socket. call: "conn" (s), "client" (s, its executable),
+      "what" (s, e.g. "capture", "virtual-keyboard", "ipc:action Close"),
+      "sensitivity" (s), "outcome" (s: "allowed", "asked-allowed",
+      "asked-denied", "refused"). The hub applies nothing; it records it
+      (audit, the connection's flow record) and shows it on its state.
+      The compositor decides from the levels the hub gave it (LevelsFor).
+    -->
+    <signal name="ClientCall">
+      <arg name="call" type="a{sv}"/>
+    </signal>
+
+    <!-- The levels the compositor applies to an agent's processes: per
+         sensitivity, "off", "ask" or "allow" (a{ss} in "levels"). Sent at
+         AgentProcess and whenever they change (a grant, a stop). -->
+    <method name="LevelsFor">
+      <arg name="conn" type="s" direction="in"/>
+      <arg name="levels" type="a{sv}" direction="in"/>
+    </method>
+
+    <!-- The user resumed assistants after the stop key (a confirmation the
+         compositor drew, from its indicator or after a Propose). -->
+    <signal name="Resumed"/>
+
     <!-- The stop key was pressed. The compositor has already ended capture and
          input and closed its questions (no Answered follows for them); the hub
          revokes grants and cancels calls. -->
