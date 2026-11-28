@@ -1,5 +1,6 @@
 option('wlroots-version', type: 'string', value: '', description: 'The version of wlroots with which to compile the compositor')
 option('sanitize', type: 'feature', value: 'auto', description: 'Build with AddressSanitizer and UndefinedBehaviorSanitizer (auto: enabled for debug buildtypes)')
+option('tsan', type: 'boolean', value: false, description: 'Build with ThreadSanitizer instead of AddressSanitizer/UndefinedBehaviorSanitizer (for the threaded code; usually with tests_only)')
 option('tests_only', type: 'boolean', value: false, description: 'Build only the dependency-free unit tests (no wlroots/compositor); used for a sanitized CI job on stock distros')
 option('svg', type: 'feature', value: 'auto', description: 'Build with librsvg for SVG menu-icon support (auto: enabled when librsvg is present)')
 option('man-pages', type: 'feature', value: 'auto', description: 'Build and install the manual pages (needs scdoc)')

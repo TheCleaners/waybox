@@ -56,7 +56,12 @@ cc = meson.get_compiler('c')
 # release builds. Force with -Dsanitize=enabled / -Dsanitize=disabled.
 sanitize_opt = get_option('sanitize')
 build_is_debug = get_option('buildtype').startswith('debug')
-if sanitize_opt.enabled() or (sanitize_opt.auto() and build_is_debug)
+if get_option('tsan')
+  tsan_args = ['-fsanitize=thread', '-fno-omit-frame-pointer']
+  add_project_arguments(tsan_args, language: ['c', 'cpp'])
+  add_project_link_arguments(tsan_args, language: ['c', 'cpp'])
+  message('Building with ThreadSanitizer')
+elif sanitize_opt.enabled() or (sanitize_opt.auto() and build_is_debug)
   sanitize_args = [
     '-fsanitize=address,undefined',
     '-fno-omit-frame-pointer',
@@ -71,6 +76,25 @@ if sanitize_opt.enabled() or (sanitize_opt.auto() and build_is_debug)
   add_project_link_arguments(sanitize_args, language: ['c', 'cpp'])
   message('Building with AddressSanitizer + UndefinedBehaviorSanitizer')
 endif
+
+# C++20's std::jthread and std::stop_token are used as the standard means
+# them. libc++ before 20 (FreeBSD's clang 19) keeps them behind
+# -fexperimental-library: added only where that's what makes them build.
+cxx = meson.get_compiler('cpp')
+jthread_test = '''#include <stop_token>
+#include <thread>
+int main() { std::jthread t([](std::stop_token s) { (void)s.stop_requested(); }); }
+'''
+if not cxx.links(jthread_test, args: ['-pthread'], name: 'std::jthread')
+  if cxx.links(jthread_test, args: ['-pthread', '-fexperimental-library'],
+      name: 'std::jthread with -fexperimental-library')
+    add_project_arguments('-fexperimental-library', language: 'cpp')
+    add_project_link_arguments('-fexperimental-library', language: 'cpp')
+  else
+    error('std::jthread is needed (C++20)')
+  endif
+endif
+threads_dep = dependency('threads')
 
 # Adding include directory
 inc_dir = include_directories('include')
@@ -135,6 +159,7 @@ json_src = files('waybox/json.cpp')
 session_store_src = files('waybox/session_store.cpp')
 atomic_file_src = files('waybox/atomic_file.cpp')
 location_agent_src = files('waybox/location_agent.cpp')
+threads_src = files('waybox/threads.cpp')
 trust_src = files('waybox/trust.cpp')
 xml_strict_src = files('waybox/xml_strict.cpp')
 

@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <cstdint>
 #include <memory>
+#include "waybox/threads.hpp"
 #include <vector>
 
 #ifdef USE_NLS
@@ -205,6 +206,12 @@ struct wb_server {
 	int runtime_desktops_from = 0;
 	/* The desktop name shown after switching (<desktops><popupTime>). */
 	std::unique_ptr<wb::DesktopPopup> desktop_popup;
+	/* Work off the compositor's thread, and its results coming back
+	 * (threads.hpp): run on the event loop when main_queue's fd is
+	 * readable. */
+	std::shared_ptr<wb::MainQueue> main_queue;
+	std::unique_ptr<wb::Workers> workers;
+	struct wl_event_source *main_queue_source = nullptr;
 	/* wbconf's Test for the on-screen display: settings not saved yet. */
 	std::unique_ptr<wb::DesktopPopup> osd_preview;
 	/* "identify" (IPC): each monitor's name, large, on it, for a moment. */
