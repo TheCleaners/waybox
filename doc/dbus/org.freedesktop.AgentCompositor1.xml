@@ -20,6 +20,10 @@
          hub refuses reads and actions while it is, where that guard is on. -->
     <property name="Locked" type="b" access="read"/>
 
+    <!-- Whether the user is away: the screen locked, or idle past AwayAfter
+         (the compositor's idle time). Questions aren't asked while away. -->
+    <property name="Away" type="b" access="read"/>
+
     <!--
       Hello: each side's version and what it supports. hub: "version" (s, the
       hub's own), "agents" (u, connected). Returned: "name" (s, the

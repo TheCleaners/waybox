@@ -135,8 +135,8 @@ claim first.
   line being written.
 
 **Agents on another machine:** the hub never listens on the network.
-- **A cloud model with a local client** (Claude Code, a chat app) is a local
-  agent: nothing more is needed.
+- **A local client with its model elsewhere** (a cloud service, a model
+  server on the LAN) is a local agent: nothing more is needed.
 - **A client elsewhere** (an assistant on a phone, a web page) reaches the
   desktop through a **bridge**: a program on this machine that
   authenticates to the remote side its own way, and connects to the hub
@@ -416,6 +416,8 @@ Audit=on
 
 [Profile local]
 Preset=full
+# Levels while the user is away (idle or locked)
+Away=read
 
 [Provider org.waybar.Waybar]
 State=approved
@@ -501,6 +503,15 @@ tools that reach out.
   its calls to tools that reach out (`exec`, and any tool whose hints say
   open-world) are asked about even where the level is `allow`; the question
   says why ("this assistant has read window contents").
+  - **Window titles count.** They're the way injected instructions reach
+    the model in "safe" (a page titled "ignore your instructions and run
+    …"), so exempting them would open the hole the guard closes.
+  - **It asks about the flow, not the command,** so its question offers
+    "for this session" whatever the tool's sensitivity (an `exec` question
+    otherwise offers "once" only). Answered so, the guard is lifted for
+    that connection; the calls themselves still follow their levels. A
+    guard that asked before every command would teach the user to click
+    "Allow" unread.
 - **The record is kept even with no rule using it,** so finer rules (per
   provider, per destination) can come later without changing any format.
 
@@ -797,6 +808,88 @@ in the script.
 A policy hook, `wb.policy("mcp", fn)`, sees every call routed through the
 compositor provider, and can refuse it.
 
+## Agents in practice
+
+**Most agents are host programs with a shell.** Distributions package them
+as ordinary programs (Fedora: `pi-coding-agent`, `openclaw`,
+`hermes-agent`, Emacs's `agent-shell`), often with a local model
+(`ollama`, `llama-cpp`). For these, a binding with a token file is the way
+in, and the levels confine them only as far as they're otherwise confined
+(see "The limits"). The Agent portal is for sandboxed agents, and for
+whoever wants an agent truly confined.
+
+**Their models may be anywhere:** on the machine, on the network (a model
+server on the LAN), or a cloud service. Only the agent's client talks to
+the hub, so where the model runs doesn't change what the agent may do.
+
+### Agent integrations
+
+Each agent keeps its MCP servers in its own place and format: a JSON file
+here, a command there (`openclaw mcp add`, `claude mcp add`). So adding the
+hub to an agent is described by an **agent integration file**, which the
+settings use for "Add assistant" (bind it, then write its configuration):
+
+```ini
+# $XDG_DATA_DIRS/agent-tools/agents/openclaw.ini
+[Agent]
+Version=1
+Name=OpenClaw
+Binary=openclaw
+# Either a command that adds a server (%s: the shim's command, as words)…
+McpAdd=openclaw mcp add desktop -- %s
+McpRemove=openclaw mcp remove desktop
+# …or a JSON file and the object holding its servers:
+# McpConfig=~/.pi/agent/mcp.json
+# McpKey=mcpServers
+```
+
+- **Who ships them:** the agent's package, the distribution, or the
+  desktop; the user's own go in `$XDG_DATA_HOME/agent-tools/agents/`.
+- **The shim's command** (`%s`) is the desktop's (`waybox-mcp --token-file
+  …`), so one file serves every desktop.
+- **A JSON file is edited in place,** the rest of it left as it was, and
+  backed up first; a command is run without a shell.
+- **Unknown agents** still work: the settings show the command to add by
+  hand.
+
+### Unattended agents
+
+Some agents act on their own: on a schedule, or "proactively" (OpenClaw's
+word), while nobody is at the desk.
+- **While the user is away** (idle, or the screen locked; the compositor's
+  `Away`), questions aren't shown: there's no one to answer, and a waiting
+  call would outlast its client's timeout. The call is denied at once with
+  a tool error the model understands ("the user is away; nothing was
+  done").
+- **On return,** a notice lists what was asked meanwhile (agent, tool,
+  when), with "Review": grants made then apply to the agent's next calls.
+- **A profile can set levels for while the user is away** (`Away=read`:
+  read and content only), so an assistant can keep watching without acting.
+
+### Clients' timeouts
+
+Agents give up on a call after their own timeout: from seconds to a day,
+depending on the client and its settings. A question can outlast it.
+- **While a question waits,** the hub sends MCP progress notifications for
+  the call (every `ProgressInterval`); clients that count progress as
+  activity keep waiting.
+- **A client that cancels anyway** closes the question (MCP's
+  cancellation), and the call counts as cancelled, not denied.
+
+### Agents with a frontend of their own (ACP)
+
+Many agents are driven by a frontend (an editor, a chat window) through the
+Agent Client Protocol, which has the agent ask that frontend before running
+a tool (`session/request_permission`: allow or reject, once or always).
+- **They answer different questions.** ACP's is the agent asking its user
+  whether to try a tool; this spec's is the desktop deciding whether the
+  agent may act on it. Only the compositor's answer authorizes a desktop
+  action: a frontend's "allow always" grants nothing here.
+- **Asked twice:** a desktop tool may be asked about by both. A frontend
+  can avoid that by trusting the hints: tools at `ask` are marked by the
+  hub (`_meta` `org.freedesktop.agent/asks`), so a frontend may skip its
+  own question for them, the compositor asking anyway.
+
 ## The Agent portal: sandboxed agents and providers
 
 An agent with a shell can do anything the user can (see "The limits"). An
@@ -1027,6 +1120,8 @@ interoperability, not taste.
 | `InputPause` | 500 ms | input ignored after a question or confirmation appears: shorter answers faster, but a click or keypress meant for something else can land on it |
 | `CallTimeout` | 30 s, reset by each progress notification | how long a provider may take before the call fails: longer suits slow tools, but an agent waits that long on a stuck one |
 | `QuestionTimeout` | 2 min | an unanswered question closes as denied: longer leaves room to decide, but the agent waits |
+| `ProgressInterval` | 10 s | progress sent for a call waiting on a question: shorter keeps more clients waiting, at a little traffic |
+| `AwayAfter` | the compositor's idle time | when the user counts as away (questions not shown) |
 | `UiTimeout` | 5 s | a UI provider that doesn't answer gives way to the next one |
 | `MaxResult` | 1 MiB | a provider's result larger than this is refused: larger allows big outputs, but floods the agent's context and memory |
 | `QuestionRate` | 6 a minute per agent | more questions than this are refused unasked: higher suits busy agents, but lets one wear the user down |
@@ -1081,8 +1176,12 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
    - **once:** it runs.
    - **session, timed:** a grant is made for the connection (`Grants`,
      state), and it runs.
-6. Unanswered within `QuestionTimeout`: `CloseQuestion`, denied, said so in
-   the audit. The agent cancelling the call: `CloseQuestion` at once.
+6. While it waits, the hub sends progress for the call (every
+   `ProgressInterval`). Unanswered within `QuestionTimeout`:
+   `CloseQuestion`, denied, said so in the audit. The agent cancelling the
+   call: `CloseQuestion` at once, the call cancelled.
+7. The user away (`Away`): no question at all; the call is denied at once,
+   and listed in the notice shown on return.
 
 ### The stop key
 
@@ -1245,6 +1344,14 @@ Also decided in the second pass:
   portals; MCP's tool annotations implied by sensitivities; `McpName`
   linking a manifest to its `server.json`; unknown sensitivities `off`;
   windows named by `ext-foreign-toplevel-list`; the Agent portal.
+- **Seventh pass:** the flow guard keeps window titles (they carry
+  injections) but asks about the flow once, "for this session" offered
+  whatever the sensitivity; agents in practice (host agents first);
+  agent integration files for adding the hub to an agent's configuration;
+  unattended agents (no questions while away, denied with a notice on
+  return; `Away=` levels in a profile); progress sent while a question
+  waits, a client's cancel closing it; how this relates to ACP's
+  permission requests, and the `asks` hint for frontends.
 - **Sixth pass:** durations and limits are tunables (suggested values,
   what each trades; a user weakening a guard confirms it, a distribution's
   defaults don't); the flows written out; the compositor's `Locked`;
