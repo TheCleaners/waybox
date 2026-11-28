@@ -111,8 +111,9 @@
 
     <!--
       A call ended or was turned away (no arguments):
-        call (s), outcome (s): "done", "failed", "refused" (by a level or the
-        policy), "denied" (by the user), "cancelled" (stop or revoke)
+        call (s), outcome (s): "completed", "refused" (a level, a guard, a
+        limit), "denied" (by the user), "cancelled" (before dispatch),
+        "cancellation-requested", "outcome-unknown" (see the spec's "Calls")
         message (s): for refusals and failures
     -->
     <signal name="CallEnded">
@@ -133,10 +134,11 @@
     <method name="RevokeAll"/>
 
     <!--
-      What the stop key does, from a panel button: cancel calls in progress
-      and pending questions, revoke all grants, and ask the compositor to end
-      capture and input. (The key itself works in the compositor, without
-      the hub.) Agents stay connected, at their levels.
+      What the stop key does, from a panel button: the hub asks the compositor
+      (AgentCompositor1.StopAssistants), which does what the key does: capture
+      and input end, the commands run for agents end, questions close, and
+      assistants stay stopped (new and reconnecting agents too) until the
+      user resumes at the compositor. Calling it again changes nothing.
     -->
     <method name="Stop"/>
 

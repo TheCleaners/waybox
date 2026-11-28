@@ -119,18 +119,22 @@ claim first.
 **The hub's lifetime:**
 - **The compositor supervises it:** restarted with a growing delay; after
   too many crashes in a short time (a tunable), not again, and the user is
-  told (a notice and the indicator).
+  told (a notice, and the indicator showing the hub unavailable).
 - **When the hub's socket closes,** the compositor closes every open
-  question, ends capture and input, and lowers the indicator: all safe
-  even if the hub was in a bad state.
+  question, ends capture and input, and clears the activity it showed: all
+  safe even if the hub was in a bad state. It keeps the stopped state, if
+  assistants were stopped (see "The indicator").
 - **What survives a restart:** the settings, approvals, bindings and the
   audit (files). Grants and open questions don't: they end, the safe way.
 - **Sandboxed agents** (through the portal) can't reconnect by themselves:
   their socket closes, and they call `ConnectAgent` again; with their
   `restore_token`, without a question.
 - **Shims reconnect by themselves,** redo the MCP handshake with the new
-  hub, and tell the agent its tools changed; calls that were running get
-  "the desktop's hub restarted; call again".
+  hub, and tell the agent its tools changed. Calls that were running end
+  as **outcome unknown** (see "Calls"): the shim answers each with "the
+  desktop's hub restarted while this ran; it may or may not have taken
+  effect: check before doing it again". Never "call again": a command, a
+  close or a post may already have happened.
 - **The audit is append-only:** lines are only ever added to the current
   file, never rewritten; rotation renames the file and starts a new one.
   One line is one write, so lines never interleave. Durability is a
@@ -148,6 +152,17 @@ claim first.
   as any agent does, bound to a profile like any other. Its binding is
   marked `remote`, so questions and the indicator say "an assistant
   connected from another device".
+
+**The indicator** (the compositor's; switchable) shows the assistants'
+state, one at a time, the first that applies:
+1. **stopped**, until the user resumes: kept through hub crashes and
+   restarts;
+2. **unavailable**, while the hub is down or past its restart limit;
+3. **capture or input active**, while either runs;
+4. **idle**, or hidden, otherwise.
+
+A hub crashing never makes it look as if assistants were resumed, or
+healthy while the hub is down.
 
 ## Providers
 
@@ -499,7 +514,16 @@ settings, each value that's more permissive than the confirmed one
 counts as the confirmed one until the compositor's confirmation says yes;
 values that are less permissive apply at once and become the confirmed
 ones. A file edited by hand, by a program or by a sync tool behaves the
-same. (An agent with a shell can rewrite both files; that's the
+same.
+- **A confirmation applies exactly what it showed.** It carries a digest
+  of the values displayed; "yes" applies those values, not whatever the
+  file says by then. If the file changed while the question was up, the
+  hub works out the effective settings again, and any value raised beyond
+  what was shown waits for a confirmation of its own. The same holds for
+  approving a provider (the manifest as shown, by its digest: one changed
+  meanwhile stays pending) and for a binding (the profile as shown).
+
+(An agent with a shell can rewrite both files; that's the
 same-user limit under "The limits". The point is that no tool call,
 setting or sandboxed agent can raise power by itself.)
 
@@ -533,7 +557,12 @@ model: full" and "cloud assistant: safe".
   agent choosing a higher profile by name.
 
 **Guards, all switchable in the settings, all on by default:**
-- consent prompts (`ask`);
+- consent prompts (`ask`). Turned off, every `ask` (per sensitivity, per
+  provider, per tool) acts as `allow`, and questions that only a guard
+  raises (the flow guard, `ui` in "safe") are answered "allow" too; the
+  confirmation for turning it off lists exactly which sensitivities and
+  tools that lets through unasked. (To be asked about nothing *and* allow
+  nothing, set the levels to `off` instead.)
 - grant time limits;
 - rate limits;
 - excluding private windows (a window rule) from capture;
@@ -638,8 +667,22 @@ answer are listed in the state (`Pending`). The stop key closes them
   to "commands".
 
 **Agent-supplied text is sanitized:** arguments and self-declared names lose
-control and bidirectional characters, are cut to a fixed length, and are shown
-as literal code, visibly apart from the compositor's own words.
+control and bidirectional characters, and are shown as literal code,
+visibly apart from the compositor's own words.
+
+**The user sees all of what they approve:**
+- **The summary** shows the arguments' start; anything cut is marked so
+  (`…` and how much more), never silently.
+- **The full arguments** are one click away, in a scrollable view of the
+  exact, escaped values; for `exec`, `destroy`, `input` and `Reach=outside`
+  tools the question opens with it shown.
+- **Secrets** (each tool's `Secret`) show as a placeholder with their
+  length, the rest of the call (where it goes) shown in full.
+- **Too long to show** (beyond `MaxShownArgs`): the call isn't asked about;
+  it's refused, "too long to show the user".
+- **What's approved is what was shown:** the question carries a digest of
+  the canonical arguments; the hub dispatches exactly those, and nothing
+  the agent sends later.
 
 **The dialog resists rushed or tricked answers:**
 - input is ignored for a moment after it appears (a tunable), so a click
@@ -647,6 +690,13 @@ as literal code, visibly apart from the compositor's own words.
 - **Deny** is the default, so Enter never allows;
 - questions are rate-limited per agent;
 - after repeated denials, the user can say "stop asking".
+
+**One question, one call.** A question is about one call: its tool, its
+target and its exact arguments. Calls arriving while it's up wait (unasked,
+not shown twice), then are decided as new: a "once" answer runs only the
+call it was asked about; a "session" or "timed" answer is a grant, which
+covers the others where its scope does; otherwise each gets its own
+question.
 
 **Grants belong to the agent's connection,** not to its profile. "For this
 session" means while *that* agent stays connected; another agent started
@@ -659,6 +709,45 @@ later with the same profile gets nothing.
 - **`ui` (in "safe"):** once per agent connection: after that, its
   requests show without asking again.
 - **Other sensitivities:** once, the session, or a set time.
+
+## Calls
+
+Every call goes through one set of states, so that a restart, a timeout,
+the stop key or a revoked binding all end it in a way the agent, the
+audit and the state agree on.
+
+| State | Means |
+|---|---|
+| **received** | the hub has it; nothing decided yet |
+| **refused** | a level, a guard or a limit said no; never sent to the provider |
+| **asking** | waiting for the user's answer (a question is up) |
+| **denied** | the user said no, or the question closed unanswered; never sent |
+| **dispatched** | sent to the provider; its effect may be happening |
+| **completed** | the provider answered with a result (an error result counts: the provider ran it) |
+| **cancellation requested** | cancelled after dispatch (MCP's cancellation sent); the provider may or may not have stopped |
+| **outcome unknown** | dispatched, and no answer will come: the hub restarted, `CallDeadline` passed, or the provider went away |
+
+- **Only refused, denied and calls cancelled before dispatch** are "nothing
+  was done". A call that was dispatched ends completed, or outcome unknown,
+  never "failed, try again".
+- **Outcome unknown reaches the agent** as a tool error that says so: "this
+  may or may not have taken effect; check before doing it again". The hub
+  never retries a call, and never tells an agent to.
+- **A cancellation is a request:** MCP's cancellation asks the provider to
+  stop; it may finish anyway. The call stays listed (`Active`, marked
+  cancellation requested) until the provider answers or its deadline
+  passes, then ends completed or outcome unknown. A result arriving after
+  the agent was told is recorded in the audit, not sent.
+- **Deadlines:** `CallTimeout` ends a call nothing is heard of; each
+  progress notification restarts it, but never past `CallDeadline`, an
+  absolute limit from dispatch that progress doesn't extend. At most
+  `MaxInFlight` calls run at once per agent and per provider; more wait.
+  (Long-running work belongs to MCP's tasks, once the hub supports them.)
+- **High-impact calls are recorded before they're sent** (`exec`,
+  `destroy`, `capture`, `input`, and `Reach=outside` tools): an intent line
+  with the call's id, synced to disk, then the dispatch, then a line with
+  the same id when it ends. A hub starting after a crash marks each intent
+  with no ending as outcome unknown.
 
 ## State for surfaces
 
@@ -690,7 +779,10 @@ the session bus (`doc/dbus/org.waybox.AgentHub1.xml` until renamed; see
 **Methods:**
 - `Revoke(grant)`
 - `RevokeAll()`
-- `Stop()`: what the stop key does, from a panel button
+- `Stop()`: what the stop key does, from a panel button: the hub asks the
+  compositor (`StopAssistants`), which does exactly what the key does and
+  sends `Stopped`; the hub then does its part as for the key. Calling it
+  again changes nothing.
 - `RefuseProvider(id)`
 - `RecentCalls(count)`: the latest calls, metadata only, with `count`
   capped (a tunable)
@@ -739,11 +831,11 @@ The hub appends one JSON line per event to
 `$XDG_STATE_HOME/agents/tools/audit.log`:
 
 ```json
-{"v":1,"time":"2026-11-28T10:01:02.123Z","event":"call",
+{"v":1,"time":"2026-11-28T10:01:02.123Z","event":"call","call":"c-4f1a",
  "agent":{"conn":17,"profile":"trusted","claim":"Claude Code","label":"laptop",
           "binding":"sha256:3f2a…","remote":false},
  "provider":"org.waybar.Waybar","tool":"media_play_pause","name":"waybar__media_play_pause",
- "sensitivity":"act","args":{},"outcome":"asked-allowed","scope":"session",
+ "sensitivity":"act","args":{},"decision":"asked-allowed","outcome":"completed","scope":"session",
  "why":"level","ms":12,"result":{"bytes":31}}
 ```
 
@@ -752,9 +844,12 @@ The hub appends one JSON line per event to
   `provider` (pending, approved, refused, changed), `settings` (raised,
   lowered), `refused-request` (sampling or elicitation), `hub` (started,
   restarted).
-- **`outcome`** (calls): `allowed`, `asked-allowed`, `asked-denied`,
-  `refused` (a level, a guard, a policy), `failed`, `cancelled` (stop,
-  revoke, the agent leaving).
+- **`decision`** (calls): `allowed`, `asked-allowed`, `asked-denied`,
+  `refused`; **`outcome`**: the state the call ended in (see "Calls"):
+  `completed`, `refused`, `denied`, `cancelled` (before dispatch),
+  `cancellation-requested`, `outcome-unknown`. A high-impact call has an
+  `intent` line before it's sent, and its ending line has the same `call`
+  id.
 - **`why`:** what decided it: `level`, `grant`, `flow-guard`, `policy`,
   `locked`.
 - **Arguments** with secrets redacted (each tool's `Secret`; synthetic
@@ -928,8 +1023,16 @@ word), while nobody is at the desk.
   call would outlast its client's timeout. The call is denied at once with
   a tool error the model understands ("the user is away; nothing was
   done").
+- **A question already up when the user goes away** closes at once, denied
+  ("the user went away"), leaves `Pending`, and joins the list below; it's
+  never shown again, since its call may no longer be timely.
 - **On return,** a notice lists what was asked meanwhile (agent, tool,
-  when), with "Review": grants made then apply to the agent's next calls.
+  arguments' summary, when), with "Review". A denied call is never
+  replayed or granted after the fact. From Review, for each entry: an
+  agent still connected can be given a grant for its next calls, and any
+  agent a level change for that tool in its profile; both through a
+  confirmation the compositor draws, as any raise. An agent that has left
+  gets no grant: its next run asks as usual.
 - **A profile can set levels for while the user is away** (`Away=read`:
   read and content only), so an assistant can keep watching without acting.
 
@@ -1278,6 +1381,9 @@ interoperability, not taste.
 | Tunable | Suggested | Trades |
 |---|---|---|
 | `InputPause` | 500 ms | input ignored after a question or confirmation appears: shorter answers faster, but a click or keypress meant for something else can land on it |
+| `CallDeadline` | 10 min | an absolute limit from dispatch, which progress doesn't extend: longer suits slow tools, but a stuck or stalling provider holds a call that long |
+| `MaxInFlight` | 8 per agent, 8 per provider | calls running at once; more wait: higher suits busy agents, but lets one flood a provider |
+| `MaxShownArgs` | 64 KiB | arguments longer than this can't be shown in a question, so such calls are refused rather than asked |
 | `CallTimeout` | 30 s, reset by each progress notification | how long a provider may take before the call fails: longer suits slow tools, but an agent waits that long on a stuck one |
 | `QuestionTimeout` | 2 min | an unanswered question closes as denied: longer leaves room to decide, but the agent waits |
 | `ProgressInterval` | 10 s | progress sent for a call waiting on a question: shorter keeps more clients waiting, at a little traffic |
@@ -1325,16 +1431,17 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
 2. A grant that covers it (this connection, this tool or sensitivity, this
    target, not expired): it runs, as an allowed call, the grant named in
    the audit.
-3. None: the same question already waiting (the same connection, tool and
-   target): the call waits on that one. Otherwise the hub asks: `Ask`
-   (compositor), the question in `Pending` (state); audit (`question`).
-   Beyond `QuestionRate`, refused unasked.
+3. None: a question already up for this connection: the call waits behind
+   it, unasked, then is decided as new (see "One question, one call").
+   Otherwise the hub asks: `Ask` (compositor), with the arguments' digest,
+   the question in `Pending` (state); audit (`question`). Beyond
+   `QuestionRate`, refused unasked.
 4. Meanwhile the hub goes on: other calls, other agents, the stop key.
 5. `Answered`:
    - **deny:** the call ends with a tool result marked `isError`, "the user
      declined", so the model understands; "stop asking" denies this tool
      for the rest of the connection.
-   - **once:** it runs.
+   - **once:** it runs, with exactly the arguments shown.
    - **session, timed:** a grant is made for the connection (`Grants`,
      state), and it runs.
 6. While it waits, the hub sends progress for the call (every
@@ -1342,19 +1449,29 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
    `CloseQuestion`, denied, said so in the audit. The agent cancelling the
    call: `CloseQuestion` at once, the call cancelled.
 7. The user away (`Away`): no question at all; the call is denied at once,
-   and listed in the notice shown on return.
+   and listed in the notice shown on return. A question already up when
+   the user goes away closes, denied, the same way.
 
 ### The stop key
 
 1. The compositor sees the key before anything else (bindings, clients),
-   with or without the hub.
+   with or without the hub. (From a panel: `AgentHub1.Stop()`, which the
+   hub passes on as `StopAssistants`; the same from here.)
 2. It ends all capture and input (closes the EIS connections it handed
-   out), closes its questions and confirmations, and shows that the
+   out), ends the commands it ran for agents (`run_command`: each in its
+   own process group, which it signals, `SIGTERM` then `SIGKILL` after a
+   moment), closes its questions and confirmations, and shows that the
    assistants are stopped.
 3. It sends `Stopped` (if the hub is there).
-4. The hub cancels running calls (the agents get "stopped by the user",
-   the providers MCP's cancellation), revokes every grant, empties
-   `Pending`; audit (`stop`).
+4. The hub cancels running calls: to the providers, MCP's cancellation; to
+   the agents, "stopped by the user" for calls not yet dispatched, and
+   **outcome unknown** for those already dispatched to a provider other
+   than the compositor (a cancellation is a request; see "Calls"), which
+   stay listed until the provider answers or their deadline passes. It
+   revokes every grant and empties `Pending`; audit (`stop`). What the
+   stop key guarantees: capture, input and the compositor's own commands
+   end at once; other providers' work is asked to stop, not proven
+   stopped.
 5. **Assistants are now stopped, all of them:** the stopped state is the
    compositor's (its `AssistantsStopped` property), not the hub's, so it holds for
    agents connecting later, for agents reconnecting, and across a hub
@@ -1396,7 +1513,14 @@ log; "state" means the hub's D-Bus state (`PropertiesChanged`).
   The confirmation also shows its executable and script (shown, not
   trusted). Yes: as above; the agent uses its binding from its next start.
 - **Revoking:** removing the binding in the settings lowers power: at
-  once, no confirmation; that agent's connections drop to "safe".
+  once, no confirmation; that agent's connections drop to "safe", and
+  everything the binding allowed goes with it: its questions close
+  (denied), its grants are revoked, its calls that "safe" would refuse are
+  cancelled (outcome unknown where already dispatched; see "Calls"),
+  calls "safe" allows go on, and the compositor gets the new levels for
+  its processes (`LevelsFor`). Its token stops working at once. (A
+  sandboxed agent's remembered answer revoked: its portal session and
+  sockets close.)
 
 ### A level raised by editing the settings
 
@@ -1515,6 +1639,18 @@ Also decided in the second pass:
   portals; MCP's tool annotations implied by sensitivities; `McpName`
   linking a manifest to its `server.json`; unknown sensitivities `off`;
   windows named by `ext-foreign-toplevel-list`; the Agent portal.
+- **Review 22, batch A:** one set of call states ("Calls"): dispatched
+  calls end completed or outcome unknown, never "call again", MCP
+  cancellation a request; an absolute `CallDeadline`, `MaxInFlight`;
+  intent lines synced before high-impact calls; one question per call,
+  approved with its exact arguments (shown in full, a digest dispatched);
+  confirmations applying exactly what they showed; consent switched off
+  making `ask` act as `allow`, listed in its confirmation; `StopAssistants`
+  for a panel's Stop; the stop key ending the compositor's own commands
+  and saying what it can't guarantee; the indicator's states and their
+  order; questions closed when the user goes away, Review never granting
+  after the fact; a revoked binding taking its questions, grants and
+  disallowed calls with it.
 - **Tenth pass (review 21):** the stopped state the compositor's, holding
   for new and reconnecting agents and across hub restarts; the caller's app
   id established from the D-Bus sender's pidfd (Flatpak's `.flatpak-info`,

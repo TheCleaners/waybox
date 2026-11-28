@@ -52,7 +52,11 @@
       question: "profile" (s), "agent_claim" (s, the agent's self-declared
       name, shown as a claim), "provider" (s, its approved Name), "tool" (s),
       "sensitivity" (s), "summary" (as, lines summarizing the arguments,
-      already sanitized; shown as literal text), "scopes" (as: "once",
+      already sanitized; shown as literal text, anything cut marked so),
+      "arguments" (s, the full canonical arguments, escaped, secrets as
+      placeholders with their length: the scrollable view), "digest" (s, of
+      the canonical arguments: what an answer approves), "expanded" (b,
+      open with the full arguments shown), "scopes" (as: "once",
       "session", "timed"), "window" (s, the target, if any), "reason" (s,
       why it's asked when the level alone wouldn't: the flow guard's "this
       assistant has read window contents"), "remote" (b, the agent is
@@ -65,6 +69,8 @@
     <!-- answer: "deny", "once", "session", "timed"; details: "until" (x, unix
          seconds, for "timed"), "stop_asking" (b, the user asked not to be
          asked again by this agent). -->
+    <!-- An answer approves the call whose digest the question carried, and no
+         other. -->
     <signal name="Answered">
       <arg name="id" type="u"/>
       <arg name="answer" type="s"/>
@@ -83,7 +89,9 @@
       sandboxed app through the Agent portal: "app_id", "app_name",
       "role", "remember" (b))), "title" (s), "lines" (as, what changes, one
       per line), and per kind: for "provider", "id", "name", "exec" (s) and
-      "tools" (aa{sv}: name, description, sensitivity); for "binding",
+      "tools" (aa{sv}: name, description, sensitivity); "digest" (s, of what
+      is shown: the values, the manifest, the profile; a yes applies exactly
+      that); for "binding",
       "profile" (s), "exec" and "script" (s, shown, not trusted), "remote"
       (b, a bridge for an assistant on another device).
     -->
@@ -160,6 +168,12 @@
       <arg name="conn" type="s" direction="in"/>
       <arg name="levels" type="a{sv}" direction="in"/>
     </method>
+
+    <!-- Stop assistants as the stop key does (a panel's Stop, through the hub):
+         sets AssistantsStopped, ends capture and input and the commands run
+         for agents, closes questions and confirmations, then sends Stopped.
+         Idempotent. -->
+    <method name="StopAssistants"/>
 
     <!-- The user resumed assistants after the stop key (a confirmation the
          compositor drew, from its indicator or after a Propose). -->
