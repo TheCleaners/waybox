@@ -28,10 +28,14 @@
     <property name="Version" type="u" access="read"/>
 
     <!--
-      Connected agents (one per shim):
+      Connected agents (a shim's or a portal's connection each):
         id (s)         the hub's id for the connection
-        profile (s)    the settings profile the shim was started with
+        profile (s)    the profile its binding gives (no binding: "safe")
         client (s)     the agent's self-declared name (MCP clientInfo): shown, never trusted
+        label (s)      the user's own name for it (the handshake's "label")
+        app_id (s)     a sandboxed agent's app id, from the portal ("" for host agents)
+        remote (b)     a bridge for an assistant on another device
+        seen (as)      sensitivities it has had data from (the flow guard's record)
         since (x)      connected at
     -->
     <property name="Agents" type="aa{sv}" access="read"/>

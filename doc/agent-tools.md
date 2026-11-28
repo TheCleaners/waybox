@@ -274,6 +274,35 @@ The audit and the questions always show the full names (the provider's
   calls in flight is normal: its open questions are closed, and nothing
   waits on it.
 
+**The shim's handshake.** Before any MCP, the shim sends one line, and the
+hub answers one:
+
+```json
+{"agent-tools": 1, "token": "…", "lower": {"exec": "off"}, "label": "laptop"}
+{"agent-tools": 1, "ok": true, "profile": "trusted", "hub": "waybox-agent-hub 0.3"}
+```
+
+- **The shim proves its binding** with the token itself, read from its
+  token file and sent only over this socket. The hub hashes it and compares
+  with the hash it keeps: the settings hold only hashes, so reading them
+  gives nothing to present. No token, or a wrong one: "safe" (a wrong one
+  is logged).
+- **`lower`** narrows levels, per sensitivity or per tool, for this
+  connection only; anything that would raise is ignored and logged.
+- **`label`** is the user's own name for this agent, shown beside its
+  self-declared one.
+- **Who it is, for the record:** the hub reads the shim's credentials from
+  the socket (`SO_PEERCRED`, or a pidfd where the system has one), then the
+  shim's parent, the agent: its executable and the script on its command
+  line, shown and audited, never trusted.
+- **A version the hub doesn't speak** gets `{"ok": false, "error": …}`
+  naming the versions it does, and the connection closes.
+- After this, MCP flows both ways. The agent's `clientInfo` from MCP's
+  `initialize` is recorded as its claimed name.
+
+The portal's sockets skip the handshake: the portal has told the hub the
+app's id and its profile.
+
 **Hub to provider:** MCP over a Unix stream socket.
 - **The calls:** tools, resources, and notifications for state that
   changes (media playing, battery).
@@ -356,19 +385,75 @@ must stay what the provider returned.
 agent's connection: Agent UI never takes focus and is always marked, but a
 prompt-injected agent could still use it to phish.
 
-**Where the settings live:** `$XDG_CONFIG_HOME/waybox/agent-tools.ini`, a
-file of its own, not rc.xml: wbconf and scripts edit rc.xml all the time,
-while this file's raises count only after the compositor's confirmation
-(below). Lowering takes effect at once.
+**Where the settings live:** `$XDG_CONFIG_HOME/agent-tools/settings.ini`, a
+file of its own (not the compositor's config: settings tools and scripts
+edit that all the time, while this file's raises count only after the
+compositor's confirmation, below). Lowering takes effect at once.
+
+```ini
+[Agent Tools]
+Version=1
+Preset=safe
+StopKey=Super+Escape
+
+# Per sensitivity, over the preset
+[Levels]
+act=ask
+
+# Each on unless "off"
+[Guards]
+Consent=on
+GrantLimits=on
+RateLimits=on
+PrivateWindows=on
+WhileLocked=on
+FlowGuard=on
+Indicator=on
+Audit=on
+
+[Profile local]
+Preset=full
+
+[Provider org.waybar.Waybar]
+State=approved
+Pin=sha256:…
+act=allow
+
+[Tool org.waybar.Waybar media_play_pause]
+Level=allow
+
+# A host agent's binding: by its token's hash
+[Binding sha256:…]
+Profile=local
+Label=Claude Code
+Shown=node …/cli.js
+Remote=false
+
+# A sandboxed agent's: by its app id (through the portal)
+[Binding app:com.example.Chat]
+Profile=safe
+```
+
+**How raises wait for a confirmation:** the hub keeps the settings as last
+confirmed (`$XDG_STATE_HOME/agent-tools/confirmed.ini`). On reading the
+settings, each value that's more permissive than the confirmed one
+counts as the confirmed one until the compositor's confirmation says yes;
+values that are less permissive apply at once and become the confirmed
+ones. A file edited by hand, by a program or by a sync tool behaves the
+same. (An agent with a shell can rewrite both files; that's the
+same-user limit under "The limits". The point is that no tool call,
+setting or sandboxed agent can raise power by itself.)
 
 **Agent profiles:** the settings can define profiles, for example "local
 model: full" and "cloud assistant: safe".
 - **Bound with a token:** each binding of an agent to a profile has a
   token, minted when the user confirms the binding in a compositor-drawn
   confirmation.
-  - **Where it goes:** into that agent's MCP configuration, as
-    `waybox-mcp --token …`. The hub keeps only its hash, and the binding
-    can be revoked in the settings.
+  - **Where it goes:** into a file of its own (mode 0600), which that
+    agent's MCP configuration names: `waybox-mcp --token-file PATH`. Never
+    on the command line: every user of the machine can read command lines
+    (`ps`). The hub keeps only its hash, and the binding can be revoked in
+    the settings.
   - **Why not the executable:** most assistants are interpreted. Claude
     Code runs as `node`, many others as `python3`, so the executable the hub
     sees is the interpreter, which every script shares. (The prototype
@@ -514,7 +599,9 @@ the session bus (`doc/dbus/org.waybox.AgentHub1.xml` until renamed; see
 "Names").
 
 **Properties:**
-- `Agents`: connected shims, with profile and self-declared name.
+- `Agents`: connected agents, with profile, self-declared name, the user's
+  label, whether remote, the app id for a sandboxed one, and which
+  sensitivities it has had data from (the flow guard's record).
 - `Pending`: questions waiting for the user's answer.
 - `Providers`: id, name, state (`approved`, `pending`, `refused`), tool count.
 - `Grants`: what's granted, to which profile, until when.
@@ -522,10 +609,10 @@ the session bus (`doc/dbus/org.waybox.AgentHub1.xml` until renamed; see
   a tool call running.
 
 **Signals:**
-- `CallStarted(agent, tool, sensitivity)`
-- `CallEnded(agent, tool, result)`
-- `ProvidersChanged`
-- `GrantsChanged`
+- `CallStarted(call)`, `CallEnded(call)`: who called what, and the
+  outcome; never the arguments.
+- Property changes come as D-Bus's standard `PropertiesChanged`, so there
+  are no signals of its own for providers or grants changing.
 
 **Methods:**
 - `Revoke(grant)`
@@ -570,17 +657,36 @@ program wants to offer tools), so the user notices and decides.
 
 ## The audit log
 
-The hub appends one JSON line per call to
-`$XDG_STATE_HOME/agent-tools/audit.log`. Each line records:
-- time;
-- agent and profile;
-- provider and tool;
-- sensitivity;
-- arguments, with secrets redacted (from each tool's `Secret` declaration;
-  synthetic input into password fields is recorded as its length only);
-- outcome: allowed, asked and answered, refused, or failed;
-- for `capture`: what was captured;
-- for `input`: what was typed.
+The hub appends one JSON line per event to
+`$XDG_STATE_HOME/agent-tools/audit.log`:
+
+```json
+{"v":1,"time":"2026-11-28T10:01:02.123Z","event":"call",
+ "agent":{"conn":17,"profile":"trusted","claim":"Claude Code","label":"laptop",
+          "binding":"sha256:3f2a…","remote":false},
+ "provider":"org.waybar.Waybar","tool":"media_play_pause","name":"waybar__media_play_pause",
+ "sensitivity":"act","args":{},"outcome":"asked-allowed","scope":"session",
+ "why":"level","ms":12,"result":{"bytes":31}}
+```
+
+- **`event`:** `call`, and the others the hub does: `connect`,
+  `disconnect`, `question`, `confirm`, `grant`, `revoke`, `stop`,
+  `provider` (pending, approved, refused, changed), `settings` (raised,
+  lowered), `refused-request` (sampling or elicitation), `hub` (started,
+  restarted).
+- **`outcome`** (calls): `allowed`, `asked-allowed`, `asked-denied`,
+  `refused` (a level, a guard, a policy), `failed`, `cancelled` (stop,
+  revoke, the agent leaving).
+- **`why`:** what decided it: `level`, `grant`, `flow-guard`, `policy`,
+  `locked`.
+- **Arguments** with secrets redacted (each tool's `Secret`; synthetic
+  input into password fields as its length only); a string longer than
+  4 KiB is cut, marked so.
+- **For `capture`:** what was captured (window or output, size); **for
+  `input`:** what was typed.
+- **Rotation:** at 10 MiB the file becomes `audit.log.1` (three kept).
+  Unknown fields are ignored by readers; `v` changes only for a change that
+  breaks them.
 
 Surfaces can follow it through `CallEnded`, which carries no arguments.
 
@@ -952,7 +1058,7 @@ The spec uses the names proposed for sharing: `org.freedesktop.AgentHub1`,
 8. **Agent UI as a standard of its own.** Later, likewise.
 
 Also decided in the second pass:
-- **Settings** in `agent-tools.ini`, not rc.xml.
+- **Settings** in a file of their own (`agent-tools/settings.ini`), not rc.xml.
 - **`ui` at `ask` in "safe"**, once per agent connection.
 - **The stop key:** Super+Escape by default, changeable, never unbound.
 - **Third pass:** the hub desktop-neutral, the compositor interface
@@ -962,6 +1068,11 @@ Also decided in the second pass:
   portals; MCP's tool annotations implied by sensitivities; `McpName`
   linking a manifest to its `server.json`; unknown sensitivities `off`;
   windows named by `ext-foreign-toplevel-list`; the Agent portal.
+- **Fifth pass:** the shim's handshake (the token from a file, never the
+  command line; `lower`; `label`); the settings file's format under
+  `$XDG_CONFIG_HOME/agent-tools/`, raises held at the confirmed values
+  until confirmed; the audit's line format and rotation; the state
+  interface's signals as `PropertiesChanged`.
 - **Fourth pass:** tool names `<provider>__<tool>`, lowercase, at most 48
   characters; the hub supervised by the compositor (what survives a
   restart, what doesn't); sampling and elicitation not passed on (later,
@@ -987,7 +1098,7 @@ and a headless Waybox, never the user's session.
    only, a pause before input counts, Deny the default); grants per
    connection; the D-Bus state for surfaces; `act` and `destroy` tools at
    `ask`.
-3. **Settings, profiles and tokens:** `agent-tools.ini`, the confirmation
+3. **Settings, profiles and tokens:** `agent-tools/settings.ini`, the confirmation
    for anything that raises power, wbconf's page.
 4. **Config and command tools:** `check_config`, `write_config`,
    `run_command`, `run_action`.
