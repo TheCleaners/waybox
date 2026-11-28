@@ -60,7 +60,10 @@ MenuWidget::MenuWidget(struct wb_server *server, const MenuFile &menus,
 	 * "Ag" exercises both extremes. Row height is computed dynamically from the
 	 * measured font plus the style's compactness (item_pad_y); an explicit
 	 * themed item_height, if larger, wins. */
-	text_height_ = measure_text("Ag", style_.item_text.font).height;
+	{
+		StallScope timing("menu-font");
+		text_height_ = measure_text("Ag", style_.item_text.font).height;
+	}
 	int comfortable = text_height_ + 2 * style_.item_pad_y;
 	if (metrics_.item_height < comfortable)
 		metrics_.item_height = comfortable;
@@ -137,8 +140,11 @@ cairo_surface_t *MenuWidget::icon_surface(const std::string &name) {
 		return nullptr;
 	if (auto it = icon_cache_.find(name); it != icon_cache_.end())
 		return it->second;
-	wb::StallScope timing("menu-icon");
-	cairo_surface_t *loaded = load_themed_icon(name, icon_theme_, icon_size_);
+	/* From the server's cache, shared by every opening (this map holds this
+	 * menu's own references). */
+	cairo_surface_t *loaded = server_->icon_cache != nullptr
+			? server_->icon_cache->get(name, icon_theme_, icon_size_)
+			: load_themed_icon(name, icon_theme_, icon_size_);
 	icon_cache_[name] = loaded;
 	return loaded;
 }
@@ -172,14 +178,21 @@ void MenuWidget::push_menu(const Menu *menu, const Rect &rect, int parent_item) 
 	level.icon_col = menu_icon_column(menu);
 	MenuMetrics m = metrics_;
 	m.icon_column = level.icon_col;
-	level.layout = layout_menu(*menu, m,
-			[this](std::string_view s) { return text_width(s); });
+	{
+		StallScope timing("menu-layout");
+		level.layout = layout_menu(*menu, m,
+				[this](std::string_view s) { return text_width(s); });
+	}
 	level.rect = rect;
 	level.parent_item = parent_item;
-	level.canvas = std::make_unique<SceneCanvas>(tree_, rect.width, rect.height,
-			output_scale(rect.x, rect.y));
-	level.canvas->set_position(rect.x, rect.y);
+	{
+		StallScope timing("menu-canvas");
+		level.canvas = std::make_unique<SceneCanvas>(tree_, rect.width, rect.height,
+				output_scale(rect.x, rect.y));
+		level.canvas->set_position(rect.x, rect.y);
+	}
 	levels_.push_back(std::move(level));
+	StallScope timing("menu-draw");
 	render_level(levels_.back());
 }
 

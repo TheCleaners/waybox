@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <memory>
 #include "waybox/threads.hpp"
+#include "waybox/icon_loader.hpp"
 #include <vector>
 
 #ifdef USE_NLS
@@ -210,6 +211,8 @@ struct wb_server {
 	 * (threads.hpp): run on the event loop when main_queue's fd is
 	 * readable. */
 	std::shared_ptr<wb::MainQueue> main_queue;
+	/* Icons kept across menu openings (cleared on reconfigure). */
+	std::unique_ptr<wb::IconCache> icon_cache;
 	std::unique_ptr<wb::Workers> workers;
 	struct wl_event_source *main_queue_source = nullptr;
 	/* wbconf's Test for the on-screen display: settings not saved yet. */

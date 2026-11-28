@@ -7,6 +7,8 @@
 
 #include "waybox/output.h"
 #include "waybox/stall.hpp"
+#include "waybox/render.hpp"
+#include "waybox/style.hpp"
 #include "waybox/wlroots.hpp"
 #include "waybox/wlroots.hpp"
 #include "waybox/wlroots.hpp"
@@ -86,6 +88,8 @@ bool wb_reconfigure(struct wb_server *server, std::string *problem) {
 	/* Drop anything that points into the old config (menu model, key-binding
 	 * tree, switcher list) before it is freed. */
 	server->menu.reset();
+	if (server->icon_cache)
+		server->icon_cache->clear();  /* the theme or icon theme may have changed */
 	server->switcher.reset();
 	server->about_card.reset();
 	server->confirm.reset();
@@ -513,6 +517,17 @@ bool wb_start_server(struct wb_server* server) {
 				return 0;
 			}, server->main_queue.get());
 	server->workers = std::make_unique<wb::Workers>();
+	server->icon_cache = std::make_unique<wb::IconCache>();
+	/* Fonts warmed once Waybox is idle after starting: their first use costs
+	 * fontconfig's and pango's setup (some 15 ms), which would otherwise
+	 * fall on the first menu opened. */
+	wl_event_loop_add_idle(wl_display_get_event_loop(server->wl_display), [](void *data) {
+		auto *server = static_cast<struct wb_server *>(data);
+		if (server->config == nullptr)
+			return;
+		wb::StallScope timing("font-warmup");
+		wb::measure_text("Ag", wb::menu_style_from_theme(server->config->theme).item_text.font);
+	}, server);
 	agent_compositor_init(server);
 	init_input_method(server);
 	init_scripts(server);  /* last: they may act on all of the above */
@@ -560,6 +575,8 @@ bool wb_terminate(struct wb_server* server) {
 	finish_shortcuts_inhibit(server);
 	finish_xwayland(server);  /* X11 windows still use the seat and cursor */
 	agent_compositor_finish(server);  /* its thread posts to the queue */
+	server->menu.reset();  /* (before the icons it holds references to) */
+	server->icon_cache.reset();
 	/* First: the workers finish (or give up) and stop, then results still
 	 * waiting are dropped, before what they'd have been applied to goes. */
 	server->workers.reset();

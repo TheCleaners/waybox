@@ -976,6 +976,7 @@ if python.found() and not get_option('tests_only')
     ['robustness', 'robustness_test.py', [layer_client, nested_popup_client], 90],
     ['sandbox', 'sandbox_test.py', [sandbox_client], 60],
     ['agent_compositor', 'agent_compositor_test.py', [lock_client], 60],
+    ['menu_icon_cache', 'menu_icon_cache_test.py', [], 60],
     ['session_lock', 'session_lock_test.py', [lock_client], 60],
     ['session_lock_virtual_always', 'session_lock_test.py', [lock_client, 'always'], 60],
     ['shortcuts_inhibit', 'shortcuts_inhibit_test.py', [kbinhibit_client], 60],

@@ -1,6 +1,7 @@
 #ifndef WB_ICON_LOADER_HPP
 #define WB_ICON_LOADER_HPP
 
+#include <map>
 #include <string>
 #include <string_view>
 
@@ -23,6 +24,27 @@ std::string detect_icon_theme();
  * when built with librsvg. An absolute path is loaded as is. */
 cairo_surface_t *load_themed_icon(const std::string &name, const std::string &theme,
 		int size);
+
+/* Icons loaded once and kept, for whatever draws them again (each menu
+ * opening): by name, theme and size; a missing icon is remembered too, so
+ * it's never looked for again. get() returns a new reference the caller
+ * releases (cairo_surface_destroy), or nullptr; clear() (a reconfigure:
+ * maybe another theme) drops the cache's own, so a surface still in use
+ * stays valid until its user lets go. */
+class IconCache {
+public:
+	IconCache() = default;
+	~IconCache();
+	IconCache(const IconCache &) = delete;
+	IconCache &operator=(const IconCache &) = delete;
+
+	cairo_surface_t *get(const std::string &name, const std::string &theme, int size);
+	void clear();
+	size_t size() const { return icons_.size(); }
+
+private:
+	std::map<std::string, cairo_surface_t *> icons_;
+};
 
 /* The Icon= of the desktop file for application `app_id` (APP_ID.desktop,
  * also lowercased, in $XDG_DATA_HOME and $XDG_DATA_DIRS applications/), or
