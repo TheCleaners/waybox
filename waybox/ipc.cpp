@@ -535,9 +535,11 @@ Value handle(Client *c, const Value &req) {
 		if (const Value *f = req.get("follow"); f && f->boolean())
 			action->follow = *f->boolean();
 		for (const char *k : {"x", "y", "width", "height", "monitor", "left", "right", "top",
-				"bottom"})
+				"bottom", "prompt"})  /* prompt: Exit's (a logout script's "no") */
 			if (const Value *v = req.get(k)) {
-				if (v->string() != nullptr)
+				if (v->boolean() != nullptr)
+					action->args[k] = *v->boolean() ? "yes" : "no";
+				else if (v->string() != nullptr)
 					action->args[k] = v->string()->substr(0, 64);
 				else if (v->number() != nullptr)
 					action->args[k] = std::to_string(static_cast<long>(
